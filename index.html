@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AMI 작업 지도</title>
+    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=2eae4b699110525f0dc62295ed8ed43d&autoload=false"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothic', sans-serif; overflow: hidden; }
+        #map { width: 100%; height: 100vh; }
+        
+        .custom-marker { position: relative; width: 18px; height: 24px; cursor: pointer; }
+        .custom-marker svg { width: 100%; height: 100%; }
+        .custom-marker.green svg path { fill: #10b981; }
+        .custom-marker.gray svg path { fill: #d1d5db; }
+        .custom-marker.blue svg path { fill: #3b82f6; }
+        .custom-marker.red svg path { fill: #ef4444; }
+        .marker-number { position: absolute; top: 3px; left: 50%; transform: translateX(-50%); font-size: 9px; font-weight: bold; color: white; text-shadow: 0 0 2px rgba(0,0,0,0.5); }
+        
+        .fullpage-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100vh; background: white; z-index: 1000; display: none; flex-direction: column; }
+        .fullpage-overlay.active { display: flex; }
+        
+        .overlay-header { padding: 16px; border-bottom: 1px solid #e5e7eb; background: #f9fafb; display: flex; justify-content: space-between; align-items: flex-start; flex-shrink: 0; }
+        .overlay-address { flex: 1; }
+        .overlay-address h3 { font-size: 18px; margin-bottom: 6px; color: #111827; font-weight: 700; }
+        .overlay-address p { font-size: 13px; color: #6b7280; line-height: 1.4; }
+        .header-buttons { display: flex; gap: 8px; }
+        .tmap-btn { padding: 8px 14px; background: #3b82f6; color: white; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; white-space: nowrap; font-weight: 600; }
+        .close-btn { width: 32px; height: 32px; border: none; background: #e5e7eb; border-radius: 6px; cursor: pointer; font-size: 20px; line-height: 1; color: #374151; font-weight: 600; }
+        
+        .overlay-actions { padding: 16px; border-bottom: 1px solid #e5e7eb; display: flex; gap: 8px; flex-wrap: wrap; background: white; flex-shrink: 0; }
+        .action-btn { padding: 10px 16px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px; cursor: pointer; background: white; transition: all 0.2s; font-weight: 600; }
+        .action-btn.complete { border-color: #10b981; color: #10b981; }
+        .action-btn.complete.active { background: #10b981; color: white; }
+        .action-btn.reset { border-color: #6b7280; color: #6b7280; }
+        .action-btn.reset:active { background: #6b7280; color: white; }
+        .action-btn.hold { border-color: #3b82f6; color: #3b82f6; }
+        .action-btn.hold.active { background: #3b82f6; color: white; }
+        .action-btn.fail { border-color: #ef4444; color: #ef4444; }
+        .action-btn.fail.active { background: #ef4444; color: white; }
+        .fail-reason { flex: 1; min-width: 200px; padding: 10px 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px; transition: border-color 0.2s; }
+        .common-pole { padding: 8px 16px; background: #eff6ff; border-bottom: 1px solid #dbeafe; font-size: 13px; color: #1d4ed8; font-weight: 600; flex-shrink: 0; }
+        
+        .overlay-meters { flex: 1; overflow-y: auto; padding: 16px; background: #f9fafb; }
+        .meter-item { margin-bottom: 10px; padding: 12px; background: white; border-radius: 8px; display: flex; align-items: flex-start; gap: 10px; border: 1px solid #e5e7eb; }
+        .meter-checkbox { width: 20px; height: 20px; cursor: pointer; margin-top: 2px; flex-shrink: 0; accent-color: #10b981; }
+        .meter-info { flex: 1; font-size: 13px; line-height: 1.6; word-break: break-all; }
+        .meter-type { display: inline-block; padding: 3px 8px; background: #3b82f6; color: white; border-radius: 4px; font-size: 11px; font-weight: bold; margin-right: 6px; }
+        .meter-number { font-weight: 700; color: #111827; }
+        .meter-details { color: #6b7280; font-size: 12px; margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div id="fullpage-overlay" class="fullpage-overlay">
+        <div class="overlay-header">
+            <div class="overlay-address">
+                <h3 id="detail-address"></h3>
+                <p id="detail-road-address"></p>
+            </div>
+            <div class="header-buttons">
+                <button class="tmap-btn" id="tmap-btn">🚗 티맵</button>
+                <button class="close-btn" onclick="closeDetail()">×</button>
+            </div>
+        </div>
+        <div class="overlay-actions">
+            <button class="action-btn complete" id="btn-complete">✅ 완료</button>
+            <button class="action-btn hold" id="btn-hold">⏸️ 보류</button>
+            <button class="action-btn fail" id="btn-fail">❌ 불가</button>
+            <input type="text" class="fail-reason" id="fail-reason" placeholder="불가 사유">
+        </div>
+        <div id="common-pole" class="common-pole" style="display:none;"></div>
+        <div class="overlay-meters" id="meters-list"></div>
+    </div>
+
+    <script>
+const sampleData = [
+  {"주소": "서울특별시 용산구 이촌동 400-0", "도로명주소": "서울 용산구 이촌로34길 29", "계기번호": "05455378108", "계기타입": "G", "변대주": "9823E654", "상호": "현대한강아파트", "lat": 37.5233240369668, "lng": 126.957576158124},
+  {"주소": "서울특별시 용산구 이촌동 400-0", "도로명주소": "서울 용산구 이촌로34길 29", "계기번호": "05455378153", "계기타입": "G", "변대주": "9823E752", "상호": "현대한강아파트", "lat": 37.5233240369668, "lng": 126.957576158124},
+  {"주소": "서울특별시 용산구 이촌동 400-0", "도로명주소": "서울 용산구 이촌로34길 29", "계기번호": "05450377739", "계기타입": "G", "변대주": "9823E361", "상호": "현대한강아파트", "lat": 37.5233240369668, "lng": 126.957576158124},
+  {"주소": "서울특별시 용산구 이촌동 411-0", "도로명주소": "서울 용산구 이촌로 100-8", "계기번호": "76450012670", "계기타입": "G", "변대주": "9823E361", "상호": "105동앞 전기차충전기", "lat": 37.5239356203446, "lng": 126.958032726655},
+  {"주소": "서울특별시 용산구 이촌동 418-0", "도로명주소": "서울 용산구 이촌로 174", "계기번호": "02550154499", "계기타입": "기타", "변대주": "9923C094", "상호": "동부센트레빌 1거점", "lat": 37.5211823453929, "lng": 126.966523703852},
+  {"주소": "서울특별시 용산구 이촌동 418-0", "도로명주소": "서울 용산구 이촌로 174", "계기번호": "02550151859", "계기타입": "기타", "변대주": "9923C094", "상호": "동부센트레빌 2거점", "lat": 37.5211823453929, "lng": 126.966523703852},
+  {"주소": "서울특별시 용산구 이촌동 418-0", "도로명주소": "서울 용산구 이촌로 174", "계기번호": "02550154229", "계기타입": "기타", "변대주": "9923C094", "상호": "동부센트레빌 3거점", "lat": 37.5211823453929, "lng": 126.966523703852},
+  {"주소": "서울특별시 용산구 이촌동 430-0", "도로명주소": "서울 용산구 이촌로64길 15", "계기번호": "05455459130", "계기타입": "G", "변대주": "9923C493", "상호": "전기차충전기", "lat": 37.5199475597514, "lng": 126.971107300788},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120001", "계기타입": "AE", "변대주": "9824S001", "상호": "전기차충전기-1호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120002", "계기타입": "기타", "변대주": "9824S002", "상호": "전기차충전기-2호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120003", "계기타입": "G", "변대주": "9824S003", "상호": "전기차충전기-3호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120004", "계기타입": "AE", "변대주": "9824S004", "상호": "전기차충전기-4호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120005", "계기타입": "기타", "변대주": "9824S005", "상호": "전기차충전기-5호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120006", "계기타입": "G", "변대주": "9824S006", "상호": "전기차충전기-6호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120007", "계기타입": "AE", "변대주": "9824S007", "상호": "전기차충전기-7호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120008", "계기타입": "기타", "변대주": "9824S008", "상호": "전기차충전기-8호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120009", "계기타입": "G", "변대주": "9824S009", "상호": "전기차충전기-9호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120010", "계기타입": "AE", "변대주": "9824S010", "상호": "전기차충전기-10호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120011", "계기타입": "기타", "변대주": "9824S011", "상호": "전기차충전기-11호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120012", "계기타입": "G", "변대주": "9824S012", "상호": "전기차충전기-12호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120013", "계기타입": "AE", "변대주": "9824S013", "상호": "전기차충전기-13호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120014", "계기타입": "기타", "변대주": "9824S014", "상호": "전기차충전기-14호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120015", "계기타입": "G", "변대주": "9824S015", "상호": "전기차충전기-15호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120016", "계기타입": "AE", "변대주": "9824S016", "상호": "전기차충전기-16호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120017", "계기타입": "기타", "변대주": "9824S017", "상호": "전기차충전기-17호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120018", "계기타입": "G", "변대주": "9824S018", "상호": "전기차충전기-18호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120019", "계기타입": "AE", "변대주": "9824S019", "상호": "전기차충전기-19호", "lat": 37.527307930958, "lng": 126.95379465375},
+  {"주소": "서울특별시 용산구 이촌동 422-0", "도로명주소": "서울 용산구 이촌로2가길 66", "계기번호": "39450120020", "계기타입": "기타", "변대주": "9824S020", "상호": "전기차충전기-20호", "lat": 37.527307930958, "lng": 126.95379465375}
+];
+
+function parseType(meterNo) {
+    const code = meterNo.substring(2, 4);
+    if (code === '17') return 'E';
+    if (code === '19') return 'EA';
+    if (['25','26','27','45','46','47'].includes(code)) return 'G';
+    if (code === '53' || code === '55') return 'Amigo';
+    return null;
+}
+
+const STORAGE_KEY = 'ami_work_status';
+let workStatus = {};
+let map;
+let markers = [];
+let currentAddress = '';
+let currentMeters = [];
+
+function loadStatus() {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : {};
+}
+
+function saveStatus(status) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(status));
+}
+
+function initMap() {
+    workStatus = loadStatus();
+    const container = document.getElementById('map');
+    const options = {
+        center: new kakao.maps.LatLng(37.525, 126.960),
+        level: 4
+    };
+    map = new kakao.maps.Map(container, options);
+    loadMarkers();
+}
+
+function loadMarkers() {
+    const grouped = {};
+    sampleData.forEach(item => {
+        const addr = item.주소;
+        if (!grouped[addr]) {
+            grouped[addr] = {
+                meters: [],
+                lat: item.lat,
+                lng: item.lng,
+                roadAddress: item.도로명주소
+            };
+        }
+        grouped[addr].meters.push(item);
+    });
+    
+    Object.entries(grouped).forEach(([addr, data]) => {
+        const coords = new kakao.maps.LatLng(data.lat, data.lng);
+        createMarker(coords, addr, data.meters);
+    });
+}
+
+function createMarker(position, address, meters) {
+    const status = workStatus[address] || { state: 'pending', checkedMeters: [], reason: '' };
+    const meterCount = meters.length;
+    
+    let color = 'green';
+    if (status.state === 'complete') color = 'gray';
+    else if (status.state === 'hold') color = 'blue';
+    else if (status.state === 'fail') color = 'red';
+    
+    const markerContent = `
+        <div class="custom-marker ${color}">
+            <svg viewBox="0 0 36 46" xmlns="http://www.w3.org/2000/svg">
+                <path d="M18 0C8.059 0 0 8.059 0 18c0 9.941 18 28 18 28s18-18.059 18-28C36 8.059 27.941 0 18 0z"/>
+            </svg>
+            <div class="marker-number">${meterCount}</div>
+        </div>
+    `;
+    
+    const customOverlay = new kakao.maps.CustomOverlay({
+        position: position,
+        content: markerContent,
+        yAnchor: 1
+    });
+    
+    customOverlay.setMap(map);
+    
+    const markerDiv = customOverlay.a;
+    markerDiv.addEventListener('click', () => {
+        showDetail(address, meters);
+    });
+    
+    markers.push({ overlay: customOverlay, address, meters, element: markerDiv });
+}
+
+function showDetail(address, meters) {
+    currentAddress = address;
+    currentMeters = meters;
+    
+    const status = workStatus[address] || { state: 'pending', checkedMeters: [], reason: '' };
+    
+    document.getElementById('detail-address').textContent = address;
+    document.getElementById('detail-road-address').textContent = `📍 ${meters[0].도로명주소}`;
+    
+    document.getElementById('tmap-btn').onclick = () => {
+        const roadAddr = meters[0].도로명주소;
+        window.location.href = `tmap://search?name=${encodeURIComponent(roadAddr)}`;
+    };
+    
+    const btnComplete = document.getElementById('btn-complete');
+    const btnHold = document.getElementById('btn-hold');
+    const btnFail = document.getElementById('btn-fail');
+    
+    if (status.state === 'complete') {
+        btnComplete.textContent = '🔄 초기화';
+        btnComplete.className = 'action-btn reset';
+        btnComplete.onclick = () => resetStatus();
+    } else {
+        btnComplete.textContent = '✅ 완료';
+        btnComplete.className = 'action-btn complete';
+        btnComplete.onclick = () => { updateStatus('complete'); closeDetail(); };
+    }
+
+    btnHold.onclick = () => { updateStatus('hold'); closeDetail(); };
+    btnFail.onclick = () => {
+        const failInput = document.getElementById('fail-reason');
+        const reason = failInput.value.trim();
+        if (!reason) {
+            failInput.style.borderColor = '#ef4444';
+            return;
+        }
+        failInput.style.borderColor = '';
+        updateStatus('fail');
+        closeDetail();
+    };
+    
+    [btnComplete, btnHold, btnFail].forEach(btn => btn.classList.remove('active'));
+    if (status.state === 'complete') btnComplete.classList.add('active');
+    if (status.state === 'hold') btnHold.classList.add('active');
+    if (status.state === 'fail') btnFail.classList.add('active');
+    
+    const failInput = document.getElementById('fail-reason');
+    failInput.value = status.reason || '';
+    failInput.style.borderColor = '';
+    failInput.oninput = (e) => {
+        if (e.target.value.trim()) e.target.style.borderColor = '';
+        if (!workStatus[currentAddress]) {
+            workStatus[currentAddress] = { state: 'pending', checkedMeters: [], reason: '' };
+        }
+        workStatus[currentAddress].reason = e.target.value;
+        saveStatus(workStatus);
+    };
+    
+    const allSamePole = meters.length > 0 && meters.every(m => m.변대주 === meters[0].변대주);
+    const commonPoleEl = document.getElementById('common-pole');
+    if (allSamePole && meters[0].변대주) {
+        commonPoleEl.textContent = `변대주 ${meters[0].변대주}`;
+        commonPoleEl.style.display = 'block';
+    } else {
+        commonPoleEl.style.display = 'none';
+    }
+
+    const metersList = document.getElementById('meters-list');
+    metersList.innerHTML = meters.map(meter => {
+        const checked = status.checkedMeters.includes(meter.계기번호) ? 'checked' : '';
+        const parsedType = parseType(meter.계기번호) || meter.계기타입;
+        const detailParts = [];
+        if (!allSamePole && meter.변대주) detailParts.push(`변대주 ${meter.변대주}`);
+        if (meter.상호 && meter.상호 !== '0') detailParts.push(`상호 ${meter.상호}`);
+        const details = detailParts.join(', ');
+
+        return `
+            <div class="meter-item">
+                <input type="checkbox" class="meter-checkbox"
+                       data-meter="${meter.계기번호}" ${checked}>
+                <div class="meter-info">
+                    <span class="meter-type">${parsedType}</span>
+                    <span class="meter-number">${meter.계기번호}</span>
+                    ${details ? `<div class="meter-details">${details}</div>` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    setTimeout(() => {
+        document.querySelectorAll('.meter-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                toggleMeterCheck(e.target.dataset.meter);
+            });
+        });
+    }, 100);
+    
+    document.getElementById('fullpage-overlay').classList.add('active');
+}
+
+function closeDetail() {
+    document.getElementById('fullpage-overlay').classList.remove('active');
+}
+
+function updateStatus(state) {
+    if (!workStatus[currentAddress]) {
+        workStatus[currentAddress] = { state: 'pending', checkedMeters: [], reason: '' };
+    }
+    workStatus[currentAddress].state = state;
+    saveStatus(workStatus);
+    updateMarkerColor(currentAddress);
+}
+
+function resetStatus() {
+    if (!workStatus[currentAddress]) return;
+    workStatus[currentAddress].state = 'pending';
+    workStatus[currentAddress].checkedMeters = [];
+    workStatus[currentAddress].reason = '';
+    saveStatus(workStatus);
+    updateMarkerColor(currentAddress);
+    showDetail(currentAddress, currentMeters);
+}
+
+function toggleMeterCheck(meterNumber) {
+    if (!workStatus[currentAddress]) {
+        workStatus[currentAddress] = { state: 'pending', checkedMeters: [], reason: '' };
+    }
+    
+    const checkedMeters = workStatus[currentAddress].checkedMeters;
+    const idx = checkedMeters.indexOf(meterNumber);
+    
+    if (idx > -1) {
+        checkedMeters.splice(idx, 1);
+    } else {
+        checkedMeters.push(meterNumber);
+    }
+    
+    saveStatus(workStatus);
+}
+
+function updateMarkerColor(address) {
+    const marker = markers.find(m => m.address === address);
+    if (!marker) return;
+    
+    const status = workStatus[address] || { state: 'pending' };
+    let color = 'green';
+    if (status.state === 'complete') color = 'gray';
+    else if (status.state === 'hold') color = 'blue';
+    else if (status.state === 'fail') color = 'red';
+    
+    marker.element.className = `custom-marker ${color}`;
+}
+
+kakao.maps.load(() => {
+    initMap();
+});
+    </script>
+</body>
+</html>
