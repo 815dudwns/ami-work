@@ -13,10 +13,34 @@ import time
 import re
 
 # ========== 설정 ==========
-API_KEY    = 'e46ada1811d067b4acf77d992a13b52e'
-EXCEL_FILE = '전기차_마용.xlsx'
+API_KEY     = 'e46ada1811d067b4acf77d992a13b52e'
+EXCEL_FILE  = '전기차_마용_도로명.xlsx'
 OUTPUT_JSON = 'ami_data_coords.json'
 # ==========================
+
+
+def parse_type(meter_no):
+    """계기번호 3~4번째 자리(index 2~3)로 계기타입 판별"""
+    code = str(meter_no)[2:4]
+    if code == '17':
+        return 'E'
+    if code == '19':
+        return 'EA'
+    if code in ('25', '26', '27', '45', '46', '47'):
+        return 'G'
+    if code in ('53', '55'):
+        return 'Amigo'
+    return '알수없음'
+
+
+def fix_meter_no(val):
+    """계기번호를 11자리 문자열로 정규화 (float → int → zfill)"""
+    if val is None:
+        return ''.zfill(11)
+    try:
+        return str(int(float(val))).zfill(11)
+    except (ValueError, TypeError):
+        return str(val).strip().zfill(11)
 
 
 def search_address(query):
@@ -78,33 +102,48 @@ def main():
     fail_cnt = 0
 
     for i, (addr, items) in enumerate(grouped.items(), 1):
-        # 1차: 원래 주소로 검색
-        found = search_address(addr)
-        accuracy = 'exact'
+        road_addr = str(items[0].get('도로명주소') or '').strip()
 
+        # 1차: 도로명주소로 시도
+        found = None
+        if road_addr:
+            found = search_address(road_addr)
+            if found:
+                accuracy = 'exact'
+
+        # 2차: 지번주소로 재시도
+        if not found and addr:
+            found = search_address(addr)
+            if found:
+                accuracy = 'exact'
+
+        # 3차: 동 이름으로 폴백
         if not found:
-            # 2차: 동 이름으로 폴백
-            dong = extract_dong(addr)
+            dong = extract_dong(addr) or extract_dong(road_addr)
             if dong:
                 found = search_address(dong)
-                accuracy = 'approximate'
+                if found:
+                    accuracy = 'approximate'
 
         if found:
-            road_name, lat, lng = found
+            resolved_road, lat, lng = found
             flag = '✅' if accuracy == 'exact' else '🟡'
             print(f"[{i}/{total}] {flag} {addr}")
             if accuracy == 'approximate':
-                print(f"  └ 폴백({dong}) → {lat:.6f}, {lng:.6f}")
+                dong_used = extract_dong(addr) or extract_dong(road_addr)
+                print(f"  └ 폴백({dong_used}) → {lat:.6f}, {lng:.6f}")
 
             for d in items:
-                meter_no = str(d.get('계기번호') or '').zfill(11)
+                meter_no = fix_meter_no(d.get('계기번호'))
+                상호_val = d.get('상호')
+                상호 = str(상호_val) if 상호_val and 상호_val != 0 and str(상호_val) != '0' else ''
                 result.append({
                     '주소': addr,
-                    '도로명주소': road_name,
+                    '도로명주소': resolved_road,
                     '계기번호': meter_no,
-                    '계기타입': str(d.get('계기타입') or ''),
+                    '계기타입': parse_type(meter_no),
                     '변대주': str(d.get('변대주전산화번호') or ''),
-                    '상호': str(d.get('상호') or '') if d.get('상호') and d.get('상호') != 0 else '',
+                    '상호': 상호,
                     'lat': lat,
                     'lng': lng,
                     '좌표정확도': accuracy,
