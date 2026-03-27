@@ -1646,7 +1646,8 @@ function showDetail(address, meters) {
     currentMeters = meters;
     
     const status = workStatus[address] || { state: 'pending', checkedMeters: [], reason: '' };
-    
+    status.checkedMeters = status.checkedMeters || [];
+
     document.getElementById('detail-address').textContent = address;
     document.getElementById('detail-road-address').textContent = `📍 ${meters[0].도로명주소}`;
     
@@ -1840,7 +1841,8 @@ function toggleMeterCheck(meterNumber) {
         workStatus[currentAddress] = { state: 'pending', checkedMeters: [], reason: '' };
     }
     
-    const checkedMeters = workStatus[currentAddress].checkedMeters;
+    const checkedMeters = workStatus[currentAddress].checkedMeters || [];
+    workStatus[currentAddress].checkedMeters = checkedMeters;
     const idx = checkedMeters.indexOf(meterNumber);
     
     if (idx > -1) {
