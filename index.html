@@ -12,14 +12,20 @@
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothic', sans-serif; overflow: hidden; }
         #map { width: 100%; height: 100vh; }
         
-        .custom-marker { position: relative; width: 18px; height: 24px; cursor: pointer; }
+        .custom-marker { position: relative; width: 20px; height: 26px; cursor: pointer; }
         .custom-marker svg { width: 100%; height: 100%; }
-        .custom-marker.green svg path { fill: #10b981; }
-        .custom-marker.gray svg path { fill: #d1d5db; }
-        .custom-marker.blue svg path { fill: #3b82f6; }
-        .custom-marker.red svg path { fill: #ef4444; }
-        .custom-marker.yellow svg path { fill: #f59e0b; }
-        .marker-number { position: absolute; top: 3px; left: 50%; transform: translateX(-50%); font-size: 9px; font-weight: bold; color: white; text-shadow: 0 0 2px rgba(0,0,0,0.5); }
+        .custom-marker.green  .pin-body { fill: #10b981; }
+        .custom-marker.gray   .pin-body { fill: #4b5563; }
+        .custom-marker.blue   .pin-body { fill: #3b82f6; }
+        .custom-marker.red    .pin-body { fill: #ef4444; }
+        .custom-marker.yellow .pin-body { fill: #f59e0b; }
+        /* 리스트1(미완·폴백): 흰 원 표시 / 리스트2(완료·보류·불가): 꽉찬 핀 */
+        .pin-circle { display: none; }
+        .custom-marker.green .pin-circle,
+        .custom-marker.yellow .pin-circle { display: block; }
+        .marker-number { position: absolute; top: 3px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: bold; color: white; line-height: 1; pointer-events: none; }
+        .custom-marker.green .marker-number,
+        .custom-marker.yellow .marker-number { color: #1f2937; }
         
         .fullpage-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100vh; background: white; z-index: 1000; display: none; flex-direction: column; }
         .fullpage-overlay.active { display: flex; }
@@ -55,10 +61,8 @@
         .meter-no-seg { letter-spacing: 0; }
         .meter-no-seg .seg { display: inline-block; }
         .meter-no-seg .seg + .seg { margin-left: 0.15em; }
-        .dup-highlight { font-weight: 900; }
-        .dup-color-0 { color: #ef4444; }
-        .dup-color-1 { color: #f97316; }
-        .dup-color-2 { color: #8b5cf6; }
+        .seg-type { color: #5B90BC; font-weight: 500; }
+        .seg-dup  { color: #E24B4A; font-weight: 500; }
         .copy-btn { background: none; border: none; cursor: pointer; padding: 0 3px; color: #9ca3af; line-height: 1; vertical-align: middle; display: inline-flex; align-items: center; }
         .copy-btn:hover { color: #374151; }
         .toast { position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%); background: rgba(17,24,39,0.85); color: white; padding: 8px 18px; border-radius: 20px; font-size: 13px; pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 9999; white-space: nowrap; }
@@ -1618,8 +1622,9 @@ function createMarker(position, address, meters) {
 
     const markerContent = `
         <div class="custom-marker ${color}">
-            <svg viewBox="0 0 36 46" xmlns="http://www.w3.org/2000/svg">
-                <path d="M18 0C8.059 0 0 8.059 0 18c0 9.941 18 28 18 28s18-18.059 18-28C36 8.059 27.941 0 18 0z"/>
+            <svg viewBox="0 0 20 26" xmlns="http://www.w3.org/2000/svg">
+                <path class="pin-body" d="M10 0C4.48 0 0 4.48 0 10c0 6.72 10 16 10 16s10-9.28 10-16C20 4.48 15.52 0 10 0z"/>
+                <circle class="pin-circle" cx="10" cy="10" r="5.5" fill="white"/>
             </svg>
             <div class="marker-number">${markerLabel}</div>
         </div>
@@ -1709,19 +1714,25 @@ function showDetail(address, meters) {
         commonPoleEl.style.display = 'none';
     }
 
-    // 뒤 2자리 중복 그룹 색상 계산
-    const dupColors = ['dup-color-0', 'dup-color-1', 'dup-color-2'];
+    // 뒤 2자리 중복 그룹 계산
     const suffix2Map = {};
     meters.forEach(m => {
         const s = m.계기번호.slice(-2);
         if (!suffix2Map[s]) suffix2Map[s] = [];
         suffix2Map[s].push(m.계기번호);
     });
-    const dupGroups = {};
-    let colorIdx = 0;
+    // suffix → 그룹 인덱스 (0-based)
+    const dupGroupIndex = {};
+    let gIdx = 0;
     Object.entries(suffix2Map).forEach(([s, nos]) => {
-        if (nos.length > 1) { dupGroups[s] = dupColors[colorIdx++ % dupColors.length]; }
+        if (nos.length > 1) dupGroupIndex[s] = gIdx++;
     });
+    // 그룹 인덱스 → 행 배경/보더 인라인 스타일
+    function rowStyle(s2) {
+        if (dupGroupIndex[s2] === undefined) return 'background:#fff;border-color:#e5e7eb';
+        const hue = dupGroupIndex[s2] * 20;
+        return `background:hsl(${hue},100%,96%);border-color:hsl(${hue},80%,87%)`;
+    }
 
     const metersList = document.getElementById('meters-list');
     metersList.innerHTML = meters.map(meter => {
@@ -1732,19 +1743,21 @@ function showDetail(address, meters) {
         if (meter.상호 && meter.상호 !== '0') detailParts.push(`상호 ${meter.상호}`);
         const details = detailParts.join(', ');
 
-        // 5번: 계기번호 세그먼트 표시 (앞2 / 다음2 / 나머지)
+        // 계기번호 4구간 색상 분리
         const no = meter.계기번호;
         const s2 = no.slice(-2);
-        const colorClass = dupGroups[s2] ? `dup-highlight ${dupGroups[s2]}` : '';
+        const isDup = dupGroupIndex[s2] !== undefined;
+        const seg4Style = isDup ? 'class="seg seg-dup"' : 'class="seg"';
         const noHtml = `<span class="meter-no-seg">` +
             `<span class="seg">${no.slice(0, 2)}</span>` +
-            `<span class="seg">${no.slice(2, 4)}</span>` +
-            `<span class="seg ${colorClass}">${no.slice(4)}</span>` +
+            `<span class="seg seg-type">${no.slice(2, 4)}</span>` +
+            `<span class="seg">${no.slice(4, -2)}</span>` +
+            `<span ${seg4Style}>${s2}</span>` +
             `</span>`;
 
         const copyBtn = `<button class="copy-btn" data-copy="${meter.계기번호}" title="계기번호 복사"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
         return `
-            <div class="meter-item">
+            <div class="meter-item" style="${rowStyle(s2)}">
                 <input type="checkbox" class="meter-checkbox"
                        data-meter="${meter.계기번호}" ${checked}>
                 <div class="meter-info">
