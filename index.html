@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AMI 작업 지도</title>
     <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=2eae4b699110525f0dc62295ed8ed43d&autoload=false"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothic', sans-serif; overflow: hidden; }
@@ -69,6 +71,7 @@
         .backup-controls .btn-backup { background: #374151; color: white; }
         .backup-controls .btn-restore { background: #374151; color: white; }
         .backup-controls button:hover { opacity: 1; }
+        .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; flex-shrink: 0; align-self: center; box-shadow: 0 0 0 2px rgba(255,255,255,0.6); transition: background 0.4s; }
     </style>
 </head>
 <body>
@@ -78,6 +81,7 @@
     <button class="loc-btn" id="loc-btn" onclick="toggleLocation()">◎</button>
 
     <div class="backup-controls">
+        <div id="conn-dot" class="conn-dot" title="Firebase 연결 상태"></div>
         <button class="btn-backup" onclick="backupData()">💾 백업</button>
         <button class="btn-restore" onclick="document.getElementById('restore-input').click()">📂 복원</button>
         <input type="file" id="restore-input" accept=".json" style="display:none" onchange="restoreData(event)">
@@ -1415,6 +1419,27 @@ function parseType(meterNo) {
     return null;
 }
 
+// ── Firebase 초기화 ──────────────────────────────────────
+const firebaseConfig = {
+    apiKey: "AIzaSyAqVaYGYLjT4qa8nQToYlSqnqtlgoFauWU",
+    authDomain: "ami-work-1c49a.firebaseapp.com",
+    databaseURL: "https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "ami-work-1c49a",
+    storageBucket: "ami-work-1c49a.firebasestorage.app",
+    messagingSenderId: "734048538037",
+    appId: "1:734048538037:web:5514cb0a78ea03a4571dfc"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const statusRef = db.ref('workStatus');
+
+// 연결 상태 표시
+db.ref('.info/connected').on('value', snap => {
+    const dot = document.getElementById('conn-dot');
+    if (dot) dot.style.background = snap.val() ? '#10b981' : '#f59e0b';
+});
+// ──────────────────────────────────────────────────────────
+
 const STORAGE_KEY = 'ami_work_status';
 let workStatus = {};
 let map;
@@ -1422,17 +1447,60 @@ let markers = [];
 let currentAddress = '';
 let currentMeters = [];
 
-function loadStatus() {
+function loadStatusLocal() {
     const saved = localStorage.getItem(STORAGE_KEY);
     return saved ? JSON.parse(saved) : {};
 }
 
+// Firebase에 쓰기 (debounce 300ms - 연속 입력 방지)
+let _fbSaveTimer = null;
 function saveStatus(status) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(status));
+    clearTimeout(_fbSaveTimer);
+    _fbSaveTimer = setTimeout(() => {
+        statusRef.set(status).catch(() => {/* 오프라인 시 SDK가 자동 큐 처리 */});
+    }, 300);
+}
+
+// Firebase 초기 로드 + 실시간 리스너 설정
+function initFirebase() {
+    return new Promise(resolve => {
+        let initialLoad = true;
+
+        statusRef.on('value', snapshot => {
+            const fbData = snapshot.val() || {};
+
+            if (initialLoad) {
+                initialLoad = false;
+                // 첫 로드: Firebase가 비어있으면 localStorage 마이그레이션
+                if (Object.keys(fbData).length === 0) {
+                    const local = loadStatusLocal();
+                    if (Object.keys(local).length > 0) {
+                        workStatus = local;
+                        statusRef.set(local).catch(() => {});
+                        console.log('✅ localStorage → Firebase 마이그레이션 완료');
+                    }
+                } else {
+                    workStatus = fbData;
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(fbData));
+                }
+                resolve();
+            } else {
+                // 다른 기기/사용자의 변경 → 실시간 반영
+                workStatus = fbData;
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(fbData));
+                markers.forEach(m => updateMarkerColor(m.address));
+            }
+        }, () => {
+            // 오프라인 오류: localStorage로 폴백
+            workStatus = loadStatusLocal();
+            resolve();
+        });
+    });
 }
 
 function backupData() {
-    const data = localStorage.getItem(STORAGE_KEY) || '{}';
+    const data = JSON.stringify(workStatus, null, 2);
     const date = new Date().toISOString().slice(0,10);
     const blob = new Blob([data], { type: 'application/json' });
     const a = document.createElement('a');
@@ -1470,8 +1538,9 @@ function restoreData(event) {
         try {
             const parsed = JSON.parse(e.target.result);
             const migrated = migrateBackup(parsed);
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
             workStatus = migrated;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+            statusRef.set(migrated).catch(() => {});
             markers.forEach(m => updateMarkerColor(m.address));
             alert('복원 완료!');
         } catch {
@@ -1482,8 +1551,8 @@ function restoreData(event) {
     event.target.value = '';
 }
 
-function initMap() {
-    workStatus = loadStatus();
+async function initMap() {
+    workStatus = loadStatusLocal(); // Firebase 로드 전 임시 표시용
     const container = document.getElementById('map');
     const saved = (() => { try { return JSON.parse(localStorage.getItem('ami_map_view')); } catch { return null; } })();
     const options = {
@@ -1496,6 +1565,8 @@ function initMap() {
         localStorage.setItem('ami_map_view', JSON.stringify({ lat: c.getLat(), lng: c.getLng(), level: map.getLevel() }));
     });
     loadMarkers();
+    await initFirebase(); // Firebase 데이터로 마커 색상 갱신
+    markers.forEach(m => updateMarkerColor(m.address));
 }
 
 function loadMarkers() {
