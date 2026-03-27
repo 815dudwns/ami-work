@@ -54,12 +54,12 @@
         .meter-details { color: #6b7280; font-size: 12px; margin-top: 4px; }
         .meter-no-seg { letter-spacing: 0; }
         .meter-no-seg .seg { display: inline-block; }
-        .meter-no-seg .seg + .seg { margin-left: 0.3em; }
+        .meter-no-seg .seg + .seg { margin-left: 0.15em; }
         .dup-highlight { font-weight: 900; }
         .dup-color-0 { color: #ef4444; }
         .dup-color-1 { color: #f97316; }
         .dup-color-2 { color: #8b5cf6; }
-        .copy-btn { background: none; border: none; cursor: pointer; padding: 2px 4px; color: #9ca3af; flex-shrink: 0; line-height: 1; font-size: 15px; margin-top: 1px; }
+        .copy-btn { background: none; border: none; cursor: pointer; padding: 0 3px; color: #9ca3af; line-height: 1; vertical-align: middle; display: inline-flex; align-items: center; }
         .copy-btn:hover { color: #374151; }
         .toast { position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%); background: rgba(17,24,39,0.85); color: white; padding: 8px 18px; border-radius: 20px; font-size: 13px; pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 9999; white-space: nowrap; }
         .toast.show { opacity: 1; }
@@ -1435,8 +1435,10 @@ const statusRef = db.ref('workStatus');
 
 // 연결 상태 표시
 db.ref('.info/connected').on('value', snap => {
+    const connected = snap.val();
+    console.log('[Firebase] 연결 상태:', connected ? '✅ 연결됨' : '🔴 오프라인');
     const dot = document.getElementById('conn-dot');
-    if (dot) dot.style.background = snap.val() ? '#10b981' : '#f59e0b';
+    if (dot) dot.style.background = connected ? '#10b981' : '#f59e0b';
 });
 // ──────────────────────────────────────────────────────────
 
@@ -1458,41 +1460,54 @@ function saveStatus(status) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(status));
     clearTimeout(_fbSaveTimer);
     _fbSaveTimer = setTimeout(() => {
-        statusRef.set(status).catch(() => {/* 오프라인 시 SDK가 자동 큐 처리 */});
+        console.log('[Firebase] saveStatus → set() 호출, 주소수:', Object.keys(status).length);
+        statusRef.set(status)
+            .then(() => console.log('[Firebase] set() 성공'))
+            .catch(e => console.error('[Firebase] set() 실패:', e.code, e.message));
     }, 300);
 }
 
 // Firebase 초기 로드 + 실시간 리스너 설정
 function initFirebase() {
+    console.log('[Firebase] initFirebase 시작');
     return new Promise(resolve => {
         let initialLoad = true;
 
         statusRef.on('value', snapshot => {
             const fbData = snapshot.val() || {};
+            console.log('[Firebase] onValue 콜백 — initialLoad:', initialLoad, '/ 키수:', Object.keys(fbData).length);
 
             if (initialLoad) {
                 initialLoad = false;
-                // 첫 로드: Firebase가 비어있으면 localStorage 마이그레이션
                 if (Object.keys(fbData).length === 0) {
+                    // Firebase 비어있음 → localStorage 마이그레이션
                     const local = loadStatusLocal();
                     if (Object.keys(local).length > 0) {
                         workStatus = local;
-                        statusRef.set(local).catch(() => {});
-                        console.log('✅ localStorage → Firebase 마이그레이션 완료');
+                        console.log('[Firebase] 마이그레이션 시작, 주소수:', Object.keys(local).length);
+                        statusRef.set(local)
+                            .then(() => console.log('[Firebase] 마이그레이션 완료'))
+                            .catch(e => console.error('[Firebase] 마이그레이션 실패:', e.code, e.message));
+                    } else {
+                        console.log('[Firebase] Firebase + localStorage 모두 비어있음');
                     }
                 } else {
+                    console.log('[Firebase] Firebase 데이터 로드 완료');
                     workStatus = fbData;
                     localStorage.setItem(STORAGE_KEY, JSON.stringify(fbData));
                 }
                 resolve();
             } else {
                 // 다른 기기/사용자의 변경 → 실시간 반영
+                console.log('[Firebase] 실시간 업데이트 수신 → 마커 갱신');
                 workStatus = fbData;
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(fbData));
                 markers.forEach(m => updateMarkerColor(m.address));
             }
-        }, () => {
-            // 오프라인 오류: localStorage로 폴백
+        }, error => {
+            // 권한 오류 또는 네트워크 오류
+            console.error('[Firebase] onValue 오류 — code:', error.code, '/ message:', error.message);
+            console.warn('[Firebase] ⚠️ Firebase Rules에서 read 권한을 확인하세요.');
             workStatus = loadStatusLocal();
             resolve();
         });
@@ -1726,20 +1741,16 @@ function showDetail(address, meters) {
             `<span class="seg ${colorClass}">${no.slice(4)}</span>` +
             `</span>`;
 
+        const copyBtn = `<button class="copy-btn" data-copy="${meter.계기번호}" title="계기번호 복사"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
         return `
             <div class="meter-item">
                 <input type="checkbox" class="meter-checkbox"
                        data-meter="${meter.계기번호}" ${checked}>
                 <div class="meter-info">
                     <span class="meter-type">${parsedType}</span>
-                    ${noHtml}
+                    ${noHtml}${copyBtn}
                     ${details ? `<div class="meter-details">${details}</div>` : ''}
                 </div>
-                <button class="copy-btn" data-copy="${meter.계기번호}" title="계기번호 복사">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                    </svg>
-                </button>
             </div>
         `;
     }).join('');
