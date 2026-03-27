@@ -1426,6 +1426,26 @@ function backupData() {
     URL.revokeObjectURL(a.href);
 }
 
+function migrateMeterNo(no) {
+    // "68190227199.0" → "68190227199" 형식 정규화
+    const s = String(no).trim();
+    const n = parseFloat(s);
+    if (!isNaN(n)) return String(Math.round(n)).padStart(11, '0');
+    return s.padStart(11, '0');
+}
+
+function migrateBackup(data) {
+    // checkedMeters 안의 구형 계기번호 형식 변환
+    const migrated = {};
+    for (const [addr, status] of Object.entries(data)) {
+        migrated[addr] = {
+            ...status,
+            checkedMeters: (status.checkedMeters || []).map(migrateMeterNo)
+        };
+    }
+    return migrated;
+}
+
 function restoreData(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -1433,8 +1453,9 @@ function restoreData(event) {
     reader.onload = function(e) {
         try {
             const parsed = JSON.parse(e.target.result);
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
-            workStatus = parsed;
+            const migrated = migrateBackup(parsed);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+            workStatus = migrated;
             markers.forEach(m => updateMarkerColor(m.address));
             alert('복원 완료!');
         } catch {
