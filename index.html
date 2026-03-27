@@ -1677,15 +1677,20 @@ function toggleMeterCheck(meterNumber) {
 function updateMarkerColor(address) {
     const marker = markers.find(m => m.address === address);
     if (!marker) return;
-    
+
     const status = workStatus[address] || { state: 'pending' };
-    let color = 'green';
+    const isApproximate = marker.meters.some(m => m.좌표정확도 === 'approximate');
+
+    let color = isApproximate ? 'yellow' : 'green';
     if (status.state === 'complete') color = 'gray';
     else if (status.state === 'hold') color = 'blue';
     else if (status.state === 'fail') color = 'red';
-    
+
     const el = marker.element.querySelector('.custom-marker');
     if (el) el.className = `custom-marker ${color}`;
+
+    const labelEl = marker.element.querySelector('.marker-number');
+    if (labelEl) labelEl.textContent = (isApproximate && status.state === 'pending') ? '?' : marker.meters.length;
 }
 
 kakao.maps.load(() => {
