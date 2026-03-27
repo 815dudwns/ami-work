@@ -50,6 +50,19 @@
         .meter-type { display: inline-block; padding: 3px 8px; background: #3b82f6; color: white; border-radius: 4px; font-size: 11px; font-weight: bold; margin-right: 6px; }
         .meter-number { font-weight: 700; color: #111827; }
         .meter-details { color: #6b7280; font-size: 12px; margin-top: 4px; }
+        .meter-no-seg { letter-spacing: 0; }
+        .meter-no-seg .seg { display: inline-block; }
+        .meter-no-seg .seg + .seg { margin-left: 0.3em; }
+        .dup-highlight { font-weight: 900; }
+        .dup-color-0 { color: #ef4444; }
+        .dup-color-1 { color: #f97316; }
+        .dup-color-2 { color: #8b5cf6; }
+        .copy-btn { background: none; border: none; cursor: pointer; padding: 2px 4px; color: #9ca3af; flex-shrink: 0; line-height: 1; font-size: 15px; margin-top: 1px; }
+        .copy-btn:hover { color: #374151; }
+        .toast { position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%); background: rgba(17,24,39,0.85); color: white; padding: 8px 18px; border-radius: 20px; font-size: 13px; pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 9999; white-space: nowrap; }
+        .toast.show { opacity: 1; }
+        .loc-btn { position: fixed; bottom: 16px; right: 16px; z-index: 500; width: 40px; height: 40px; border-radius: 50%; border: none; background: white; box-shadow: 0 2px 6px rgba(0,0,0,0.3); cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; }
+        .loc-btn.active { background: #3b82f6; color: white; }
 
         .backup-controls { position: fixed; top: 10px; right: 10px; z-index: 500; display: flex; gap: 6px; }
         .backup-controls button { padding: 6px 10px; font-size: 12px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; opacity: 0.9; box-shadow: 0 1px 4px rgba(0,0,0,0.25); }
@@ -60,6 +73,9 @@
 </head>
 <body>
     <div id="map"></div>
+
+    <div id="toast" class="toast">복사했습니다</div>
+    <button class="loc-btn" id="loc-btn" onclick="toggleLocation()">◎</button>
 
     <div class="backup-controls">
         <button class="btn-backup" onclick="backupData()">💾 백업</button>
@@ -1469,11 +1485,16 @@ function restoreData(event) {
 function initMap() {
     workStatus = loadStatus();
     const container = document.getElementById('map');
+    const saved = (() => { try { return JSON.parse(localStorage.getItem('ami_map_view')); } catch { return null; } })();
     const options = {
-        center: new kakao.maps.LatLng(37.525, 126.960),
-        level: 4
+        center: new kakao.maps.LatLng(saved ? saved.lat : 37.525, saved ? saved.lng : 126.960),
+        level: saved ? saved.level : 4
     };
     map = new kakao.maps.Map(container, options);
+    kakao.maps.event.addListener(map, 'idle', () => {
+        const c = map.getCenter();
+        localStorage.setItem('ami_map_view', JSON.stringify({ lat: c.getLat(), lng: c.getLng(), level: map.getLevel() }));
+    });
     loadMarkers();
 }
 
@@ -1601,6 +1622,20 @@ function showDetail(address, meters) {
         commonPoleEl.style.display = 'none';
     }
 
+    // 뒤 2자리 중복 그룹 색상 계산
+    const dupColors = ['dup-color-0', 'dup-color-1', 'dup-color-2'];
+    const suffix2Map = {};
+    meters.forEach(m => {
+        const s = m.계기번호.slice(-2);
+        if (!suffix2Map[s]) suffix2Map[s] = [];
+        suffix2Map[s].push(m.계기번호);
+    });
+    const dupGroups = {};
+    let colorIdx = 0;
+    Object.entries(suffix2Map).forEach(([s, nos]) => {
+        if (nos.length > 1) { dupGroups[s] = dupColors[colorIdx++ % dupColors.length]; }
+    });
+
     const metersList = document.getElementById('meters-list');
     metersList.innerHTML = meters.map(meter => {
         const checked = status.checkedMeters.includes(meter.계기번호) ? 'checked' : '';
@@ -1610,15 +1645,30 @@ function showDetail(address, meters) {
         if (meter.상호 && meter.상호 !== '0') detailParts.push(`상호 ${meter.상호}`);
         const details = detailParts.join(', ');
 
+        // 5번: 계기번호 세그먼트 표시 (앞2 / 다음2 / 나머지)
+        const no = meter.계기번호;
+        const s2 = no.slice(-2);
+        const colorClass = dupGroups[s2] ? `dup-highlight ${dupGroups[s2]}` : '';
+        const noHtml = `<span class="meter-no-seg">` +
+            `<span class="seg">${no.slice(0, 2)}</span>` +
+            `<span class="seg">${no.slice(2, 4)}</span>` +
+            `<span class="seg ${colorClass}">${no.slice(4)}</span>` +
+            `</span>`;
+
         return `
             <div class="meter-item">
                 <input type="checkbox" class="meter-checkbox"
                        data-meter="${meter.계기번호}" ${checked}>
                 <div class="meter-info">
                     <span class="meter-type">${parsedType}</span>
-                    <span class="meter-number">${meter.계기번호}</span>
+                    ${noHtml}
                     ${details ? `<div class="meter-details">${details}</div>` : ''}
                 </div>
+                <button class="copy-btn" data-copy="${meter.계기번호}" title="계기번호 복사">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                </button>
             </div>
         `;
     }).join('');
@@ -1629,6 +1679,12 @@ function showDetail(address, meters) {
                 toggleMeterCheck(e.target.dataset.meter);
             });
         });
+        document.querySelectorAll('.copy-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                copyMeterNo(btn.dataset.copy);
+            });
+        });
     }, 100);
     
     document.getElementById('fullpage-overlay').classList.add('active');
@@ -1636,6 +1692,46 @@ function showDetail(address, meters) {
 
 function closeDetail() {
     document.getElementById('fullpage-overlay').classList.remove('active');
+}
+
+let toastTimer = null;
+function copyMeterNo(no) {
+    navigator.clipboard.writeText(no).then(() => {
+        const t = document.getElementById('toast');
+        t.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
+    });
+}
+
+let locationOverlay = null;
+let locationWatchId = null;
+let locationActive = false;
+function toggleLocation() {
+    const btn = document.getElementById('loc-btn');
+    if (!locationActive) {
+        if (!navigator.geolocation) { alert('위치 서비스를 지원하지 않는 브라우저입니다.'); return; }
+        locationWatchId = navigator.geolocation.watchPosition(pos => {
+            const latlng = new kakao.maps.LatLng(pos.coords.latitude, pos.coords.longitude);
+            if (!locationOverlay) {
+                const dot = document.createElement('div');
+                dot.style.cssText = 'width:14px;height:14px;background:#3b82f6;border:2px solid white;border-radius:50%;box-shadow:0 0 0 4px rgba(59,130,246,0.25);';
+                locationOverlay = new kakao.maps.CustomOverlay({ position: latlng, content: dot, zIndex: 10 });
+                locationOverlay.setMap(map);
+            } else {
+                locationOverlay.setPosition(latlng);
+            }
+            map.setCenter(latlng);
+        }, () => alert('위치를 가져올 수 없습니다.'), { enableHighAccuracy: true });
+        locationActive = true;
+        btn.classList.add('active');
+    } else {
+        if (locationWatchId !== null) navigator.geolocation.clearWatch(locationWatchId);
+        if (locationOverlay) { locationOverlay.setMap(null); locationOverlay = null; }
+        locationWatchId = null;
+        locationActive = false;
+        btn.classList.remove('active');
+    }
 }
 
 function updateStatus(state) {
