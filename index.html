@@ -50,10 +50,22 @@
         .meter-type { display: inline-block; padding: 3px 8px; background: #3b82f6; color: white; border-radius: 4px; font-size: 11px; font-weight: bold; margin-right: 6px; }
         .meter-number { font-weight: 700; color: #111827; }
         .meter-details { color: #6b7280; font-size: 12px; margin-top: 4px; }
+
+        .backup-controls { position: fixed; top: 10px; right: 10px; z-index: 500; display: flex; gap: 6px; }
+        .backup-controls button { padding: 6px 10px; font-size: 12px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; opacity: 0.9; box-shadow: 0 1px 4px rgba(0,0,0,0.25); }
+        .backup-controls .btn-backup { background: #374151; color: white; }
+        .backup-controls .btn-restore { background: #374151; color: white; }
+        .backup-controls button:hover { opacity: 1; }
     </style>
 </head>
 <body>
     <div id="map"></div>
+
+    <div class="backup-controls">
+        <button class="btn-backup" onclick="backupData()">💾 백업</button>
+        <button class="btn-restore" onclick="document.getElementById('restore-input').click()">📂 복원</button>
+        <input type="file" id="restore-input" accept=".json" style="display:none" onchange="restoreData(event)">
+    </div>
     
     <div id="fullpage-overlay" class="fullpage-overlay">
         <div class="overlay-header">
@@ -1401,6 +1413,36 @@ function loadStatus() {
 
 function saveStatus(status) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(status));
+}
+
+function backupData() {
+    const data = localStorage.getItem(STORAGE_KEY) || '{}';
+    const date = new Date().toISOString().slice(0,10);
+    const blob = new Blob([data], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `ami_backup_${date}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+function restoreData(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const parsed = JSON.parse(e.target.result);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+            workStatus = parsed;
+            markers.forEach(m => updateMarkerColor(m.address));
+            alert('복원 완료!');
+        } catch {
+            alert('올바른 백업 파일이 아닙니다.');
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
 }
 
 function initMap() {
