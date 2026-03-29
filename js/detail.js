@@ -89,11 +89,10 @@ function showDetail(address, meters) {
     Object.entries(suffix2Map).forEach(([s, nos]) => {
         if (nos.length > 1) dupGroupIndex[s] = gIdx++;
     });
-    // 그룹 인덱스 → 행 배경/보더 인라인 스타일
-    function rowStyle(s2) {
-        if (dupGroupIndex[s2] === undefined) return 'background:#fff;border-color:#e5e7eb';
-        const hue = dupGroupIndex[s2] * 20;
-        return `background:hsl(${hue},100%,96%);border-color:hsl(${hue},80%,87%)`;
+    // 그룹 인덱스 → CSS 클래스 방식 (인라인 스타일 대신 dup-row-N 클래스 사용)
+    function rowClass(s2) {
+        if (dupGroupIndex[s2] === undefined) return '';
+        return `dup-row-${dupGroupIndex[s2] % 10}`;
     }
 
     // 계기 목록 HTML 생성
@@ -120,7 +119,7 @@ function showDetail(address, meters) {
 
         const copyBtn = `<button class="copy-btn" data-copy="${meter.계기번호}" title="계기번호 복사"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
         return `
-            <div class="meter-item" style="${rowStyle(s2)}">
+            <div class="meter-item ${rowClass(s2)}">
                 <input type="checkbox" class="meter-checkbox"
                        data-meter="${meter.계기번호}" ${checked}>
                 <div class="meter-info">

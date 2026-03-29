@@ -82,20 +82,24 @@ function createMarker(position, address, meters) {
         </div>
     `;
 
+    // DOM 엘리먼트로 직접 생성 (문자열 대신 — DOM 재구성 시 이벤트 유실 방지)
+    const markerEl = document.createElement('div');
+    markerEl.innerHTML = markerContent;
+
+    // 클릭 이벤트를 직접 생성한 DOM에 붙임
+    markerEl.addEventListener('click', () => {
+        showDetail(address, meters);
+    });
+
     const customOverlay = new kakao.maps.CustomOverlay({
         position: position,
-        content: markerContent,
+        content: markerEl,  // DOM 엘리먼트로 전달
         yAnchor: 1
     });
 
     customOverlay.setMap(map);
 
-    const markerDiv = customOverlay.a;
-    markerDiv.addEventListener('click', () => {
-        showDetail(address, meters);
-    });
-
-    markers.push({ overlay: customOverlay, address, meters, element: markerDiv });
+    markers.push({ overlay: customOverlay, address, meters, element: markerEl });
 }
 
 // 마커 색상 갱신 (상태 변경 시 호출)
