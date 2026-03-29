@@ -57,6 +57,26 @@
 .copy-btn { background: none; border: none; cursor: pointer; padding: 0 3px; color: #9ca3af; line-height: 1; vertical-align: middle; display: inline-flex; align-items: center; }
 .copy-btn:hover { color: #374151; }
 
+/* 계기 개별 불가 버튼 */
+.meter-fail-btn { display: inline-block; padding: 1px 5px; font-size: 11px; font-weight: 600; border: 1.5px solid #f87171; border-radius: 4px; background: white; color: #ef4444; cursor: pointer; vertical-align: middle; margin-left: 5px; line-height: 1.4; transition: all 0.15s; }
+.meter-fail-btn:hover { background: #fef2f2; }
+.meter-fail-btn.active { background: #ef4444; color: white; border-color: #ef4444; }
+.meter-fail-btn.active:hover { background: #dc2626; border-color: #dc2626; }
+
+/* 불가 처리된 계기 아이템 */
+.meter-item-failed { background: #fff5f5 !important; border-color: #fca5a5 !important; opacity: 0.85; }
+.meter-item-failed .meter-no-seg { text-decoration: line-through; color: #9ca3af; }
+.meter-item-failed .seg-maker,
+.meter-item-failed .seg-type,
+.meter-item-failed .seg-mid,
+.meter-item-failed .seg-last,
+.meter-item-failed .seg-dup { color: #9ca3af; }
+
+/* 불가 사유 입력창 */
+.meter-fail-input-wrap { margin-top: 6px; }
+.meter-fail-input { width: 100%; padding: 5px 8px; font-size: 12px; border: 1.5px solid #fca5a5; border-radius: 6px; background: white; color: #374151; box-sizing: border-box; outline: none; }
+.meter-fail-input:focus { border-color: #ef4444; }
+
 /* 중복 행 배경색 — 20° 간격 hsl, 그룹별 구분 */
 .meter-item { border: 1px solid #e5e7eb; background: #fff; }
 .dup-row-0 { background: hsl(0,   100%, 96%); border-color: hsl(0,   80%, 88%); }

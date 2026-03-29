@@ -190,12 +190,48 @@ function getSortedMeters() {
     return meters;
 }
 
+// 계기 개별 불가 토글
+function toggleMeterFail(meterNumber) {
+    if (!workStatus[currentAddress]) {
+        workStatus[currentAddress] = { state: 'pending', checkedMeters: [], reason: '' };
+    }
+    const status = workStatus[currentAddress];
+    if (!status.failedMeters) status.failedMeters = {};
+
+    if (status.failedMeters[meterNumber] !== undefined) {
+        // 이미 불가 → 해제
+        delete status.failedMeters[meterNumber];
+        saveStatus(workStatus);
+        renderMetersList();
+    } else {
+        // 불가 처리 → 일단 빈 사유로 등록하고 입력창 표시 (renderMetersList에서 처리)
+        status.failedMeters[meterNumber] = '';
+        saveStatus(workStatus);
+        renderMetersList();
+        // 렌더링 후 해당 입력창에 포커스
+        setTimeout(() => {
+            const input = document.querySelector(`.meter-fail-input[data-meter="${meterNumber}"]`);
+            if (input) input.focus();
+        }, 50);
+    }
+}
+
+// 계기 불가 사유 저장
+function saveMeterFailReason(meterNumber, reason) {
+    if (!workStatus[currentAddress]) return;
+    const status = workStatus[currentAddress];
+    if (!status.failedMeters) status.failedMeters = {};
+    status.failedMeters[meterNumber] = reason;
+    saveStatus(workStatus);
+}
+
 // 계기 목록 HTML 생성 및 렌더링
 function renderMetersList() {
     const meters = currentMeters;
     const sortedMeters = getSortedMeters();
     const status = workStatus[currentAddress] || { state: 'pending', checkedMeters: [], reason: '' };
     const allSamePole = meters.length > 0 && meters.every(m => m.변대주 === meters[0].변대주);
+    const failedMeters = status.failedMeters || {};
 
     // 뒤 2자리 중복 그룹 계산 (중복 계기번호 색상 구분용)
     const suffix2Map = {};
@@ -241,20 +277,42 @@ function renderMetersList() {
             `</span>`;
 
         const copyBtn = `<button class="copy-btn" data-copy="${meter.계기번호}" title="계기번호 복사"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+
+        // 개별 불가 처리 상태
+        const isFailed = failedMeters[meter.계기번호] !== undefined;
+        const failReason = failedMeters[meter.계기번호] || '';
+        const failBtnClass = isFailed ? 'meter-fail-btn active' : 'meter-fail-btn';
+        const failBtnLabel = isFailed ? '불가해제' : '불가';
+        const failInputHtml = isFailed
+            ? `<div class="meter-fail-input-wrap">
+                 <input type="text" class="meter-fail-input"
+                        data-meter="${meter.계기번호}"
+                        placeholder="불가 사유 입력 후 엔터"
+                        value="${failReason.replace(/"/g, '&quot;')}">
+               </div>`
+            : '';
+
+        // 불가 처리된 계기는 취소선 클래스 추가
+        const itemClass = isFailed
+            ? `meter-item ${rowClass(s2)} meter-item-failed`
+            : `meter-item ${rowClass(s2)}`;
+
         return `
-            <div class="meter-item ${rowClass(s2)}">
+            <div class="${itemClass}">
                 <input type="checkbox" class="meter-checkbox"
                        data-meter="${meter.계기번호}" ${checked}>
                 <div class="meter-info">
                     <span class="meter-type">${parsedType}</span>
                     ${noHtml}${copyBtn}
+                    <button class="${failBtnClass}" data-meter="${meter.계기번호}">${failBtnLabel}</button>
                     ${details ? `<div class="meter-details">${details}</div>` : ''}
+                    ${failInputHtml}
                 </div>
             </div>
         `;
     }).join('');
 
-    // 체크박스 및 복사 버튼 이벤트 바인딩
+    // 체크박스, 복사 버튼, 개별 불가 버튼/입력창 이벤트 바인딩
     setTimeout(() => {
         document.querySelectorAll('.meter-checkbox').forEach(checkbox => {
             checkbox.addEventListener('change', (e) => {
@@ -265,6 +323,27 @@ function renderMetersList() {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 copyMeterNo(btn.dataset.copy);
+            });
+        });
+
+        // 개별 불가 버튼 클릭
+        document.querySelectorAll('.meter-fail-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleMeterFail(btn.dataset.meter);
+            });
+        });
+
+        // 불가 사유 입력창 — 엔터 또는 포커스아웃 시 저장
+        document.querySelectorAll('.meter-fail-input').forEach(input => {
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    saveMeterFailReason(input.dataset.meter, input.value.trim());
+                    input.blur();
+                }
+            });
+            input.addEventListener('blur', (e) => {
+                saveMeterFailReason(input.dataset.meter, input.value.trim());
             });
         });
     }, 100);
@@ -314,6 +393,7 @@ function resetStatus() {
     workStatus[currentAddress].state = 'pending';
     workStatus[currentAddress].checkedMeters = [];
     workStatus[currentAddress].reason = '';
+    workStatus[currentAddress].failedMeters = {};
     // 작업자 정보도 초기화
     workStatus[currentAddress].updatedBy     = '';
     workStatus[currentAddress].updatedByName = '';
