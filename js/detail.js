@@ -3,6 +3,9 @@
 let currentAddress = '';
 let currentMeters = [];
 
+// 현재 정렬 모드: 'none' | 'dup' | 'maker'
+let currentSortMode = 'none';
+
 // 주소 클릭 시 상세 패널 표시
 function showDetail(address, meters) {
     currentAddress = address;
@@ -76,6 +79,50 @@ function showDetail(address, meters) {
         commonPoleEl.style.display = 'none';
     }
 
+    // 패널 열릴 때 정렬 상태 초기화 + 버튼 UI 동기화
+    currentSortMode = 'none';
+    updateSortBtnUI();
+
+    // 계기 목록 렌더링
+    renderMetersList();
+
+    document.getElementById('fullpage-overlay').classList.add('active');
+}
+
+// ── 계기 목록 렌더링 ─────────────────────────────────────────
+
+// 현재 정렬 모드에 따라 계기 목록을 정렬해서 반환
+function getSortedMeters() {
+    const meters = currentMeters;
+    if (currentSortMode === 'dup') {
+        // 뒤 2자리 기준 그룹 정렬 (같은 뒤2자리끼리 인접)
+        return [...meters].sort((a, b) => {
+            const sa = a.계기번호.slice(-2);
+            const sb = b.계기번호.slice(-2);
+            if (sa !== sb) return sa.localeCompare(sb);
+            return meters.indexOf(a) - meters.indexOf(b); // 그룹 내 원래 순서 유지
+        });
+    }
+    if (currentSortMode === 'maker') {
+        // 앞 2자리 기준 그룹 정렬 (같은 메이커 코드끼리 인접)
+        return [...meters].sort((a, b) => {
+            const pa = a.계기번호.slice(0, 2);
+            const pb = b.계기번호.slice(0, 2);
+            if (pa !== pb) return pa.localeCompare(pb);
+            return meters.indexOf(a) - meters.indexOf(b); // 그룹 내 원래 순서 유지
+        });
+    }
+    // 'none': 원래 순서
+    return meters;
+}
+
+// 계기 목록 HTML 생성 및 렌더링
+function renderMetersList() {
+    const meters = currentMeters;
+    const sortedMeters = getSortedMeters();
+    const status = workStatus[currentAddress] || { state: 'pending', checkedMeters: [], reason: '' };
+    const allSamePole = meters.length > 0 && meters.every(m => m.변대주 === meters[0].변대주);
+
     // 뒤 2자리 중복 그룹 계산 (중복 계기번호 색상 구분용)
     const suffix2Map = {};
     meters.forEach(m => {
@@ -95,10 +142,9 @@ function showDetail(address, meters) {
         return `dup-row-${dupGroupIndex[s2] % 10}`;
     }
 
-    // 계기 목록 HTML 생성
     const metersList = document.getElementById('meters-list');
-    metersList.innerHTML = meters.map(meter => {
-        const checked = status.checkedMeters.includes(meter.계기번호) ? 'checked' : '';
+    metersList.innerHTML = sortedMeters.map(meter => {
+        const checked = (status.checkedMeters || []).includes(meter.계기번호) ? 'checked' : '';
         const parsedType = parseType(meter.계기번호) || meter.계기타입;
         const detailParts = [];
         if (!allSamePole && meter.변대주) detailParts.push(`변대주 ${meter.변대주}`);
@@ -144,8 +190,22 @@ function showDetail(address, meters) {
             });
         });
     }, 100);
+}
 
-    document.getElementById('fullpage-overlay').classList.add('active');
+// 정렬 버튼 토글 — 같은 버튼을 다시 누르면 원래 순서(none)로 복귀
+function toggleSort(mode) {
+    currentSortMode = (currentSortMode === mode) ? 'none' : mode;
+    updateSortBtnUI();
+    renderMetersList();
+}
+
+// 정렬 버튼 활성화 UI 업데이트
+function updateSortBtnUI() {
+    const dupBtn = document.getElementById('sort-btn-dup');
+    const makerBtn = document.getElementById('sort-btn-maker');
+    if (!dupBtn || !makerBtn) return;
+    dupBtn.classList.toggle('active', currentSortMode === 'dup');
+    makerBtn.classList.toggle('active', currentSortMode === 'maker');
 }
 
 // 상세 패널 닫기

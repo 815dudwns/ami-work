@@ -1,0 +1,23 @@
+# 설치 파일
+*.dmg
+*.exe
+*.msi
+
+# 데이터 원본 / 유틸 스크립트 (로컬 전용)
+*.xlsx
+*.py
+ami-work-1c49a-firebase-adminsdk-*.json
+
+# 이전 버전 아카이브
+AMI작업지도_*.html
+youngjoon_ruzilia_project*.html
+test-dup.html
+
+# 시스템
+.DS_Store
+*.bak
+
+# 기타
+node_modules/
+.env
+.env.local

@@ -42,9 +42,19 @@
             <input type="text" class="fail-reason" id="fail-reason" placeholder="불가 사유">
         </div>
         <div id="common-pole" class="common-pole" style="display:none;"></div>
+        <!-- 계기 리스트 정렬 버튼 바 -->
+        <div class="meter-sort-bar" id="meter-sort-bar">
+            <button class="sort-btn" id="sort-btn-dup" onclick="toggleSort('dup')">중복 정렬</button>
+            <button class="sort-btn" id="sort-btn-maker" onclick="toggleSort('maker')">메이커 정렬</button>
+        </div>
         <div class="overlay-meters" id="meters-list"></div>
     </div>
 
+    <script src="js/auth.js"></script>
+    <script>
+        // 로그인 체크 — 미인증이면 login.html로 이동
+        authRequire();
+    </script>
     <script src="js/config.js"></script>
     <script src="js/utils.js"></script>
     <script src="js/firebase.js"></script>
