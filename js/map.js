@@ -28,9 +28,14 @@ async function initMap() {
         localStorage.setItem('ami_map_view', JSON.stringify({ lat: c.getLat(), lng: c.getLng(), level: map.getLevel() }));
     });
 
-    // Firebase에서 현장 데이터 로드
-    const siteSnap = await db.ref('siteData/charger4eleccar').get();
-    sampleData = siteSnap.val() || [];
+    // 로컬 JSON에서 현장 데이터 로드
+    try {
+        const res = await fetch('./data/site-data.json');
+        sampleData = await res.json();
+    } catch (e) {
+        console.error('[siteData] 로드 실패:', e);
+        sampleData = [];
+    }
     console.log('[siteData] 로드 완료:', sampleData.length, '개');
 
     loadMarkers();
