@@ -85,6 +85,12 @@ function showDetail(address, meters) {
     };
 
     // 작업자 정보 표시 (기능 4)
+    // 디버그: showDetail에서 읽어온 status 확인
+    console.log('[showDetail] status:', {
+        state:         status.state,
+        updatedByName: status.updatedByName,
+        updatedAt:     status.updatedAt,
+    });
     updateWorkerInfo(status);
 
     // 변대주가 모두 같은 경우 공통 표시
@@ -382,6 +388,14 @@ function updateStatus(state) {
     workStatus[currentAddress].updatedBy     = session ? session.id   : '';
     workStatus[currentAddress].updatedByName = session ? session.name : '';
     workStatus[currentAddress].updatedAt     = new Date().toISOString();
+
+    // 디버그: 저장되는 작업자 정보 확인
+    console.log('[updateStatus] 저장값:', {
+        state,
+        updatedBy:     workStatus[currentAddress].updatedBy,
+        updatedByName: workStatus[currentAddress].updatedByName,
+        updatedAt:     workStatus[currentAddress].updatedAt,
+    });
 
     saveStatus(workStatus);
     updateMarkerColor(currentAddress);

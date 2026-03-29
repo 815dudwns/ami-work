@@ -56,6 +56,17 @@ async function syncFromFirebase() {
             // Firebase 데이터를 localStorage에도 동기화
             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
             console.log('[Firebase] syncFromFirebase 완료, 주소수:', Object.keys(workStatus).length);
+
+            // 디버그: 작업자 정보 필드 존재 여부 샘플 확인
+            const sampleKey = Object.keys(workStatus).find(k => workStatus[k].state !== 'pending');
+            if (sampleKey) {
+                const sample = workStatus[sampleKey];
+                console.log('[Firebase] 작업자 정보 샘플 (주소:', sampleKey, '):', {
+                    state:         sample.state,
+                    updatedByName: sample.updatedByName,
+                    updatedAt:     sample.updatedAt,
+                });
+            }
         } else {
             console.log('[Firebase] 데이터 없음 — 로컬 상태 유지');
         }

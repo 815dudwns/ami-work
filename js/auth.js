@@ -2,7 +2,7 @@
 
 // 계정 목록
 const ACCOUNTS = [
-    { id: 'admin',  pw: '8414', name: '영준',   role: 'admin' },
+    { id: 'admin',  pw: '8414', name: '우영준', role: 'admin' },
     { id: 'user01', pw: '1111', name: '김민성', role: 'user' },
     { id: 'user02', pw: '1111', name: '이영길', role: 'user' },
 ];
