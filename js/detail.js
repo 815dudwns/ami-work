@@ -15,12 +15,27 @@ function showDetail(address, meters) {
     status.checkedMeters = status.checkedMeters || [];
 
     document.getElementById('detail-address').textContent = address;
-    document.getElementById('detail-road-address').textContent = '📍 ' + meters[0].도로명주소;
 
-    // 티맵 길안내 버튼 (도로명주소로 검색)
+    // 좌표정확도가 approximate인 계기가 하나라도 있으면 "주소 오류" 표시
+    const hasApproximate = meters.some(m => m.좌표정확도 === 'approximate');
+    const errorTag = hasApproximate
+        ? ' <span style="color:#ef4444;font-size:12px;">(주소 오류)</span>'
+        : '';
+    document.getElementById('detail-road-address').innerHTML = '📍 ' + meters[0].도로명주소 + errorTag;
+
+    // 상태 색상 바 업데이트 (기능 3)
+    updateStatusBar(status.state);
+
+    // 지도 앱 버튼 3개 — 도로명주소로 검색
+    const roadAddr = meters[0].도로명주소;
     document.getElementById('tmap-btn').onclick = () => {
-        const roadAddr = meters[0].도로명주소;
         window.location.href = `tmap://search?name=${encodeURIComponent(roadAddr)}`;
+    };
+    document.getElementById('naver-btn').onclick = () => {
+        window.location.href = `nmap://search?query=${encodeURIComponent(roadAddr)}`;
+    };
+    document.getElementById('kakao-btn').onclick = () => {
+        window.location.href = `kakaomap://search?q=${encodeURIComponent(roadAddr)}`;
     };
 
     const btnComplete = document.getElementById('btn-complete');
@@ -69,12 +84,22 @@ function showDetail(address, meters) {
         saveStatus(workStatus);
     };
 
+    // 작업자 정보 표시 (기능 4)
+    updateWorkerInfo(status);
+
     // 변대주가 모두 같은 경우 공통 표시
     const allSamePole = meters.length > 0 && meters.every(m => m.변대주 === meters[0].변대주);
     const commonPoleEl = document.getElementById('common-pole');
-    if (allSamePole && meters[0].변대주) {
-        commonPoleEl.textContent = `변대주 ${meters[0].변대주}`;
+    if (allSamePole && meters[0].변대주 && meters[0].변대주 !== '0') {
+        const poleText = meters[0].변대주;
+        const poleCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${poleText}" title="변대주 복사" style="margin-left:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+        commonPoleEl.innerHTML = `변대주 ${poleText}${poleCopyBtn}`;
         commonPoleEl.style.display = 'block';
+        // 공통 변대주 복사 버튼 이벤트 바인딩
+        commonPoleEl.querySelector('.pole-copy-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            copyMeterNo(poleText);
+        });
     } else {
         commonPoleEl.style.display = 'none';
     }
@@ -87,6 +112,55 @@ function showDetail(address, meters) {
     renderMetersList();
 
     document.getElementById('fullpage-overlay').classList.add('active');
+}
+
+// 상태 색상 바 업데이트 (기능 3)
+function updateStatusBar(state) {
+    const bar = document.getElementById('status-bar');
+    if (!bar) return;
+
+    const colorMap = {
+        complete: '#10b981',
+        hold:     '#3b82f6',
+        fail:     '#ef4444',
+    };
+
+    if (state === 'pending' || !colorMap[state]) {
+        bar.style.background = 'transparent';
+    } else {
+        bar.style.background = colorMap[state];
+    }
+}
+
+// 작업자 정보 표시 업데이트 (기능 4)
+function updateWorkerInfo(status) {
+    const workerEl = document.getElementById('worker-info');
+    if (!workerEl) return;
+
+    // pending이거나 작업자 정보 없으면 숨김
+    if (
+        status.state === 'pending' ||
+        !status.updatedByName ||
+        !status.updatedAt
+    ) {
+        workerEl.style.display = 'none';
+        workerEl.textContent = '';
+        return;
+    }
+
+    // updatedAt을 "M월 D일" 형식으로 변환
+    let dateStr = '';
+    try {
+        const d = new Date(status.updatedAt);
+        const month = d.getMonth() + 1;
+        const day = d.getDate();
+        dateStr = `${month}월 ${day}일`;
+    } catch (e) {
+        dateStr = status.updatedAt;
+    }
+
+    workerEl.textContent = `${status.updatedByName} / ${dateStr} 작업`;
+    workerEl.style.display = 'block';
 }
 
 // ── 계기 목록 렌더링 ─────────────────────────────────────────
@@ -147,7 +221,11 @@ function renderMetersList() {
         const checked = (status.checkedMeters || []).includes(meter.계기번호) ? 'checked' : '';
         const parsedType = parseType(meter.계기번호) || meter.계기타입;
         const detailParts = [];
-        if (!allSamePole && meter.변대주) detailParts.push(`변대주 ${meter.변대주}`);
+        // 변대주가 있고 공통 표시 영역에 없는 경우만 개별 표시 (복사 버튼 포함)
+        if (!allSamePole && meter.변대주 && meter.변대주 !== '0') {
+            const pCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${meter.변대주}" title="변대주 복사" style="margin-left:3px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+            detailParts.push(`변대주 ${meter.변대주}${pCopyBtn}`);
+        }
         if (meter.상호 && meter.상호 !== '0') detailParts.push(`상호 ${meter.상호}`);
         const details = detailParts.join(', ');
 
@@ -218,7 +296,14 @@ function updateStatus(state) {
     if (!workStatus[currentAddress]) {
         workStatus[currentAddress] = { state: 'pending', checkedMeters: [], reason: '' };
     }
+
+    // 작업자 정보 기록 (기능 2)
+    const session = authGetSession();
     workStatus[currentAddress].state = state;
+    workStatus[currentAddress].updatedBy     = session ? session.id   : '';
+    workStatus[currentAddress].updatedByName = session ? session.name : '';
+    workStatus[currentAddress].updatedAt     = new Date().toISOString();
+
     saveStatus(workStatus);
     updateMarkerColor(currentAddress);
 }
@@ -229,6 +314,10 @@ function resetStatus() {
     workStatus[currentAddress].state = 'pending';
     workStatus[currentAddress].checkedMeters = [];
     workStatus[currentAddress].reason = '';
+    // 작업자 정보도 초기화
+    workStatus[currentAddress].updatedBy     = '';
+    workStatus[currentAddress].updatedByName = '';
+    workStatus[currentAddress].updatedAt     = '';
     saveStatus(workStatus);
     updateMarkerColor(currentAddress);
     showDetail(currentAddress, currentMeters);

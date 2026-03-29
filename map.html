@@ -17,24 +17,25 @@
     <div id="toast" class="toast">복사했습니다</div>
     <button class="loc-btn" id="loc-btn" onclick="toggleLocation()">◎</button>
 
-    <div class="backup-controls">
-        <div id="conn-dot" class="conn-dot" title="Firebase 연결 상태"></div>
-        <button class="btn-backup" onclick="backupData()">💾 백업</button>
-        <button class="btn-restore" onclick="document.getElementById('restore-input').click()">📂 복원</button>
-        <input type="file" id="restore-input" accept=".json" style="display:none" onchange="restoreData(event)">
-    </div>
-
     <div id="fullpage-overlay" class="fullpage-overlay">
+        <!-- 상태 색상 바 (기능 3): pending이면 투명, 나머지는 상태별 색상 -->
+        <div id="status-bar" class="status-bar"></div>
         <div class="overlay-header">
             <div class="overlay-address">
                 <h3 id="detail-address"></h3>
                 <p id="detail-road-address"></p>
             </div>
             <div class="header-buttons">
-                <button class="tmap-btn" id="tmap-btn">🚗 티맵</button>
+                <div class="map-app-btns">
+                    <button class="map-app-btn" id="tmap-btn">🚗 티맵</button>
+                    <button class="map-app-btn" id="naver-btn">네이버</button>
+                    <button class="map-app-btn" id="kakao-btn">카카오</button>
+                </div>
                 <button class="close-btn" onclick="closeDetail()">×</button>
             </div>
         </div>
+        <!-- 작업자 정보 (기능 4): 지도앱 버튼 아래, pending이거나 정보 없으면 숨김 -->
+        <div id="worker-info" class="worker-info" style="display:none;"></div>
         <div class="overlay-actions">
             <button class="action-btn complete" id="btn-complete">✅ 완료</button>
             <button class="action-btn hold" id="btn-hold">⏸️ 보류</button>

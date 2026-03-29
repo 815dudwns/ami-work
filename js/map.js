@@ -127,6 +127,11 @@ function updateMarkerColor(address) {
     if (labelEl) labelEl.textContent = (isApproximate && status.state === 'pending') ? '?' : marker.meters.length;
 }
 
+// 전체 마커 색상 일괄 갱신 (Firebase 동기화 후 호출)
+function refreshAllMarkers() {
+    markers.forEach(m => updateMarkerColor(m.address));
+}
+
 // 현재 위치 추적 토글
 function toggleLocation() {
     const btn = document.getElementById('loc-btn');

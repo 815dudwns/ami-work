@@ -1,100 +1,107 @@
-// firebase.js — 로컬 파일 기반 상태 관리 (Firebase 제거)
-// 이전: Firebase Realtime Database 사용
-// 현재: localStorage + data/work-status.json 로컬 파일 사용
+// firebase.js — 상태 관리 (localStorage + Firebase Realtime Database 동기화)
+// Firebase SDK: firebase-app-compat, firebase-database-compat (map.html에서 로드)
 
 // 전역 상태 변수
 let workStatus = {};
 
+// Firebase DB 참조
+let db = null;
+let statusRef = null;
+
+// Firebase 초기화 및 DB 연결
+function initFirebaseApp() {
+    try {
+        // 이미 초기화된 경우 기존 앱 재사용
+        const app = firebase.apps.length
+            ? firebase.app()
+            : firebase.initializeApp(firebaseConfig);
+        db = firebase.database(app);
+        statusRef = db.ref('workStatus/charger4eleccar');
+        console.log('[Firebase] 초기화 완료');
+        return true;
+    } catch (e) {
+        console.warn('[Firebase] 초기화 실패:', e.message);
+        return false;
+    }
+}
+
 // localStorage에서 상태 불러오기 (동기)
 function loadStatusLocal() {
     const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : null;
+    return saved ? JSON.parse(saved) : {};
 }
 
-// 상태 저장 — localStorage에만 저장
-// (브라우저 환경에서 파일 직접 쓰기 불가 → localStorage 사용)
+// 상태 저장 — localStorage + Firebase 둘 다 저장
 function saveStatus(status) {
+    // localStorage 저장
     localStorage.setItem(STORAGE_KEY, JSON.stringify(status));
     console.log('[Local] saveStatus 완료, 주소수:', Object.keys(status).length);
+
+    // Firebase 저장
+    if (statusRef) {
+        statusRef.set(status)
+            .then(() => console.log('[Firebase] saveStatus 완료'))
+            .catch(e => console.warn('[Firebase] saveStatus 실패:', e.message));
+    }
 }
 
-// 상태 초기 로드
-// 1순위: localStorage → 2순위: data/work-status.json 로컬 파일
+// Firebase에서 workStatus 한 번 읽기 (덮어쓰기)
+async function syncFromFirebase() {
+    if (!statusRef) return;
+    try {
+        const snapshot = await statusRef.get();
+        if (snapshot.exists()) {
+            const data = snapshot.val();
+            workStatus = data;
+            // Firebase 데이터를 localStorage에도 동기화
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            console.log('[Firebase] syncFromFirebase 완료, 주소수:', Object.keys(workStatus).length);
+        } else {
+            console.log('[Firebase] 데이터 없음 — 로컬 상태 유지');
+        }
+    } catch (e) {
+        console.warn('[Firebase] syncFromFirebase 실패:', e.message);
+    }
+}
+
+// 상태 초기 로드 + 30초 간격 Firebase 동기화 시작
 async function initFirebase() {
-    console.log('[Local] initFirebase 시작 (로컬 파일 모드)');
+    console.log('[Firebase] initFirebase 시작');
+
+    // Firebase 앱 초기화
+    const firebaseOk = initFirebaseApp();
 
     // 1순위: localStorage 확인
     const local = loadStatusLocal();
     if (local && Object.keys(local).length > 0) {
         workStatus = local;
         console.log('[Local] localStorage에서 로드 완료, 주소수:', Object.keys(workStatus).length);
-        return;
-    }
-
-    // 2순위: data/work-status.json 파일에서 로드
-    try {
-        const res = await fetch('./data/work-status.json');
-        if (!res.ok) throw new Error('fetch 실패: ' + res.status);
-        const data = await res.json();
-        workStatus = data;
-        // 로드한 데이터를 localStorage에 캐싱
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-        console.log('[Local] data/work-status.json 로드 완료, 주소수:', Object.keys(workStatus).length);
-    } catch (e) {
-        console.warn('[Local] work-status.json 로드 실패:', e.message);
-        workStatus = {};
-    }
-}
-
-// JSON 파일로 현재 상태 백업 다운로드
-function backupData() {
-    const data = JSON.stringify(workStatus, null, 2);
-    const date = new Date().toISOString().slice(0, 10);
-    const blob = new Blob([data], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `ami_backup_${date}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-}
-
-// 구형 계기번호 형식 정규화 ("68190227199.0" → "68190227199")
-function migrateMeterNo(no) {
-    const s = String(no).trim();
-    const n = parseFloat(s);
-    if (!isNaN(n)) return String(Math.round(n)).padStart(11, '0');
-    return s.padStart(11, '0');
-}
-
-// 백업 파일 내 구형 계기번호 일괄 변환
-function migrateBackup(data) {
-    const migrated = {};
-    for (const [addr, status] of Object.entries(data)) {
-        migrated[addr] = {
-            ...status,
-            checkedMeters: (status.checkedMeters || []).map(migrateMeterNo)
-        };
-    }
-    return migrated;
-}
-
-// JSON 파일에서 상태 복원
-function restoreData(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = function(e) {
+    } else {
+        // 2순위: data/work-status.json 파일에서 로드
         try {
-            const parsed = JSON.parse(e.target.result);
-            const migrated = migrateBackup(parsed);
-            workStatus = migrated;
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
-            markers.forEach(m => updateMarkerColor(m.address));
-            alert('복원 완료!');
-        } catch {
-            alert('올바른 백업 파일이 아닙니다.');
+            const res = await fetch('./data/work-status.json');
+            if (!res.ok) throw new Error('fetch 실패: ' + res.status);
+            const data = await res.json();
+            workStatus = data;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            console.log('[Local] data/work-status.json 로드 완료, 주소수:', Object.keys(workStatus).length);
+        } catch (e) {
+            console.warn('[Local] work-status.json 로드 실패:', e.message);
+            workStatus = {};
         }
-    };
-    reader.readAsText(file);
-    event.target.value = '';
+    }
+
+    // Firebase에서 최신 데이터 한 번 읽기 (로컬보다 Firebase 우선)
+    if (firebaseOk) {
+        await syncFromFirebase();
+
+        // 30초 간격으로 Firebase 동기화
+        setInterval(async () => {
+            await syncFromFirebase();
+            // 마커 색상 전체 갱신 (map.js의 함수 사용)
+            if (typeof refreshAllMarkers === 'function') {
+                refreshAllMarkers();
+            }
+        }, 30000);
+    }
 }

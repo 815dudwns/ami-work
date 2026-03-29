@@ -21,3 +21,6 @@ test-dup.html
 node_modules/
 .env
 .env.local
+
+# 데모 파일
+sort-demo.html
