@@ -33,17 +33,19 @@
 
 /* 계기번호 색상 분리 */
 .meter-no-seg { letter-spacing: 0; }
-.meter-no-seg .seg { display: inline-block; }
-.meter-no-seg .seg + .seg { margin-left: 0.15em; }
-.seg-type { color: #5B90BC; font-weight: bold; }
-.seg-dup  { color: #E24B4A; font-weight: bold; }
+/* 계기번호 세그먼트 색상 */
+.seg-maker { color: #111; }
+.seg-type  { color: #5B90BC; font-weight: 500; }   /* 타입코드 */
+.seg-mid   { color: #111; }
+.seg-last  { color: #111; }                          /* 정상 */
+.seg-dup   { color: #E24B4A; font-weight: 500; }    /* 중복 */
 
 .copy-btn { background: none; border: none; cursor: pointer; padding: 0 3px; color: #9ca3af; line-height: 1; vertical-align: middle; display: inline-flex; align-items: center; }
 .copy-btn:hover { color: #374151; }
 
 /* 중복 행 배경색 — 20° 간격 hsl, 그룹별 구분 */
 .meter-item { border: 1px solid #e5e7eb; background: #fff; }
-.dup-row-0 { background: hsl(0,   100%, 96%); border-color: hsl(0,   80%, 87%); }
+.dup-row-0 { background: hsl(0,   100%, 96%); border-color: hsl(0,   80%, 88%); }
 .dup-row-1 { background: hsl(20,  100%, 96%); border-color: hsl(20,  80%, 87%); }
 .dup-row-2 { background: hsl(40,  100%, 96%); border-color: hsl(40,  80%, 87%); }
 .dup-row-3 { background: hsl(60,  100%, 96%); border-color: hsl(60,  80%, 87%); }

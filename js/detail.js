@@ -109,12 +109,11 @@ function showDetail(address, meters) {
         const no = meter.계기번호;
         const s2 = no.slice(-2);
         const isDup = dupGroupIndex[s2] !== undefined;
-        const seg4Style = isDup ? 'class="seg seg-dup"' : 'class="seg"';
         const noHtml = `<span class="meter-no-seg">` +
-            `<span class="seg">${no.slice(0, 2)}</span>` +
-            `<span class="seg seg-type">${no.slice(2, 4)}</span>` +
-            `<span class="seg">${no.slice(4, -2)}</span>` +
-            `<span ${seg4Style}>${s2}</span>` +
+            `<span class="seg-maker">${no.slice(0, 2)}</span>` +
+            `<span class="seg-type">${no.slice(2, 4)}</span>` +
+            `<span class="seg-mid">${no.slice(4, -2)}</span>` +
+            `<span class="${isDup ? 'seg-dup' : 'seg-last'}">${s2}</span>` +
             `</span>`;
 
         const copyBtn = `<button class="copy-btn" data-copy="${meter.계기번호}" title="계기번호 복사"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
