@@ -17,6 +17,13 @@
     <div id="toast" class="toast">복사했습니다</div>
     <button class="loc-btn" id="loc-btn" onclick="toggleLocation()">◎</button>
 
+    <!-- 사용자 정보 + 로그아웃 버튼 -->
+    <div class="user-bar" id="user-bar">
+        <span class="user-name" id="user-name-display"></span>
+        <span class="user-divider">|</span>
+        <button class="logout-btn" onclick="authLogout()">로그아웃</button>
+    </div>
+
     <div id="fullpage-overlay" class="fullpage-overlay">
         <!-- 상태 색상 바 (기능 3): pending이면 투명, 나머지는 상태별 색상 -->
         <div id="status-bar" class="status-bar"></div>
@@ -55,6 +62,14 @@
     <script>
         // 로그인 체크 — 미인증이면 login.html로 이동
         authRequire();
+
+        // 사용자 이름 표시
+        (function () {
+            const session = authGetSession();
+            if (session) {
+                document.getElementById('user-name-display').textContent = session.name;
+            }
+        })();
     </script>
     <script src="js/config.js"></script>
     <script src="js/utils.js"></script>
