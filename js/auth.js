@@ -5,6 +5,8 @@ const ACCOUNTS = [
     { id: 'admin',  pw: '8414', name: '우영준', role: 'admin' },
     { id: 'user01', pw: '1111', name: '김민성', role: 'user' },
     { id: 'user02', pw: '1111', name: '이영길', role: 'user' },
+    { id: 'user03', pw: '1111', name: '김상권', role: 'user' },
+    { id: 'user04', pw: '1111', name: '김지호', role: 'user' },
 ];
 
 const AUTH_KEY = 'ami_auth';
