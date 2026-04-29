@@ -17,3 +17,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothi
 .user-bar .logout-btn:hover { color: #fff; text-decoration: underline; }
 /* 모바일: 터치 영역 확보 */
 @media (max-width: 640px) { .user-bar { top: 8px; right: 8px; padding: 6px 12px; font-size: 13px; } .user-bar .logout-btn { font-size: 13px; min-height: 28px; } }
+
+/* 지사 필터 드롭다운 — 지도 좌상단 */
+.jisa-filter { position: fixed; top: 10px; left: 10px; z-index: 500; }
+.jisa-filter select { background: rgba(17,24,39,0.85); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); color: #fff; border: none; padding: 7px 28px 7px 12px; border-radius: 20px; font-size: 13px; font-family: inherit; cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='white' d='M0 0l5 6 5-6z'/></svg>"); background-repeat: no-repeat; background-position: right 10px center; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+.jisa-filter select:focus { outline: 2px solid #3b82f6; }
+@media (max-width: 640px) { .jisa-filter { top: 8px; left: 8px; } .jisa-filter select { font-size: 14px; padding: 8px 30px 8px 14px; } }

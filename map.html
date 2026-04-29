@@ -17,6 +17,13 @@
     <div id="toast" class="toast">복사했습니다</div>
     <button class="loc-btn" id="loc-btn" onclick="toggleLocation()">◎</button>
 
+    <!-- 지사 필터 드롭다운 -->
+    <div class="jisa-filter">
+        <select id="jisa-select" onchange="onJisaChange()">
+            <option value="">전체 지사</option>
+        </select>
+    </div>
+
     <!-- 사용자 정보 + 로그아웃 버튼 -->
     <div class="user-bar" id="user-bar">
         <span class="user-name" id="user-name-display"></span>

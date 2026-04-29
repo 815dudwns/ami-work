@@ -38,15 +38,47 @@ async function initMap() {
     }
     console.log('[siteData] 로드 완료:', sampleData.length, '개');
 
+    populateJisaOptions();
     loadMarkers();
     await initFirebase();
     markers.forEach(m => updateMarkerColor(m.address));
 }
 
-// 전체 마커 생성 (주소 기준으로 계기 그룹핑)
+// 지사 드롭다운 옵션 채우기 (데이터의 unique 지사 + localStorage 복원)
+function populateJisaOptions() {
+    const select = document.getElementById('jisa-select');
+    if (!select) return;
+    const jisaSet = new Set();
+    sampleData.forEach(item => { if (item.지사) jisaSet.add(item.지사); });
+    const sorted = [...jisaSet].sort((a, b) => a.localeCompare(b, 'ko'));
+    sorted.forEach(j => {
+        const opt = document.createElement('option');
+        opt.value = j;
+        opt.textContent = j;
+        select.appendChild(opt);
+    });
+    const saved = localStorage.getItem('ami_selected_jisa') || '';
+    if (saved && sorted.includes(saved)) select.value = saved;
+}
+
+// 지사 선택 변경 시 마커 재생성
+function onJisaChange() {
+    const select = document.getElementById('jisa-select');
+    const value = select ? select.value : '';
+    localStorage.setItem('ami_selected_jisa', value);
+    markers.forEach(m => m.overlay.setMap(null));
+    markers = [];
+    loadMarkers();
+    refreshAllMarkers();
+}
+
+// 전체 마커 생성 (주소 기준으로 계기 그룹핑) — 선택된 지사로 필터링
 function loadMarkers() {
+    const selectedJisa = localStorage.getItem('ami_selected_jisa') || '';
     const grouped = {};
     sampleData.forEach(item => {
+        if (selectedJisa && item.지사 !== selectedJisa) return;
+        if (item.lat == null || item.lng == null) return;
         const addr = item.주소;
         if (!grouped[addr]) {
             grouped[addr] = {
