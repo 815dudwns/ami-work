@@ -12,3 +12,5 @@ const firebaseConfig = {
 
 const STORAGE_KEY = 'ami_work_status';
 const CHECKED_KEY = 'ami_checked_meters';
+const PENDING_KEY = 'ami_pending_sync';   // 하위호환용, 미사용
+const EVENTS_KEY  = 'ami_event_queue';

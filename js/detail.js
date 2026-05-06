@@ -77,12 +77,29 @@ function showDetail(address, meters) {
     failInput.style.borderColor = '';
     failInput.oninput = (e) => {
         if (e.target.value.trim()) e.target.style.borderColor = '';
+        // 입력 중: 로컬만 저장
         if (!workStatus[currentAddress]) {
             workStatus[currentAddress] = { state: 'pending', checkedMeters: [], reason: '' };
         }
         workStatus[currentAddress].reason = e.target.value;
-        saveStatus(workStatus);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
     };
+    // blur/Enter 시 이벤트 큐에 추가
+    const flushFailReason = () => {
+        const session = authGetSession();
+        const state = workStatus[currentAddress]?.state || 'pending';
+        if (state !== 'pending') {
+            saveStateEvent(
+                currentAddress,
+                state,
+                failInput.value.trim(),
+                session ? session.id   : '',
+                session ? session.name : ''
+            );
+        }
+    };
+    failInput.addEventListener('blur', flushFailReason);
+    failInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { flushFailReason(); failInput.blur(); } });
 
     // 작업자 정보 표시 (기능 4)
     // 디버그: showDetail에서 읽어온 status 확인
@@ -211,12 +228,12 @@ function toggleMeterFail(meterNumber) {
     if (status.failedMeters[meterNumber] !== undefined) {
         // 이미 불가 → 해제
         delete status.failedMeters[meterNumber];
-        saveStatus(workStatus);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
         renderMetersList();
     } else {
         // 불가 처리 → 일단 빈 사유로 등록하고 입력창 표시 (renderMetersList에서 처리)
         status.failedMeters[meterNumber] = '';
-        saveStatus(workStatus);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
         renderMetersList();
         // 렌더링 후 해당 입력창에 포커스
         setTimeout(() => {
@@ -232,7 +249,7 @@ function saveMeterFailReason(meterNumber, reason) {
     const status = workStatus[currentAddress];
     if (!status.failedMeters) status.failedMeters = {};
     status.failedMeters[meterNumber] = reason;
-    saveStatus(workStatus);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
 }
 
 // 계기 목록 HTML 생성 및 렌더링
@@ -394,41 +411,40 @@ function closeDetail() {
 
 // 주소의 작업 상태 업데이트 후 마커 색상 갱신
 function updateStatus(state) {
-    if (!workStatus[currentAddress]) {
-        workStatus[currentAddress] = { state: 'pending', checkedMeters: [], reason: '' };
-    }
-
-    // 작업자 정보 기록 (기능 2)
     const session = authGetSession();
-    workStatus[currentAddress].state = state;
-    workStatus[currentAddress].updatedBy     = session ? session.id   : '';
-    workStatus[currentAddress].updatedByName = session ? session.name : '';
-    workStatus[currentAddress].updatedAt     = new Date().toISOString();
-
-    // 디버그: 저장되는 작업자 정보 확인
-    console.log('[updateStatus] 저장값:', {
+    const reason = (document.getElementById('fail-reason')?.value || '').trim();
+    saveStateEvent(
+        currentAddress,
         state,
-        updatedBy:     workStatus[currentAddress].updatedBy,
-        updatedByName: workStatus[currentAddress].updatedByName,
-        updatedAt:     workStatus[currentAddress].updatedAt,
-    });
-
-    saveStatus(workStatus);
+        state === 'fail' ? reason : '',
+        session ? session.id   : '',
+        session ? session.name : ''
+    );
     updateMarkerColor(currentAddress);
 }
 
 // 주소의 작업 상태 초기화 (pending으로 되돌리기)
 function resetStatus() {
     if (!workStatus[currentAddress]) return;
-    workStatus[currentAddress].state = 'pending';
+
+    // 각 계기 uncheck 이벤트를 먼저 큐에 추가
+    const now = Date.now();
+    (currentMeters || []).forEach(m => {
+        addEvent({ address: currentAddress, type: 'uncheck', meter: m.계기번호, ts: now });
+    });
+
+    // 로컬 초기화
     workStatus[currentAddress].checkedMeters = [];
-    workStatus[currentAddress].reason = '';
-    workStatus[currentAddress].failedMeters = {};
-    // 작업자 정보도 초기화
-    workStatus[currentAddress].updatedBy     = '';
-    workStatus[currentAddress].updatedByName = '';
-    workStatus[currentAddress].updatedAt     = '';
-    saveStatus(workStatus);
+    workStatus[currentAddress].failedMeters  = {};
+    const allChecked = {};
+    Object.keys(workStatus).forEach(addr => {
+        if (workStatus[addr]?.checkedMeters?.length) allChecked[addr] = workStatus[addr].checkedMeters;
+    });
+    saveCheckedLocal(allChecked);
+
+    // state 이벤트 (pending) 추가 후 전송
+    saveStateEvent(currentAddress, 'pending', '', '', '');
+
     updateMarkerColor(currentAddress);
     showDetail(currentAddress, currentMeters);
 }
@@ -438,27 +454,7 @@ function toggleMeterCheck(meterNumber) {
     if (!workStatus[currentAddress]) {
         workStatus[currentAddress] = { state: 'pending', checkedMeters: [], reason: '' };
     }
-
     const checkedMeters = workStatus[currentAddress].checkedMeters || [];
-    workStatus[currentAddress].checkedMeters = checkedMeters;
-    const idx = checkedMeters.indexOf(meterNumber);
-
-    if (idx > -1) {
-        checkedMeters.splice(idx, 1);
-    } else {
-        checkedMeters.push(meterNumber);
-    }
-
-    // updatedAt 갱신 — 다른 기기와 merge 시 최신 체크 상태가 우선되도록
-    workStatus[currentAddress].updatedAt = new Date().toISOString();
-
-    saveStatus(workStatus);
-
-    // 체크 상태 별도 저장 (Firebase sync에 무관하게 유지)
-    const allChecked = {};
-    Object.keys(workStatus).forEach(addr => {
-        const cm = workStatus[addr]?.checkedMeters;
-        if (cm && cm.length > 0) allChecked[addr] = cm;
-    });
-    saveCheckedLocal(allChecked);
+    const isChecked = checkedMeters.includes(meterNumber);
+    saveCheckEvent(currentAddress, meterNumber, !isChecked);
 }
