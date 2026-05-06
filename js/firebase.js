@@ -63,29 +63,35 @@ function applyLocalChecked() {
     });
 }
 
-// Firebase에서 workStatus 한 번 읽기 (덮어쓰기)
+// Firebase 데이터와 로컬 데이터를 updatedAt 기준으로 병합 (더 최신 쪽 유지)
+function mergeFirebaseData(firebaseData) {
+    Object.keys(firebaseData).forEach(addr => {
+        const fb = firebaseData[addr];
+        const local = workStatus[addr];
+        if (!local) {
+            workStatus[addr] = fb;
+            return;
+        }
+        const fbTime = fb.updatedAt ? new Date(fb.updatedAt).getTime() : 0;
+        const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
+        // Firebase가 더 최신일 때만 덮어씀. 로컬이 같거나 더 최신이면 유지.
+        if (fbTime > localTime) {
+            workStatus[addr] = fb;
+        }
+    });
+    applyLocalChecked();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
+}
+
+// Firebase에서 workStatus 읽기 — updatedAt 병합으로 완료 상태 보호
 async function syncFromFirebase() {
     if (!statusRef) return;
     try {
         const snapshot = await statusRef.get();
         if (snapshot.exists()) {
             const data = snapshot.val();
-            workStatus = data;
-            applyLocalChecked();
-            // Firebase 데이터를 localStorage에도 동기화
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            mergeFirebaseData(data);
             console.log('[Firebase] syncFromFirebase 완료, 주소수:', Object.keys(workStatus).length);
-
-            // 디버그: 작업자 정보 필드 존재 여부 샘플 확인
-            const sampleKey = Object.keys(workStatus).find(k => workStatus[k].state !== 'pending');
-            if (sampleKey) {
-                const sample = workStatus[sampleKey];
-                console.log('[Firebase] 작업자 정보 샘플 (주소:', sampleKey, '):', {
-                    state:         sample.state,
-                    updatedByName: sample.updatedByName,
-                    updatedAt:     sample.updatedAt,
-                });
-            }
         } else {
             console.log('[Firebase] 데이터 없음 — 로컬 상태 유지');
         }
