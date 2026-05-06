@@ -8,6 +8,48 @@ let workStatus = {};
 let db = null;
 let statusRef = null;
 
+// ── 미전송 큐 ─────────────────────────────────────────────────
+// 창을 닫아도 localStorage에 큐가 남아있어 다음 접속 시 재전송
+const PENDING_KEY = 'ami_pending_sync';
+
+function loadPendingQueue() {
+    const saved = localStorage.getItem(PENDING_KEY);
+    return saved ? JSON.parse(saved) : [];
+}
+
+function savePendingQueue(queue) {
+    localStorage.setItem(PENDING_KEY, JSON.stringify(queue));
+}
+
+// 현재 workStatus 스냅샷을 큐에 추가 (타임스탬프 기록)
+function enqueueSyncSnapshot() {
+    const queue = loadPendingQueue();
+    queue.push({
+        ts: Date.now(),
+        data: JSON.parse(JSON.stringify(workStatus)),
+    });
+    // 큐는 최대 20개 유지 (오래된 것 제거)
+    if (queue.length > 20) queue.splice(0, queue.length - 20);
+    savePendingQueue(queue);
+}
+
+// 큐에 있는 미전송 스냅샷을 Firebase에 전송
+async function flushPendingQueue() {
+    if (!statusRef) return;
+    const queue = loadPendingQueue();
+    if (queue.length === 0) return;
+
+    // 가장 최신 스냅샷만 전송하면 됨 (중간 상태는 불필요)
+    const latest = queue.reduce((a, b) => (a.ts > b.ts ? a : b));
+    try {
+        await statusRef.set(latest.data);
+        savePendingQueue([]); // 전송 성공 → 큐 비움
+        console.log('[Queue] 미전송 큐 Firebase 전송 완료');
+    } catch (e) {
+        console.warn('[Queue] 미전송 큐 전송 실패, 다음 기회에 재시도:', e.message);
+    }
+}
+
 // Firebase 초기화 및 DB 연결
 function initFirebaseApp() {
     try {
@@ -31,17 +73,26 @@ function loadStatusLocal() {
     return saved ? JSON.parse(saved) : {};
 }
 
-// 상태 저장 — localStorage + Firebase 둘 다 저장
+// 상태 저장 — localStorage 즉시 저장 + Firebase 전송 (실패 시 큐에 보관)
 function saveStatus(status) {
-    // localStorage 저장
+    // localStorage 즉시 저장 (창 닫혀도 보존)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(status));
     console.log('[Local] saveStatus 완료, 주소수:', Object.keys(status).length);
 
-    // Firebase 저장
+    // Firebase 전송 시도
     if (statusRef) {
         statusRef.set(status)
-            .then(() => console.log('[Firebase] saveStatus 완료'))
-            .catch(e => console.warn('[Firebase] saveStatus 실패:', e.message));
+            .then(() => {
+                console.log('[Firebase] saveStatus 완료');
+                savePendingQueue([]); // 성공하면 큐 비움
+            })
+            .catch(e => {
+                console.warn('[Firebase] saveStatus 실패, 큐에 보관:', e.message);
+                enqueueSyncSnapshot();
+            });
+    } else {
+        // Firebase 미연결 상태면 큐에 보관
+        enqueueSyncSnapshot();
     }
 }
 
@@ -129,13 +180,16 @@ async function initFirebase() {
 
     // Firebase에서 최신 데이터 한 번 읽기 (로컬보다 Firebase 우선)
     if (firebaseOk) {
+        // 미전송 큐 먼저 재전송 (이전 세션에서 못 보낸 것)
+        await flushPendingQueue();
+
         await syncFromFirebase();
         applyLocalChecked();
 
-        // 30초 간격으로 Firebase 동기화
+        // 30초 간격으로 Firebase 동기화 + 큐 재시도
         setInterval(async () => {
+            await flushPendingQueue();
             await syncFromFirebase();
-            // 마커 색상 전체 갱신 (map.js의 함수 사용)
             if (typeof refreshAllMarkers === 'function') {
                 refreshAllMarkers();
             }
