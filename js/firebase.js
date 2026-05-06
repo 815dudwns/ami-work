@@ -194,5 +194,17 @@ async function initFirebase() {
                 refreshAllMarkers();
             }
         }, 30000);
+
+        // 창/탭이 다시 활성화될 때 즉시 동기화
+        document.addEventListener('visibilitychange', async () => {
+            if (document.visibilityState === 'visible') {
+                console.log('[Sync] 창 활성화 — Firebase 동기화 시작');
+                await flushPendingQueue();
+                await syncFromFirebase();
+                if (typeof refreshAllMarkers === 'function') {
+                    refreshAllMarkers();
+                }
+            }
+        });
     }
 }
