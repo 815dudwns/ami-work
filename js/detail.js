@@ -449,6 +449,9 @@ function toggleMeterCheck(meterNumber) {
         checkedMeters.push(meterNumber);
     }
 
+    // updatedAt 갱신 — 다른 기기와 merge 시 최신 체크 상태가 우선되도록
+    workStatus[currentAddress].updatedAt = new Date().toISOString();
+
     saveStatus(workStatus);
 
     // 체크 상태 별도 저장 (Firebase sync에 무관하게 유지)
