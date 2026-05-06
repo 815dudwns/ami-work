@@ -45,6 +45,24 @@ function saveStatus(status) {
     }
 }
 
+function loadCheckedLocal() {
+    const saved = localStorage.getItem(CHECKED_KEY);
+    return saved ? JSON.parse(saved) : {};
+}
+
+function saveCheckedLocal(checkedMap) {
+    localStorage.setItem(CHECKED_KEY, JSON.stringify(checkedMap));
+}
+
+function applyLocalChecked() {
+    const checked = loadCheckedLocal();
+    Object.keys(checked).forEach(addr => {
+        if (workStatus[addr]) {
+            workStatus[addr].checkedMeters = checked[addr];
+        }
+    });
+}
+
 // Firebase에서 workStatus 한 번 읽기 (덮어쓰기)
 async function syncFromFirebase() {
     if (!statusRef) return;
@@ -53,6 +71,7 @@ async function syncFromFirebase() {
         if (snapshot.exists()) {
             const data = snapshot.val();
             workStatus = data;
+            applyLocalChecked();
             // Firebase 데이터를 localStorage에도 동기화
             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
             console.log('[Firebase] syncFromFirebase 완료, 주소수:', Object.keys(workStatus).length);
@@ -105,6 +124,7 @@ async function initFirebase() {
     // Firebase에서 최신 데이터 한 번 읽기 (로컬보다 Firebase 우선)
     if (firebaseOk) {
         await syncFromFirebase();
+        applyLocalChecked();
 
         // 30초 간격으로 Firebase 동기화
         setInterval(async () => {

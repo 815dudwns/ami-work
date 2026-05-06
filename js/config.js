@@ -11,3 +11,4 @@ const firebaseConfig = {
 };
 
 const STORAGE_KEY = 'ami_work_status';
+const CHECKED_KEY = 'ami_checked_meters';

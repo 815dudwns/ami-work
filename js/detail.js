@@ -110,6 +110,10 @@ function showDetail(address, meters) {
         commonPoleEl.style.display = 'none';
     }
 
+    // 패널 열릴 때 검색창 초기화
+    const searchEl = document.getElementById('meter-search');
+    if (searchEl) { searchEl.value = ''; }
+
     // 패널 열릴 때 정렬 상태 초기화 + 버튼 UI 동기화
     currentSortMode = 'none';
     updateSortBtnUI();
@@ -258,8 +262,14 @@ function renderMetersList() {
         return `dup-row-${dupGroupIndex[s2] % 10}`;
     }
 
+    // 검색 필터
+    const searchVal = (document.getElementById('meter-search')?.value || '').replace(/\D/g, '');
+    const filtered = (searchVal.length >= 2)
+        ? sortedMeters.filter(m => m.계기번호.includes(searchVal))
+        : sortedMeters;
+
     const metersList = document.getElementById('meters-list');
-    metersList.innerHTML = sortedMeters.map(meter => {
+    metersList.innerHTML = filtered.map(meter => {
         const checked = (status.checkedMeters || []).includes(meter.계기번호) ? 'checked' : '';
         const parsedType = parseType(meter.계기번호) || meter.계기타입;
         const detailParts = [];
@@ -352,6 +362,12 @@ function renderMetersList() {
                 saveMeterFailReason(input.dataset.meter, input.value.trim());
             });
         });
+
+        // 계기 검색
+        const searchInput = document.getElementById('meter-search');
+        if (searchInput) {
+            searchInput.oninput = () => renderMetersList();
+        }
     }, 100);
 }
 
@@ -434,4 +450,12 @@ function toggleMeterCheck(meterNumber) {
     }
 
     saveStatus(workStatus);
+
+    // 체크 상태 별도 저장 (Firebase sync에 무관하게 유지)
+    const allChecked = {};
+    Object.keys(workStatus).forEach(addr => {
+        const cm = workStatus[addr]?.checkedMeters;
+        if (cm && cm.length > 0) allChecked[addr] = cm;
+    });
+    saveCheckedLocal(allChecked);
 }
