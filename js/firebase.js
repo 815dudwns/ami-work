@@ -163,8 +163,6 @@ function saveStateEvent(address, state, reason, updatedBy, updatedByName) {
         updatedByName,
         ts: Date.now(),
     });
-
-    flushEventQueue();
 }
 
 // 체크 토글
@@ -192,8 +190,6 @@ function saveCheckEvent(address, meter, checked) {
         if (workStatus[addr]?.checkedMeters?.length) allChecked[addr] = workStatus[addr].checkedMeters;
     });
     saveCheckedLocal(allChecked);
-
-    flushEventQueue();
 }
 
 // ── Firebase 데이터 → 내부 형식 변환 ─────────────────────────
