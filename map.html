@@ -51,12 +51,16 @@
         <!-- 작업자 정보 (기능 4): 지도앱 버튼 아래, pending이거나 정보 없으면 숨김 -->
         <div id="worker-info" class="worker-info" style="display:none;"></div>
         <div class="overlay-actions">
-            <button class="action-btn complete" id="btn-complete">✅ 완료</button>
-            <button class="action-btn hold" id="btn-hold">⏸️ 보류</button>
-            <button class="action-btn fail" id="btn-fail">❌ 불가</button>
-            <input type="text" class="fail-reason" id="fail-reason" placeholder="불가 사유">
-            <input type="text" inputmode="numeric" class="meter-search" id="meter-search" placeholder="계기 검색 (숫자 2자리 이상)">
-            <button class="search-reset-btn" id="meter-search-reset" onclick="document.getElementById('meter-search').value='';renderMetersList();">✕</button>
+            <div class="action-btn-row">
+                <button class="action-btn complete" id="btn-complete">✅ 완료</button>
+                <button class="action-btn hold" id="btn-hold">⏸️ 보류</button>
+                <button class="action-btn fail" id="btn-fail">❌ 불가</button>
+                <input type="text" class="fail-reason" id="fail-reason" placeholder="불가 사유">
+            </div>
+            <div class="search-row">
+                <input type="text" inputmode="numeric" class="meter-search" id="meter-search" placeholder="계기 검색 (숫자 2자리 이상)">
+                <button class="search-reset-btn" id="meter-search-reset" onclick="document.getElementById('meter-search').value='';renderMetersList();">✕</button>
+            </div>
         </div>
         <div id="common-pole" class="common-pole" style="display:none;"></div>
         <!-- 계기 리스트 정렬 버튼 바 -->
