@@ -117,7 +117,9 @@ function showDetail(address, meters) {
         const poleText = meters[0].변대주;
         const isDcuId = /[A-Za-z]/.test(poleText);
         const poleMain = isDcuId ? poleText.slice(0, -2) : poleText;
-        const poleHtml = `<span>${poleMain}</span><span class="seg-dup">${poleText.slice(-2)}</span>`;
+        const poleHtml = isDcuId
+            ? `<span>${poleMain}</span><span class="seg-dup">${poleText.slice(-2)}</span>`
+            : `<span>${poleText}</span>`;
         const poleCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${poleMain}" title="변대주 복사" style="margin-left:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
         commonPoleEl.innerHTML = `변대주 ${poleHtml}${poleCopyBtn}`;
         commonPoleEl.style.display = 'block';
@@ -296,8 +298,11 @@ function renderMetersList() {
         // 변대주가 있고 공통 표시 영역에 없는 경우만 개별 표시 (복사 버튼 포함)
         if (!allSamePole && meter.변대주 && meter.변대주 !== '0') {
             const pv = meter.변대주;
-            const pvMain = /[A-Za-z]/.test(pv) ? pv.slice(0, -2) : pv;
-            const pHtml = `<span>${pvMain}</span><span class="seg-dup">${pv.slice(-2)}</span>`;
+            const pvIsDcu = /[A-Za-z]/.test(pv);
+            const pvMain = pvIsDcu ? pv.slice(0, -2) : pv;
+            const pHtml = pvIsDcu
+                ? `<span>${pvMain}</span><span class="seg-dup">${pv.slice(-2)}</span>`
+                : `<span>${pv}</span>`;
             const pCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${pvMain}" title="변대주 복사" style="margin-left:3px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
             detailParts.push(`변대주 ${pHtml}${pCopyBtn}`);
         }
