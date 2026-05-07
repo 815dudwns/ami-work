@@ -391,10 +391,16 @@ function renderMetersList() {
             });
         });
 
-        // 계기 검색
+        // 계기 검색 — 입력 시 목록으로 자동 스크롤
         const searchInput = document.getElementById('meter-search');
         if (searchInput) {
-            searchInput.oninput = () => renderMetersList();
+            searchInput.oninput = () => {
+                renderMetersList();
+                setTimeout(() => {
+                    const metersList = document.getElementById('meters-list');
+                    if (metersList) metersList.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 150);
+            };
         }
     }, 100);
 }
