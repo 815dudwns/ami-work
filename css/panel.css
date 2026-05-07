@@ -28,7 +28,8 @@
 .action-btn.hold.active { background: #3b82f6; color: white; }
 .action-btn.fail { border-color: #ef4444; color: #ef4444; }
 .action-btn.fail.active { background: #ef4444; color: white; }
-.fail-reason, .meter-search { flex: 1; min-width: 200px; padding: 10px 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px; transition: border-color 0.2s; }
+.fail-reason, .meter-search { flex: 1; min-width: 0; padding: 10px 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px; transition: border-color 0.2s; }
+.search-reset-btn { padding: 8px 10px; border: 2px solid #e5e7eb; border-radius: 8px; background: #f3f4f6; color: #6b7280; font-size: 14px; cursor: pointer; flex-shrink: 0; }
 .common-pole { padding: 8px 16px; background: #eff6ff; border-bottom: 1px solid #dbeafe; font-size: 13px; color: #1d4ed8; font-weight: 600; flex-shrink: 0; }
 
 /* 계기 리스트 정렬 버튼 바 */
