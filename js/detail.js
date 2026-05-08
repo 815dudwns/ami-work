@@ -397,8 +397,8 @@ function renderMetersList() {
             searchInput.oninput = () => {
                 renderMetersList();
                 setTimeout(() => {
-                    const metersList = document.getElementById('meters-list');
-                    if (metersList) metersList.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    const actionsEl = document.querySelector('.overlay-actions');
+                    if (actionsEl) actionsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }, 150);
             };
         }
