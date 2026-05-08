@@ -440,26 +440,11 @@ function updateStatus(state) {
     updateMarkerColor(currentAddress);
 }
 
-// 주소의 작업 상태 초기화 (pending으로 되돌리기)
+// 주소의 작업 상태 초기화 (pending으로 되돌리기) — 체크박스는 유지
 function resetStatus() {
     if (!workStatus[currentAddress]) return;
 
-    // 각 계기 uncheck 이벤트를 먼저 큐에 추가
-    const now = Date.now();
-    (currentMeters || []).forEach(m => {
-        addEvent({ address: currentAddress, type: 'uncheck', meter: m.계기번호, ts: now });
-    });
-
-    // 로컬 초기화
-    workStatus[currentAddress].checkedMeters = [];
-    workStatus[currentAddress].failedMeters  = {};
-    const allChecked = {};
-    Object.keys(workStatus).forEach(addr => {
-        if (workStatus[addr]?.checkedMeters?.length) allChecked[addr] = workStatus[addr].checkedMeters;
-    });
-    saveCheckedLocal(allChecked);
-
-    // state 이벤트 (pending) 추가 후 전송
+    // state만 pending으로 (체크박스/불가 유지)
     saveStateEvent(currentAddress, 'pending', '', '', '');
 
     updateMarkerColor(currentAddress);
