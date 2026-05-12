@@ -491,8 +491,8 @@
         const p = n => String(n).padStart(2,'0');
         const nd = `${targetDate.getFullYear()}${p(targetDate.getMonth()+1)}${p(targetDate.getDate())}`;
         const nt = `${p(targetDate.getHours())}${p(targetDate.getMinutes())}${p(targetDate.getSeconds())}`;
-        // YYYYMMDD_HHMMSS 또는 YYYYMMDD-HHMMSS 패턴 교체
-        const modified = originalName.replace(/(\d{8})([_-])(\d{6})/, `${nd}$2${nt}`);
+        // 20YYMMDD_HHMMSS 또는 20YYMMDD-HHMMSS 패턴 교체 (2000년대 날짜만)
+        const modified = originalName.replace(/(20\d{6})([_-])(\d{6})/, `${nd}$2${nt}`);
         if (modified !== originalName) return modified;
         // 패턴 없으면 확장자 앞에 _타임스탬프 추가
         const dot = originalName.lastIndexOf('.');
