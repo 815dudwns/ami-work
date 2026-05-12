@@ -133,6 +133,25 @@
         .type-Amigo { background: #fce7f3; color: #9d174d; }
 
         .no-addr { text-align: center; padding: 40px 20px; color: #9ca3af; font-size: 14px; }
+
+        /* ── 계기 패널 ── */
+        .meter-panel { background: white; margin: 8px 12px; border-radius: 12px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .meter-panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .meter-panel-title { font-size: 13px; font-weight: 700; color: #111827; }
+        .meter-selected-hint { font-size: 12px; color: #1d4ed8; font-weight: 600; }
+        .meter-search-input { width: 100%; padding: 8px 10px; border: 1.5px solid #e5e7eb; border-radius: 8px; font-size: 13px; margin-bottom: 8px; }
+        .meter-search-input:focus { outline: none; border-color: #3b82f6; }
+        .meter-card-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 200px; overflow-y: auto; }
+        .meter-chip { display: flex; align-items: center; gap: 5px; padding: 6px 10px; border: 1.5px solid #e5e7eb; border-radius: 8px; background: white; cursor: pointer; }
+        .meter-chip.selected { border-color: #1d4ed8; background: #eff6ff; }
+        .meter-chip.assigned { opacity: 0.4; cursor: default; }
+        .chip-no { font-size: 12px; font-weight: 700; color: #111827; }
+
+        /* ── 결과 시간 편집 ── */
+        .result-time-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid #f0f0f0; }
+        .result-time-label { font-size: 11px; font-weight: 700; color: #374151; white-space: nowrap; }
+        .result-time-input { flex: 1; padding: 7px 8px; border: 1.5px solid #e5e7eb; border-radius: 6px; font-size: 13px; }
+        .result-time-input:focus { outline: none; border-color: #3b82f6; }
     </style>
 </head>
 <body>
@@ -149,6 +168,14 @@
 <div id="phase-upload">
     <div class="action-bar">
         <button class="btn-blue" onclick="addGroup()">+ 그룹 추가</button>
+    </div>
+    <div id="meter-panel" class="meter-panel">
+        <div class="meter-panel-head">
+            <span class="meter-panel-title">계기 선택</span>
+            <span class="meter-selected-hint" id="meter-selected-hint"></span>
+        </div>
+        <input type="text" id="meter-search" class="meter-search-input" placeholder="계기번호 검색..." oninput="filterMeters()">
+        <div class="meter-card-list" id="meter-card-list"></div>
     </div>
     <div id="group-list"></div>
 </div>
@@ -196,6 +223,7 @@ let meters = [];
 let phase = 'upload';
 let _groupIdCounter = 0;
 let _sortables = {}; // groupId → Sortable instance
+let selectedMeterNo = null; // 현재 선택된 계기번호
 
 // 모달 콜백
 let _modalCallback = null; // (meterNo | null) => void
@@ -213,17 +241,21 @@ async function init() {
     } catch {
         meters = [];
     }
+    renderMeterPanel();
 }
 
 init();
 
 // ── 그룹 추가 / 삭제 ──────────────────────────────────────
 function addGroup() {
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const localNow = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
     const id = ++_groupIdCounter;
     groups.push({
         id,
         open: true,
-        baseTime: '',
+        baseTime: localNow,
         before:  null,
         mac:     null,
         macManual: '',
@@ -267,6 +299,7 @@ function renderUpload() {
         container.appendChild(el);
         if (g.open) initSortable(g);
     });
+    renderMeterPanel();
 }
 
 function buildGroupCard(g) {
@@ -397,8 +430,8 @@ function buildAfter1Section(g) {
             ? `<div class="after1-meter">${escHtml(item.meterNo)}</div>`
             : `<div class="after1-meter unassigned">미배정</div>`;
         const imgEl = item.dataUrl
-            ? `<img class="after1-thumb" src="${item.dataUrl}" alt="" onclick="openMeterModal(${g.id},${i})">`
-            : `<div class="after1-thumb empty" onclick="openMeterModal(${g.id},${i})">+</div>`;
+            ? `<img class="after1-thumb" src="${item.dataUrl}" alt="" onclick="assignSelectedMeter(${g.id},${i})">`
+            : `<div class="after1-thumb empty" onclick="assignSelectedMeter(${g.id},${i})">+</div>`;
         return `<div class="after1-item" data-index="${i}">
             ${imgEl}
             <div class="after1-meta">${meterLabel}</div>
@@ -567,6 +600,62 @@ function copyQr(id) {
     navigator.clipboard.writeText(text).catch(() => {});
 }
 
+// ── 계기 패널 ─────────────────────────────────────────────
+function renderMeterPanel() {
+    const list = document.getElementById('meter-card-list');
+    const hint = document.getElementById('meter-selected-hint');
+    if (!list) return;
+
+    const q = (document.getElementById('meter-search')?.value || '').trim();
+    const assigned = getAssignedMeters();
+
+    hint.textContent = selectedMeterNo ? `${selectedMeterNo} 선택됨` : '';
+
+    const filtered = q
+        ? meters.filter(m => m.계기번호.includes(q))
+        : meters;
+
+    list.innerHTML = filtered.map(m => {
+        const no = m.계기번호;
+        const isAssigned = assigned.has(no) && no !== selectedMeterNo;
+        const isSelected = no === selectedMeterNo;
+        const typeCls = `type-${escHtml(m.계기타입 || '')}`;
+        return `<div class="meter-chip${isSelected ? ' selected' : ''}${isAssigned ? ' assigned' : ''}"
+                     onclick="selectMeterChip('${escAttr(no)}')">
+            <span class="type-badge ${typeCls}">${escHtml(m.계기타입 || '?')}</span>
+            <span class="chip-no">${escHtml(no.slice(-6))}</span>
+        </div>`;
+    }).join('');
+}
+
+function selectMeterChip(no) {
+    const assigned = getAssignedMeters();
+    if (assigned.has(no) && no !== selectedMeterNo) return; // 이미 다른 곳에 배정됨
+    selectedMeterNo = (selectedMeterNo === no) ? null : no; // 토글
+    renderMeterPanel();
+}
+
+function filterMeters() {
+    renderMeterPanel();
+}
+
+function assignSelectedMeter(groupId, itemIdx) {
+    if (!selectedMeterNo) {
+        // 선택된 계기 없으면 기존 배정 해제
+        const g = groups.find(x => x.id === groupId);
+        if (g && g.after1s[itemIdx]?.meterNo) {
+            g.after1s[itemIdx].meterNo = '';
+            renderUpload();
+        }
+        return;
+    }
+    const g = groups.find(x => x.id === groupId);
+    if (!g || !g.after1s[itemIdx]) return;
+    g.after1s[itemIdx].meterNo = selectedMeterNo;
+    selectedMeterNo = null; // 배정 후 선택 해제
+    renderUpload();
+}
+
 // ── 계기 배정 모달 ────────────────────────────────────────
 function getAssignedMeters() {
     // 전 그룹의 배정된 계기번호 Set
@@ -716,6 +805,11 @@ function renderResult() {
                 <div class="result-group-title">그룹 ${g.id}</div>
                 <div class="result-group-time">기준시간: ${escHtml(baseDisp)}</div>
             </div>
+            <div class="result-time-row">
+                <span class="result-time-label">기준시간</span>
+                <input type="datetime-local" class="result-time-input" value="${escAttr(g.baseTime)}"
+                       oninput="updateGroupTime(${g.id}, this.value)">
+            </div>
             <div class="result-rows">${rowsHtml}${warnHtml}</div>`;
         container.appendChild(div);
     });
@@ -727,6 +821,11 @@ function buildResultRow(label, src, infoHtml) {
         <img class="result-thumb" src="${src}" alt="">
         <div class="result-info">${infoHtml}</div>
     </div>`;
+}
+
+function updateGroupTime(id, val) {
+    const g = groups.find(x => x.id === id);
+    if (g) g.baseTime = val;
 }
 
 // ── Phase 3: EXIF 수정 후 다운로드 ───────────────────────
