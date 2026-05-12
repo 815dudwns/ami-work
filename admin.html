@@ -5,14 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>작업 사진 등록 - AMI</title>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <!-- 정적 디코딩(파일에서 QR 추출)용으로 jsQR도 유지 -->
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
-    <script type="module">
-    try {
-        const { readBarcodes } = await import('https://cdn.jsdelivr.net/npm/zxing-wasm@1/dist/browser/zxing_wasm.js');
-        window._readBarcodes = readBarcodes;
-    } catch(e) { /* jsQR fallback will be used */ }
-    </script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 80px; }
@@ -228,16 +224,30 @@
 <input type="file" id="hidden-gallery-multi" accept="image/*" multiple style="display:none">
 
 <!-- QR 라이브 스캔 오버레이 -->
-<div id="qr-scan-overlay" style="display:none;position:fixed;inset:0;background:black;z-index:700;flex-direction:column;align-items:center;justify-content:center;">
-    <video id="qr-video" playsinline autoplay muted style="width:100%;max-height:60vh;object-fit:cover;"></video>
-    <canvas id="qr-canvas" style="display:none;"></canvas>
-    <div style="color:white;font-size:14px;padding:12px 16px 4px;text-align:center;">QR / 바코드를 카메라에 비춰주세요</div>
-    <div id="qr-cam-label" style="color:rgba(255,255,255,0.5);font-size:11px;padding-bottom:8px;text-align:center;"></div>
-    <div id="qr-result-display" style="color:#10b981;font-size:18px;font-weight:700;padding:8px 16px;background:rgba(0,0,0,0.7);border-radius:8px;display:none;"></div>
-    <div style="display:flex;gap:12px;margin-top:16px;">
-        <button id="qr-switch-btn" onclick="switchQrCamera()" style="padding:12px 20px;background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.4);border-radius:10px;font-size:14px;font-weight:600;">🔄 카메라 전환</button>
-        <button onclick="stopQrScan()" style="padding:12px 24px;background:#dc2626;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;">닫기</button>
+<div id="qr-scan-overlay" style="display:none;position:fixed;inset:0;background:black;z-index:700;flex-direction:column;align-items:stretch;">
+    <!-- 헤더 -->
+    <div style="background:rgba(0,0,0,0.85);padding:14px 16px;display:flex;align-items:center;gap:10px;">
+        <span style="color:white;font-size:15px;font-weight:700;flex:1;">📷 QR / 바코드 스캔</span>
+        <button onclick="stopQrScan()" style="padding:8px 14px;background:#dc2626;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;">닫기</button>
     </div>
+
+    <!-- 스캔 영역 (html5-qrcode가 video element 삽입) -->
+    <div id="qr-reader" style="width:100%;flex:1;background:black;"></div>
+
+    <!-- 에러 메시지 영역 -->
+    <div id="qr-error-msg" style="display:none;padding:14px 16px;background:#fef2f2;color:#dc2626;font-size:13px;line-height:1.5;"></div>
+
+    <!-- 컨트롤 영역 -->
+    <div style="background:rgba(0,0,0,0.85);padding:12px 16px;display:flex;flex-direction:column;gap:8px;">
+        <div id="qr-cam-label" style="color:rgba(255,255,255,0.65);font-size:11px;text-align:center;"></div>
+        <div style="display:flex;gap:8px;">
+            <button id="qr-switch-btn" onclick="switchQrCamera()" style="flex:1;padding:11px;background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.4);border-radius:8px;font-size:13px;font-weight:600;display:none;">🔄 카메라 전환</button>
+            <button id="qr-fallback-btn" onclick="qrFallbackCapture()" style="flex:1;padding:11px;background:#1d4ed8;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;">📸 직접 촬영</button>
+        </div>
+    </div>
+
+    <!-- fallback: 단발 촬영용 숨김 input -->
+    <input type="file" id="qr-fallback-input" accept="image/*" capture="environment" style="display:none" onchange="onQrFallbackInput(this)">
 </div>
 
 <!-- 계기 배정 모달 -->
@@ -1172,121 +1182,215 @@ function handlePhotoInput(e) {
     }
 }
 
-// ── QR 라이브 스캔 ────────────────────────────────────────
-let _qrStream = null;
-let _qrRaf = null;
-let _qrCamDevices = [];   // 후면 카메라 목록
-let _qrCamIndex = 0;      // 현재 사용 중인 인덱스
+// ── QR 라이브 스캔 (html5-qrcode) ─────────────────────────
+let _qrScanner = null;
+let _qrCameras = [];
+let _qrCamIndex = 0;
 
 function photoActionScan() {
     document.getElementById('photo-action-sheet').style.display = 'none';
     startQrScan();
 }
 
-async function startQrScan(deviceId) {
-    const overlay = document.getElementById('qr-scan-overlay');
-    overlay.style.display = 'flex';
-    const video = document.getElementById('qr-video');
+async function startQrScan() {
+    document.getElementById('qr-scan-overlay').style.display = 'flex';
+    document.getElementById('qr-error-msg').style.display = 'none';
+
+    // 라이브러리 로드 체크
+    if (typeof Html5Qrcode === 'undefined') {
+        showQrError('스캔 라이브러리 로드 실패 — 직접 촬영을 이용해 주세요.');
+        return;
+    }
+
+    // 카메라 목록 조회
+    try {
+        _qrCameras = await Html5Qrcode.getCameras();
+    } catch(e) {
+        showQrError(qrErrorMessage(e));
+        return;
+    }
+
+    if (!_qrCameras || _qrCameras.length === 0) {
+        showQrError('카메라를 찾을 수 없습니다. 직접 촬영을 이용해 주세요.');
+        return;
+    }
+
+    // 후면 카메라 우선 선택
+    if (_qrCamIndex === 0) {
+        const rearIdx = _qrCameras.findIndex(c =>
+            /back|rear|environment/i.test(c.label) && !/front|전면/.test(c.label.toLowerCase())
+        );
+        if (rearIdx >= 0) _qrCamIndex = rearIdx;
+    }
+
+    // 전환 버튼 표시 여부
+    document.getElementById('qr-switch-btn').style.display = _qrCameras.length > 1 ? '' : 'none';
+
+    await startQrCamera(_qrCameras[_qrCamIndex].id);
+}
+
+async function startQrCamera(cameraId) {
+    if (_qrScanner) {
+        try { await _qrScanner.stop(); } catch {}
+        _qrScanner = null;
+    }
+    _qrScanner = new Html5Qrcode("qr-reader");
+
+    const config = {
+        fps: 10,
+        qrbox: function(viewfinderWidth, viewfinderHeight) {
+            const size = Math.min(viewfinderWidth, viewfinderHeight) * 0.7;
+            return { width: size, height: size };
+        },
+        aspectRatio: 1.0,
+        formatsToSupport: [
+            Html5QrcodeSupportedFormats.QR_CODE,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+        ]
+    };
+
+    // 라벨 표시
+    const cam = _qrCameras[_qrCamIndex];
+    document.getElementById('qr-cam-label').textContent =
+        `${cam.label || '카메라'} (${_qrCamIndex + 1}/${_qrCameras.length})`;
 
     try {
-        if (_qrStream) { _qrStream.getTracks().forEach(t => t.stop()); _qrStream = null; }
-
-        // deviceId 지정 없이 먼저 권한 요청 + 스트림 열기
-        const constraints = (_qrCamDevices.length > 0 && _qrCamDevices[_qrCamIndex]?.deviceId)
-            ? { video: { deviceId: { exact: _qrCamDevices[_qrCamIndex].deviceId } } }
-            : { video: { facingMode: 'environment' } };
-
-        _qrStream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = _qrStream;
-        await video.play();
-
-        // 권한 획득 후에 카메라 목록 탐색 (이때는 label이 채워짐)
-        if (_qrCamDevices.length === 0) {
-            const all = await navigator.mediaDevices.enumerateDevices().catch(() => []);
-            _qrCamDevices = all.filter(d =>
-                d.kind === 'videoinput' &&
-                !d.label.toLowerCase().includes('front') &&
-                !d.label.includes('전면')
-            );
-            if (!_qrCamDevices.length) _qrCamDevices = all.filter(d => d.kind === 'videoinput');
-            _qrCamIndex = 0;
-        }
-
-        // 전환 버튼 표시
-        const switchBtn = document.getElementById('qr-switch-btn');
-        if (switchBtn) switchBtn.style.display = _qrCamDevices.length > 1 ? '' : 'none';
-
-        // 현재 카메라 라벨
-        const cam = _qrCamDevices[_qrCamIndex];
-        const labelEl = document.getElementById('qr-cam-label');
-        if (labelEl) labelEl.textContent = cam?.label
-            ? `${cam.label} (${_qrCamIndex + 1}/${_qrCamDevices.length})`
-            : `카메라 ${_qrCamIndex + 1}`;
-
-        scanQrFrame();
+        await _qrScanner.start(
+            cameraId,
+            config,
+            (decodedText) => { onQrDetected(decodedText); },
+            (errMsg) => { /* 매 프레임 디코딩 실패 — 무시 */ }
+        );
     } catch(e) {
-        alert('카메라 접근 실패: ' + e.message + '\n(HTTPS 환경에서만 작동합니다)');
-        overlay.style.display = 'none';
+        showQrError(qrErrorMessage(e));
     }
 }
 
-function scanQrFrame() {
-    const video = document.getElementById('qr-video');
-    const canvas = document.getElementById('qr-canvas');
-    const ctx = canvas.getContext('2d');
-    if (video.readyState < video.HAVE_ENOUGH_DATA) {
-        _qrRaf = requestAnimationFrame(scanQrFrame); return;
-    }
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0);
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-    if (window._readBarcodes) {
-        window._readBarcodes(imageData).then(results => {
-            if (results && results.length > 0) {
-                onQrDetected(results[0].text);
-            } else {
-                _qrRaf = requestAnimationFrame(scanQrFrame);
-            }
-        }).catch(() => { _qrRaf = requestAnimationFrame(scanQrFrame); });
-    } else if (window.jsQR) {
-        const code = jsQR(imageData.data, imageData.width, imageData.height);
-        if (code) { onQrDetected(code.data); return; }
-        _qrRaf = requestAnimationFrame(scanQrFrame);
-    } else {
-        _qrRaf = requestAnimationFrame(scanQrFrame);
-    }
-}
-
+// 스캔 성공 — 영상 프레임을 사진으로 캡처 + 데이터 저장
 function onQrDetected(text) {
+    // video 엘리먼트 찾기 (html5-qrcode가 #qr-reader 내부에 삽입)
+    const video = document.querySelector('#qr-reader video');
+    let captured = null;
+
+    if (video && video.videoWidth && video.videoHeight) {
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            captured = canvas.toDataURL('image/jpeg', 0.9);
+        } catch(e) { console.warn('프레임 캡처 실패', e); }
+    }
+
     stopQrScan();
+
     const { groupId } = _photoAction;
     const g = groups.find(x => x.id === groupId);
-    if (g) {
-        if (!g.mac) g.mac = { dataUrl: null, filename: '', qrData: text };
-        else g.mac.qrData = text;
-        g.macManual = text;
-        saveStateToStorage();
-        renderUpload();
+    if (!g) return;
+
+    // 사진 + QR 데이터 동시 저장
+    g.mac = {
+        dataUrl: captured || g.mac?.dataUrl || null,
+        filename: `qr_${Date.now()}.jpg`,
+        qrData: text
+    };
+    g.macManual = '';  // QR 인식 성공 시 수동 입력 비움
+    saveStateToStorage();
+    renderUpload();
+}
+
+async function switchQrCamera() {
+    if (_qrCameras.length <= 1) return;
+    _qrCamIndex = (_qrCamIndex + 1) % _qrCameras.length;
+    await startQrCamera(_qrCameras[_qrCamIndex].id);
+}
+
+async function stopQrScan() {
+    if (_qrScanner) {
+        try { await _qrScanner.stop(); _qrScanner.clear(); } catch {}
+        _qrScanner = null;
     }
-}
-
-function switchQrCamera() {
-    if (_qrCamDevices.length <= 1) return;
-    if (_qrRaf) { cancelAnimationFrame(_qrRaf); _qrRaf = null; }
-    _qrCamIndex = (_qrCamIndex + 1) % _qrCamDevices.length;
-    startQrScan();
-}
-
-function stopQrScan() {
-    if (_qrRaf) { cancelAnimationFrame(_qrRaf); _qrRaf = null; }
-    if (_qrStream) { _qrStream.getTracks().forEach(t => t.stop()); _qrStream = null; }
-    document.getElementById('qr-video').srcObject = null;
     document.getElementById('qr-scan-overlay').style.display = 'none';
-    // 다음 스캔 시 카메라 목록 재탐색하지 않도록 유지 (인덱스만 리셋)
-    _qrCamIndex = 0;
-    _qrCamDevices = [];
+    document.getElementById('qr-error-msg').style.display = 'none';
+}
+
+// 카메라 에러 메시지 분류
+function qrErrorMessage(e) {
+    const name = e?.name || '';
+    const msg  = e?.message || String(e);
+    if (/NotAllowed|Permission/i.test(name + msg)) {
+        return '카메라 권한이 거부됨\n주소창 왼쪽 자물쇠 아이콘 → 카메라 → 허용으로 변경하세요.\n(삼성인터넷: 설정 > 앱 > 삼성 인터넷 > 권한 > 카메라)';
+    }
+    if (/NotFound|DevicesNotFound|OverConstrained/i.test(name + msg)) {
+        return '카메라를 찾을 수 없습니다.\n다른 카메라 앱을 종료하고 다시 시도해 주세요.';
+    }
+    if (/NotReadable|TrackStart/i.test(name + msg)) {
+        return '카메라를 열 수 없습니다.\n다른 앱이 카메라를 사용 중일 수 있어요.\n잠시 후 다시 시도하거나 "📸 직접 촬영"을 이용해 주세요.';
+    }
+    return `카메라 오류: ${name || msg}\n"📸 직접 촬영" 버튼을 이용해 주세요.`;
+}
+
+function showQrError(text) {
+    const el = document.getElementById('qr-error-msg');
+    el.style.display = 'block';
+    el.textContent = text;
+}
+
+// Fallback: 단발 촬영 → 정적 디코딩
+function qrFallbackCapture() {
+    document.getElementById('qr-fallback-input').click();
+}
+
+function onQrFallbackInput(input) {
+    const file = input.files?.[0];
+    if (!file) return;
+    input.value = '';
+
+    const reader = new FileReader();
+    reader.onload = e => {
+        const dataUrl = e.target.result;
+        // 정적 디코딩 (jsQR)
+        decodeQrFromDataUrl(dataUrl, qrText => {
+            stopQrScan();
+            const { groupId } = _photoAction;
+            const g = groups.find(x => x.id === groupId);
+            if (!g) return;
+            g.mac = {
+                dataUrl,
+                filename: file.name,
+                qrData: qrText || ''
+            };
+            g.macManual = qrText ? '' : (g.macManual || '');
+            saveStateToStorage();
+            renderUpload();
+
+            if (!qrText) {
+                alert('QR/바코드 인식 실패 — 사진은 저장되었고 MAC은 직접 입력해 주세요.');
+            }
+        });
+    };
+    reader.readAsDataURL(file);
+}
+
+function decodeQrFromDataUrl(dataUrl, callback) {
+    const img = new Image();
+    img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width  = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        try {
+            const code = jsQR(imageData.data, imageData.width, imageData.height);
+            callback(code ? code.data : null);
+        } catch { callback(null); }
+    };
+    img.onerror = () => callback(null);
+    img.src = dataUrl;
 }
 
 // ── IndexedDB + 상태 저장 ─────────────────────────────────
