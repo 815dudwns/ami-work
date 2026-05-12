@@ -369,7 +369,7 @@
                 const blob = dataUrlToBlob(newUrl);
                 const ed = dateToExif(t).replace(/[: ]/g,'');
                 const nd = ed.slice(0,8), nt = ed.slice(9,15);
-                const name = p.filename.replace(/(20\d{6})([_-])(\d{6})/, `${nd}$2${nt}`) || p.filename;
+                const name = `${nd}_${nt}.jpg`;
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a'); a.href=url; a.download=name; a.click();
                 setTimeout(()=>URL.revokeObjectURL(url),3000);
