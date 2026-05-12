@@ -328,7 +328,7 @@
             const photoRows = slots.map(type => {
                 const isAfter1 = type === 'after1';
                 const hasPreview = !!ms.previews?.[type];
-                const timeVal = ms.times?.[type] || '';
+                const timeVal = ms.times?.[type] || (isAfter1 ? dateToLocal(new Date()) : '');
                 const exifStr = ms.exifs?.[type] || '';
                 return `
                 <div class="photo-row">
