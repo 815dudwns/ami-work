@@ -3,65 +3,75 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>사진 시간 변경 - AMI 관리자</title>
+    <title>작업 등록 - AMI 관리자</title>
     <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-        body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 32px; }
+        body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 40px; }
 
-        .header { background: #1e3a8a; color: white; padding: 14px 16px; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 100; }
+        .header { background: #1e3a8a; color: white; padding: 14px 16px; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 200; }
         .header a { color: rgba(255,255,255,0.75); text-decoration: none; font-size: 14px; }
         .header h1 { font-size: 17px; font-weight: 700; flex: 1; }
 
         .card { background: white; margin: 12px; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); }
         .card-title { font-size: 12px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
 
-        /* 계기 수 설정 */
-        .count-row { display: flex; align-items: center; gap: 12px; }
-        .count-btn { width: 40px; height: 40px; border: 2px solid #3b82f6; border-radius: 10px; background: white; color: #3b82f6; font-size: 22px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; }
-        .count-btn:active { background: #3b82f6; color: white; }
-        .count-num { font-size: 28px; font-weight: 800; color: #111827; min-width: 32px; text-align: center; }
-        .count-label { font-size: 14px; color: #6b7280; }
-        .count-hint { font-size: 12px; color: #9ca3af; margin-top: 6px; }
+        /* 검색 */
+        .search-row { display: flex; gap: 8px; }
+        .search-input { flex: 1; padding: 11px 12px; border: 1.5px solid #d1d5db; border-radius: 8px; font-size: 15px; color: #111827; }
+        .search-input:focus { outline: none; border-color: #3b82f6; }
+        .search-results { margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; display: none; }
+        .search-item { padding: 11px 12px; border-bottom: 1px solid #f3f4f6; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+        .search-item:last-child { border-bottom: none; }
+        .search-item:active { background: #f0f9ff; }
+        .search-item .meter-no { font-size: 14px; font-weight: 700; color: #111827; flex: 1; }
+        .search-item .meter-addr { font-size: 11px; color: #6b7280; }
+        .no-result { padding: 12px; text-align: center; font-size: 13px; color: #9ca3af; }
 
-        /* 사진 슬롯 */
-        .slot-list { display: flex; flex-direction: column; gap: 10px; }
-        .photo-slot { border: 1.5px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
-        .photo-slot.has-file { border-color: #3b82f6; }
+        /* 계기 카드 */
+        .meter-card { background: white; margin: 0 12px 10px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); overflow: hidden; border: 1.5px solid #e5e7eb; }
+        .meter-card-header { padding: 12px 14px; display: flex; align-items: center; gap: 8px; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
+        .type-badge { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+        .type-E { background: #e0f2fe; color: #0369a1; }
+        .type-EA { background: #dbeafe; color: #1d4ed8; }
+        .type-G { background: #d1fae5; color: #065f46; }
+        .type-Amigo { background: #fce7f3; color: #9d174d; }
+        .meter-no-text { font-size: 15px; font-weight: 700; color: #111827; flex: 1; }
+        .meter-pole { font-size: 11px; color: #6b7280; }
+        .remove-btn { width: 28px; height: 28px; border: none; background: #fee2e2; color: #dc2626; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 
-        .slot-header { padding: 10px 12px 0; display: flex; align-items: center; gap: 8px; }
-        .slot-badge { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; background: #e5e7eb; color: #6b7280; }
-        .photo-slot.has-file .slot-badge { background: #dbeafe; color: #1d4ed8; }
-        .slot-name { font-size: 14px; font-weight: 700; color: #111827; flex: 1; }
-        .slot-desc { font-size: 11px; color: #9ca3af; }
+        /* 역할 버튼 4개 */
+        .role-row { padding: 10px 14px; display: flex; gap: 6px; border-bottom: 1px solid #f3f4f6; }
+        .role-btn { flex: 1; padding: 8px 4px; border: 1.5px solid #e5e7eb; border-radius: 8px; background: white; font-size: 12px; font-weight: 600; color: #6b7280; cursor: pointer; text-align: center; }
+        .role-btn.active-단독 { border-color: #6b7280; background: #6b7280; color: white; }
+        .role-btn.active-마스터 { border-color: #1d4ed8; background: #1d4ed8; color: white; }
+        .role-btn.active-슬레이브 { border-color: #7c3aed; background: #7c3aed; color: white; }
+        .role-btn.active-집합단독 { border-color: #0f766e; background: #0f766e; color: white; }
 
-        .slot-body { padding: 10px 12px 12px; display: flex; gap: 10px; align-items: flex-start; }
-        .preview-wrap { width: 68px; height: 68px; border-radius: 8px; background: #f3f4f6; border: 1.5px dashed #d1d5db; overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative; }
-        .preview-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .preview-plus { font-size: 22px; color: #9ca3af; pointer-events: none; }
-        .preview-wrap input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
-
-        .slot-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-        .slot-time-input { width: 100%; padding: 9px 10px; border: 1.5px solid #e5e7eb; border-radius: 7px; font-size: 13px; color: #111827; background: white; }
-        .slot-time-input:focus { outline: none; border-color: #3b82f6; }
-        .slot-time-input[readonly] { background: #f9fafb; color: #6b7280; }
-        .slot-file-name { font-size: 12px; color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .slot-exif { font-size: 11px; color: #9ca3af; }
-        .slot-auto-label { font-size: 11px; color: #10b981; font-weight: 600; }
-
-        /* 시간 미리보기 */
-        .preview-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        .preview-table th { text-align: left; padding: 5px 8px; color: #6b7280; font-weight: 600; font-size: 11px; border-bottom: 1px solid #e5e7eb; }
-        .preview-table td { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; }
-        .preview-table td:last-child { color: #374151; font-variant-numeric: tabular-nums; font-size: 12px; }
-        .time-auto { color: #10b981; }
-        .time-input-mark { color: #3b82f6; }
+        /* 사진 슬롯 영역 */
+        .photo-area { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+        .photo-row { display: flex; gap: 8px; align-items: flex-start; }
+        .photo-label { font-size: 12px; font-weight: 700; color: #374151; width: 52px; padding-top: 10px; flex-shrink: 0; }
+        .photo-thumb { width: 60px; height: 60px; border-radius: 8px; background: #f3f4f6; border: 1.5px dashed #d1d5db; overflow: hidden; position: relative; flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .photo-thumb .plus { font-size: 20px; color: #9ca3af; }
+        .photo-thumb input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+        .photo-thumb.filled { border-color: #3b82f6; border-style: solid; }
+        .photo-meta { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+        .photo-time { width: 100%; padding: 8px 10px; border: 1.5px solid #e5e7eb; border-radius: 7px; font-size: 13px; color: #111827; }
+        .photo-time:focus { outline: none; border-color: #3b82f6; }
+        .photo-time[readonly] { background: #f9fafb; color: #6b7280; font-size: 12px; }
+        .photo-exif { font-size: 11px; color: #9ca3af; }
+        .photo-auto { font-size: 11px; color: #10b981; font-weight: 600; }
+        .role-hint { padding: 0 14px 12px; font-size: 12px; color: #9ca3af; }
+        .role-hint.error { color: #dc2626; font-weight: 600; }
 
         /* 처리 버튼 */
-        .process-btn { display: block; width: calc(100% - 24px); margin: 0 12px; padding: 15px; background: #10b981; color: white; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; text-align: center; }
+        .process-btn { display: block; width: calc(100% - 24px); margin: 4px 12px 0; padding: 15px; background: #10b981; color: white; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; text-align: center; }
         .process-btn:active { background: #059669; }
         .process-btn:disabled { background: #d1d5db; color: #9ca3af; cursor: not-allowed; }
 
+        .empty-hint { text-align: center; padding: 24px; font-size: 14px; color: #9ca3af; }
         .status { margin: 8px 12px 0; padding: 12px 14px; border-radius: 8px; font-size: 13px; line-height: 1.5; display: none; }
         .status.info { display: block; background: #eff6ff; color: #1d4ed8; }
         .status.success { display: block; background: #f0fdf4; color: #15803d; }
@@ -72,111 +82,29 @@
 
 <div class="header">
     <a href="map.html">← 지도</a>
-    <h1>사진 시간 변경</h1>
+    <h1>작업 등록</h1>
 </div>
 
-<!-- 1. 함내 계기 수 -->
+<!-- 계기 검색 -->
 <div class="card">
-    <div class="card-title">함내 계기 수</div>
-    <div class="count-row">
-        <button class="count-btn" onclick="adjustCount(-1)">−</button>
-        <span class="count-num" id="count-display">1</span>
-        <button class="count-btn" onclick="adjustCount(+1)">+</button>
-        <span class="count-label">계기</span>
+    <div class="card-title">계기번호 검색</div>
+    <div class="search-row">
+        <input type="text" id="meter-search-input" class="search-input" inputmode="numeric"
+               placeholder="계기번호 입력 (앞 4자리 이상)" oninput="onSearchInput()">
     </div>
-    <div class="count-hint" id="count-hint">단독형 / 집합형(단독)</div>
+    <div class="search-results" id="search-results"></div>
 </div>
 
-<!-- 2. 시공후1 사진 (계기별, 동적 생성) -->
-<div class="card">
-    <div class="card-title">시공후1 사진 — 계기별 시간 입력</div>
-    <div class="slot-list" id="after1-slots"></div>
+<!-- 작업 계기 목록 -->
+<div id="work-list-section" style="display:none;">
+    <div style="padding: 0 12px 4px; font-size: 12px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.06em;">작업 계기 목록</div>
+    <div id="work-list"></div>
 </div>
-
-<!-- 3. 공통 사진 (시공전 / 맥 / 시공후2) -->
-<div class="card">
-    <div class="card-title">공통 사진</div>
-    <div class="slot-list">
-
-        <!-- 시공전 -->
-        <div class="photo-slot" id="slot-before">
-            <div class="slot-header">
-                <span class="slot-badge">1</span>
-                <span class="slot-name">시공전</span>
-                <span class="slot-desc">함체 전체 (작업 전)</span>
-            </div>
-            <div class="slot-body">
-                <div class="preview-wrap" id="pw-before">
-                    <span class="preview-plus">+</span>
-                    <input type="file" accept="image/*" onchange="onCommonFile('before', this)">
-                </div>
-                <div class="slot-info">
-                    <div class="slot-file-name" id="fn-before">사진 선택</div>
-                    <input type="text" class="slot-time-input" id="t-before" readonly placeholder="시공후1 입력 후 자동계산">
-                    <div class="slot-auto-label">첫 시공후1 − 10분 − (슬레이브×2분) | 자동</div>
-                    <div class="slot-exif" id="ex-before"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 맥 -->
-        <div class="photo-slot" id="slot-mac">
-            <div class="slot-header">
-                <span class="slot-badge">2</span>
-                <span class="slot-name">모뎀맥</span>
-                <span class="slot-desc">QR/바코드 사진</span>
-            </div>
-            <div class="slot-body">
-                <div class="preview-wrap" id="pw-mac">
-                    <span class="preview-plus">+</span>
-                    <input type="file" accept="image/*" onchange="onCommonFile('mac', this)">
-                </div>
-                <div class="slot-info">
-                    <div class="slot-file-name" id="fn-mac">사진 선택</div>
-                    <input type="text" class="slot-time-input" id="t-mac" readonly placeholder="마지막 시공후1 기준 자동계산">
-                    <div class="slot-auto-label">마지막 시공후1 기준 | 자동</div>
-                    <div class="slot-exif" id="ex-mac"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 시공후2 -->
-        <div class="photo-slot" id="slot-after2">
-            <div class="slot-header">
-                <span class="slot-badge">4</span>
-                <span class="slot-name">시공후2</span>
-                <span class="slot-desc">함체 전체 (작업 후)</span>
-            </div>
-            <div class="slot-body">
-                <div class="preview-wrap" id="pw-after2">
-                    <span class="preview-plus">+</span>
-                    <input type="file" accept="image/*" onchange="onCommonFile('after2', this)">
-                </div>
-                <div class="slot-info">
-                    <div class="slot-file-name" id="fn-after2">사진 선택</div>
-                    <input type="text" class="slot-time-input" id="t-after2" readonly placeholder="마지막 시공후1 + 10초 자동계산">
-                    <div class="slot-auto-label">마지막 시공후1 + 10초 | 자동</div>
-                    <div class="slot-exif" id="ex-after2"></div>
-                </div>
-            </div>
-        </div>
-
-    </div>
-</div>
-
-<!-- 4. 계산 시간 미리보기 -->
-<div class="card" id="preview-card" style="display:none;">
-    <div class="card-title">계산 시간 미리보기</div>
-    <table class="preview-table">
-        <thead><tr><th>사진</th><th>기본값 (±랜덤 전)</th></tr></thead>
-        <tbody id="preview-tbody"></tbody>
-    </table>
-    <div style="margin-top:8px;font-size:11px;color:#9ca3af;">실제 적용 시 각 시간에 ±랜덤초 추가 (순서 유지)</div>
-</div>
+<div id="empty-hint" class="empty-hint">계기를 검색해서 추가하세요</div>
 
 <div class="status" id="status-msg"></div>
 
-<button class="process-btn" id="process-btn" onclick="processAndDownload()" disabled>
+<button class="process-btn" id="process-btn" onclick="processAll()" disabled>
     시간 변경 후 다운로드
 </button>
 
@@ -184,245 +112,343 @@
 <script src="js/config.js"></script>
 <script>
     authRequire();
-    const session = authGetSession();
-    if (!session || session.role !== 'admin') {
+    const _sess = authGetSession();
+    if (!_sess || _sess.role !== 'admin') {
         alert('관리자 전용 페이지입니다.');
         window.location.href = 'map.html';
     }
 
-    // ─── 상태 ───────────────────────────────────────────
-    let meterCount = 1;
-    const after1Data = [{ file: null, exifOrig: '' }]; // meterCount만큼 유지
-    const commonFiles = { before: null, mac: null, after2: null };
+    // ── 전체 사이트 데이터 ──────────────────────────────────────
+    let allMeters = [];
+    fetch('./data/site-data.json')
+        .then(r => r.json())
+        .then(data => { allMeters = data; })
+        .catch(() => { allMeters = []; });
 
-    const HINTS = ['단독형 / 집합형(단독)', '집합형(기본) — 마스터+슬1', '집합형(기본) — 마스터+슬2', '집합형(기본) — 마스터+슬3'];
+    // ── 작업 목록 상태 ──────────────────────────────────────────
+    // {id, meter, role, photos:{before,mac,after1,after2}, times:{after1}, previews:{...}}
+    let workItems = [];
+    let uid = 0;
 
-    // ─── 계기 수 조절 ───────────────────────────────────
-    function adjustCount(delta) {
-        const next = Math.max(1, Math.min(8, meterCount + delta));
-        if (next === meterCount) return;
-        meterCount = next;
-        document.getElementById('count-display').textContent = meterCount;
-        document.getElementById('count-hint').textContent = HINTS[Math.min(meterCount - 1, 3)] || `집합형 — 마스터+슬${meterCount-1}`;
+    const ROLES = ['단독', '마스터', '슬레이브', '집합단독'];
+    const ROLE_PHOTOS = {
+        '단독':    ['before','mac','after1','after2'],
+        '마스터':  ['before','mac','after1','after2'],
+        '슬레이브':['after1'],
+        '집합단독':['before','mac','after1','after2'],
+    };
+    const PHOTO_LABELS = { before:'시공전', mac:'맥', after1:'시공후1', after2:'시공후2' };
+    const PHOTO_DESCS  = { before:'함체전체(전)', mac:'QR/바코드', after1:'계기단독(후)', after2:'함체전체(후)' };
 
-        // after1Data 배열 동기화
-        while (after1Data.length < meterCount) after1Data.push({ file: null, exifOrig: '' });
-        while (after1Data.length > meterCount) after1Data.pop();
-
-        renderAfter1Slots();
-        updateAutoTimes();
-        updateProcessBtn();
-    }
-
-    // ─── 시공후1 슬롯 렌더링 ────────────────────────────
-    function renderAfter1Slots() {
-        const container = document.getElementById('after1-slots');
-        container.innerHTML = '';
-        for (let i = 0; i < meterCount; i++) {
-            const label = i === 0 ? '마스터' : `슬레이브 ${i}`;
-            const badgeNum = i + 1;
-            const hasFile = !!after1Data[i].file;
-            container.innerHTML += `
-            <div class="photo-slot${hasFile ? ' has-file' : ''}" id="after1-slot-${i}">
-                <div class="slot-header">
-                    <span class="slot-badge">3-${badgeNum}</span>
-                    <span class="slot-name">시공후1 (${label})</span>
-                    <span class="slot-desc">계기 단독</span>
-                </div>
-                <div class="slot-body">
-                    <div class="preview-wrap" id="pw-after1-${i}">
-                        ${hasFile ? `<img src="${after1Data[i].previewUrl}" alt="">` : '<span class="preview-plus">+</span>'}
-                        <input type="file" accept="image/*" onchange="onAfter1File(${i}, this)">
+    // ── 계기 검색 ───────────────────────────────────────────────
+    function onSearchInput() {
+        const q = document.getElementById('meter-search-input').value.trim();
+        const box = document.getElementById('search-results');
+        if (q.length < 4) { box.style.display = 'none'; return; }
+        const results = allMeters.filter(m => m.계기번호 && m.계기번호.includes(q)).slice(0, 8);
+        if (!results.length) {
+            box.innerHTML = '<div class="no-result">검색 결과 없음</div>';
+        } else {
+            box.innerHTML = results.map(m =>
+                `<div class="search-item" onclick="addMeter(${JSON.stringify(m).replace(/"/g,'&quot;')})">
+                    <div>
+                        <div class="meter-no">${highlightMatch(m.계기번호, q)}</div>
+                        <div class="meter-addr">${m.주소 || ''} ${m.상호 || ''}</div>
                     </div>
-                    <div class="slot-info">
-                        <div class="slot-file-name" id="fn-after1-${i}">${hasFile ? after1Data[i].fileName : '사진 선택'}</div>
-                        <input type="datetime-local" class="slot-time-input" id="t-after1-${i}"
-                               value="${after1Data[i].timeVal || ''}"
-                               oninput="onAfter1TimeChange(${i})">
-                        <div class="slot-exif" id="ex-after1-${i}">${after1Data[i].exifOrig ? '원본: ' + after1Data[i].exifOrig : ''}</div>
-                    </div>
-                </div>
-            </div>`;
+                    <span class="type-badge type-${m.계기타입||''}">${m.계기타입||'?'}</span>
+                </div>`
+            ).join('');
         }
+        box.style.display = '';
     }
 
-    // ─── 시공후1 파일 선택 ───────────────────────────────
-    function onAfter1File(idx, input) {
-        const file = input.files[0];
-        if (!file) return;
-        after1Data[idx].file = file;
-        after1Data[idx].fileName = file.name;
-        const reader = new FileReader();
-        reader.onload = e => {
-            after1Data[idx].previewUrl = e.target.result;
-            readExif(e.target.result, orig => { after1Data[idx].exifOrig = orig; });
-            renderAfter1Slots();
-            // 시간 미입력 시 EXIF 시간으로 채우기
-            const tInput = document.getElementById(`t-after1-${idx}`);
-            if (!tInput.value && after1Data[idx].exifOrig) {
-                const local = exifToLocal(after1Data[idx].exifOrig);
-                if (local) { tInput.value = local; after1Data[idx].timeVal = local; }
-            }
-            updateAutoTimes();
-            updateProcessBtn();
+    function highlightMatch(str, q) {
+        const idx = str.indexOf(q);
+        if (idx < 0) return str;
+        return str.slice(0,idx) + `<b style="color:#1d4ed8">${str.slice(idx,idx+q.length)}</b>` + str.slice(idx+q.length);
+    }
+
+    // ── 계기 추가 ───────────────────────────────────────────────
+    function addMeter(meter) {
+        document.getElementById('meter-search-input').value = '';
+        document.getElementById('search-results').style.display = 'none';
+
+        if (workItems.find(w => w.meter.계기번호 === meter.계기번호)) {
+            showStatus('error', `${meter.계기번호} 이미 추가됨`); return;
+        }
+        const item = {
+            id: ++uid,
+            meter,
+            role: null,
+            photos: { before: null, mac: null, after1: null, after2: null },
+            previews: { before: '', mac: '', after1: '', after2: '' },
+            times: { after1: '' },
+            exifs: { before: '', mac: '', after1: '', after2: '' }
         };
-        reader.readAsDataURL(file);
+        workItems.push(item);
+        renderWorkList();
+        updateProcessBtn();
     }
 
-    function onAfter1TimeChange(idx) {
-        const val = document.getElementById(`t-after1-${idx}`)?.value || '';
-        after1Data[idx].timeVal = val;
+    function removeMeter(id) {
+        workItems = workItems.filter(w => w.id !== id);
+        renderWorkList();
         updateAutoTimes();
         updateProcessBtn();
     }
 
-    // ─── 공통 사진 파일 선택 ─────────────────────────────
-    function onCommonFile(key, input) {
+    // ── 역할 선택 ───────────────────────────────────────────────
+    function setRole(id, role) {
+        const item = workItems.find(w => w.id === id);
+        if (!item) return;
+        item.role = role;
+        renderWorkList();
+        updateAutoTimes();
+        updateProcessBtn();
+    }
+
+    // ── 사진 선택 ───────────────────────────────────────────────
+    function onPhotoSelect(id, type, input) {
         const file = input.files[0];
         if (!file) return;
-        commonFiles[key] = file;
-        document.getElementById(`fn-${key}`).textContent = file.name;
-        const slot = document.getElementById(`slot-${key === 'after2' ? 'after2' : key}`);
-        if (slot) slot.classList.add('has-file');
+        const item = workItems.find(w => w.id === id);
+        if (!item) return;
+        item.photos[type] = file;
         const reader = new FileReader();
         reader.onload = e => {
-            const wrap = document.getElementById(`pw-${key}`);
-            wrap.innerHTML = `<img src="${e.target.result}" alt=""><input type="file" accept="image/*" onchange="onCommonFile('${key}', this)">`;
-            readExif(e.target.result, orig => {
-                const el = document.getElementById(`ex-${key}`);
-                if (el && orig) el.textContent = '원본: ' + orig;
+            item.previews[type] = e.target.result;
+            readExifTime(e.target.result, orig => {
+                item.exifs[type] = orig;
+                if (type === 'after1' && !item.times.after1 && orig) {
+                    const local = exifToLocal(orig);
+                    if (local) { item.times.after1 = local; }
+                }
+                renderMeterCard(id);
+                updateAutoTimes();
+                updateProcessBtn();
             });
         };
         reader.readAsDataURL(file);
+    }
+
+    function onTimeChange(id, val) {
+        const item = workItems.find(w => w.id === id);
+        if (!item) return;
+        item.times.after1 = val;
+        updateAutoTimes();
         updateProcessBtn();
     }
 
-    // ─── 자동 시간 계산 ──────────────────────────────────
+    // ── 자동 시간 계산 ───────────────────────────────────────────
+    // 마스터 기준: 시공전 = 마스터의 after1 - 10분 - (슬레이브수×2분)
+    //              맥/시공후2 = 마지막 시공후1 기준
     function updateAutoTimes() {
-        const times = getAfter1Times();
-        if (times.length === 0 || times.some(t => !t)) {
-            document.getElementById('t-before').value = '';
-            document.getElementById('t-mac').value = '';
-            document.getElementById('t-after2').value = '';
-            document.getElementById('preview-card').style.display = 'none';
-            return;
-        }
+        const masters = workItems.filter(w => w.role === '마스터');
+        const slaves  = workItems.filter(w => w.role === '슬레이브');
+        const standalones = workItems.filter(w => w.role === '단독' || w.role === '집합단독');
 
-        const slaveCount = meterCount - 1;
-        const firstTime = times[0];
-        const lastTime = times[times.length - 1];
+        // 마스터+슬레이브 그룹 처리 (마스터 최대 1개 가정)
+        if (masters.length === 1) {
+            const master = masters[0];
+            const allAfter1Times = [master, ...slaves]
+                .map(w => w.times.after1 ? new Date(w.times.after1) : null)
+                .filter(Boolean);
 
-        const beforeTime = new Date(firstTime.getTime() - (10 + slaveCount * 2) * 60000);
-        const macTime = new Date(lastTime);
-        const after2Time = new Date(lastTime.getTime() + 10000);
-
-        document.getElementById('t-before').value = dateToLocal(beforeTime);
-        document.getElementById('t-mac').value = dateToLocal(macTime);
-        document.getElementById('t-after2').value = dateToLocal(after2Time);
-
-        renderPreview(beforeTime, times, macTime, after2Time);
-        document.getElementById('preview-card').style.display = '';
-    }
-
-    function getAfter1Times() {
-        return after1Data.slice(0, meterCount).map(d => {
-            if (!d.timeVal) return null;
-            const dt = new Date(d.timeVal);
-            return isNaN(dt) ? null : dt;
-        });
-    }
-
-    // ─── 미리보기 테이블 ─────────────────────────────────
-    function renderPreview(beforeTime, after1Times, macTime, after2Time) {
-        const tbody = document.getElementById('preview-tbody');
-        let rows = '';
-        const fmt = d => d.toLocaleString('ko-KR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
-        rows += `<tr><td>시공전</td><td class="time-auto">${fmt(beforeTime)}</td></tr>`;
-        after1Times.forEach((t, i) => {
-            const lbl = i === 0 ? '시공후1 (마스터)' : `시공후1 (슬${i})`;
-            rows += `<tr><td>${lbl}</td><td class="time-input-mark">${fmt(t)}</td></tr>`;
-        });
-        rows += `<tr><td>맥</td><td class="time-auto">${fmt(macTime)}</td></tr>`;
-        rows += `<tr><td>시공후2</td><td class="time-auto">${fmt(after2Time)}</td></tr>`;
-        tbody.innerHTML = rows;
-    }
-
-    // ─── 랜덤 지터 적용 ──────────────────────────────────
-    function applyJitter(baseTimes) {
-        // baseTimes: [before, ...after1s, mac, after2]
-        const n = baseTimes.length;
-        const ranges = new Array(n).fill(0);
-        ranges[0] = 30;                          // 시공전: ±30초
-        for (let i = 1; i <= meterCount; i++) {
-            ranges[i] = (i < meterCount) ? 20 : 8; // 중간: ±20초, 마지막: ±8초
-        }
-        ranges[n - 2] = 8;  // 맥
-        ranges[n - 1] = 8;  // 시공후2
-
-        const result = baseTimes.map((t, i) => {
-            const offset = Math.round((Math.random() * 2 - 1) * ranges[i]);
-            return new Date(t.getTime() + offset * 1000);
-        });
-
-        // 순서 보장: 최소 5초 간격
-        for (let i = 1; i < result.length; i++) {
-            if (result[i].getTime() <= result[i - 1].getTime() + 4000) {
-                result[i] = new Date(result[i - 1].getTime() + 5000 + Math.floor(Math.random() * 8000));
+            if (allAfter1Times.length > 0) {
+                const firstT = allAfter1Times[0];
+                const lastT = allAfter1Times[allAfter1Times.length - 1];
+                const slaveCount = slaves.length;
+                master.times.before = dateToLocal(new Date(firstT.getTime() - (10 + slaveCount * 2) * 60000));
+                master.times.mac    = dateToLocal(lastT);
+                master.times.after2 = dateToLocal(new Date(lastT.getTime() + 10000));
+            } else {
+                master.times.before = master.times.mac = master.times.after2 = '';
             }
         }
-        return result;
+
+        // 단독/집합단독: 각자 독립
+        standalones.forEach(item => {
+            if (item.times.after1) {
+                const t = new Date(item.times.after1);
+                item.times.before = dateToLocal(new Date(t.getTime() - 10 * 60000));
+                item.times.mac    = dateToLocal(t);
+                item.times.after2 = dateToLocal(new Date(t.getTime() + 10000));
+            } else {
+                item.times.before = item.times.mac = item.times.after2 = '';
+            }
+        });
+
+        // 카드 재렌더 (시간 표시만 업데이트)
+        workItems.forEach(w => updateCardTimes(w.id));
     }
 
-    // ─── 메인 처리: EXIF 수정 + 다운로드 ───────────────────
-    async function processAndDownload() {
-        const after1Times = getAfter1Times();
-        if (after1Times.some(t => !t)) {
-            showStatus('error', '모든 시공후1 시간을 입력해주세요.');
+    function updateCardTimes(id) {
+        const item = workItems.find(w => w.id === id);
+        if (!item) return;
+        const setVal = (elId, val) => {
+            const el = document.getElementById(elId);
+            if (el) el.value = val || '';
+        };
+        setVal(`t-before-${id}`, item.times.before);
+        setVal(`t-mac-${id}`,    item.times.mac);
+        setVal(`t-after2-${id}`, item.times.after2);
+    }
+
+    // ── 렌더링 ──────────────────────────────────────────────────
+    function renderWorkList() {
+        const section = document.getElementById('work-list-section');
+        const empty = document.getElementById('empty-hint');
+        const list = document.getElementById('work-list');
+
+        if (workItems.length === 0) {
+            section.style.display = 'none';
+            empty.style.display = '';
             return;
         }
+        section.style.display = '';
+        empty.style.display = 'none';
+        list.innerHTML = '';
+        workItems.forEach(w => {
+            const div = document.createElement('div');
+            div.id = `card-${w.id}`;
+            div.innerHTML = buildMeterCard(w);
+            list.appendChild(div);
+        });
+    }
 
-        const slaveCount = meterCount - 1;
-        const firstTime = after1Times[0];
-        const lastTime = after1Times[after1Times.length - 1];
-        const beforeBase = new Date(firstTime.getTime() - (10 + slaveCount * 2) * 60000);
-        const macBase = new Date(lastTime);
-        const after2Base = new Date(lastTime.getTime() + 10000);
+    function renderMeterCard(id) {
+        const item = workItems.find(w => w.id === id);
+        if (!item) return;
+        const wrapper = document.getElementById(`card-${id}`);
+        if (wrapper) wrapper.innerHTML = buildMeterCard(item);
+        updateCardTimes(id);
+    }
 
-        const allBaseTimes = [beforeBase, ...after1Times, macBase, after2Base];
-        const finalTimes = applyJitter(allBaseTimes);
+    function buildMeterCard(w) {
+        const m = w.meter;
+        const typeClass = `type-${m.계기타입 || ''}`;
+        const dcuid = m.DCUID || '';
+        const base = m.변대주 || '';
+        const suffix = dcuid.length > base.length ? dcuid.slice(base.length) : '';
 
-        const allFiles = [
-            commonFiles.before,
-            ...after1Data.slice(0, meterCount).map(d => d.file),
-            commonFiles.mac,
-            commonFiles.after2
-        ];
-        const labels = [
-            '시공전',
-            ...(meterCount === 1 ? ['시공후1'] : ['시공후1_마스터', ...Array.from({length: slaveCount}, (_, i) => `시공후1_슬${i+1}`)]),
-            '맥',
-            '시공후2'
-        ];
+        // 역할 버튼
+        const roleBtns = ROLES.map(r =>
+            `<button class="role-btn ${w.role === r ? 'active-' + r : ''}" onclick="setRole(${w.id},'${r}')">${r}</button>`
+        ).join('');
 
-        const hasAny = allFiles.some(f => f !== null);
-        if (!hasAny) { showStatus('error', '최소 1장의 사진을 선택해주세요.'); return; }
+        // 사진 슬롯
+        let photoRows = '';
+        let hintText = '';
+        if (!w.role) {
+            hintText = '<div class="role-hint">역할을 선택하세요</div>';
+        } else {
+            const slots = ROLE_PHOTOS[w.role];
+            const expected = slots.length;
+            const filled = slots.filter(s => w.photos[s]).length;
+            if (filled > 0 && filled < expected) {
+                hintText = `<div class="role-hint error">${w.role}: ${expected}장 필요 — ${filled}장 입력됨</div>`;
+            } else if (w.role === '슬레이브' && ['before','mac','after2'].some(s => w.photos[s])) {
+                hintText = '<div class="role-hint error">슬레이브는 시공후1(1장)만 업로드하세요</div>';
+            }
+            slots.forEach(type => {
+                const hasPrev = !!w.previews[type];
+                const isAfter1 = type === 'after1';
+                const isAuto = !isAfter1;
+                const timeVal = isAfter1 ? (w.times.after1 || '') : (w.times[type] || '');
+                photoRows += `
+                <div class="photo-row">
+                    <div class="photo-label">${PHOTO_LABELS[type]}<br><span style="font-size:10px;color:#9ca3af;font-weight:400">${PHOTO_DESCS[type]}</span></div>
+                    <div class="photo-thumb${hasPrev ? ' filled' : ''}" id="thumb-${w.id}-${type}">
+                        ${hasPrev ? `<img src="${w.previews[type]}" alt="">` : '<span class="plus">+</span>'}
+                        <input type="file" accept="image/*" onchange="onPhotoSelect(${w.id},'${type}',this)">
+                    </div>
+                    <div class="photo-meta">
+                        ${isAfter1
+                            ? `<input type="datetime-local" class="photo-time" id="t-after1-${w.id}" value="${timeVal}" oninput="onTimeChange(${w.id},this.value)">`
+                            : `<input type="text" class="photo-time" id="t-${type}-${w.id}" value="${timeVal}" readonly placeholder="자동계산">`
+                        }
+                        ${isAfter1
+                            ? `<div class="photo-exif" id="ex-after1-${w.id}">${w.exifs.after1 ? '원본: ' + w.exifs.after1 : ''}</div>`
+                            : `<div class="photo-auto">자동 계산</div>`
+                        }
+                    </div>
+                </div>`;
+            });
+        }
+
+        return `<div class="meter-card">
+            <div class="meter-card-header">
+                <span class="type-badge ${typeClass}">${m.계기타입 || '?'}</span>
+                <span class="meter-no-text">${m.계기번호}</span>
+                <span class="meter-pole">${suffix ? `${base}<b style="color:#ef4444">${suffix}</b>` : base}</span>
+                <button class="remove-btn" onclick="removeMeter(${w.id})">×</button>
+            </div>
+            <div class="role-row">${roleBtns}</div>
+            ${w.role ? `<div class="photo-area">${photoRows}</div>` : ''}
+            ${hintText}
+        </div>`;
+    }
+
+    // ── 전체 처리 ────────────────────────────────────────────────
+    async function processAll() {
+        // 유효성 검사
+        for (const w of workItems) {
+            if (!w.role) { showStatus('error', `${w.meter.계기번호}: 역할을 선택하세요`); return; }
+            const slots = ROLE_PHOTOS[w.role];
+            const filled = slots.filter(s => w.photos[s]).length;
+            if (filled > 0 && filled < slots.length) {
+                showStatus('error', `${w.meter.계기번호} (${w.role}): ${slots.length}장 필요, ${filled}장 입력됨`);
+                return;
+            }
+            if (w.role === '슬레이브' && ['before','mac','after2'].some(s => w.photos[s])) {
+                showStatus('error', `${w.meter.계기번호} (슬레이브): 시공후1만 1장 업로드하세요`);
+                return;
+            }
+        }
+
+        // 시간 입력 확인
+        const needTime = workItems.filter(w => w.role && w.photos.after1);
+        for (const w of needTime) {
+            if (!w.times.after1) {
+                showStatus('error', `${w.meter.계기번호}: 시공후1 시간을 입력하세요`);
+                return;
+            }
+        }
 
         const btn = document.getElementById('process-btn');
         btn.disabled = true;
         btn.textContent = '처리 중...';
         showStatus('info', 'EXIF 시간을 변경하고 있습니다...');
 
+        // 랜덤 지터 포함 최종 시간 계산 후 다운로드
         let done = 0;
-        for (let i = 0; i < allFiles.length; i++) {
-            if (!allFiles[i]) continue;
-            try {
-                await modifyAndDownload(allFiles[i], finalTimes[i], labels[i]);
-                done++;
-            } catch (e) {
-                showStatus('error', `${labels[i]} 처리 실패: ${e.message}`);
-                btn.disabled = false;
-                btn.textContent = '시간 변경 후 다운로드';
-                return;
+        for (const w of workItems) {
+            if (!w.role) continue;
+            const slots = ROLE_PHOTOS[w.role];
+            const hasAny = slots.some(s => w.photos[s]);
+            if (!hasAny) continue;
+
+            // 이 계기의 base times 수집
+            const baseTimes = buildBaseTimes(w);
+            const finalTimes = applyJitter(baseTimes, w.role);
+
+            const slotOrder = ['before','mac','after1','after2'];
+            let ti = 0;
+            for (const type of slots) {
+                const file = w.photos[type];
+                const tIdx = slotOrder.indexOf(type);
+                const t = finalTimes[tIdx] || finalTimes[ti];
+                if (file && t) {
+                    try {
+                        await modifyAndDownload(file, t, `${w.meter.계기번호}_${PHOTO_LABELS[type]}`);
+                        done++;
+                    } catch (e) {
+                        showStatus('error', `${w.meter.계기번호} ${PHOTO_LABELS[type]} 실패: ${e.message}`);
+                        btn.disabled = false; btn.textContent = '시간 변경 후 다운로드';
+                        return;
+                    }
+                }
+                ti++;
             }
         }
 
@@ -431,7 +457,33 @@
         btn.textContent = '시간 변경 후 다운로드';
     }
 
-    // ─── EXIF 수정 + 다운로드 ───────────────────────────
+    function buildBaseTimes(w) {
+        // [before, mac, after1, after2] 순서
+        const after1T = w.times.after1 ? new Date(w.times.after1) : new Date();
+        const beforeT = w.times.before ? new Date(w.times.before) : new Date(after1T.getTime() - 10 * 60000);
+        const macT    = w.times.mac    ? new Date(w.times.mac)    : new Date(after1T);
+        const after2T = w.times.after2 ? new Date(w.times.after2) : new Date(after1T.getTime() + 10000);
+        return [beforeT, macT, after1T, after2T];
+    }
+
+    function applyJitter(baseTimes, role) {
+        // [before, mac, after1, after2]
+        const ranges = role === '슬레이브' ? [0, 0, 8, 0] : [30, 8, 8, 8];
+        const result = baseTimes.map((t, i) => {
+            if (!ranges[i]) return t;
+            const off = Math.round((Math.random() * 2 - 1) * ranges[i]);
+            return new Date(t.getTime() + off * 1000);
+        });
+        // 순서 보장: 최소 5초 간격
+        for (let i = 1; i < result.length; i++) {
+            if (result[i].getTime() <= result[i-1].getTime() + 4000) {
+                result[i] = new Date(result[i-1].getTime() + 5000 + Math.floor(Math.random() * 8000));
+            }
+        }
+        return result;
+    }
+
+    // ── EXIF 수정 + 다운로드 ────────────────────────────────────
     function modifyAndDownload(file, targetDate, label) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -447,12 +499,11 @@
                         exifObj['Exif'][piexif.ExifIFD.DateTimeDigitized] = exifStr;
                         newDataUrl = piexif.insert(piexif.dump(exifObj), dataUrl);
                     } catch {
-                        // EXIF 없는 이미지(PNG 등): canvas로 JPEG 변환 후 삽입
                         newDataUrl = insertExifFallback(dataUrl, exifStr);
                     }
                     const blob = dataUrlToBlob(newDataUrl);
-                    const ts = targetDate.toISOString().replace(/[-:T]/g, '').slice(0, 14);
-                    const ext = file.name.split('.').pop() || 'jpg';
+                    const ts = dateToExif(targetDate).replace(/[: ]/g, '').slice(0, 14);
+                    const ext = (file.name.split('.').pop() || 'jpg');
                     triggerDownload(blob, `${label}_${ts}.${ext}`);
                     resolve();
                 } catch (err) { reject(err); }
@@ -477,8 +528,8 @@
         return piexif.insert(piexif.dump(exifObj), jpegUrl);
     }
 
-    // ─── 유틸리티 ─────────────────────────────────────────
-    function readExif(dataUrl, cb) {
+    // ── 유틸리티 ─────────────────────────────────────────────────
+    function readExifTime(dataUrl, cb) {
         try {
             const exif = piexif.load(dataUrl);
             const dt = (exif['Exif'] && exif['Exif'][piexif.ExifIFD.DateTimeOriginal])
@@ -487,29 +538,26 @@
         } catch { cb(''); }
     }
 
-    function exifToLocal(exifStr) {
-        // "YYYY:MM:DD HH:MM:SS" → "YYYY-MM-DDTHH:MM"
-        if (!exifStr || exifStr.length < 16) return '';
-        const [date, time] = exifStr.split(' ');
-        if (!date || !time) return '';
-        return date.replace(/:/g, '-') + 'T' + time.slice(0, 5);
+    function exifToLocal(s) {
+        if (!s || s.length < 16) return '';
+        const [d, t] = s.split(' ');
+        if (!d || !t) return '';
+        return d.replace(/:/g, '-') + 'T' + t.slice(0, 5);
     }
 
     function dateToLocal(d) {
-        // Date → "YYYY-MM-DDTHH:MM"
-        const pad = n => String(n).padStart(2, '0');
-        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        const p = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
     }
 
     function dateToExif(d) {
-        // Date → "YYYY:MM:DD HH:MM:SS"
-        const pad = n => String(n).padStart(2, '0');
-        return `${d.getFullYear()}:${pad(d.getMonth()+1)}:${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        const p = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}:${p(d.getMonth()+1)}:${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
     }
 
     function dataUrlToBlob(dataUrl) {
-        const [header, b64] = dataUrl.split(',');
-        const mime = header.match(/:(.*?);/)[1];
+        const [h, b64] = dataUrl.split(',');
+        const mime = h.match(/:(.*?);/)[1];
         const bin = atob(b64);
         const arr = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
@@ -530,13 +578,10 @@
     }
 
     function updateProcessBtn() {
-        const hasAfter1 = after1Data.slice(0, meterCount).some(d => d.file || d.timeVal);
-        const hasAnyCommon = Object.values(commonFiles).some(f => f);
-        document.getElementById('process-btn').disabled = !(hasAfter1 || hasAnyCommon);
+        const hasItems = workItems.length > 0;
+        const hasRole = workItems.every(w => w.role);
+        document.getElementById('process-btn').disabled = !(hasItems && hasRole);
     }
-
-    // ─── 초기화 ───────────────────────────────────────────
-    renderAfter1Slots();
 </script>
 </body>
 </html>
