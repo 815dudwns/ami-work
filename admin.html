@@ -424,7 +424,7 @@ function buildGroupResult(g) {
         ${rows}${warn}
         <div style="display:flex;gap:8px;">
             <button class="btn-gray" style="flex:1;padding:11px;" onclick="editGroup(${g.id})">수정</button>
-            <button class="btn-green" style="flex:2;padding:11px;" onclick="downloadGroupById(${g.id})">📥 EXIF 변경 후 다운로드</button>
+            <button class="btn-green" style="flex:2;padding:11px;" onclick="downloadGroupById(${g.id})">📤 EXIF 변경 후 공유</button>
         </div>
     </div>`;
 }
@@ -1076,18 +1076,15 @@ async function downloadAll() {
 }
 
 async function downloadGroupAsZip(g) {
-    if (typeof JSZip === 'undefined') {
-        // JSZip 미로드 시 기존 방식으로 fallback
-        return downloadGroup(g);
-    }
+    // Web Share API로 공유 — 갤러리/카톡 등으로 직접 저장, 다운로드 알림 없음
     const base = new Date(g.baseTime);
     const after1Times = g.after1s.map((_, i) => new Date(base.getTime() + i * 60 * 1000));
     const beforeBase = new Date(base.getTime() - 10 * 60 * 1000);
     const macBase = new Date(base.getTime() - 60 * 1000);
 
-    const zip = new JSZip();
+    const files = [];
     const usedNames = new Set();
-    const addToZip = async (photoItem, t) => {
+    const addFile = async (photoItem, t) => {
         const blob = await processBlob(photoItem.dataUrl, t);
         let name = dateToFilename(t);
         let i = 1;
@@ -1097,11 +1094,11 @@ async function downloadGroupAsZip(g) {
             i++;
         }
         usedNames.add(name);
-        zip.file(name, blob);
+        files.push(new File([blob], name, { type: blob.type || 'image/jpeg' }));
     };
 
-    if (g.before?.dataUrl) await addToZip(g.before, jitter(beforeBase, 30));
-    if (g.mac?.dataUrl)    await addToZip(g.mac,    jitter(macBase, 8));
+    if (g.before?.dataUrl) await addFile(g.before, jitter(beforeBase, 30));
+    if (g.mac?.dataUrl)    await addFile(g.mac,    jitter(macBase, 8));
 
     let lastT = null;
     for (let i = 0; i < g.after1s.length; i++) {
@@ -1109,26 +1106,33 @@ async function downloadGroupAsZip(g) {
         if (!item.dataUrl) continue;
         const t = jitter(after1Times[i], 8);
         lastT = t;
-        await addToZip(item, t);
+        await addFile(item, t);
     }
 
     if (g.after2?.dataUrl) {
         const after2Base = lastT
             ? new Date(lastT.getTime() + (10 + Math.floor(Math.random() * 16)) * 1000)
             : jitter(new Date(base.getTime() + g.after1s.length * 60 * 1000 + 10000), 8);
-        await addToZip(g.after2, after2Base);
+        await addFile(g.after2, after2Base);
     }
 
-    // 그룹 정보 텍스트 파일 추가
-    let info = `그룹 ${g.id}\n기준시간: ${g.baseTime}\n`;
-    if (g.mac?.qrData) info += `MAC: ${g.mac.qrData}\n`;
-    if (g.macManual)   info += `MAC(수동): ${g.macManual}\n`;
-    g.after1s.forEach((a, i) => {
-        const role = i === 0 ? '마스터' : '슬레이브';
-        info += `시공후1-${i+1} (${role}): ${a.meterNo || '미배정'}\n`;
-    });
-    zip.file('정보.txt', info);
+    if (files.length === 0) { alert('공유할 사진이 없습니다'); return; }
 
+    // Web Share API 시도 — 안드로이드 Chrome 지원, 갤러리에 바로 저장 가능
+    if (navigator.canShare && navigator.canShare({ files })) {
+        try {
+            await navigator.share({ files, title: `그룹${g.id}` });
+            return;
+        } catch (e) {
+            if (e.name === 'AbortError') return; // 사용자 취소
+            // 공유 실패 시 ZIP fallback
+        }
+    }
+
+    // Fallback: ZIP 다운로드 (Web Share 미지원 환경)
+    if (typeof JSZip === 'undefined') { alert('이 브라우저는 공유 기능을 지원하지 않습니다'); return; }
+    const zip = new JSZip();
+    for (const f of files) zip.file(f.name, f);
     const zipBlob = await zip.generateAsync({ type: 'blob' });
     const datePart = g.baseTime ? g.baseTime.replace(/[-:T]/g,'').slice(0, 12) : 'group';
     const zipName = `그룹${g.id}_${datePart}.zip`;
