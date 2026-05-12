@@ -9,6 +9,7 @@
     <!-- 정적 디코딩(파일에서 QR 추출)용으로 jsQR도 유지 -->
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 20px; }
@@ -238,9 +239,11 @@
     <!-- 컨트롤 영역 -->
     <div style="background:rgba(0,0,0,0.85);padding:12px 16px;display:flex;flex-direction:column;gap:8px;">
         <div id="qr-cam-label" style="color:rgba(255,255,255,0.65);font-size:11px;text-align:center;"></div>
-        <div style="display:flex;gap:8px;">
-            <button id="qr-switch-btn" onclick="switchQrCamera()" style="flex:1;padding:11px;background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.4);border-radius:8px;font-size:13px;font-weight:600;display:none;">🔄 카메라 전환</button>
-            <button id="qr-fallback-btn" onclick="qrFallbackCapture()" style="flex:1;padding:11px;background:#1d4ed8;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;">📸 직접 촬영</button>
+        <div style="display:flex;gap:6px;">
+            <button onclick="adjustQrZoom(-0.5)" style="padding:10px 14px;background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.4);border-radius:8px;font-size:14px;font-weight:700;">−</button>
+            <button onclick="adjustQrZoom(+0.5)" style="padding:10px 14px;background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.4);border-radius:8px;font-size:14px;font-weight:700;">+</button>
+            <button id="qr-switch-btn" onclick="switchQrCamera()" style="flex:1;padding:10px;background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.4);border-radius:8px;font-size:12px;font-weight:600;display:none;">🔄 카메라</button>
+            <button id="qr-fallback-btn" onclick="qrFallbackCapture()" style="flex:1;padding:10px;background:#1d4ed8;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;">📸 직접</button>
         </div>
     </div>
 
@@ -374,7 +377,7 @@ function buildGroupCard(g) {
         <div class="group-head" onclick="toggleGroup(${g.id})">
             <span class="group-title">그룹 ${g.id}</span>
             ${phaseBadge}
-            <span class="group-basetime" style="flex:1">${baseDisp}</span>
+            <span style="flex:1"></span>
             <button class="btn-red" style="padding:4px 8px;font-size:12px;" onclick="event.stopPropagation();deleteGroup(${g.id})">삭제</button>
             <span class="toggle-icon">▼</span>
         </div>
@@ -411,7 +414,10 @@ function buildGroupResult(g) {
         const meterText = item.meterNo
             ? `<span class="result-meter">${escHtml(item.meterNo)}</span>
                <button class="btn-copy" onclick="navigator.clipboard.writeText('${escAttr(item.meterNo)}').catch(()=>{})">복사</button>`
-            : '<span style="color:#9ca3af;font-size:12px;">미배정</span>';
+            : `<input type="text" placeholder="계기번호 직접 입력" inputmode="numeric"
+                      value=""
+                      style="width:100%;padding:6px 8px;border:1.5px solid #fca5a5;border-radius:6px;font-size:12px;background:#fef2f2;"
+                      onchange="setMeterDirect(${g.id},${i},this.value)">`;
         rows += buildResultRow(`③-${i+1} ${role}`, item.dataUrl, meterText);
     });
     if (g.after2?.dataUrl) rows += buildResultRow('④ 시공후2', g.after2.dataUrl, '');
@@ -433,12 +439,20 @@ function buildGroupResult(g) {
     </div>`;
 }
 
+function setMeterDirect(groupId, idx, val) {
+    const g = groups.find(x => x.id === groupId);
+    if (!g || !g.after1s[idx]) return;
+    g.after1s[idx].meterNo = (val || '').trim();
+    saveStateToStorage();
+    renderUpload();
+}
+
 async function downloadGroupById(id) {
     const g = groups.find(x => x.id === id);
     if (!g) return;
     if (!g.baseTime) { alert('기준시간이 없습니다'); return; }
     try {
-        await downloadGroup(g);
+        await downloadGroupAsZip(g);
     } catch(e) {
         alert('다운로드 오류: ' + e.message);
     }
@@ -1021,6 +1035,102 @@ async function downloadAll() {
     updateDownloadBtn();
 }
 
+async function downloadGroupAsZip(g) {
+    if (typeof JSZip === 'undefined') {
+        // JSZip 미로드 시 기존 방식으로 fallback
+        return downloadGroup(g);
+    }
+    const base = new Date(g.baseTime);
+    const after1Times = g.after1s.map((_, i) => new Date(base.getTime() + i * 60 * 1000));
+    const beforeBase = new Date(base.getTime() - 10 * 60 * 1000);
+    const macBase = new Date(base.getTime() - 60 * 1000);
+
+    const zip = new JSZip();
+    const usedNames = new Set();
+    const addToZip = async (photoItem, t) => {
+        const blob = await processBlob(photoItem.dataUrl, t);
+        let name = dateToFilename(t);
+        let i = 1;
+        while (usedNames.has(name)) {
+            const dot = name.lastIndexOf('.');
+            name = `${name.slice(0,dot)}_${i}${name.slice(dot)}`;
+            i++;
+        }
+        usedNames.add(name);
+        zip.file(name, blob);
+    };
+
+    if (g.before?.dataUrl) await addToZip(g.before, jitter(beforeBase, 30));
+    if (g.mac?.dataUrl)    await addToZip(g.mac,    jitter(macBase, 8));
+
+    let lastT = null;
+    for (let i = 0; i < g.after1s.length; i++) {
+        const item = g.after1s[i];
+        if (!item.dataUrl) continue;
+        const t = jitter(after1Times[i], 8);
+        lastT = t;
+        await addToZip(item, t);
+    }
+
+    if (g.after2?.dataUrl) {
+        const after2Base = lastT
+            ? new Date(lastT.getTime() + (10 + Math.floor(Math.random() * 16)) * 1000)
+            : jitter(new Date(base.getTime() + g.after1s.length * 60 * 1000 + 10000), 8);
+        await addToZip(g.after2, after2Base);
+    }
+
+    // 그룹 정보 텍스트 파일 추가
+    let info = `그룹 ${g.id}\n기준시간: ${g.baseTime}\n`;
+    if (g.mac?.qrData) info += `MAC: ${g.mac.qrData}\n`;
+    if (g.macManual)   info += `MAC(수동): ${g.macManual}\n`;
+    g.after1s.forEach((a, i) => {
+        const role = i === 0 ? '마스터' : '슬레이브';
+        info += `시공후1-${i+1} (${role}): ${a.meterNo || '미배정'}\n`;
+    });
+    zip.file('정보.txt', info);
+
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const datePart = g.baseTime ? g.baseTime.replace(/[-:T]/g,'').slice(0, 12) : 'group';
+    const zipName = `그룹${g.id}_${datePart}.zip`;
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url; a.download = zipName; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+
+// EXIF 적용한 단일 Blob 반환 (다운로드 트리거 안 함)
+async function processBlob(dataUrl, t) {
+    const exifStr = dateToExif(t);
+    let newUrl;
+    try {
+        const eo = piexif.load(dataUrl);
+        eo['0th'][piexif.ImageIFD.DateTime] = exifStr;
+        eo['Exif'][piexif.ExifIFD.DateTimeOriginal] = exifStr;
+        eo['Exif'][piexif.ExifIFD.DateTimeDigitized] = exifStr;
+        newUrl = piexif.insert(piexif.dump(eo), dataUrl);
+    } catch {
+        newUrl = await new Promise((res, rej) => {
+            const img = new Image();
+            img.onload = () => {
+                try {
+                    const c = document.createElement('canvas');
+                    c.width = img.naturalWidth; c.height = img.naturalHeight;
+                    c.getContext('2d').drawImage(img, 0, 0);
+                    const j = c.toDataURL('image/jpeg', 0.92);
+                    const eo2 = {'0th':{},'Exif':{},'GPS':{},'1st':{},'Interop':{}};
+                    eo2['0th'][piexif.ImageIFD.DateTime] = exifStr;
+                    eo2['Exif'][piexif.ExifIFD.DateTimeOriginal] = exifStr;
+                    eo2['Exif'][piexif.ExifIFD.DateTimeDigitized] = exifStr;
+                    res(piexif.insert(piexif.dump(eo2), j));
+                } catch(e) { rej(e); }
+            };
+            img.onerror = () => rej(new Error('이미지 로드 실패'));
+            img.src = dataUrl;
+        });
+    }
+    return dataUrlToBlob(newUrl);
+}
+
 async function downloadGroup(g) {
     const base = new Date(g.baseTime);
 
@@ -1273,9 +1383,47 @@ async function startQrCamera(cameraId) {
             (decodedText) => { onQrDetected(decodedText); },
             (errMsg) => { /* 매 프레임 디코딩 실패 — 무시 */ }
         );
+        // 카메라 시작 후 줌 적용 (2배 — 초광각 회피)
+        await applyZoom(2.0);
     } catch(e) {
         showQrError(qrErrorMessage(e));
     }
+}
+
+async function applyZoom(targetZoom) {
+    try {
+        const video = document.querySelector('#qr-reader video');
+        if (!video || !video.srcObject) return;
+        const track = video.srcObject.getVideoTracks()[0];
+        if (!track) return;
+        const cap = track.getCapabilities ? track.getCapabilities() : {};
+        if (cap.zoom) {
+            const zoom = Math.min(targetZoom, cap.zoom.max);
+            await track.applyConstraints({ advanced: [{ zoom }] });
+            // 줌 상태 표시
+            const labelEl = document.getElementById('qr-cam-label');
+            if (labelEl) labelEl.textContent += ` · ${zoom}x`;
+        }
+    } catch(e) { /* zoom 미지원 디바이스 — 무시 */ }
+}
+
+async function adjustQrZoom(delta) {
+    try {
+        const video = document.querySelector('#qr-reader video');
+        if (!video || !video.srcObject) return;
+        const track = video.srcObject.getVideoTracks()[0];
+        if (!track || !track.getCapabilities) return;
+        const cap = track.getCapabilities();
+        if (!cap.zoom) return;
+        const cur = track.getSettings().zoom || 1;
+        const next = Math.max(cap.zoom.min, Math.min(cap.zoom.max, cur + delta));
+        await track.applyConstraints({ advanced: [{ zoom: next }] });
+        const labelEl = document.getElementById('qr-cam-label');
+        if (labelEl) {
+            const cam = _qrCameras[_qrCamIndex];
+            labelEl.textContent = `${cam.label || '카메라'} (${_qrCamIndex + 1}/${_qrCameras.length}) · ${next.toFixed(1)}x`;
+        }
+    } catch {}
 }
 
 // 스캔 성공 — 영상 프레임을 사진으로 캡처 + 데이터 저장
