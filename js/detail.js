@@ -11,6 +11,10 @@ function showDetail(address, meters) {
     currentAddress = address;
     currentMeters = meters;
 
+    // 어드민 사진등록 버튼에 현재 주소 전달
+    const adminBtn = document.getElementById('admin-upload-btn');
+    if (adminBtn) adminBtn.href = `admin.html?addr=${encodeURIComponent(address)}`;
+
     const status = workStatus[address] || { state: 'pending', checkedMeters: [], reason: '' };
     status.checkedMeters = status.checkedMeters || [];
 
