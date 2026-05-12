@@ -4,76 +4,134 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>작업 사진 등록 - AMI</title>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-        body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 48px; }
+        body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 80px; }
 
+        /* ── 헤더 ── */
         .header { background: #1e3a8a; color: white; padding: 14px 16px; position: sticky; top: 0; z-index: 200; }
         .header-top { display: flex; align-items: center; gap: 10px; }
         .header a { color: rgba(255,255,255,0.75); text-decoration: none; font-size: 14px; }
         .header h1 { font-size: 16px; font-weight: 700; flex: 1; }
         .header-addr { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-        .meter-card { background: white; margin: 8px 12px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1.5px solid #e5e7eb; overflow: hidden; }
-        .meter-card.open { border-color: #3b82f6; }
+        /* ── 공통 버튼 ── */
+        .btn-blue  { background: #1d4ed8; color: white; border: none; border-radius: 8px; padding: 10px 16px; font-size: 14px; font-weight: 700; cursor: pointer; }
+        .btn-blue:active  { background: #1e40af; }
+        .btn-green { background: #10b981; color: white; border: none; border-radius: 8px; padding: 10px 16px; font-size: 14px; font-weight: 700; cursor: pointer; }
+        .btn-green:active { background: #059669; }
+        .btn-red   { background: #fee2e2; color: #dc2626; border: none; border-radius: 8px; padding: 8px 12px; font-size: 13px; cursor: pointer; }
+        .btn-gray  { background: #e5e7eb; color: #374151; border: none; border-radius: 8px; padding: 10px 16px; font-size: 14px; cursor: pointer; }
+        button:disabled { background: #d1d5db !important; color: #9ca3af !important; cursor: not-allowed !important; }
 
-        /* 헤더 — 탭해서 토글 */
-        .card-head { padding: 13px 14px; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
-        .card-head:active { background: #f0f9ff; }
-        .type-badge { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+        /* ── 액션 바 ── */
+        .action-bar { padding: 12px 12px 0; display: flex; gap: 8px; align-items: center; }
+
+        /* ── 그룹 카드 ── */
+        .group-card { background: white; margin: 8px 12px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1.5px solid #e5e7eb; overflow: hidden; }
+        .group-card.open { border-color: #3b82f6; }
+
+        .group-head { padding: 13px 14px; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+        .group-head:active { background: #f0f9ff; }
+        .group-title { font-size: 15px; font-weight: 700; color: #111827; flex: 1; }
+        .group-basetime { font-size: 12px; color: #6b7280; }
+        .toggle-icon { font-size: 14px; color: #9ca3af; flex-shrink: 0; transition: transform 0.2s; }
+        .open .toggle-icon { transform: rotate(180deg); color: #3b82f6; }
+
+        /* ── 슬롯 영역 ── */
+        .slots-area { padding: 10px 12px; display: flex; flex-direction: column; gap: 12px; border-top: 1px solid #e5e7eb; }
+
+        .slot-section-label { font-size: 11px; font-weight: 700; color: #374151; margin-bottom: 4px; }
+
+        /* ── 단일 슬롯 행 ── */
+        .single-row { display: flex; align-items: flex-start; gap: 8px; }
+        .slot-lbl { font-size: 11px; font-weight: 700; color: #374151; width: 52px; flex-shrink: 0; padding-top: 4px; }
+        .thumb-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .thumb { width: 64px; height: 64px; border-radius: 8px; border: 1.5px dashed #d1d5db; background: #f9fafb; display: flex; align-items: center; justify-content: center; font-size: 20px; color: #d1d5db; position: relative; overflow: hidden; flex-shrink: 0; }
+        .thumb.has { border-color: #3b82f6; border-style: solid; }
+        .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .thumb-btn { font-size: 10px; padding: 3px 6px; border-radius: 5px; border: none; cursor: pointer; white-space: nowrap; }
+        .thumb-btn.cam { background: #1d4ed8; color: white; }
+        .thumb-btn.gal { background: #6b7280; color: white; }
+        .thumb-btn input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+        .slot-meta { flex: 1; min-width: 0; }
+        .slot-fname { font-size: 11px; color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* ── QR 결과 ── */
+        .qr-result { margin-top: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .qr-text { font-size: 12px; font-family: monospace; background: #f0fdf4; color: #15803d; padding: 4px 8px; border-radius: 6px; flex: 1; min-width: 0; word-break: break-all; }
+        .qr-text.fail { background: #fef2f2; color: #dc2626; }
+        .qr-manual { width: 100%; padding: 6px 8px; border: 1.5px solid #e5e7eb; border-radius: 6px; font-size: 12px; margin-top: 4px; }
+        .qr-manual:focus { outline: none; border-color: #3b82f6; }
+        .btn-copy { font-size: 11px; padding: 3px 8px; border: 1px solid #10b981; background: white; color: #10b981; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+        .btn-copy:active { background: #f0fdf4; }
+
+        /* ── 시공후1 ── */
+        .after1-grid { display: flex; flex-wrap: wrap; gap: 8px; min-height: 10px; }
+        .after1-item { width: 90px; background: #f9fafb; border-radius: 8px; border: 1.5px solid #e5e7eb; overflow: hidden; cursor: grab; position: relative; user-select: none; }
+        .after1-item:active { cursor: grabbing; }
+        .after1-thumb { width: 100%; height: 80px; object-fit: cover; display: block; background: #e5e7eb; }
+        .after1-thumb.empty { display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 22px; background: #f3f4f6; }
+        .after1-meta { padding: 4px 5px; }
+        .after1-meter { font-size: 10px; font-weight: 700; color: #1d4ed8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .after1-meter.unassigned { color: #9ca3af; }
+        .after1-del { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border-radius: 50%; background: rgba(220,38,38,0.85); color: white; border: none; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; }
+
+        .after1-add-row { display: flex; gap: 6px; margin-top: 4px; }
+        .after1-add-btn { flex: 1; padding: 9px; border: 1.5px dashed #93c5fd; border-radius: 8px; background: #eff6ff; color: #1d4ed8; font-size: 12px; font-weight: 700; cursor: pointer; position: relative; text-align: center; }
+        .after1-add-btn input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+
+        /* ── 기준시간 ── */
+        .basetime-row { display: flex; align-items: center; gap: 8px; padding: 8px 0 0; }
+        .basetime-label { font-size: 11px; font-weight: 700; color: #374151; white-space: nowrap; }
+        .basetime-input { flex: 1; padding: 7px 8px; border: 1.5px solid #e5e7eb; border-radius: 6px; font-size: 13px; color: #111827; }
+        .basetime-input:focus { outline: none; border-color: #3b82f6; }
+        .basetime-hint { font-size: 10px; color: #9ca3af; }
+
+        /* ── 저장/다운로드 버튼 영역 ── */
+        .bottom-bar { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 1px solid #e5e7eb; padding: 10px 12px; display: flex; gap: 8px; z-index: 100; }
+        .bottom-bar button { flex: 1; padding: 14px; font-size: 15px; font-weight: 700; border: none; border-radius: 10px; cursor: pointer; }
+
+        /* ── 결과 화면 ── */
+        #phase-result { display: none; }
+        .result-group { background: white; margin: 8px 12px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden; }
+        .result-group-head { padding: 13px 14px; background: #1e3a8a; color: white; }
+        .result-group-title { font-size: 14px; font-weight: 700; }
+        .result-group-time { font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 2px; }
+        .result-rows { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+        .result-row { display: flex; align-items: center; gap: 8px; }
+        .result-lbl { font-size: 11px; font-weight: 700; color: #374151; width: 80px; flex-shrink: 0; }
+        .result-thumb { width: 54px; height: 54px; border-radius: 7px; object-fit: cover; flex-shrink: 0; background: #e5e7eb; }
+        .result-info { font-size: 12px; color: #374151; flex: 1; min-width: 0; }
+        .result-meter { font-weight: 700; color: #1d4ed8; }
+        .result-warn { background: #fef3c7; color: #92400e; padding: 8px 10px; border-radius: 6px; font-size: 12px; margin-top: 4px; }
+        .badge-master { background: #1d4ed8; color: white; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
+        .badge-slave  { background: #6b7280; color: white; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
+
+        /* ── 계기 배정 모달 ── */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 500; display: flex; align-items: flex-end; }
+        .modal-sheet { background: white; border-radius: 16px 16px 0 0; width: 100%; max-height: 70vh; display: flex; flex-direction: column; }
+        .modal-head { padding: 16px 16px 10px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e5e7eb; flex-shrink: 0; }
+        .modal-title { font-size: 15px; font-weight: 700; }
+        .modal-close { width: 30px; height: 30px; border-radius: 50%; border: none; background: #f3f4f6; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .modal-list { overflow-y: auto; flex: 1; padding: 8px 12px 16px; }
+        .modal-meter-item { padding: 12px 10px; border-bottom: 1px solid #f3f4f6; display: flex; align-items: center; gap: 10px; cursor: pointer; border-radius: 6px; }
+        .modal-meter-item:active { background: #eff6ff; }
+        .modal-meter-item.disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+        .modal-meter-no { font-size: 14px; font-weight: 700; color: #111827; flex: 1; }
+        .modal-meter-pole { font-size: 11px; color: #6b7280; }
+        .modal-unassign { color: #dc2626; font-size: 13px; padding: 10px; border-bottom: 1px solid #f3f4f6; cursor: pointer; border-radius: 6px; }
+        .modal-unassign:active { background: #fef2f2; }
+
+        .type-badge { padding: 2px 7px; border-radius: 20px; font-size: 10px; font-weight: 700; flex-shrink: 0; }
         .type-E     { background: #e0f2fe; color: #0369a1; }
         .type-EA    { background: #dbeafe; color: #1d4ed8; }
         .type-G     { background: #d1fae5; color: #065f46; }
         .type-Amigo { background: #fce7f3; color: #9d174d; }
-        .meter-no   { font-size: 14px; font-weight: 700; color: #111827; flex: 1; }
-        .meter-pole { font-size: 11px; color: #6b7280; }
-        .toggle-icon { font-size: 14px; color: #9ca3af; flex-shrink: 0; transition: transform 0.2s; }
-        .open .toggle-icon { transform: rotate(180deg); color: #3b82f6; }
-        /* 사진 있으면 초록 점 */
-        .has-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; flex-shrink: 0; }
 
-        /* 슬롯 영역 */
-        .slots-area { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; border-top: 1px solid #e5e7eb; }
-
-        /* 단일 슬롯 */
-        .single-row { display: flex; align-items: center; gap: 8px; }
-        .slot-lbl { font-size: 11px; font-weight: 700; color: #374151; width: 44px; flex-shrink: 0; }
-        .thumb { width: 58px; height: 58px; border-radius: 8px; border: 1.5px dashed #d1d5db; background: #f9fafb; display: flex; align-items: center; justify-content: center; font-size: 20px; color: #d1d5db; position: relative; overflow: hidden; flex-shrink: 0; cursor: pointer; }
-        .thumb.has { border-color: #3b82f6; border-style: solid; }
-        .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .thumb input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
-        .slot-meta { flex: 1; min-width: 0; }
-        .slot-fname { font-size: 11px; color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .slot-exif  { font-size: 10px; color: #9ca3af; margin-top: 1px; }
-        .slot-time  { width: 100%; padding: 7px 8px; border: 1.5px solid #e5e7eb; border-radius: 6px; font-size: 12px; color: #111827; margin-top: 4px; }
-        .slot-time[readonly] { background: #f0fdf4; color: #15803d; font-size: 11px; }
-
-        /* 시공후1 */
-        .after1-header { font-size: 11px; font-weight: 700; color: #374151; margin-bottom: 4px; }
-        .after1-item { display: flex; align-items: center; gap: 6px; background: #f9fafb; padding: 6px 8px; border-radius: 8px; margin-bottom: 6px; }
-        .after1-num { width: 22px; height: 22px; border-radius: 5px; background: #1d4ed8; color: white; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .after1-img { width: 50px; height: 50px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
-        .after1-info { flex: 1; min-width: 0; }
-        .after1-fname { font-size: 11px; color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .after1-exif  { font-size: 10px; color: #9ca3af; }
-        .after1-time  { width: 100%; padding: 6px 8px; border: 1.5px solid #e5e7eb; border-radius: 6px; font-size: 12px; color: #111827; margin-top: 3px; }
-        .after1-time:focus { outline: none; border-color: #3b82f6; }
-        .order-btns { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
-        .ord-btn { width: 26px; height: 26px; border: 1px solid #e5e7eb; background: white; border-radius: 5px; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-        .ord-btn:disabled { color: #d1d5db; cursor: default; }
-        .del-btn { width: 26px; height: 26px; border: none; background: #fee2e2; color: #dc2626; border-radius: 5px; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .add-after1 { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 9px; border: 1.5px dashed #93c5fd; border-radius: 8px; background: #eff6ff; color: #1d4ed8; font-size: 13px; font-weight: 700; cursor: pointer; position: relative; }
-        .add-after1 input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
-        .auto-tag { font-size: 11px; color: #10b981; font-weight: 600; margin-top: 1px; }
-
-        .dl-btn { display: block; width: calc(100% - 24px); margin: 8px 12px 0; padding: 15px; background: #1d4ed8; color: white; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; text-align: center; }
-        .dl-btn:active { background: #1e40af; }
-        .dl-btn:disabled { background: #d1d5db; color: #9ca3af; cursor: not-allowed; }
-        .status { margin: 8px 12px 0; padding: 12px 14px; border-radius: 8px; font-size: 13px; line-height: 1.5; display: none; }
-        .status.info    { display: block; background: #eff6ff; color: #1d4ed8; }
-        .status.success { display: block; background: #f0fdf4; color: #15803d; }
-        .status.error   { display: block; background: #fef2f2; color: #dc2626; }
         .no-addr { text-align: center; padding: 40px 20px; color: #9ca3af; font-size: 14px; }
     </style>
 </head>
@@ -87,322 +145,722 @@
     <div class="header-addr" id="header-addr"></div>
 </div>
 
-<div id="meter-cards"></div>
+<!-- Phase 1: 업로드 -->
+<div id="phase-upload">
+    <div class="action-bar">
+        <button class="btn-blue" onclick="addGroup()">+ 그룹 추가</button>
+    </div>
+    <div id="group-list"></div>
+</div>
 
-<div class="status" id="status-msg"></div>
-<button class="dl-btn" id="dl-btn" onclick="downloadAll()" disabled>시간 변경 후 다운로드</button>
+<!-- Phase 2: 결과 -->
+<div id="phase-result">
+    <div id="result-list"></div>
+</div>
+
+<!-- 하단 고정 버튼 -->
+<div class="bottom-bar" id="bottom-bar">
+    <button class="btn-blue" id="btn-save" onclick="savePhase()">저장 (결과 확인)</button>
+    <button class="btn-green" id="btn-download" onclick="downloadAll()" disabled style="display:none;">EXIF 변경 후 다운로드</button>
+    <button class="btn-gray" id="btn-edit" onclick="editPhase()" style="display:none;">수정</button>
+</div>
+
+<!-- 계기 배정 모달 -->
+<div class="modal-overlay" id="meter-modal" style="display:none;" onclick="closeModal(event)">
+    <div class="modal-sheet">
+        <div class="modal-head">
+            <div class="modal-title">계기 배정</div>
+            <button class="modal-close" onclick="closeMeterModal()">×</button>
+        </div>
+        <div class="modal-list" id="modal-list"></div>
+    </div>
+</div>
 
 <script src="js/auth.js"></script>
 <script>
-    authRequire();
-    const _s = authGetSession();
-    if (!_s || _s.role !== 'admin') { alert('관리자 전용'); window.location.href = 'map.html'; }
+// ── 인증 ──────────────────────────────────────────────────
+authRequire();
+const _session = authGetSession();
+if (!_session || _session.role !== 'admin') {
+    alert('관리자 전용');
+    window.location.href = 'map.html';
+}
 
-    const addr = new URLSearchParams(location.search).get('addr') || '';
-    document.getElementById('header-addr').textContent = addr || '주소 없음';
+// ── URL 파라미터 ──────────────────────────────────────────
+const addr = new URLSearchParams(location.search).get('addr') || '';
+document.getElementById('header-addr').textContent = addr || '주소 없음';
 
-    // ── 상태 ─────────────────────────────────────────────────
-    // state[no] = { open, before, mac, after1:[], after2, times:{} }
-    let meters = [];
-    let state  = {};
+// ── 전역 상태 ─────────────────────────────────────────────
+let groups = [];
+let meters = [];
+let phase = 'upload';
+let _groupIdCounter = 0;
+let _sortables = {}; // groupId → Sortable instance
 
-    function saveState() {
-        const slim = {};
-        for (const no in state) slim[no] = { times: state[no].times, after1Times: state[no].after1.map(p => p.time) };
-        try { localStorage.setItem(`ami_work_${addr}`, JSON.stringify(slim)); } catch {}
+// 모달 콜백
+let _modalCallback = null; // (meterNo | null) => void
+
+// ── 초기화 ────────────────────────────────────────────────
+async function init() {
+    if (!addr) {
+        document.getElementById('group-list').innerHTML = '<div class="no-addr">지도에서 주소를 선택해주세요</div>';
+        return;
     }
-
-    async function init() {
-        if (!addr) { document.getElementById('meter-cards').innerHTML = '<div class="no-addr">지도에서 주소를 선택해주세요</div>'; return; }
-        const res = await fetch('./data/site-data.json').catch(() => null);
-        const all = res ? await res.json() : [];
+    try {
+        const res = await fetch('./data/site-data.json');
+        const all = await res.json();
         meters = all.filter(m => m.주소 === addr);
-        let saved = {};
-        try { saved = JSON.parse(localStorage.getItem(`ami_work_${addr}`) || '{}'); } catch {}
-        meters.forEach(m => {
-            const no = m.계기번호;
-            state[no] = { open: false, before: null, mac: null, after1: [], after2: null, times: saved[no]?.times || {} };
-            (saved[no]?.after1Times || []).forEach(t => state[no].after1.push({ dataUrl: null, filename: '', exif: '', time: t }));
-        });
-        render();
-        updateDlBtn();
+    } catch {
+        meters = [];
     }
+}
 
-    // ── 토글 ─────────────────────────────────────────────────
-    function toggle(no) {
-        state[no].open = !state[no].open;
-        renderCard(no);
-    }
+init();
 
-    // ── 단일 사진 ─────────────────────────────────────────────
-    function onSingle(no, type, input) {
-        const file = input.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = e => {
-            const dataUrl = e.target.result;
-            state[no][type] = { dataUrl, filename: file.name, exif: readExifTime(dataUrl) };
-            saveState(); renderCard(no); updateDlBtn();
-        };
-        reader.readAsDataURL(file);
-    }
+// ── 그룹 추가 / 삭제 ──────────────────────────────────────
+function addGroup() {
+    const id = ++_groupIdCounter;
+    groups.push({
+        id,
+        open: true,
+        baseTime: '',
+        before:  null,
+        mac:     null,
+        macManual: '',
+        after1s: [],
+        after2:  null,
+    });
+    renderUpload();
+    // 새 그룹 스크롤
+    setTimeout(() => {
+        const el = document.getElementById(`group-${id}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+}
 
-    // ── 시공후1 ───────────────────────────────────────────────
-    function onAddAfter1(no, input) {
-        const file = input.files[0];
-        if (!file) return;
-        input.value = '';
-        const reader = new FileReader();
-        reader.onload = e => {
-            const dataUrl = e.target.result;
-            const exif = readExifTime(dataUrl);
-            const time = (exif ? exifToLocal(exif) : '') || dateToLocal(new Date());
-            state[no].after1.push({ dataUrl, filename: file.name, exif, time });
-            saveState(); updateAutoTimes(); renderCard(no); updateDlBtn();
-        };
-        reader.readAsDataURL(file);
-    }
+function deleteGroup(id) {
+    if (!confirm('그룹을 삭제할까요?')) return;
+    if (_sortables[id]) { _sortables[id].destroy(); delete _sortables[id]; }
+    groups = groups.filter(g => g.id !== id);
+    renderUpload();
+}
 
-    function onAfter1Time(no, idx, val) {
-        if (state[no].after1[idx]) state[no].after1[idx].time = val;
-        saveState(); updateAutoTimes();
-    }
+function toggleGroup(id) {
+    const g = groups.find(x => x.id === id);
+    if (!g) return;
+    g.open = !g.open;
+    renderUpload();
+}
 
-    function moveAfter1(no, idx, dir) {
-        const arr = state[no].after1, swap = idx + dir;
-        if (swap < 0 || swap >= arr.length) return;
-        [arr[idx], arr[swap]] = [arr[swap], arr[idx]];
-        saveState(); updateAutoTimes(); renderCard(no);
-    }
+// ── 렌더: 업로드 Phase ────────────────────────────────────
+function renderUpload() {
+    const container = document.getElementById('group-list');
+    container.innerHTML = '';
+    // Sortable 정리
+    Object.values(_sortables).forEach(s => s.destroy());
+    _sortables = {};
 
-    function removeAfter1(no, idx) {
-        state[no].after1.splice(idx, 1);
-        saveState(); updateAutoTimes(); renderCard(no); updateDlBtn();
-    }
+    groups.forEach(g => {
+        const el = document.createElement('div');
+        el.id = `group-${g.id}`;
+        el.innerHTML = buildGroupCard(g);
+        container.appendChild(el);
+        if (g.open) initSortable(g);
+    });
+}
 
-    // ── 자동 시간 계산 ────────────────────────────────────────
-    function updateAutoTimes() {
-        meters.forEach(m => {
-            const ms = state[m.계기번호];
-            const times = ms.after1.map(p => p.time ? new Date(p.time) : null).filter(Boolean);
-            if (!times.length) { ms.times = {}; return; }
-            const first = times[0], last = times[times.length - 1];
-            // 슬레이브 수 = 시공후1이 1장인 계기들 (시공전 없는 것 기준)
-            const slaveCount = meters.filter(x => {
-                const xs = state[x.계기번호];
-                return xs.after1.length === 1 && !xs.before;
-            }).length;
-            ms.times.before = dateToLocal(new Date(first.getTime() - (10 + slaveCount * 2) * 60000));
-            ms.times.mac    = dateToLocal(new Date(first.getTime() - 60000));
-            ms.times.after2 = dateToLocal(new Date(last.getTime() + 10000));
-        });
-        saveState();
-        meters.forEach(m => refreshAutoFields(m.계기번호));
-    }
+function buildGroupCard(g) {
+    const baseDisp = g.baseTime ? g.baseTime.replace('T', ' ') : '기준시간 미설정';
+    const body = g.open ? buildGroupBody(g) : '';
+    return `
+    <div class="group-card${g.open ? ' open' : ''}">
+        <div class="group-head" onclick="toggleGroup(${g.id})">
+            <span class="group-title">그룹 ${g.id}</span>
+            <span class="group-basetime">${baseDisp}</span>
+            <button class="btn-red" style="padding:4px 8px;font-size:12px;" onclick="event.stopPropagation();deleteGroup(${g.id})">삭제</button>
+            <span class="toggle-icon">▼</span>
+        </div>
+        ${body}
+    </div>`;
+}
 
-    function refreshAutoFields(no) {
-        const ms = state[no];
-        const fmt = v => v ? v.replace('T', ' ') : '';
-        const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = fmt(v); };
-        set(`at-before-${no}`, ms.times.before);
-        set(`at-mac-${no}`,    ms.times.mac);
-        set(`at-after2-${no}`, ms.times.after2);
-    }
+function buildGroupBody(g) {
+    return `<div class="slots-area">
+        ${buildBaseTimeRow(g)}
+        ${buildBeforeSlot(g)}
+        ${buildMacSlot(g)}
+        ${buildAfter1Section(g)}
+        ${buildAfter2Slot(g)}
+    </div>`;
+}
 
-    // ── 렌더링 ───────────────────────────────────────────────
-    function render() {
-        const c = document.getElementById('meter-cards');
-        if (!meters.length) { c.innerHTML = '<div class="no-addr">이 주소에 등록된 계기가 없습니다</div>'; return; }
-        c.innerHTML = meters.map(m => `<div id="wrap-${m.계기번호}"></div>`).join('');
-        meters.forEach(m => renderCard(m.계기번호));
-    }
+function buildBaseTimeRow(g) {
+    return `<div class="basetime-row">
+        <div class="basetime-label">기준시간</div>
+        <input class="basetime-input" type="datetime-local"
+               id="basetime-${g.id}"
+               value="${g.baseTime}"
+               onchange="onBaseTimeChange(${g.id}, this.value)">
+        <div class="basetime-hint">마스터 시공후1 기준</div>
+    </div>`;
+}
 
-    function renderCard(no) {
-        const wrap = document.getElementById(`wrap-${no}`);
-        if (!wrap) return;
-        const m  = meters.find(x => x.계기번호 === no);
-        const ms = state[no];
-        const isOpen = ms.open;
-
-        const dcuid  = m.DCUID || '';
-        const base   = m.변대주 || '';
-        const suffix = dcuid.length > base.length ? dcuid.slice(base.length) : '';
-        const poleHtml = suffix ? `${base}<b style="color:#ef4444">${suffix}</b>` : base;
-
-        // 사진 있으면 초록 점
-        const hasPhotos = ms.before || ms.mac || ms.after1.some(p => p.dataUrl) || ms.after2;
-        const dot = hasPhotos ? '<span class="has-dot"></span>' : '';
-
-        const mkSingle = (type, lbl) => {
-            const p = ms[type];
-            const has = !!p?.dataUrl;
-            return `<div class="single-row">
-                <div class="slot-lbl">${lbl}</div>
-                <div class="thumb${has ? ' has' : ''}">
-                    ${has ? `<img src="${p.dataUrl}" alt="">` : '+'}
-                    <input type="file" accept="image/*" onchange="onSingle('${no}','${type}',this)">
+function buildSingleSlot(g, type, label) {
+    const p = g[type];
+    const has = !!p?.dataUrl;
+    const imgHtml = has ? `<img src="${p.dataUrl}" alt="">` : '<span>+</span>';
+    return `<div class="single-row">
+        <div class="slot-lbl">${label}</div>
+        <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
+            <div class="thumb${has ? ' has' : ''}">
+                ${imgHtml}
+            </div>
+            <div style="display:flex;gap:3px;">
+                <div class="thumb-btn cam" style="position:relative;">
+                    카메라
+                    <input type="file" accept="image/*" capture="environment" onchange="onSingle(${g.id},'${type}',this)">
                 </div>
-                <div class="slot-meta">
-                    <div class="slot-fname">${has ? p.filename : '사진 선택'}</div>
-                    ${has && p.exif ? `<div class="slot-exif">원본: ${p.exif}</div>` : ''}
-                    <input type="text" class="slot-time" id="at-${type}-${no}" readonly
-                           value="${(ms.times[type]||'').replace('T',' ')}" placeholder="자동계산">
-                    <div class="auto-tag">자동계산</div>
+                <div class="thumb-btn gal" style="position:relative;">
+                    갤러리
+                    <input type="file" accept="image/*" onchange="onSingle(${g.id},'${type}',this)">
                 </div>
+            </div>
+        </div>
+        <div class="slot-meta">
+            <div class="slot-fname">${has ? p.filename : '사진 없음'}</div>
+        </div>
+    </div>`;
+}
+
+function buildBeforeSlot(g) {
+    return `<div>
+        <div class="slot-section-label">① 시공전</div>
+        ${buildSingleSlot(g, 'before', '')}
+    </div>`;
+}
+
+function buildMacSlot(g) {
+    const p = g.mac;
+    const has = !!p?.dataUrl;
+    const qrData = p?.qrData || '';
+    const manual = g.macManual || '';
+    const imgHtml = has ? `<img src="${p.dataUrl}" alt="">` : '<span>+</span>';
+
+    let qrHtml = '';
+    if (has) {
+        if (qrData) {
+            qrHtml = `<div class="qr-result">
+                <span class="qr-text" id="qr-text-${g.id}">${escHtml(qrData)}</span>
+                <button class="btn-copy" onclick="copyQr(${g.id})">복사</button>
             </div>`;
-        };
+        } else {
+            qrHtml = `<div class="qr-result">
+                <span class="qr-text fail">QR 디코딩 실패 — 직접 입력</span>
+            </div>
+            <input class="qr-manual" type="text" placeholder="MAC 주소 직접 입력"
+                   id="qr-manual-${g.id}"
+                   value="${escAttr(manual)}"
+                   oninput="onMacManual(${g.id}, this.value)">`;
+        }
+    }
 
-        const after1Items = ms.after1.map((p, i) => `
-            <div class="after1-item">
-                <div class="after1-num">${i+1}</div>
-                ${p.dataUrl ? `<img class="after1-img" src="${p.dataUrl}" alt="">` : '<div style="width:50px;height:50px;background:#e5e7eb;border-radius:6px;flex-shrink:0"></div>'}
-                <div class="after1-info">
-                    <div class="after1-fname">${p.filename || '(저장됨)'}</div>
-                    ${p.exif ? `<div class="after1-exif">원본: ${p.exif}</div>` : ''}
-                    <input type="datetime-local" class="after1-time"
-                           value="${p.time || dateToLocal(new Date())}"
-                           oninput="onAfter1Time('${no}',${i},this.value)">
+    return `<div>
+        <div class="slot-section-label">② 맥사진</div>
+        <div class="single-row">
+            <div class="slot-lbl"></div>
+            <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
+                <div class="thumb${has ? ' has' : ''}">
+                    ${imgHtml}
                 </div>
-                <div class="order-btns">
-                    <button class="ord-btn" onclick="moveAfter1('${no}',${i},-1)" ${i===0?'disabled':''}>↑</button>
-                    <button class="ord-btn" onclick="moveAfter1('${no}',${i},+1)" ${i===ms.after1.length-1?'disabled':''}>↓</button>
-                </div>
-                <button class="del-btn" onclick="removeAfter1('${no}',${i})">×</button>
-            </div>`).join('');
-
-        const slotsHtml = isOpen ? `
-            <div class="slots-area">
-                ${mkSingle('before','① 시공전')}
-                ${mkSingle('mac',   '② 맥')}
-                <div>
-                    <div class="after1-header">③ 시공후1 (여러 장)</div>
-                    ${after1Items}
-                    <div class="add-after1">
-                        <span>+</span><span>시공후1 추가</span>
-                        <input type="file" accept="image/*" onchange="onAddAfter1('${no}',this)">
+                <div style="display:flex;gap:3px;">
+                    <div class="thumb-btn cam" style="position:relative;">
+                        카메라
+                        <input type="file" accept="image/*" capture="environment" onchange="onMac(${g.id},this)">
+                    </div>
+                    <div class="thumb-btn gal" style="position:relative;">
+                        갤러리
+                        <input type="file" accept="image/*" onchange="onMac(${g.id},this)">
                     </div>
                 </div>
-                ${mkSingle('after2','④ 시공후2')}
-            </div>` : '';
-
-        wrap.innerHTML = `<div class="meter-card${isOpen ? ' open' : ''}">
-            <div class="card-head" onclick="toggle('${no}')">
-                <span class="type-badge type-${m.계기타입||''}">${m.계기타입||'?'}</span>
-                <span class="meter-no">${no}</span>
-                <span class="meter-pole">${poleHtml}</span>
-                ${dot}
-                <span class="toggle-icon">▼</span>
             </div>
-            ${slotsHtml}
-        </div>`;
+            <div class="slot-meta">
+                <div class="slot-fname">${has ? escHtml(p.filename) : '사진 없음'}</div>
+                ${qrHtml}
+            </div>
+        </div>
+    </div>`;
+}
 
-        if (isOpen) refreshAutoFields(no);
+function buildAfter1Section(g) {
+    const items = g.after1s.map((item, i) => {
+        const meterLabel = item.meterNo
+            ? `<div class="after1-meter">${escHtml(item.meterNo)}</div>`
+            : `<div class="after1-meter unassigned">미배정</div>`;
+        const imgEl = item.dataUrl
+            ? `<img class="after1-thumb" src="${item.dataUrl}" alt="" onclick="openMeterModal(${g.id},${i})">`
+            : `<div class="after1-thumb empty" onclick="openMeterModal(${g.id},${i})">+</div>`;
+        return `<div class="after1-item" data-index="${i}">
+            ${imgEl}
+            <div class="after1-meta">${meterLabel}</div>
+            <button class="after1-del" onclick="removeAfter1(${g.id},${i})">×</button>
+        </div>`;
+    }).join('');
+
+    return `<div>
+        <div class="slot-section-label">③ 시공후1 (탭: 계기 배정 / 드래그: 순서 변경)</div>
+        <div class="after1-grid" id="after1-grid-${g.id}">${items}</div>
+        <div class="after1-add-row">
+            <div class="after1-add-btn">
+                + 여러 장
+                <input type="file" accept="image/*" multiple onchange="onAddAfter1Multi(${g.id},this)">
+            </div>
+            <div class="after1-add-btn" style="flex:0;padding:9px 14px;white-space:nowrap;">
+                카메라
+                <input type="file" accept="image/*" capture="environment" onchange="onAddAfter1Single(${g.id},this)">
+            </div>
+        </div>
+    </div>`;
+}
+
+function buildAfter2Slot(g) {
+    return `<div>
+        <div class="slot-section-label">④ 시공후2</div>
+        ${buildSingleSlot(g, 'after2', '')}
+    </div>`;
+}
+
+// ── Sortable 초기화 ───────────────────────────────────────
+function initSortable(g) {
+    const container = document.getElementById(`after1-grid-${g.id}`);
+    if (!container || typeof Sortable === 'undefined') return;
+    _sortables[g.id] = new Sortable(container, {
+        animation: 150,
+        fallbackOnBody: true,
+        fallbackTolerance: 3,
+        touchStartThreshold: 5,
+        filter: '.after1-del',
+        preventOnFilter: false,
+        onEnd(evt) {
+            if (evt.oldIndex === evt.newIndex) return;
+            const moved = g.after1s.splice(evt.oldIndex, 1)[0];
+            g.after1s.splice(evt.newIndex, 0, moved);
+            renderUpload();
+        }
+    });
+}
+
+// ── 이벤트 핸들러 ─────────────────────────────────────────
+function onBaseTimeChange(id, val) {
+    const g = groups.find(x => x.id === id);
+    if (g) g.baseTime = val;
+    // 헤더만 갱신 (전체 리렌더 불필요)
+    const headEl = document.querySelector(`#group-${id} .group-basetime`);
+    if (headEl) headEl.textContent = val ? val.replace('T', ' ') : '기준시간 미설정';
+}
+
+function onSingle(id, type, input) {
+    const file = input.files[0];
+    if (!file) return;
+    input.value = '';
+    const g = groups.find(x => x.id === id);
+    if (!g) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        g[type] = { dataUrl: e.target.result, filename: file.name };
+        renderUpload();
+    };
+    reader.readAsDataURL(file);
+}
+
+function onMac(id, input) {
+    const file = input.files[0];
+    if (!file) return;
+    input.value = '';
+    const g = groups.find(x => x.id === id);
+    if (!g) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        const dataUrl = e.target.result;
+        g.mac = { dataUrl, filename: file.name, qrData: '' };
+        g.macManual = '';
+        decodeQr(dataUrl, qrData => {
+            g.mac.qrData = qrData || '';
+            renderUpload();
+        });
+    };
+    reader.readAsDataURL(file);
+}
+
+function onMacManual(id, val) {
+    const g = groups.find(x => x.id === id);
+    if (g) g.macManual = val;
+}
+
+function onAddAfter1Multi(id, input) {
+    const files = Array.from(input.files);
+    input.value = '';
+    if (!files.length) return;
+    const g = groups.find(x => x.id === id);
+    if (!g) return;
+    let loaded = 0;
+    const items = [];
+    files.forEach((file, i) => {
+        const reader = new FileReader();
+        reader.onload = e => {
+            items[i] = { dataUrl: e.target.result, filename: file.name, meterNo: '' };
+            loaded++;
+            if (loaded === files.length) {
+                g.after1s.push(...items.filter(Boolean));
+                renderUpload();
+            }
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+function onAddAfter1Single(id, input) {
+    const file = input.files[0];
+    if (!file) return;
+    input.value = '';
+    const g = groups.find(x => x.id === id);
+    if (!g) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        g.after1s.push({ dataUrl: e.target.result, filename: file.name, meterNo: '' });
+        renderUpload();
+    };
+    reader.readAsDataURL(file);
+}
+
+function removeAfter1(id, idx) {
+    const g = groups.find(x => x.id === id);
+    if (!g) return;
+    g.after1s.splice(idx, 1);
+    renderUpload();
+}
+
+// ── QR 디코딩 ─────────────────────────────────────────────
+function decodeQr(dataUrl, callback) {
+    const img = new Image();
+    img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width  = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        try {
+            const code = jsQR(imageData.data, imageData.width, imageData.height);
+            callback(code ? code.data : null);
+        } catch {
+            callback(null);
+        }
+    };
+    img.onerror = () => callback(null);
+    img.src = dataUrl;
+}
+
+function copyQr(id) {
+    const g = groups.find(x => x.id === id);
+    if (!g) return;
+    const text = g.mac?.qrData || '';
+    navigator.clipboard.writeText(text).catch(() => {});
+}
+
+// ── 계기 배정 모달 ────────────────────────────────────────
+function getAssignedMeters() {
+    // 전 그룹의 배정된 계기번호 Set
+    const set = new Set();
+    groups.forEach(g => g.after1s.forEach(item => {
+        if (item.meterNo) set.add(item.meterNo);
+    }));
+    return set;
+}
+
+function openMeterModal(groupId, itemIdx) {
+    const g = groups.find(x => x.id === groupId);
+    if (!g) return;
+    const currentMeter = g.after1s[itemIdx]?.meterNo || '';
+    const assigned = getAssignedMeters();
+
+    _modalCallback = (meterNo) => {
+        if (!g.after1s[itemIdx]) return;
+        g.after1s[itemIdx].meterNo = meterNo;
+        renderUpload();
+    };
+
+    const listEl = document.getElementById('modal-list');
+    let html = '';
+
+    if (currentMeter) {
+        html += `<div class="modal-unassign" onclick="selectMeter('')">배정 해제</div>`;
     }
 
-    // ── 다운로드 ──────────────────────────────────────────────
-    async function downloadAll() {
-        const btn = document.getElementById('dl-btn');
-        btn.disabled = true; btn.textContent = '처리 중...';
-        showStatus('info', '처리 중...');
+    meters.forEach(m => {
+        const no = m.계기번호;
+        // 현재 아이템 본인이 배정 중인 계기는 선택 가능, 다른 아이템이 배정 중이면 비활성
+        const isAssignedElsewhere = assigned.has(no) && no !== currentMeter;
+        const typeCls = `type-${m.계기타입 || ''}`;
+        html += `<div class="modal-meter-item${isAssignedElsewhere ? ' disabled' : ''}"
+                      onclick="selectMeter('${escAttr(no)}')">
+            <span class="type-badge ${typeCls}">${escHtml(m.계기타입 || '?')}</span>
+            <span class="modal-meter-no">${escHtml(no)}</span>
+            <span class="modal-meter-pole">${escHtml(m.변대주 || '')}</span>
+            ${isAssignedElsewhere ? '<span style="font-size:10px;color:#9ca3af;">배정됨</span>' : ''}
+        </div>`;
+    });
 
-        let done = 0;
-        for (const m of meters) {
-            const ms = state[m.계기번호];
-            const after1s = ms.after1.filter(p => p.dataUrl);
-            if (!after1s.length) continue;
+    if (!meters.length) {
+        html = '<div style="padding:20px;text-align:center;color:#9ca3af;font-size:13px;">등록된 계기 없음</div>';
+    }
 
-            const after1Times = after1s.map(p => p.time ? new Date(p.time) : new Date());
-            const first = after1Times[0], last = after1Times[after1Times.length - 1];
+    listEl.innerHTML = html;
+    document.getElementById('meter-modal').style.display = 'flex';
+}
 
-            const slaveCount = meters.filter(x => {
-                const xs = state[x.계기번호];
-                return xs.after1.length === 1 && !xs.before;
-            }).length;
+function selectMeter(meterNo) {
+    if (_modalCallback) _modalCallback(meterNo);
+    _modalCallback = null;
+    document.getElementById('meter-modal').style.display = 'none';
+}
 
-            const beforeBase = new Date(first.getTime() - (10 + slaveCount * 2) * 60000);
-            const macBase    = new Date(first.getTime() - 60000);
-            const after2Base = new Date(last.getTime() + 10000);
+function closeMeterModal() {
+    _modalCallback = null;
+    document.getElementById('meter-modal').style.display = 'none';
+}
 
-            try {
-                if (ms.before?.dataUrl) { await proc(ms.before, jitter(beforeBase, 30)); done++; }
-                if (ms.mac?.dataUrl)    { await proc(ms.mac,    jitter(macBase,    8));  done++; }
-                for (let i = 0; i < after1s.length; i++) { await proc(after1s[i], jitter(after1Times[i], 8)); done++; }
-                if (ms.after2?.dataUrl) { await proc(ms.after2, jitter(after2Base, 8)); done++; }
-            } catch (e) {
-                showStatus('error', `${m.계기번호}: ${e.message}`);
-                btn.disabled = false; btn.textContent = '시간 변경 후 다운로드';
-                return;
-            }
+function closeModal(e) {
+    if (e.target === document.getElementById('meter-modal')) closeMeterModal();
+}
+
+// ── Phase 2: 저장 → 결과 화면 ────────────────────────────
+function savePhase() {
+    if (!groups.length) { alert('그룹을 추가해주세요.'); return; }
+    phase = 'result';
+    document.getElementById('phase-upload').style.display = 'none';
+    document.getElementById('phase-result').style.display = 'block';
+    document.getElementById('btn-save').style.display = 'none';
+    document.getElementById('btn-download').style.display = 'block';
+    document.getElementById('btn-edit').style.display = 'block';
+    updateDownloadBtn();
+    renderResult();
+}
+
+function editPhase() {
+    phase = 'upload';
+    document.getElementById('phase-upload').style.display = 'block';
+    document.getElementById('phase-result').style.display = 'none';
+    document.getElementById('btn-save').style.display = 'block';
+    document.getElementById('btn-download').style.display = 'none';
+    document.getElementById('btn-edit').style.display = 'none';
+    renderUpload();
+}
+
+function updateDownloadBtn() {
+    const btn = document.getElementById('btn-download');
+    // baseTime이 하나라도 있고 after1s가 하나라도 있으면 활성화
+    const canDl = groups.some(g => g.baseTime && g.after1s.length > 0);
+    btn.disabled = !canDl;
+}
+
+function renderResult() {
+    const container = document.getElementById('result-list');
+    container.innerHTML = '';
+
+    groups.forEach(g => {
+        const div = document.createElement('div');
+        div.className = 'result-group';
+
+        const baseDisp = g.baseTime ? g.baseTime.replace('T', ' ') : '기준시간 없음';
+        let rowsHtml = '';
+
+        // 시공전
+        if (g.before?.dataUrl) {
+            rowsHtml += buildResultRow('① 시공전', g.before.dataUrl, '');
         }
 
-        showStatus('success', `${done}장 완료`);
-        btn.disabled = false; btn.textContent = '시간 변경 후 다운로드';
+        // 맥
+        if (g.mac?.dataUrl) {
+            const qrVal = g.mac.qrData || g.macManual || '(없음)';
+            rowsHtml += buildResultRow('② 맥', g.mac.dataUrl,
+                `<span>QR: <b>${escHtml(qrVal)}</b></span>
+                 <button class="btn-copy" onclick="navigator.clipboard.writeText('${escAttr(qrVal)}').catch(()=>{})" style="margin-left:6px;">복사</button>`
+            );
+        }
+
+        // 시공후1
+        g.after1s.forEach((item, i) => {
+            if (!item.dataUrl) return;
+            const role = i === 0
+                ? '<span class="badge-master">마스터</span>'
+                : '<span class="badge-slave">슬레이브</span>';
+            const meterText = item.meterNo
+                ? `<span class="result-meter">[${escHtml(item.meterNo)}]</span>`
+                : '<span style="color:#9ca3af;">미배정</span>';
+            rowsHtml += buildResultRow(`③-${i+1} ${role}`, item.dataUrl, meterText);
+        });
+
+        // 시공후2
+        if (g.after2?.dataUrl) {
+            rowsHtml += buildResultRow('④ 시공후2', g.after2.dataUrl, '');
+        }
+
+        // 미배정 경고
+        const unassigned = g.after1s.filter(x => x.dataUrl && !x.meterNo);
+        const warnHtml = unassigned.length
+            ? `<div class="result-warn">미배정 사진 ${unassigned.length}장 — 파일명에 계기번호 없이 다운로드됩니다</div>`
+            : '';
+
+        div.innerHTML = `
+            <div class="result-group-head">
+                <div class="result-group-title">그룹 ${g.id}</div>
+                <div class="result-group-time">기준시간: ${escHtml(baseDisp)}</div>
+            </div>
+            <div class="result-rows">${rowsHtml}${warnHtml}</div>`;
+        container.appendChild(div);
+    });
+}
+
+function buildResultRow(label, src, infoHtml) {
+    return `<div class="result-row">
+        <div class="result-lbl">${label}</div>
+        <img class="result-thumb" src="${src}" alt="">
+        <div class="result-info">${infoHtml}</div>
+    </div>`;
+}
+
+// ── Phase 3: EXIF 수정 후 다운로드 ───────────────────────
+async function downloadAll() {
+    const btn = document.getElementById('btn-download');
+    btn.disabled = true;
+    btn.textContent = '처리 중...';
+
+    try {
+        for (const g of groups) {
+            if (!g.baseTime) continue;
+            await downloadGroup(g);
+        }
+    } catch (e) {
+        alert('다운로드 오류: ' + e.message);
     }
 
-    function jitter(base, range) {
-        return new Date(base.getTime() + Math.round((Math.random() * 2 - 1) * range) * 1000);
+    btn.disabled = false;
+    btn.textContent = 'EXIF 변경 후 다운로드';
+    updateDownloadBtn();
+}
+
+async function downloadGroup(g) {
+    const base = new Date(g.baseTime);
+
+    // after1s 기준시간 배열: 마스터 = base, 슬레이브 = base + N분
+    const after1Times = g.after1s.map((_, i) => new Date(base.getTime() + i * 60 * 1000));
+
+    // 시공전: base - 10분
+    const beforeBase = new Date(base.getTime() - 10 * 60 * 1000);
+    // 맥: base - 1분
+    const macBase = new Date(base.getTime() - 60 * 1000);
+    // 시공후2: 마지막 after1 지터 적용 후 + 최소 10초 보장
+    // (after2 지터는 last_after1_jittered 기준으로 계산 — 순서 역전 방지)
+
+    if (g.before?.dataUrl) {
+        await procDownload(g.before, jitter(beforeBase, 30));
+    }
+    if (g.mac?.dataUrl) {
+        await procDownload(g.mac, jitter(macBase, 8));
     }
 
-    function proc(p, t) {
-        return new Promise((res, rej) => {
-            try {
-                const exifStr = dateToExif(t);
-                let newUrl;
+    // after1s — 마지막 지터 시간을 after2 기준으로 사용
+    let lastAfter1Jittered = null;
+    for (let i = 0; i < g.after1s.length; i++) {
+        const item = g.after1s[i];
+        if (!item.dataUrl) continue;
+        const t = jitter(after1Times[i], 8);
+        lastAfter1Jittered = t;
+        await procDownload(item, t);
+    }
+
+    if (g.after2?.dataUrl) {
+        // after2 = lastAfter1Jittered + (10~26초), 독립 jitter 대신 순서 보장
+        const after2Base = lastAfter1Jittered
+            ? new Date(lastAfter1Jittered.getTime() + (10 + Math.floor(Math.random() * 16)) * 1000)
+            : jitter(new Date(base.getTime() + g.after1s.length * 60 * 1000 + 10000), 8);
+        await procDownload(g.after2, after2Base);
+    }
+}
+
+function jitter(base, rangeSec) {
+    const offset = Math.round((Math.random() * 2 - 1) * rangeSec) * 1000;
+    return new Date(base.getTime() + offset);
+}
+
+async function procDownload(photoItem, t) {
+    const exifStr = dateToExif(t);
+    let newUrl;
+    try {
+        const eo = piexif.load(photoItem.dataUrl);
+        eo['0th'][piexif.ImageIFD.DateTime] = exifStr;
+        eo['Exif'][piexif.ExifIFD.DateTimeOriginal] = exifStr;
+        eo['Exif'][piexif.ExifIFD.DateTimeDigitized] = exifStr;
+        newUrl = piexif.insert(piexif.dump(eo), photoItem.dataUrl);
+    } catch {
+        // EXIF 세그먼트 없는 경우 — 이미지 로드 완료 후 canvas 재인코딩
+        // img.onload 없이 naturalWidth 읽으면 0이므로 반드시 onload 대기
+        newUrl = await new Promise((res, rej) => {
+            const img = new Image();
+            img.onload = () => {
                 try {
-                    const eo = piexif.load(p.dataUrl);
-                    eo['0th'][piexif.ImageIFD.DateTime] = exifStr;
-                    eo['Exif'][piexif.ExifIFD.DateTimeOriginal] = exifStr;
-                    eo['Exif'][piexif.ExifIFD.DateTimeDigitized] = exifStr;
-                    newUrl = piexif.insert(piexif.dump(eo), p.dataUrl);
-                } catch {
-                    const img = new Image(); img.src = p.dataUrl;
                     const c = document.createElement('canvas');
-                    c.width = img.naturalWidth||800; c.height = img.naturalHeight||600;
+                    c.width  = img.naturalWidth;
+                    c.height = img.naturalHeight;
                     c.getContext('2d').drawImage(img, 0, 0);
                     const j = c.toDataURL('image/jpeg', 0.92);
-                    const eo2 = {'0th':{},'Exif':{},'GPS':{},'1st':{},'Interop':{}};
+                    const eo2 = { '0th': {}, 'Exif': {}, 'GPS': {}, '1st': {}, 'Interop': {} };
                     eo2['0th'][piexif.ImageIFD.DateTime] = exifStr;
                     eo2['Exif'][piexif.ExifIFD.DateTimeOriginal] = exifStr;
                     eo2['Exif'][piexif.ExifIFD.DateTimeDigitized] = exifStr;
-                    newUrl = piexif.insert(piexif.dump(eo2), j);
-                }
-                const blob = dataUrlToBlob(newUrl);
-                const ed = dateToExif(t).replace(/[: ]/g,'');
-                const nd = ed.slice(0,8), nt = ed.slice(9,15);
-                const name = `${nd}_${nt}.jpg`;
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a'); a.href=url; a.download=name; a.click();
-                setTimeout(()=>URL.revokeObjectURL(url),3000);
-                res();
-            } catch(e) { rej(e); }
+                    res(piexif.insert(piexif.dump(eo2), j));
+                } catch (e) { rej(e); }
+            };
+            img.onerror = () => rej(new Error('이미지 로드 실패'));
+            img.src = photoItem.dataUrl;
         });
     }
 
-    function readExifTime(dataUrl) {
-        try { const ex=piexif.load(dataUrl); return ex['Exif']?.[piexif.ExifIFD.DateTimeOriginal]||ex['0th']?.[piexif.ImageIFD.DateTime]||''; } catch { return ''; }
-    }
-    function exifToLocal(s) {
-        if (!s||s.length<16) return ''; const [d,t]=s.split(' ');
-        return (d||'').replace(/:/g,'-')+'T'+(t||'').slice(0,5);
-    }
-    function dateToLocal(d) {
-        const p=n=>String(n).padStart(2,'0');
-        return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-    }
-    function dateToExif(d) {
-        const p=n=>String(n).padStart(2,'0');
-        return `${d.getFullYear()}:${p(d.getMonth()+1)}:${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-    }
-    function dataUrlToBlob(dataUrl) {
-        const [h,b64]=dataUrl.split(','), mime=h.match(/:(.*?);/)[1], bin=atob(b64), arr=new Uint8Array(bin.length);
-        for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i); return new Blob([arr],{type:mime});
-    }
-    function showStatus(t,m) { const el=document.getElementById('status-msg'); el.className='status '+t; el.textContent=m; }
-    function updateDlBtn() {
-        document.getElementById('dl-btn').disabled = !meters.some(m => state[m.계기번호]?.after1?.some(p => p.dataUrl));
-    }
+    const blob = dataUrlToBlob(newUrl);
+    const name = dateToFilename(t);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
 
-    init();
+// ── 유틸 ──────────────────────────────────────────────────
+function dateToExif(d) {
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}:${p(d.getMonth()+1)}:${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+function dateToFilename(d) {
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.jpg`;
+}
+
+function dataUrlToBlob(dataUrl) {
+    const [h, b64] = dataUrl.split(',');
+    const mime = h.match(/:(.*?);/)[1];
+    const bin  = atob(b64);
+    const arr  = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+}
+
+function escHtml(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function escAttr(s) {
+    return String(s || '').replace(/'/g,'&#39;').replace(/"/g,'&quot;');
+}
 </script>
 </body>
 </html>
