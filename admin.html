@@ -7,6 +7,12 @@
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
+    <script type="module">
+    try {
+        const { readBarcodes } = await import('https://cdn.jsdelivr.net/npm/zxing-wasm@1/dist/browser/zxing_wasm.js');
+        window._readBarcodes = readBarcodes;
+    } catch(e) { /* jsQR fallback will be used */ }
+    </script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 80px; }
@@ -134,6 +140,15 @@
 
         .no-addr { text-align: center; padding: 40px 20px; color: #9ca3af; font-size: 14px; }
 
+        /* ── 액션 시트 ── */
+        .action-sheet-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 600; display: flex; align-items: flex-end; }
+        .action-sheet { background: white; border-radius: 16px 16px 0 0; width: 100%; padding: 8px 12px 32px; }
+        .action-sheet-title { font-size: 13px; color: #6b7280; text-align: center; padding: 12px 0 8px; font-weight: 600; }
+        .action-sheet-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 16px 14px; font-size: 16px; font-weight: 600; border: none; background: white; cursor: pointer; border-radius: 10px; color: #111827; }
+        .action-sheet-btn:active { background: #f3f4f6; }
+        .action-sheet-btn span { font-size: 22px; }
+        .action-sheet-cancel { color: #dc2626; margin-top: 4px; border-top: 1px solid #f3f4f6; }
+
         /* ── 계기 패널 ── */
         .meter-panel { background: white; margin: 8px 12px; border-radius: 12px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
         .meter-panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -142,10 +157,11 @@
         .meter-search-input { width: 100%; padding: 8px 10px; border: 1.5px solid #e5e7eb; border-radius: 8px; font-size: 13px; margin-bottom: 8px; }
         .meter-search-input:focus { outline: none; border-color: #3b82f6; }
         .meter-card-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 200px; overflow-y: auto; }
-        .meter-chip { display: flex; align-items: center; gap: 5px; padding: 6px 10px; border: 1.5px solid #e5e7eb; border-radius: 8px; background: white; cursor: pointer; }
+        .meter-chip { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 8px; border: 1.5px solid #e5e7eb; border-radius: 8px; background: white; cursor: pointer; min-width: 70px; }
         .meter-chip.selected { border-color: #1d4ed8; background: #eff6ff; }
         .meter-chip.assigned { opacity: 0.4; cursor: default; }
-        .chip-no { font-size: 12px; font-weight: 700; color: #111827; }
+        .chip-type { font-size: 9px; font-weight: 700; }
+        .chip-no { font-size: 11px; font-weight: 700; color: #111827; text-align: center; word-break: break-all; line-height: 1.3; }
 
         /* ── 결과 시간 편집 ── */
         .result-time-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid #f0f0f0; }
@@ -188,6 +204,36 @@
 <!-- 하단 고정 버튼 -->
 <div class="bottom-bar" id="bottom-bar">
     <button class="btn-green" id="btn-download" onclick="downloadAll()">EXIF 변경 후 다운로드</button>
+</div>
+
+<!-- 사진 선택 액션 시트 -->
+<div class="action-sheet-overlay" id="photo-action-sheet" style="display:none;" onclick="closePhotoActionSheet(event)">
+    <div class="action-sheet">
+        <div class="action-sheet-title" id="photo-action-title">사진 선택</div>
+        <button class="action-sheet-btn" onclick="photoActionCamera()">
+            <span>📷</span> 사진 찍기
+        </button>
+        <button class="action-sheet-btn" id="action-scan-btn" onclick="photoActionScan()" style="display:none;">
+            <span>🔍</span> QR / 바코드 스캔
+        </button>
+        <button class="action-sheet-btn" onclick="photoActionGallery()">
+            <span>🖼️</span> 사진 선택
+        </button>
+        <button class="action-sheet-btn action-sheet-cancel" onclick="closePhotoActionSheet()">취소</button>
+    </div>
+</div>
+<!-- 숨김 파일 input들 -->
+<input type="file" id="hidden-camera" accept="image/*" capture="environment" style="display:none">
+<input type="file" id="hidden-gallery" accept="image/*" style="display:none">
+<input type="file" id="hidden-gallery-multi" accept="image/*" multiple style="display:none">
+
+<!-- QR 라이브 스캔 오버레이 -->
+<div id="qr-scan-overlay" style="display:none;position:fixed;inset:0;background:black;z-index:700;flex-direction:column;align-items:center;justify-content:center;">
+    <video id="qr-video" playsinline autoplay muted style="width:100%;max-height:60vh;object-fit:cover;"></video>
+    <canvas id="qr-canvas" style="display:none;"></canvas>
+    <div style="color:white;font-size:14px;padding:16px;text-align:center;">QR / 바코드를 카메라에 비춰주세요</div>
+    <div id="qr-result-display" style="color:#10b981;font-size:18px;font-weight:700;padding:8px 16px;background:rgba(0,0,0,0.7);border-radius:8px;display:none;"></div>
+    <button onclick="stopQrScan()" style="margin-top:16px;padding:14px 32px;background:#dc2626;color:white;border:none;border-radius:10px;font-size:16px;font-weight:700;">닫기</button>
 </div>
 
 <!-- 계기 배정 모달 -->
@@ -239,7 +285,8 @@ async function init() {
     } catch {
         meters = [];
     }
-    renderMeterPanel();
+    await loadStateFromStorage();
+    renderUpload(); // 내부에서 renderMeterPanel() 호출
 }
 
 init();
@@ -261,6 +308,7 @@ function addGroup() {
         after1s: [],
         after2:  null,
     });
+    saveStateToStorage();
     renderUpload();
     // 새 그룹 스크롤
     setTimeout(() => {
@@ -273,6 +321,7 @@ function deleteGroup(id) {
     if (!confirm('그룹을 삭제할까요?')) return;
     if (_sortables[id]) { _sortables[id].destroy(); delete _sortables[id]; }
     groups = groups.filter(g => g.id !== id);
+    saveStateToStorage();
     renderUpload();
 }
 
@@ -348,7 +397,8 @@ function buildGroupResult(g) {
             ? '<span class="badge-master">마스터</span>'
             : '<span class="badge-slave">슬레이브</span>';
         const meterText = item.meterNo
-            ? `<span class="result-meter">[${escHtml(item.meterNo)}]</span>`
+            ? `<span class="result-meter">${escHtml(item.meterNo)}</span>
+               <button class="btn-copy" onclick="navigator.clipboard.writeText('${escAttr(item.meterNo)}').catch(()=>{})">복사</button>`
             : '<span style="color:#9ca3af;font-size:12px;">미배정</span>';
         rows += buildResultRow(`③-${i+1} ${role}`, item.dataUrl, meterText);
     });
@@ -372,6 +422,7 @@ function saveGroup(id) {
     const g = groups.find(x => x.id === id);
     if (!g) return;
     g.phase = 'result';
+    saveStateToStorage();
     renderUpload();
 }
 
@@ -379,12 +430,13 @@ function editGroup(id) {
     const g = groups.find(x => x.id === id);
     if (!g) return;
     g.phase = 'upload';
+    saveStateToStorage();
     renderUpload();
 }
 
 function updateGroupTime(id, val) {
     const g = groups.find(x => x.id === id);
-    if (g) g.baseTime = val;
+    if (g) { g.baseTime = val; saveStateToStorage(); }
 }
 
 function buildBaseTimeRow(g) {
@@ -426,9 +478,19 @@ function buildSingleSlot(g, type, label) {
 }
 
 function buildBeforeSlot(g) {
+    const p = g.before;
+    const has = !!p?.dataUrl;
     return `<div>
         <div class="slot-section-label">① 시공전</div>
-        ${buildSingleSlot(g, 'before', '')}
+        <div class="single-row">
+            <div class="slot-lbl">① 시공전</div>
+            <div class="thumb${has ? ' has' : ''}" onclick="openPhotoActionSheet(${g.id},'before')" style="cursor:pointer;">
+                ${has ? `<img src="${p.dataUrl}" alt="">` : '<span style="font-size:24px;color:#d1d5db">+</span>'}
+            </div>
+            <div class="slot-meta">
+                <div class="slot-fname">${has ? escHtml(p.filename) : '탭하여 선택'}</div>
+            </div>
+        </div>
     </div>`;
 }
 
@@ -437,7 +499,6 @@ function buildMacSlot(g) {
     const has = !!p?.dataUrl;
     const qrData = p?.qrData || '';
     const manual = g.macManual || '';
-    const imgHtml = has ? `<img src="${p.dataUrl}" alt="">` : '<span>+</span>';
 
     let qrHtml = '';
     if (has) {
@@ -460,24 +521,12 @@ function buildMacSlot(g) {
     return `<div>
         <div class="slot-section-label">② 맥사진</div>
         <div class="single-row">
-            <div class="slot-lbl"></div>
-            <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
-                <div class="thumb${has ? ' has' : ''}">
-                    ${imgHtml}
-                </div>
-                <div style="display:flex;gap:3px;">
-                    <div class="thumb-btn cam" style="position:relative;">
-                        카메라
-                        <input type="file" accept="image/*" capture="environment" onchange="onMac(${g.id},this)">
-                    </div>
-                    <div class="thumb-btn gal" style="position:relative;">
-                        갤러리
-                        <input type="file" accept="image/*" onchange="onMac(${g.id},this)">
-                    </div>
-                </div>
+            <div class="slot-lbl">② 맥</div>
+            <div class="thumb${has ? ' has' : ''}" onclick="openPhotoActionSheet(${g.id},'mac',{mac:true})" style="cursor:pointer;">
+                ${has ? `<img src="${p.dataUrl}" alt="">` : '<span style="font-size:24px;color:#d1d5db">+</span>'}
             </div>
             <div class="slot-meta">
-                <div class="slot-fname">${has ? escHtml(p.filename) : '사진 없음'}</div>
+                <div class="slot-fname">${has ? escHtml(p.filename) : '탭하여 선택'}</div>
                 ${qrHtml}
             </div>
         </div>
@@ -503,22 +552,27 @@ function buildAfter1Section(g) {
         <div class="slot-section-label">③ 시공후1 (탭: 계기 배정 / 드래그: 순서 변경)</div>
         <div class="after1-grid" id="after1-grid-${g.id}">${items}</div>
         <div class="after1-add-row">
-            <div class="after1-add-btn">
-                + 여러 장
-                <input type="file" accept="image/*" multiple onchange="onAddAfter1Multi(${g.id},this)">
-            </div>
-            <div class="after1-add-btn" style="flex:0;padding:9px 14px;white-space:nowrap;">
-                카메라
-                <input type="file" accept="image/*" capture="environment" onchange="onAddAfter1Single(${g.id},this)">
+            <div class="after1-add-btn" onclick="openPhotoActionSheet(${g.id},'after1',{multi:true})">
+                + 시공후1 추가
             </div>
         </div>
     </div>`;
 }
 
 function buildAfter2Slot(g) {
+    const p = g.after2;
+    const has = !!p?.dataUrl;
     return `<div>
         <div class="slot-section-label">④ 시공후2</div>
-        ${buildSingleSlot(g, 'after2', '')}
+        <div class="single-row">
+            <div class="slot-lbl">④ 시공후2</div>
+            <div class="thumb${has ? ' has' : ''}" onclick="openPhotoActionSheet(${g.id},'after2')" style="cursor:pointer;">
+                ${has ? `<img src="${p.dataUrl}" alt="">` : '<span style="font-size:24px;color:#d1d5db">+</span>'}
+            </div>
+            <div class="slot-meta">
+                <div class="slot-fname">${has ? escHtml(p.filename) : '탭하여 선택'}</div>
+            </div>
+        </div>
     </div>`;
 }
 
@@ -537,6 +591,7 @@ function initSortable(g) {
             if (evt.oldIndex === evt.newIndex) return;
             const moved = g.after1s.splice(evt.oldIndex, 1)[0];
             g.after1s.splice(evt.newIndex, 0, moved);
+            saveStateToStorage();
             renderUpload();
         }
     });
@@ -546,6 +601,7 @@ function initSortable(g) {
 function onBaseTimeChange(id, val) {
     const g = groups.find(x => x.id === id);
     if (g) g.baseTime = val;
+    saveStateToStorage();
     // 헤더만 갱신 (전체 리렌더 불필요)
     const headEl = document.querySelector(`#group-${id} .group-basetime`);
     if (headEl) headEl.textContent = val ? val.replace('T', ' ') : '기준시간 미설정';
@@ -560,6 +616,7 @@ function onSingle(id, type, input) {
     const reader = new FileReader();
     reader.onload = e => {
         g[type] = { dataUrl: e.target.result, filename: file.name };
+        saveStateToStorage();
         renderUpload();
     };
     reader.readAsDataURL(file);
@@ -578,6 +635,7 @@ function onMac(id, input) {
         g.macManual = '';
         decodeQr(dataUrl, qrData => {
             g.mac.qrData = qrData || '';
+            saveStateToStorage();
             renderUpload();
         });
     };
@@ -586,7 +644,7 @@ function onMac(id, input) {
 
 function onMacManual(id, val) {
     const g = groups.find(x => x.id === id);
-    if (g) g.macManual = val;
+    if (g) { g.macManual = val; saveStateToStorage(); }
 }
 
 function onAddAfter1Multi(id, input) {
@@ -604,7 +662,9 @@ function onAddAfter1Multi(id, input) {
             loaded++;
             if (loaded === files.length) {
                 g.after1s.push(...items.filter(Boolean));
+                saveStateToStorage();
                 renderUpload();
+                initSortable(g);
             }
         };
         reader.readAsDataURL(file);
@@ -620,7 +680,9 @@ function onAddAfter1Single(id, input) {
     const reader = new FileReader();
     reader.onload = e => {
         g.after1s.push({ dataUrl: e.target.result, filename: file.name, meterNo: '' });
+        saveStateToStorage();
         renderUpload();
+        initSortable(g);
     };
     reader.readAsDataURL(file);
 }
@@ -629,6 +691,7 @@ function removeAfter1(id, idx) {
     const g = groups.find(x => x.id === id);
     if (!g) return;
     g.after1s.splice(idx, 1);
+    saveStateToStorage();
     renderUpload();
 }
 
@@ -680,10 +743,13 @@ function renderMeterPanel() {
         const isAssigned = assigned.has(no) && no !== selectedMeterNo;
         const isSelected = no === selectedMeterNo;
         const typeCls = `type-${escHtml(m.계기타입 || '')}`;
+        // 계기번호 두 줄: 앞5자리 / 뒤6자리
+        const noPart1 = no.slice(0, 5);
+        const noPart2 = no.slice(5);
         return `<div class="meter-chip${isSelected ? ' selected' : ''}${isAssigned ? ' assigned' : ''}"
                      onclick="selectMeterChip('${escAttr(no)}')">
             <span class="type-badge ${typeCls}">${escHtml(m.계기타입 || '?')}</span>
-            <span class="chip-no">${escHtml(no.slice(-6))}</span>
+            <span class="chip-no">${escHtml(noPart1)}<br>${escHtml(noPart2)}</span>
         </div>`;
     }).join('');
 }
@@ -705,6 +771,7 @@ function assignSelectedMeter(groupId, itemIdx) {
         const g = groups.find(x => x.id === groupId);
         if (g && g.after1s[itemIdx]?.meterNo) {
             g.after1s[itemIdx].meterNo = '';
+            saveStateToStorage();
             renderUpload();
         }
         return;
@@ -713,6 +780,7 @@ function assignSelectedMeter(groupId, itemIdx) {
     if (!g || !g.after1s[itemIdx]) return;
     g.after1s[itemIdx].meterNo = selectedMeterNo;
     selectedMeterNo = null; // 배정 후 선택 해제
+    saveStateToStorage();
     renderUpload();
 }
 
@@ -844,8 +912,9 @@ function renderResult() {
                 ? '<span class="badge-master">마스터</span>'
                 : '<span class="badge-slave">슬레이브</span>';
             const meterText = item.meterNo
-                ? `<span class="result-meter">[${escHtml(item.meterNo)}]</span>`
-                : '<span style="color:#9ca3af;">미배정</span>';
+                ? `<span class="result-meter">${escHtml(item.meterNo)}</span>
+                   <button class="btn-copy" onclick="navigator.clipboard.writeText('${escAttr(item.meterNo)}').catch(()=>{})">복사</button>`
+                : '<span style="color:#9ca3af;font-size:12px;">미배정</span>';
             rowsHtml += buildResultRow(`③-${i+1} ${role}`, item.dataUrl, meterText);
         });
 
@@ -986,6 +1055,256 @@ async function procDownload(photoItem, t) {
     const a = document.createElement('a');
     a.href = url; a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+
+// ── 액션 시트 ─────────────────────────────────────────────
+let _photoAction = { groupId: null, type: null, isMulti: false, isMac: false };
+
+function openPhotoActionSheet(groupId, type, options = {}) {
+    _photoAction = { groupId, type, isMulti: !!options.multi, isMac: !!options.mac };
+    document.getElementById('photo-action-title').textContent =
+        type === 'before' ? '① 시공전 사진' :
+        type === 'mac'    ? '② 맥 / QR 사진' :
+        type === 'after1' ? '③ 시공후1 사진' :
+        type === 'after2' ? '④ 시공후2 사진' : '사진 선택';
+    document.getElementById('action-scan-btn').style.display = options.mac ? 'flex' : 'none';
+    document.getElementById('photo-action-sheet').style.display = 'flex';
+}
+
+function closePhotoActionSheet(e) {
+    if (e && e.target !== document.getElementById('photo-action-sheet')) return;
+    document.getElementById('photo-action-sheet').style.display = 'none';
+}
+
+function photoActionCamera() {
+    document.getElementById('photo-action-sheet').style.display = 'none';
+    const input = document.getElementById('hidden-camera');
+    input.onchange = e => handlePhotoInput(e);
+    input.value = ''; input.click();
+}
+
+function photoActionGallery() {
+    document.getElementById('photo-action-sheet').style.display = 'none';
+    const id = _photoAction.isMulti ? 'hidden-gallery-multi' : 'hidden-gallery';
+    const input = document.getElementById(id);
+    input.onchange = e => handlePhotoInput(e);
+    input.value = ''; input.click();
+}
+
+function handlePhotoInput(e) {
+    const { groupId, type, isMulti, isMac } = _photoAction;
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    const g = groups.find(x => x.id === groupId);
+    if (!g) return;
+
+    if (type === 'after1') {
+        // 순서 보장을 위해 indexed 패턴 사용
+        let loaded = 0;
+        const items = [];
+        files.forEach((f, i) => {
+            const reader = new FileReader();
+            reader.onload = ev => {
+                items[i] = { dataUrl: ev.target.result, filename: f.name, meterNo: '' };
+                loaded++;
+                if (loaded === files.length) {
+                    g.after1s.push(...items.filter(Boolean));
+                    saveStateToStorage();
+                    renderUpload();
+                    initSortable(g);
+                }
+            };
+            reader.readAsDataURL(f);
+        });
+    } else if (isMac) {
+        const file = files[0];
+        const reader = new FileReader();
+        reader.onload = ev => {
+            const dataUrl = ev.target.result;
+            g.mac = { dataUrl, filename: file.name, qrData: '' };
+            g.macManual = '';
+            decodeQr(dataUrl, qrData => {
+                g.mac.qrData = qrData || '';
+                saveStateToStorage();
+                renderUpload();
+            });
+        };
+        reader.readAsDataURL(file);
+    } else {
+        const file = files[0];
+        const reader = new FileReader();
+        reader.onload = ev => {
+            g[type] = { dataUrl: ev.target.result, filename: file.name };
+            saveStateToStorage();
+            renderUpload();
+        };
+        reader.readAsDataURL(file);
+    }
+}
+
+// ── QR 라이브 스캔 ────────────────────────────────────────
+let _qrStream = null;
+let _qrRaf = null;
+
+function photoActionScan() {
+    document.getElementById('photo-action-sheet').style.display = 'none';
+    startQrScan();
+}
+
+async function startQrScan() {
+    const overlay = document.getElementById('qr-scan-overlay');
+    overlay.style.display = 'flex';
+    const video = document.getElementById('qr-video');
+    try {
+        _qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        video.srcObject = _qrStream;
+        await video.play();
+        scanQrFrame();
+    } catch(e) {
+        alert('카메라 접근 실패: ' + e.message);
+        overlay.style.display = 'none';
+    }
+}
+
+function scanQrFrame() {
+    const video = document.getElementById('qr-video');
+    const canvas = document.getElementById('qr-canvas');
+    const ctx = canvas.getContext('2d');
+    if (video.readyState < video.HAVE_ENOUGH_DATA) {
+        _qrRaf = requestAnimationFrame(scanQrFrame); return;
+    }
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    if (window._readBarcodes) {
+        window._readBarcodes(imageData).then(results => {
+            if (results && results.length > 0) {
+                onQrDetected(results[0].text);
+            } else {
+                _qrRaf = requestAnimationFrame(scanQrFrame);
+            }
+        }).catch(() => { _qrRaf = requestAnimationFrame(scanQrFrame); });
+    } else if (window.jsQR) {
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+        if (code) { onQrDetected(code.data); return; }
+        _qrRaf = requestAnimationFrame(scanQrFrame);
+    } else {
+        _qrRaf = requestAnimationFrame(scanQrFrame);
+    }
+}
+
+function onQrDetected(text) {
+    stopQrScan();
+    const { groupId } = _photoAction;
+    const g = groups.find(x => x.id === groupId);
+    if (g) {
+        if (!g.mac) g.mac = { dataUrl: null, filename: '', qrData: text };
+        else g.mac.qrData = text;
+        g.macManual = text;
+        saveStateToStorage();
+        renderUpload();
+    }
+}
+
+function stopQrScan() {
+    if (_qrRaf) { cancelAnimationFrame(_qrRaf); _qrRaf = null; }
+    if (_qrStream) { _qrStream.getTracks().forEach(t => t.stop()); _qrStream = null; }
+    document.getElementById('qr-video').srcObject = null;
+    document.getElementById('qr-scan-overlay').style.display = 'none';
+}
+
+// ── IndexedDB + 상태 저장 ─────────────────────────────────
+const DB_NAME = 'ami-admin-photos', DB_VER = 1, DB_STORE = 'photos';
+let _idb = null;
+
+async function openIDB() {
+    if (_idb) return _idb;
+    return new Promise((res, rej) => {
+        const req = indexedDB.open(DB_NAME, DB_VER);
+        req.onupgradeneeded = e => e.target.result.createObjectStore(DB_STORE, { keyPath: 'key' });
+        req.onsuccess = e => { _idb = e.target.result; res(_idb); };
+        req.onerror = e => rej(e.target.error);
+    });
+}
+
+async function idbPut(key, dataUrl) {
+    const db = await openIDB();
+    return new Promise((res, rej) => {
+        const tx = db.transaction(DB_STORE, 'readwrite');
+        tx.objectStore(DB_STORE).put({ key, dataUrl });
+        tx.oncomplete = res; tx.onerror = e => rej(e.target.error);
+    });
+}
+
+async function idbGet(key) {
+    const db = await openIDB();
+    return new Promise((res, rej) => {
+        const req = db.transaction(DB_STORE).objectStore(DB_STORE).get(key);
+        req.onsuccess = e => res(e.target.result?.dataUrl || null);
+        req.onerror = e => rej(e.target.error);
+    });
+}
+
+function saveStateToStorage() {
+    if (!addr) return;
+    const slim = groups.map(g => ({
+        id: g.id,
+        open: g.open,
+        phase: g.phase,
+        baseTime: g.baseTime,
+        macManual: g.macManual || '',
+        macQr: g.mac?.qrData || '',
+        macFilename: g.mac?.filename || '',
+        beforeFilename: g.before?.filename || '',
+        after2Filename: g.after2?.filename || '',
+        after1s: g.after1s.map(a => ({ meterNo: a.meterNo, filename: a.filename })),
+    }));
+    try {
+        localStorage.setItem(`ami_admin_${addr}`, JSON.stringify({ groups: slim, counter: _groupIdCounter }));
+    } catch(e) { console.warn('localStorage 저장 실패', e); }
+
+    // IndexedDB: 이미지 dataUrl
+    groups.forEach(g => {
+        if (g.before?.dataUrl) idbPut(`${addr}_${g.id}_before`, g.before.dataUrl).catch(() => {});
+        if (g.mac?.dataUrl)    idbPut(`${addr}_${g.id}_mac`,    g.mac.dataUrl).catch(() => {});
+        if (g.after2?.dataUrl) idbPut(`${addr}_${g.id}_after2`, g.after2.dataUrl).catch(() => {});
+        g.after1s.forEach((a, i) => {
+            if (a.dataUrl) idbPut(`${addr}_${g.id}_after1_${i}`, a.dataUrl).catch(() => {});
+        });
+    });
+}
+
+async function loadStateFromStorage() {
+    if (!addr) return;
+    const raw = localStorage.getItem(`ami_admin_${addr}`);
+    if (!raw) return;
+    try {
+        const saved = JSON.parse(raw);
+        _groupIdCounter = saved.counter || 0;
+        for (const sg of (saved.groups || [])) {
+            const g = {
+                id: sg.id,
+                open: sg.open,
+                phase: sg.phase || 'upload',
+                baseTime: sg.baseTime || '',
+                macManual: sg.macManual || '',
+                before: sg.beforeFilename ? { dataUrl: null, filename: sg.beforeFilename } : null,
+                mac: sg.macFilename ? { dataUrl: null, filename: sg.macFilename, qrData: sg.macQr || '' } : null,
+                after2: sg.after2Filename ? { dataUrl: null, filename: sg.after2Filename } : null,
+                after1s: sg.after1s.map(a => ({ dataUrl: null, filename: a.filename, meterNo: a.meterNo || '' })),
+            };
+            // IndexedDB에서 이미지 복원
+            if (g.before) g.before.dataUrl = await idbGet(`${addr}_${g.id}_before`);
+            if (g.mac)    g.mac.dataUrl    = await idbGet(`${addr}_${g.id}_mac`);
+            if (g.after2) g.after2.dataUrl = await idbGet(`${addr}_${g.id}_after2`);
+            for (let i = 0; i < g.after1s.length; i++) {
+                g.after1s[i].dataUrl = await idbGet(`${addr}_${g.id}_after1_${i}`);
+            }
+            groups.push(g);
+        }
+    } catch(e) { console.error('상태 복원 실패', e); }
 }
 
 // ── 유틸 ──────────────────────────────────────────────────
