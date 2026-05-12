@@ -1374,13 +1374,9 @@ async function startQrScan() {
         return;
     }
 
-    // 후면 카메라 우선 선택
-    if (_qrCamIndex === 0) {
-        const rearIdx = _qrCameras.findIndex(c =>
-            /back|rear|environment/i.test(c.label) && !/front|전면/.test(c.label.toLowerCase())
-        );
-        if (rearIdx >= 0) _qrCamIndex = rearIdx;
-    }
+    // 카메라 0번 고정 (광각 회피 — 사용자 요청)
+    // 다른 카메라 필요 시 "🔄 카메라" 버튼으로 전환 가능
+    _qrCamIndex = 0;
 
     // 전환 버튼 표시 여부
     document.getElementById('qr-switch-btn').style.display = _qrCameras.length > 1 ? '' : 'none';
