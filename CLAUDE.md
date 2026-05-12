@@ -1,32 +1,10 @@
-# AMI 작업지도 프로젝트
+# [[AMI 작업지도]] 프로젝트
 
 ## 프로젝트 개요
 - 앱: AMI 작업지도 (전기차 충전기 AMI 현장 작업 관리)
 - 배포: https://815dudwns.github.io/ami-work/
 - GitHub: github.com/815dudwns/ami-work
 - 기술: HTML + 바닐라 JS + Kakao Maps + Firebase Realtime DB
-- 데이터: site-data.json (현재 252개 레코드)
-
-## 워크플로우 (필수 준수)
-### 새 기능 개발 시
-1. research.md 작성 — 현재 코드/구조 파악, '상세히', '깊게' 분석
-2. plan.md 작성 — 구현 방법, 수정 파일, 트레이드오프
-3. 영준님 검토 — plan.md에 메모/수정 → "아직 구현하지 마"
-4. 승인 후 구현 — 설계도대로 기계적 실행
-5. 실패 시 — git reset으로 되돌리고 범위 좁혀서 재시작
-
-### 일상 작업 (버그 수정, 텍스트 변경 등)
-- 간단한 건 바로 실행 OK
-- 커밋 & push까지 완료
-
-## 에이전트 구성
-| 작업 | 에이전트 | 모델 |
-|------|---------|------|
-| 파일 검색 | quick-search | Haiku |
-| 테스트/빌드 | task-runner | Haiku |
-| 코딩/수정 | code-worker | Sonnet |
-| 조사 | researcher | Sonnet |
-| 디버깅 | code-worker | Sonnet |
 
 ## 데이터 규칙 (절대 준수)
 - 데이터 누락 금지 — 좌표 실패해도 동 중심 좌표로 넣기
@@ -38,19 +16,32 @@
 
 ## 새 사이트 데이터 추가 프로세스
 1. 데이터 수집 (사진 OCR / 엑셀 / 스프레드시트)
-2. 데이터 가공 (site-data.json 형식)
-3. 기존 데이터와 합치기 (계기번호 중복 체크)
-4. 좌표 변환 (좌표추출.py → 카카오 API)
-5. git commit & push
-6. 브라우저 확인
+2. 주소 변환: 주소변환.py (지번 → 도로명, 카카오 API)
+3. 좌표 추출: 좌표추출.py (도로명 → 좌표, 3단계 폴백)
+   - 출력: ami_data_coords.json
+4. site-data.json에 합치기 (계기번호 중복 체크)
+5. Firebase 업로드: upload_sitedata.py → siteData/charger4eleccar
+6. 작업상태 업로드: scripts/upload_work_status.py → workStatus/charger4eleccar
+7. git commit & push
+8. 브라우저 확인
+
+## 운영 도구
+- scripts/reset_work_status.py — 작업상태 초기화 (롤백용)
+- scripts/restore_firebase.py — 백업에서 Firebase 복원
+- 좌표채우기.py — 기존 데이터 중 좌표 null인 항목 보충
 
 ## 계정 정보
-- admin / 8414 / 우영준
+- admin / 8414 / [[우영준]]
 - user01 / 1111 / 김민성
 - user02 / 1111 / 이영길
+- user03 / 1111 / 김상권
+- user04 / 1111 / 김지호
+- user05 / 1111 / 장성훈
 
 ## Firebase
 - DB: https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app
+- siteData/charger4eleccar — 현장 데이터 저장
+- workStatus/charger4eleccar — 작업 상태 저장
 - workStatus 30초 동기화
 - Rules .read/.write가 false면 동기화 안 됨
 
@@ -67,3 +58,5 @@
 - 뒤 2자리 중복 = 485 주소 충돌 → 모뎀 별도 필요
 - 통신방식: LTE / KS-PLC / IoT-PLC / HPGP
 - 현재 전기차 리스트 = 100% LTE
+
+세션 상태/블로커는 HANDOFF.md 참고

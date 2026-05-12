@@ -2,13 +2,405 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>관리자 - AMI</title>
-    <link rel="stylesheet" href="css/common.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>사진 시간 변경 - AMI 관리자</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; }
+
+        .header { background: #1e3a8a; color: white; padding: 14px 16px; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 100; }
+        .header a { color: rgba(255,255,255,0.75); text-decoration: none; font-size: 14px; padding: 4px 0; }
+        .header h1 { font-size: 17px; font-weight: 700; flex: 1; }
+
+        .card { background: white; margin: 12px; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); }
+        .card-title { font-size: 13px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+
+        /* 공통 시간 입력 */
+        .time-row { display: flex; gap: 8px; align-items: stretch; }
+        .time-input { flex: 1; padding: 11px 12px; border: 1.5px solid #d1d5db; border-radius: 8px; font-size: 15px; color: #111827; }
+        .time-input:focus { outline: none; border-color: #3b82f6; }
+        .apply-all-btn { padding: 11px 14px; background: #3b82f6; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+        .apply-all-btn:active { background: #1d4ed8; }
+
+        /* 사진 슬롯 */
+        .photo-slots { display: flex; flex-direction: column; gap: 10px; }
+
+        .photo-slot { border: 1.5px solid #e5e7eb; border-radius: 10px; overflow: hidden; transition: border-color 0.2s; }
+        .photo-slot.has-file { border-color: #3b82f6; }
+
+        .slot-header { padding: 10px 12px 0; display: flex; align-items: center; gap: 8px; }
+        .slot-num { width: 22px; height: 22px; border-radius: 50%; background: #e5e7eb; color: #6b7280; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .photo-slot.has-file .slot-num { background: #3b82f6; color: white; }
+        .slot-name { font-size: 14px; font-weight: 700; color: #111827; }
+        .slot-desc { font-size: 11px; color: #9ca3af; margin-left: auto; }
+
+        .slot-body { padding: 10px 12px 12px; display: flex; gap: 10px; align-items: flex-start; }
+
+        .preview-wrap { width: 70px; height: 70px; border-radius: 8px; background: #f3f4f6; border: 1px dashed #d1d5db; overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative; }
+        .preview-wrap img { width: 100%; height: 100%; object-fit: cover; }
+        .preview-wrap .plus { font-size: 24px; color: #9ca3af; }
+        .preview-wrap input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; font-size: 0; }
+
+        .slot-info { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+        .slot-time-input { width: 100%; padding: 8px 10px; border: 1.5px solid #e5e7eb; border-radius: 7px; font-size: 13px; color: #111827; }
+        .slot-time-input:focus { outline: none; border-color: #3b82f6; }
+        .exif-info { font-size: 11px; color: #9ca3af; line-height: 1.4; }
+        .exif-info .orig { color: #f59e0b; }
+        .exif-info .new { color: #10b981; font-weight: 600; }
+        .file-name { font-size: 12px; color: #374151; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* 처리 버튼 */
+        .process-btn { display: block; width: calc(100% - 24px); margin: 4px 12px 4px; padding: 15px; background: #10b981; color: white; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; text-align: center; }
+        .process-btn:active { background: #059669; }
+        .process-btn:disabled { background: #d1d5db; cursor: not-allowed; color: #9ca3af; }
+
+        .dl-btn { display: block; width: calc(100% - 24px); margin: 0 12px 12px; padding: 13px; background: white; color: #3b82f6; border: 1.5px solid #3b82f6; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; text-align: center; text-decoration: none; }
+
+        /* 상태 메시지 */
+        .status { margin: 0 12px 12px; padding: 12px 14px; border-radius: 8px; font-size: 13px; line-height: 1.5; display: none; }
+        .status.info { display: block; background: #eff6ff; color: #1d4ed8; }
+        .status.success { display: block; background: #f0fdf4; color: #15803d; }
+        .status.error { display: block; background: #fef2f2; color: #dc2626; }
+
+        .bottom-spacer { height: 20px; }
+    </style>
 </head>
-<body style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
-    <div style="text-align:center">
-        <h2>관리자 개발 예정</h2>
-        <a href="map.html" style="color:#3b82f6">← 지도로 돌아가기</a>
+<body>
+
+<div class="header">
+    <a href="map.html">← 지도</a>
+    <h1>사진 시간 변경</h1>
+</div>
+
+<!-- 공통 시간 설정 -->
+<div class="card">
+    <div class="card-title">원하는 작업 시간 (전체 적용)</div>
+    <div class="time-row">
+        <input type="datetime-local" id="global-time" class="time-input">
+        <button class="apply-all-btn" onclick="applyTimeToAll()">전체 적용</button>
     </div>
+</div>
+
+<!-- 사진 4종 슬롯 -->
+<div class="card">
+    <div class="card-title">사진 4종</div>
+    <div class="photo-slots" id="photo-slots">
+
+        <div class="photo-slot" id="slot-0">
+            <div class="slot-header">
+                <div class="slot-num">1</div>
+                <span class="slot-name">시공전</span>
+                <span class="slot-desc">함체 전체 (작업 전)</span>
+            </div>
+            <div class="slot-body">
+                <div class="preview-wrap" id="preview-wrap-0">
+                    <span class="plus">+</span>
+                    <input type="file" accept="image/*" onchange="onFileSelect(0, this)">
+                </div>
+                <div class="slot-info">
+                    <div class="file-name" id="file-name-0">파일 선택</div>
+                    <input type="datetime-local" class="slot-time-input" id="slot-time-0">
+                    <div class="exif-info" id="exif-info-0"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="photo-slot" id="slot-1">
+            <div class="slot-header">
+                <div class="slot-num">2</div>
+                <span class="slot-name">모뎀맥</span>
+                <span class="slot-desc">QR/바코드 사진</span>
+            </div>
+            <div class="slot-body">
+                <div class="preview-wrap" id="preview-wrap-1">
+                    <span class="plus">+</span>
+                    <input type="file" accept="image/*" onchange="onFileSelect(1, this)">
+                </div>
+                <div class="slot-info">
+                    <div class="file-name" id="file-name-1">파일 선택</div>
+                    <input type="datetime-local" class="slot-time-input" id="slot-time-1">
+                    <div class="exif-info" id="exif-info-1"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="photo-slot" id="slot-2">
+            <div class="slot-header">
+                <div class="slot-num">3</div>
+                <span class="slot-name">시공후1</span>
+                <span class="slot-desc">계기 단독 (작업 후)</span>
+            </div>
+            <div class="slot-body">
+                <div class="preview-wrap" id="preview-wrap-2">
+                    <span class="plus">+</span>
+                    <input type="file" accept="image/*" onchange="onFileSelect(2, this)">
+                </div>
+                <div class="slot-info">
+                    <div class="file-name" id="file-name-2">파일 선택</div>
+                    <input type="datetime-local" class="slot-time-input" id="slot-time-2">
+                    <div class="exif-info" id="exif-info-2"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="photo-slot" id="slot-3">
+            <div class="slot-header">
+                <div class="slot-num">4</div>
+                <span class="slot-name">시공후2</span>
+                <span class="slot-desc">함체 전체 (작업 후)</span>
+            </div>
+            <div class="slot-body">
+                <div class="preview-wrap" id="preview-wrap-3">
+                    <span class="plus">+</span>
+                    <input type="file" accept="image/*" onchange="onFileSelect(3, this)">
+                </div>
+                <div class="slot-info">
+                    <div class="file-name" id="file-name-3">파일 선택</div>
+                    <input type="datetime-local" class="slot-time-input" id="slot-time-3">
+                    <div class="exif-info" id="exif-info-3"></div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<div class="status" id="status-msg"></div>
+
+<button class="process-btn" id="process-btn" onclick="processAndDownload()" disabled>
+    시간 변경 후 다운로드
+</button>
+
+<div class="bottom-spacer"></div>
+
+<script src="js/auth.js"></script>
+<script src="js/config.js"></script>
+<script>
+    // 어드민 전용 페이지
+    authRequire();
+    const session = authGetSession();
+    if (!session || session.role !== 'admin') {
+        alert('관리자 전용 페이지입니다.');
+        window.location.href = 'map.html';
+    }
+
+    firebase.initializeApp(firebaseConfig);
+
+    const FILES = [null, null, null, null];
+    const SLOT_NAMES = ['시공전', '모뎀맥', '시공후1', '시공후2'];
+
+    // 파일 선택
+    function onFileSelect(idx, input) {
+        const file = input.files[0];
+        if (!file) return;
+        FILES[idx] = file;
+
+        // 파일명 표시
+        document.getElementById('file-name-' + idx).textContent = file.name;
+
+        // 프리뷰
+        const wrap = document.getElementById('preview-wrap-' + idx);
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            const dataUrl = e.target.result;
+            wrap.innerHTML = `<img src="${dataUrl}" alt="preview"><input type="file" accept="image/*" onchange="onFileSelect(${idx}, this)">`;
+            document.getElementById('slot-' + idx).classList.add('has-file');
+
+            // EXIF 시간 읽기
+            readExifTime(dataUrl, idx);
+        };
+        reader.readAsDataURL(file);
+        updateProcessBtn();
+    }
+
+    // EXIF 원본 시간 읽기
+    function readExifTime(dataUrl, idx) {
+        try {
+            const exif = piexif.load(dataUrl);
+            const dt = exif['Exif'][piexif.ExifIFD.DateTimeOriginal]
+                    || exif['0th'][piexif.ImageIFD.DateTime]
+                    || '';
+            const infoEl = document.getElementById('exif-info-' + idx);
+            if (dt) {
+                // EXIF 형식: "YYYY:MM:DD HH:MM:SS" → datetime-local 형식
+                const local = exifToLocal(dt);
+                infoEl.innerHTML = `<span class="orig">원본: ${dt}</span>`;
+                // 슬롯 시간이 비어있으면 원본으로 채우기
+                const slotInput = document.getElementById('slot-time-' + idx);
+                if (!slotInput.value) slotInput.value = local;
+            } else {
+                infoEl.textContent = 'EXIF 시간 없음';
+            }
+        } catch (e) {
+            document.getElementById('exif-info-' + idx).textContent = 'EXIF 읽기 실패';
+        }
+    }
+
+    // EXIF 시간 형식 변환: "YYYY:MM:DD HH:MM:SS" → "YYYY-MM-DDTHH:MM"
+    function exifToLocal(exifStr) {
+        // "2026:05:12 14:30:00"
+        const [date, time] = exifStr.split(' ');
+        const [y, m, d] = date.split(':');
+        const [h, min] = time.split(':');
+        return `${y}-${m}-${d}T${h}:${min}`;
+    }
+
+    // datetime-local → EXIF 형식: "YYYY-MM-DDTHH:MM" → "YYYY:MM:DD HH:MM:SS"
+    function localToExif(localStr) {
+        // "2026-05-12T14:30"
+        const [date, time] = localStr.split('T');
+        const [y, m, d] = date.split('-');
+        return `${y}:${m}:${d} ${time}:00`;
+    }
+
+    // 전체 슬롯에 시간 적용
+    function applyTimeToAll() {
+        const val = document.getElementById('global-time').value;
+        if (!val) return;
+        for (let i = 0; i < 4; i++) {
+            document.getElementById('slot-time-' + i).value = val;
+        }
+    }
+
+    function updateProcessBtn() {
+        const anyFile = FILES.some(f => f !== null);
+        document.getElementById('process-btn').disabled = !anyFile;
+    }
+
+    // EXIF 시간 변경 후 다운로드
+    async function processAndDownload() {
+        const btn = document.getElementById('process-btn');
+        btn.disabled = true;
+        btn.textContent = '처리 중...';
+        showStatus('info', '사진 EXIF 시간을 변경하고 있습니다...');
+
+        let done = 0;
+        for (let i = 0; i < 4; i++) {
+            if (!FILES[i]) continue;
+            const timeVal = document.getElementById('slot-time-' + i).value;
+            if (!timeVal) {
+                showStatus('error', `${SLOT_NAMES[i]} 사진의 시간을 입력해주세요.`);
+                btn.disabled = false;
+                btn.textContent = '시간 변경 후 다운로드';
+                return;
+            }
+            try {
+                await modifyAndDownload(FILES[i], timeVal, SLOT_NAMES[i], i);
+                done++;
+                updateExifInfoNew(i, timeVal);
+            } catch (e) {
+                showStatus('error', `${SLOT_NAMES[i]} 처리 실패: ${e.message}`);
+                btn.disabled = false;
+                btn.textContent = '시간 변경 후 다운로드';
+                return;
+            }
+        }
+
+        showStatus('success', `${done}장 처리 완료. 다운로드 폴더를 확인하세요.`);
+        btn.disabled = false;
+        btn.textContent = '시간 변경 후 다운로드';
+    }
+
+    function updateExifInfoNew(idx, timeVal) {
+        const infoEl = document.getElementById('exif-info-' + idx);
+        const exifStr = localToExif(timeVal);
+        const existing = infoEl.innerHTML;
+        infoEl.innerHTML = existing + `<br><span class="new">변경: ${exifStr}</span>`;
+    }
+
+    // 단일 파일 EXIF 수정 + 다운로드
+    function modifyAndDownload(file, timeVal, label, idx) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                try {
+                    const dataUrl = e.target.result;
+                    const exifStr = localToExif(timeVal);
+
+                    let newDataUrl;
+                    try {
+                        const exifObj = piexif.load(dataUrl);
+                        exifObj['0th'][piexif.ImageIFD.DateTime] = exifStr;
+                        exifObj['Exif'][piexif.ExifIFD.DateTimeOriginal] = exifStr;
+                        exifObj['Exif'][piexif.ExifIFD.DateTimeDigitized] = exifStr;
+                        const exifBytes = piexif.dump(exifObj);
+                        newDataUrl = piexif.insert(exifBytes, dataUrl);
+                    } catch (exifErr) {
+                        // EXIF 없는 이미지(PNG 등): JPEG로 변환 후 EXIF 삽입
+                        newDataUrl = insertExifToImage(dataUrl, exifStr);
+                    }
+
+                    // base64 → Blob → 다운로드
+                    const blob = dataUrlToBlob(newDataUrl);
+                    const ext = file.name.split('.').pop() || 'jpg';
+                    const newName = `${label}_${timeVal.replace(/[T:]/g, '').replace('-', '').slice(0, 12)}.${ext}`;
+                    triggerDownload(blob, newName);
+                    resolve();
+                } catch (err) {
+                    reject(err);
+                }
+            };
+            reader.onerror = () => reject(new Error('파일 읽기 실패'));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    // EXIF 없는 이미지에 EXIF 삽입 (canvas → JPEG 변환)
+    function insertExifToImage(dataUrl, exifStr) {
+        const canvas = document.createElement('canvas');
+        const img = new Image();
+        img.src = dataUrl;
+        canvas.width = img.naturalWidth || 100;
+        canvas.height = img.naturalHeight || 100;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.92);
+
+        const exifObj = { '0th': {}, 'Exif': {}, 'GPS': {}, '1st': {}, 'Interop': {} };
+        exifObj['0th'][piexif.ImageIFD.DateTime] = exifStr;
+        exifObj['Exif'][piexif.ExifIFD.DateTimeOriginal] = exifStr;
+        exifObj['Exif'][piexif.ExifIFD.DateTimeDigitized] = exifStr;
+        const exifBytes = piexif.dump(exifObj);
+        return piexif.insert(exifBytes, jpegDataUrl);
+    }
+
+    // dataURL → Blob
+    function dataUrlToBlob(dataUrl) {
+        const [header, b64] = dataUrl.split(',');
+        const mime = header.match(/:(.*?);/)[1];
+        const binary = atob(b64);
+        const arr = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+        return new Blob([arr], { type: mime });
+    }
+
+    // 다운로드 트리거
+    function triggerDownload(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 3000);
+    }
+
+    // 상태 메시지
+    function showStatus(type, msg) {
+        const el = document.getElementById('status-msg');
+        el.className = 'status ' + type;
+        el.textContent = msg;
+    }
+
+    // 페이지 로드 시 현재 시간으로 global-time 초기화
+    (function () {
+        const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const local = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+        document.getElementById('global-time').value = local;
+    })();
+</script>
 </body>
 </html>

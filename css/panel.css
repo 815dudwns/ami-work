@@ -1,5 +1,5 @@
 /* panel.css — 오버레이/패널 관련 스타일 */
-.fullpage-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100vh; background: white; z-index: 1000; display: none; flex-direction: column; }
+.fullpage-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100vh; height: 100dvh; background: white; z-index: 1000; display: none; flex-direction: column; }
 .fullpage-overlay.active { display: flex; }
 
 /* 상태 색상 바 (기능 3) — 패널 최상단, 높이 4px */
@@ -40,7 +40,7 @@
 .sort-btn:hover { border-color: #9ca3af; color: #374151; }
 .sort-btn.active { background: #3b82f6; border-color: #3b82f6; color: white; }
 
-.overlay-meters { flex: 1; overflow-y: auto; padding: 16px; background: #f9fafb; }
+.overlay-meters { flex: 1; overflow-y: auto; padding: 16px; padding-bottom: max(16px, env(safe-area-inset-bottom)); background: #f9fafb; }
 .meter-item { margin-bottom: 10px; padding: 12px; background: white; border-radius: 8px; display: flex; align-items: flex-start; gap: 10px; border: 1px solid #e5e7eb; }
 .meter-checkbox { width: 20px; height: 20px; cursor: pointer; margin-top: 2px; flex-shrink: 0; accent-color: #10b981; }
 .meter-info { flex: 1; font-size: 13px; line-height: 1.6; word-break: break-all; }
