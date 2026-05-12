@@ -184,14 +184,6 @@
     <div class="action-bar">
         <button class="btn-blue" onclick="addGroup()">+ 그룹 추가</button>
     </div>
-    <div id="meter-panel" class="meter-panel">
-        <div class="meter-panel-head">
-            <span class="meter-panel-title">계기 선택</span>
-            <span class="meter-selected-hint" id="meter-selected-hint"></span>
-        </div>
-        <input type="text" id="meter-search" class="meter-search-input" placeholder="계기번호 검색..." oninput="filterMeters()">
-        <div class="meter-card-list" id="meter-card-list"></div>
-    </div>
     <div id="group-list"></div>
 </div>
 
@@ -301,7 +293,7 @@ async function init() {
         meters = [];
     }
     await loadStateFromStorage();
-    renderUpload(); // 내부에서 renderMeterPanel() 호출
+    renderUpload();
 }
 
 init();
@@ -362,7 +354,6 @@ function renderUpload() {
         container.appendChild(el);
         if (g.open) initSortable(g);
     });
-    renderMeterPanel();
 }
 
 function buildGroupCard(g) {
@@ -387,7 +378,6 @@ function buildGroupCard(g) {
 
 function buildGroupBody(g) {
     return `<div class="slots-area">
-        ${buildBaseTimeRow(g)}
         ${buildBeforeSlot(g)}
         ${buildMacSlot(g)}
         ${buildAfter1Section(g)}
@@ -586,9 +576,13 @@ function buildAfter1Section(g) {
         </div>`;
     }).join('');
 
-    // 계기 카드 (이 그룹 아래에 표시)
+    // 계기 카드 (이 그룹 아래에 표시 + 검색)
     const assigned = getAssignedMeters();
-    const meterCards = meters.map(m => {
+    const q = (g.meterSearch || '').trim();
+    const filtered = q
+        ? meters.filter(m => m.계기번호.includes(q))
+        : meters;
+    const meterCards = filtered.map(m => {
         const no = m.계기번호;
         const isSelected = selectedMeterNo === no;
         const isAssigned = assigned.has(no) && !isSelected;
@@ -605,6 +599,10 @@ function buildAfter1Section(g) {
         ? `<span style="font-size:12px;color:#1d4ed8;font-weight:600;">${selectedMeterNo} 선택됨 →사진탭</span>`
         : `<span style="font-size:11px;color:#9ca3af;">계기 선택 후 사진 탭 → 배정</span>`;
 
+    const noResult = !meterCards
+        ? `<div style="padding:12px;text-align:center;color:#9ca3af;font-size:12px;">${q ? '검색 결과 없음' : '등록된 계기 없음'}</div>`
+        : '';
+
     return `<div>
         <div class="slot-section-label">③ 시공후1 (탭: 계기 배정 / 드래그: 순서 변경)</div>
         <div class="after1-grid" id="after1-grid-${g.id}">${items}</div>
@@ -618,9 +616,51 @@ function buildAfter1Section(g) {
                 <span style="font-size:11px;font-weight:700;color:#374151;">계기 선택</span>
                 ${selectedHint}
             </div>
+            <input type="text" inputmode="numeric"
+                   placeholder="계기번호 검색..."
+                   value="${escAttr(q)}"
+                   oninput="onGroupMeterSearch(${g.id}, this.value)"
+                   style="width:100%;padding:7px 10px;border:1.5px solid #e5e7eb;border-radius:7px;font-size:13px;margin-bottom:8px;">
             <div style="display:flex;flex-wrap:wrap;gap:6px;">${meterCards}</div>
+            ${noResult}
         </div>
     </div>`;
+}
+
+function onGroupMeterSearch(groupId, val) {
+    const g = groups.find(x => x.id === groupId);
+    if (!g) return;
+    g.meterSearch = val;
+    // 검색 input만 갱신 — 전체 리렌더 시 input focus 잃음 방지
+    // 그룹 안 meter-chip들만 업데이트
+    const wrap = document.getElementById(`group-${groupId}`);
+    if (!wrap) return;
+    // 가장 마지막 div (계기 선택 영역) 다시 그리기는 어려우니 그냥 카드부분만 교체
+    rerenderGroupMeterCards(g);
+}
+
+function rerenderGroupMeterCards(g) {
+    const groupEl = document.getElementById(`group-${g.id}`);
+    if (!groupEl) return;
+    // 계기 카드 목록 컨테이너 — 마지막 flex-wrap 영역
+    const containers = groupEl.querySelectorAll('div[style*="flex-wrap:wrap"]');
+    const target = containers[containers.length - 1];
+    if (!target) return;
+    const assigned = getAssignedMeters();
+    const q = (g.meterSearch || '').trim();
+    const filtered = q ? meters.filter(m => m.계기번호.includes(q)) : meters;
+    target.innerHTML = filtered.map(m => {
+        const no = m.계기번호;
+        const isSelected = selectedMeterNo === no;
+        const isAssigned = assigned.has(no) && !isSelected;
+        const noPart1 = no.slice(0, 5), noPart2 = no.slice(5);
+        const typeCls = `type-${m.계기타입 || ''}`;
+        return `<div class="meter-chip${isSelected ? ' selected' : ''}${isAssigned ? ' assigned' : ''}"
+                     onclick="selectMeterChip('${escAttr(no)}')">
+            <span class="type-badge ${typeCls}">${escHtml(m.계기타입 || '?')}</span>
+            <span class="chip-no">${escHtml(noPart1)}<br>${escHtml(noPart2)}</span>
+        </div>`;
+    }).join('');
 }
 
 function buildAfter2Slot(g) {
