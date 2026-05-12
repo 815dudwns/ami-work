@@ -187,9 +187,7 @@
 
 <!-- 하단 고정 버튼 -->
 <div class="bottom-bar" id="bottom-bar">
-    <button class="btn-blue" id="btn-save" onclick="savePhase()">저장 (결과 확인)</button>
-    <button class="btn-green" id="btn-download" onclick="downloadAll()" disabled style="display:none;">EXIF 변경 후 다운로드</button>
-    <button class="btn-gray" id="btn-edit" onclick="editPhase()" style="display:none;">수정</button>
+    <button class="btn-green" id="btn-download" onclick="downloadAll()">EXIF 변경 후 다운로드</button>
 </div>
 
 <!-- 계기 배정 모달 -->
@@ -255,6 +253,7 @@ function addGroup() {
     groups.push({
         id,
         open: true,
+        phase: 'upload',
         baseTime: localNow,
         before:  null,
         mac:     null,
@@ -304,12 +303,17 @@ function renderUpload() {
 
 function buildGroupCard(g) {
     const baseDisp = g.baseTime ? g.baseTime.replace('T', ' ') : '기준시간 미설정';
-    const body = g.open ? buildGroupBody(g) : '';
+    const isResult = g.phase === 'result';
+    const body = g.open ? (isResult ? buildGroupResult(g) : buildGroupBody(g)) : '';
+    const phaseBadge = isResult
+        ? '<span style="font-size:11px;background:#d1fae5;color:#065f46;border-radius:5px;padding:2px 7px;font-weight:700;">저장됨</span>'
+        : '';
     return `
     <div class="group-card${g.open ? ' open' : ''}">
         <div class="group-head" onclick="toggleGroup(${g.id})">
             <span class="group-title">그룹 ${g.id}</span>
-            <span class="group-basetime">${baseDisp}</span>
+            ${phaseBadge}
+            <span class="group-basetime" style="flex:1">${baseDisp}</span>
             <button class="btn-red" style="padding:4px 8px;font-size:12px;" onclick="event.stopPropagation();deleteGroup(${g.id})">삭제</button>
             <span class="toggle-icon">▼</span>
         </div>
@@ -324,7 +328,63 @@ function buildGroupBody(g) {
         ${buildMacSlot(g)}
         ${buildAfter1Section(g)}
         ${buildAfter2Slot(g)}
+        <button class="btn-green" style="width:100%;padding:12px;" onclick="saveGroup(${g.id})">저장</button>
     </div>`;
+}
+
+function buildGroupResult(g) {
+    const baseDisp = g.baseTime ? g.baseTime.replace('T', ' ') : '기준시간 없음';
+    let rows = '';
+    if (g.before?.dataUrl) rows += buildResultRow('① 시공전', g.before.dataUrl, '');
+    if (g.mac?.dataUrl) {
+        const qrVal = g.mac.qrData || g.macManual || '(없음)';
+        rows += buildResultRow('② 맥', g.mac.dataUrl,
+            `<span style="font-size:12px;font-family:monospace;">${escHtml(qrVal)}</span>
+             <button class="btn-copy" onclick="navigator.clipboard.writeText('${escAttr(qrVal)}').catch(()=>{})">복사</button>`);
+    }
+    g.after1s.forEach((item, i) => {
+        if (!item.dataUrl) return;
+        const role = i === 0
+            ? '<span class="badge-master">마스터</span>'
+            : '<span class="badge-slave">슬레이브</span>';
+        const meterText = item.meterNo
+            ? `<span class="result-meter">[${escHtml(item.meterNo)}]</span>`
+            : '<span style="color:#9ca3af;font-size:12px;">미배정</span>';
+        rows += buildResultRow(`③-${i+1} ${role}`, item.dataUrl, meterText);
+    });
+    if (g.after2?.dataUrl) rows += buildResultRow('④ 시공후2', g.after2.dataUrl, '');
+
+    const unassigned = g.after1s.filter(x => x.dataUrl && !x.meterNo).length;
+    const warn = unassigned ? `<div class="result-warn">미배정 ${unassigned}장</div>` : '';
+
+    return `<div style="padding:10px 12px;display:flex;flex-direction:column;gap:10px;border-top:1px solid #e5e7eb;">
+        <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:11px;font-weight:700;color:#374151;">기준시간</span>
+            <input type="datetime-local" value="${g.baseTime}" style="flex:1;padding:7px 8px;border:1.5px solid #e5e7eb;border-radius:6px;font-size:13px;"
+                   oninput="updateGroupTime(${g.id},this.value)">
+        </div>
+        ${rows}${warn}
+        <button class="btn-gray" style="width:100%;padding:11px;" onclick="editGroup(${g.id})">수정</button>
+    </div>`;
+}
+
+function saveGroup(id) {
+    const g = groups.find(x => x.id === id);
+    if (!g) return;
+    g.phase = 'result';
+    renderUpload();
+}
+
+function editGroup(id) {
+    const g = groups.find(x => x.id === id);
+    if (!g) return;
+    g.phase = 'upload';
+    renderUpload();
+}
+
+function updateGroupTime(id, val) {
+    const g = groups.find(x => x.id === id);
+    if (g) g.baseTime = val;
 }
 
 function buildBaseTimeRow(g) {
@@ -821,11 +881,6 @@ function buildResultRow(label, src, infoHtml) {
         <img class="result-thumb" src="${src}" alt="">
         <div class="result-info">${infoHtml}</div>
     </div>`;
-}
-
-function updateGroupTime(id, val) {
-    const g = groups.find(x => x.id === id);
-    if (g) g.baseTime = val;
 }
 
 // ── Phase 3: EXIF 수정 후 다운로드 ───────────────────────
