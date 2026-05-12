@@ -140,11 +140,11 @@
             req.onerror = e => rej(e.target.error);
         });
     }
-    async function dbSave(key, blob) {
+    async function dbSave(key, blob, filename = '') {
         const db = await openIDB();
         return new Promise((res, rej) => {
             const tx = db.transaction(DB_STORE, 'readwrite');
-            tx.objectStore(DB_STORE).put({ key, blob, ts: Date.now() });
+            tx.objectStore(DB_STORE).put({ key, blob, filename, ts: Date.now() });
             tx.oncomplete = res; tx.onerror = e => rej(e.target.error);
         });
     }
@@ -219,11 +219,13 @@
         const reader = new FileReader();
         reader.onload = async e => {
             const dataUrl = e.target.result;
-            // IndexedDB 저장
+            // IndexedDB 저장 (파일명 포함)
             const blob = dataUrlToBlob(dataUrl);
-            await dbSave(dbKey(meterNo, type), blob);
+            await dbSave(dbKey(meterNo, type), blob, file.name);
             // 프리뷰 + EXIF
             state[meterNo].previews[type] = dataUrl;
+            if (!state[meterNo].fileNames) state[meterNo].fileNames = {};
+            state[meterNo].fileNames[type] = file.name;
             readExifTime(dataUrl, orig => {
                 state[meterNo].exifs[type] = orig;
                 if (type === 'after1' && !state[meterNo].times.after1 && orig) {
@@ -410,7 +412,8 @@
                 const t = finalTimes[tIdx];
                 if (!t) continue;
                 try {
-                    await modifyBlobAndDownload(rec.blob, t, `${m.계기번호}_${SLOT_LABEL[type]}`);
+                    const origName = ms.fileNames?.[type] || '';
+                    await modifyBlobAndDownload(rec.blob, t, `${m.계기번호}_${SLOT_LABEL[type]}`, origName);
                     done++;
                 } catch (e) {
                     showStatus('error', `${m.계기번호} ${SLOT_LABEL[type]} 실패: ${e.message}`);
@@ -445,7 +448,7 @@
     }
 
     // ── EXIF 수정 + 다운로드 ─────────────────────────────────
-    function modifyBlobAndDownload(blob, targetDate, label) {
+    function modifyBlobAndDownload(blob, targetDate, label, originalFilename) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = e => {
@@ -472,14 +475,30 @@
                         newDataUrl = piexif.insert(piexif.dump(eo), j);
                     }
                     const outBlob = dataUrlToBlob(newDataUrl);
-                    const ts = dateToExif(targetDate).replace(/[: ]/g,'').slice(0,14);
-                    triggerDownload(outBlob, `${label}_${ts}.jpg`);
+                    const outName = modifyFilename(originalFilename || `${label}.jpg`, targetDate);
+                    triggerDownload(outBlob, outName);
                     resolve();
                 } catch(err) { reject(err); }
             };
             reader.onerror = () => reject(new Error('읽기 실패'));
             reader.readAsDataURL(blob);
         });
+    }
+
+    // 파일명에 포함된 날짜/시간 패턴 교체
+    // 예: IMG_20260512_140000.jpg → IMG_20260512_143022.jpg
+    function modifyFilename(originalName, targetDate) {
+        const p = n => String(n).padStart(2,'0');
+        const nd = `${targetDate.getFullYear()}${p(targetDate.getMonth()+1)}${p(targetDate.getDate())}`;
+        const nt = `${p(targetDate.getHours())}${p(targetDate.getMinutes())}${p(targetDate.getSeconds())}`;
+        // YYYYMMDD_HHMMSS 또는 YYYYMMDD-HHMMSS 패턴 교체
+        const modified = originalName.replace(/(\d{8})([_-])(\d{6})/, `${nd}$2${nt}`);
+        if (modified !== originalName) return modified;
+        // 패턴 없으면 확장자 앞에 _타임스탬프 추가
+        const dot = originalName.lastIndexOf('.');
+        const base = dot > 0 ? originalName.slice(0, dot) : originalName;
+        const ext  = dot > 0 ? originalName.slice(dot)   : '.jpg';
+        return `${base}_${nd}_${nt}${ext}`;
     }
 
     // ── 유틸리티 ─────────────────────────────────────────────
