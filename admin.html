@@ -424,7 +424,7 @@ function buildGroupResult(g) {
         ${rows}${warn}
         <div style="display:flex;gap:8px;">
             <button class="btn-gray" style="flex:1;padding:11px;" onclick="editGroup(${g.id})">수정</button>
-            <button class="btn-green" style="flex:2;padding:11px;" onclick="downloadGroupById(${g.id})">📥 EXIF 변경 후 다운로드</button>
+            <button class="btn-green" style="flex:2;padding:11px;" onclick="downloadGroupById(${g.id})">📥 EXIF 변경 후 사진 다운로드</button>
         </div>
     </div>`;
 }
@@ -442,7 +442,7 @@ async function downloadGroupById(id) {
     if (!g) return;
     if (!g.baseTime) { alert('기준시간이 없습니다'); return; }
     try {
-        await downloadGroupAsZip(g);
+        await downloadGroup(g);
     } catch(e) {
         alert('다운로드 오류: ' + e.message);
     }
