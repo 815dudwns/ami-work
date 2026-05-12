@@ -552,6 +552,25 @@ function buildAfter1Section(g) {
         </div>`;
     }).join('');
 
+    // 계기 카드 (이 그룹 아래에 표시)
+    const assigned = getAssignedMeters();
+    const meterCards = meters.map(m => {
+        const no = m.계기번호;
+        const isSelected = selectedMeterNo === no;
+        const isAssigned = assigned.has(no) && !isSelected;
+        const noPart1 = no.slice(0, 5), noPart2 = no.slice(5);
+        const typeCls = `type-${m.계기타입 || ''}`;
+        return `<div class="meter-chip${isSelected ? ' selected' : ''}${isAssigned ? ' assigned' : ''}"
+                     onclick="selectMeterChip('${escAttr(no)}')">
+            <span class="type-badge ${typeCls}">${escHtml(m.계기타입 || '?')}</span>
+            <span class="chip-no">${escHtml(noPart1)}<br>${escHtml(noPart2)}</span>
+        </div>`;
+    }).join('');
+
+    const selectedHint = selectedMeterNo
+        ? `<span style="font-size:12px;color:#1d4ed8;font-weight:600;">${selectedMeterNo} 선택됨 →사진탭</span>`
+        : `<span style="font-size:11px;color:#9ca3af;">계기 선택 후 사진 탭 → 배정</span>`;
+
     return `<div>
         <div class="slot-section-label">③ 시공후1 (탭: 계기 배정 / 드래그: 순서 변경)</div>
         <div class="after1-grid" id="after1-grid-${g.id}">${items}</div>
@@ -559,6 +578,13 @@ function buildAfter1Section(g) {
             <div class="after1-add-btn" onclick="openPhotoActionSheet(${g.id},'after1',{multi:true})">
                 + 시공후1 추가
             </div>
+        </div>
+        <div style="margin-top:10px;border-top:1px solid #f0f0f0;padding-top:10px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <span style="font-size:11px;font-weight:700;color:#374151;">계기 선택</span>
+                ${selectedHint}
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">${meterCards}</div>
         </div>
     </div>`;
 }
@@ -1162,43 +1188,44 @@ async function startQrScan(deviceId) {
     overlay.style.display = 'flex';
     const video = document.getElementById('qr-video');
 
-    // 카메라 목록 초기화 (첫 실행 시)
-    if (_qrCamDevices.length === 0) {
-        const all = await navigator.mediaDevices.enumerateDevices().catch(() => []);
-        // 후면 카메라만: label에 'front'/'전면' 없는 videoinput
-        _qrCamDevices = all.filter(d =>
-            d.kind === 'videoinput' &&
-            !d.label.toLowerCase().includes('front') &&
-            !d.label.includes('전면')
-        );
-        // 장치 없으면 전체 사용
-        if (!_qrCamDevices.length) _qrCamDevices = all.filter(d => d.kind === 'videoinput');
-        _qrCamIndex = 0;
-    }
-
-    // 전환 버튼: 카메라 2개 이상일 때만 표시
-    const switchBtn = document.getElementById('qr-switch-btn');
-    if (switchBtn) switchBtn.style.display = _qrCamDevices.length > 1 ? '' : 'none';
-
-    // 현재 카메라 라벨 표시
-    const cam = _qrCamDevices[_qrCamIndex];
-    const label = cam?.label || `카메라 ${_qrCamIndex + 1}`;
-    const labelEl = document.getElementById('qr-cam-label');
-    if (labelEl) labelEl.textContent = `${label} (${_qrCamIndex + 1}/${_qrCamDevices.length})`;
-
-    // 스트림 열기
-    const constraints = cam?.deviceId
-        ? { video: { deviceId: { exact: cam.deviceId } } }
-        : { video: { facingMode: 'environment' } };
-
     try {
-        if (_qrStream) { _qrStream.getTracks().forEach(t => t.stop()); }
+        if (_qrStream) { _qrStream.getTracks().forEach(t => t.stop()); _qrStream = null; }
+
+        // deviceId 지정 없이 먼저 권한 요청 + 스트림 열기
+        const constraints = (_qrCamDevices.length > 0 && _qrCamDevices[_qrCamIndex]?.deviceId)
+            ? { video: { deviceId: { exact: _qrCamDevices[_qrCamIndex].deviceId } } }
+            : { video: { facingMode: 'environment' } };
+
         _qrStream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = _qrStream;
         await video.play();
+
+        // 권한 획득 후에 카메라 목록 탐색 (이때는 label이 채워짐)
+        if (_qrCamDevices.length === 0) {
+            const all = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+            _qrCamDevices = all.filter(d =>
+                d.kind === 'videoinput' &&
+                !d.label.toLowerCase().includes('front') &&
+                !d.label.includes('전면')
+            );
+            if (!_qrCamDevices.length) _qrCamDevices = all.filter(d => d.kind === 'videoinput');
+            _qrCamIndex = 0;
+        }
+
+        // 전환 버튼 표시
+        const switchBtn = document.getElementById('qr-switch-btn');
+        if (switchBtn) switchBtn.style.display = _qrCamDevices.length > 1 ? '' : 'none';
+
+        // 현재 카메라 라벨
+        const cam = _qrCamDevices[_qrCamIndex];
+        const labelEl = document.getElementById('qr-cam-label');
+        if (labelEl) labelEl.textContent = cam?.label
+            ? `${cam.label} (${_qrCamIndex + 1}/${_qrCamDevices.length})`
+            : `카메라 ${_qrCamIndex + 1}`;
+
         scanQrFrame();
     } catch(e) {
-        alert('카메라 접근 실패: ' + e.message);
+        alert('카메라 접근 실패: ' + e.message + '\n(HTTPS 환경에서만 작동합니다)');
         overlay.style.display = 'none';
     }
 }
