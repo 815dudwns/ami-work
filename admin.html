@@ -15,10 +15,12 @@
         .header h1 { font-size: 16px; font-weight: 700; flex: 1; }
         .header-addr { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-        .meter-card { background: white; margin: 10px 12px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1.5px solid #e5e7eb; overflow: hidden; }
+        .meter-card { background: white; margin: 8px 12px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1.5px solid #e5e7eb; overflow: hidden; }
+        .meter-card.open { border-color: #3b82f6; }
 
-        /* 헤더 */
-        .card-head { padding: 11px 14px; background: #f9fafb; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; gap: 8px; }
+        /* 헤더 — 탭해서 토글 */
+        .card-head { padding: 13px 14px; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+        .card-head:active { background: #f0f9ff; }
         .type-badge { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; flex-shrink: 0; }
         .type-E     { background: #e0f2fe; color: #0369a1; }
         .type-EA    { background: #dbeafe; color: #1d4ed8; }
@@ -26,21 +28,17 @@
         .type-Amigo { background: #fce7f3; color: #9d174d; }
         .meter-no   { font-size: 14px; font-weight: 700; color: #111827; flex: 1; }
         .meter-pole { font-size: 11px; color: #6b7280; }
+        .toggle-icon { font-size: 14px; color: #9ca3af; flex-shrink: 0; transition: transform 0.2s; }
+        .open .toggle-icon { transform: rotate(180deg); color: #3b82f6; }
+        /* 사진 있으면 초록 점 */
+        .has-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; flex-shrink: 0; }
 
-        /* 역할 버튼 */
-        .role-row { display: flex; gap: 5px; padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
-        .role-btn { flex: 1; padding: 8px 2px; border: 1.5px solid #e5e7eb; border-radius: 8px; background: white; font-size: 12px; font-weight: 600; color: #9ca3af; cursor: pointer; text-align: center; }
-        .role-btn.sel-단독     { border-color: #6b7280; background: #6b7280; color: white; }
-        .role-btn.sel-마스터   { border-color: #1d4ed8; background: #1d4ed8; color: white; }
-        .role-btn.sel-슬레이브 { border-color: #7c3aed; background: #7c3aed; color: white; }
-        .role-btn.sel-집합단독 { border-color: #0f766e; background: #0f766e; color: white; }
+        /* 슬롯 영역 */
+        .slots-area { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; border-top: 1px solid #e5e7eb; }
 
-        /* 사진 슬롯 공통 */
-        .slots-area { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
-
-        /* 단일 슬롯 (시공전/맥/시공후2) */
+        /* 단일 슬롯 */
         .single-row { display: flex; align-items: center; gap: 8px; }
-        .slot-lbl { font-size: 11px; font-weight: 700; color: #374151; width: 40px; flex-shrink: 0; }
+        .slot-lbl { font-size: 11px; font-weight: 700; color: #374151; width: 44px; flex-shrink: 0; }
         .thumb { width: 58px; height: 58px; border-radius: 8px; border: 1.5px dashed #d1d5db; background: #f9fafb; display: flex; align-items: center; justify-content: center; font-size: 20px; color: #d1d5db; position: relative; overflow: hidden; flex-shrink: 0; cursor: pointer; }
         .thumb.has { border-color: #3b82f6; border-style: solid; }
         .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -49,13 +47,11 @@
         .slot-fname { font-size: 11px; color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .slot-exif  { font-size: 10px; color: #9ca3af; margin-top: 1px; }
         .slot-time  { width: 100%; padding: 7px 8px; border: 1.5px solid #e5e7eb; border-radius: 6px; font-size: 12px; color: #111827; margin-top: 4px; }
-        .slot-time:focus { outline: none; border-color: #3b82f6; }
         .slot-time[readonly] { background: #f0fdf4; color: #15803d; font-size: 11px; }
 
-        /* 시공후1 여러 장 */
-        .after1-section { display: flex; flex-direction: column; gap: 6px; }
-        .after1-header { font-size: 11px; font-weight: 700; color: #374151; }
-        .after1-item { display: flex; align-items: center; gap: 6px; background: #f9fafb; padding: 6px 8px; border-radius: 8px; }
+        /* 시공후1 */
+        .after1-header { font-size: 11px; font-weight: 700; color: #374151; margin-bottom: 4px; }
+        .after1-item { display: flex; align-items: center; gap: 6px; background: #f9fafb; padding: 6px 8px; border-radius: 8px; margin-bottom: 6px; }
         .after1-num { width: 22px; height: 22px; border-radius: 5px; background: #1d4ed8; color: white; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         .after1-img { width: 50px; height: 50px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
         .after1-info { flex: 1; min-width: 0; }
@@ -64,21 +60,16 @@
         .after1-time  { width: 100%; padding: 6px 8px; border: 1.5px solid #e5e7eb; border-radius: 6px; font-size: 12px; color: #111827; margin-top: 3px; }
         .after1-time:focus { outline: none; border-color: #3b82f6; }
         .order-btns { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
-        .ord-btn { width: 26px; height: 26px; border: 1px solid #e5e7eb; background: white; border-radius: 5px; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #374151; }
+        .ord-btn { width: 26px; height: 26px; border: 1px solid #e5e7eb; background: white; border-radius: 5px; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
         .ord-btn:disabled { color: #d1d5db; cursor: default; }
         .del-btn { width: 26px; height: 26px; border: none; background: #fee2e2; color: #dc2626; border-radius: 5px; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-
         .add-after1 { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 9px; border: 1.5px dashed #93c5fd; border-radius: 8px; background: #eff6ff; color: #1d4ed8; font-size: 13px; font-weight: 700; cursor: pointer; position: relative; }
         .add-after1 input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
-
         .auto-tag { font-size: 11px; color: #10b981; font-weight: 600; margin-top: 1px; }
-        .card-hint { padding: 4px 12px 10px; font-size: 12px; color: #9ca3af; }
-        .card-hint.err { color: #dc2626; font-weight: 600; }
 
         .dl-btn { display: block; width: calc(100% - 24px); margin: 8px 12px 0; padding: 15px; background: #1d4ed8; color: white; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; text-align: center; }
         .dl-btn:active { background: #1e40af; }
         .dl-btn:disabled { background: #d1d5db; color: #9ca3af; cursor: not-allowed; }
-
         .status { margin: 8px 12px 0; padding: 12px 14px; border-radius: 8px; font-size: 13px; line-height: 1.5; display: none; }
         .status.info    { display: block; background: #eff6ff; color: #1d4ed8; }
         .status.success { display: block; background: #f0fdf4; color: #15803d; }
@@ -110,24 +101,14 @@
     const addr = new URLSearchParams(location.search).get('addr') || '';
     document.getElementById('header-addr').textContent = addr || '주소 없음';
 
-    const ROLES = ['단독','마스터','슬레이브','집합단독'];
-
     // ── 상태 ─────────────────────────────────────────────────
-    // state[no] = { role, before, mac, after1:[], after2, times:{} }
-    // before/mac/after2: { dataUrl, filename, exif }
-    // after1[]: { dataUrl, filename, exif, time }
+    // state[no] = { open, before, mac, after1:[], after2, times:{} }
     let meters = [];
     let state  = {};
 
-    function saveStateThin() {
+    function saveState() {
         const slim = {};
-        for (const no in state) {
-            slim[no] = {
-                role: state[no].role,
-                times: state[no].times,
-                after1Times: state[no].after1.map(p => p.time)
-            };
-        }
+        for (const no in state) slim[no] = { times: state[no].times, after1Times: state[no].after1.map(p => p.time) };
         try { localStorage.setItem(`ami_work_${addr}`, JSON.stringify(slim)); } catch {}
     }
 
@@ -140,17 +121,17 @@
         try { saved = JSON.parse(localStorage.getItem(`ami_work_${addr}`) || '{}'); } catch {}
         meters.forEach(m => {
             const no = m.계기번호;
-            state[no] = { role: saved[no]?.role || null, before: null, mac: null, after1: [], after2: null, times: saved[no]?.times || {} };
+            state[no] = { open: false, before: null, mac: null, after1: [], after2: null, times: saved[no]?.times || {} };
             (saved[no]?.after1Times || []).forEach(t => state[no].after1.push({ dataUrl: null, filename: '', exif: '', time: t }));
         });
         render();
         updateDlBtn();
     }
 
-    // ── 역할 ─────────────────────────────────────────────────
-    function setRole(no, role) {
-        state[no].role = role;
-        saveStateThin(); updateAutoTimes(); renderCard(no); updateDlBtn();
+    // ── 토글 ─────────────────────────────────────────────────
+    function toggle(no) {
+        state[no].open = !state[no].open;
+        renderCard(no);
     }
 
     // ── 단일 사진 ─────────────────────────────────────────────
@@ -161,7 +142,7 @@
         reader.onload = e => {
             const dataUrl = e.target.result;
             state[no][type] = { dataUrl, filename: file.name, exif: readExifTime(dataUrl) };
-            saveStateThin(); renderCard(no); updateDlBtn();
+            saveState(); renderCard(no); updateDlBtn();
         };
         reader.readAsDataURL(file);
     }
@@ -177,53 +158,51 @@
             const exif = readExifTime(dataUrl);
             const time = (exif ? exifToLocal(exif) : '') || dateToLocal(new Date());
             state[no].after1.push({ dataUrl, filename: file.name, exif, time });
-            saveStateThin(); updateAutoTimes(); renderCard(no); updateDlBtn();
+            saveState(); updateAutoTimes(); renderCard(no); updateDlBtn();
         };
         reader.readAsDataURL(file);
     }
 
     function onAfter1Time(no, idx, val) {
         if (state[no].after1[idx]) state[no].after1[idx].time = val;
-        saveStateThin(); updateAutoTimes();
+        saveState(); updateAutoTimes();
     }
 
     function moveAfter1(no, idx, dir) {
-        const arr = state[no].after1;
-        const swap = idx + dir;
+        const arr = state[no].after1, swap = idx + dir;
         if (swap < 0 || swap >= arr.length) return;
         [arr[idx], arr[swap]] = [arr[swap], arr[idx]];
-        saveStateThin(); updateAutoTimes(); renderCard(no);
+        saveState(); updateAutoTimes(); renderCard(no);
     }
 
     function removeAfter1(no, idx) {
         state[no].after1.splice(idx, 1);
-        saveStateThin(); updateAutoTimes(); renderCard(no); updateDlBtn();
+        saveState(); updateAutoTimes(); renderCard(no); updateDlBtn();
     }
 
     // ── 자동 시간 계산 ────────────────────────────────────────
-    // 시공전 = 첫 시공후1 - 10분 - (슬레이브수×2분)
-    // 맥     = 첫 시공후1 - 1분
-    // 시공후2 = 마지막 시공후1 + 10초
     function updateAutoTimes() {
-        const slaveCount = meters.filter(m => state[m.계기번호]?.role === '슬레이브').length;
         meters.forEach(m => {
             const ms = state[m.계기번호];
-            if (!ms || ms.role === '슬레이브') return;
             const times = ms.after1.map(p => p.time ? new Date(p.time) : null).filter(Boolean);
             if (!times.length) { ms.times = {}; return; }
             const first = times[0], last = times[times.length - 1];
+            // 슬레이브 수 = 시공후1이 1장인 계기들 (시공전 없는 것 기준)
+            const slaveCount = meters.filter(x => {
+                const xs = state[x.계기번호];
+                return xs.after1.length === 1 && !xs.before;
+            }).length;
             ms.times.before = dateToLocal(new Date(first.getTime() - (10 + slaveCount * 2) * 60000));
             ms.times.mac    = dateToLocal(new Date(first.getTime() - 60000));
             ms.times.after2 = dateToLocal(new Date(last.getTime() + 10000));
         });
-        saveStateThin();
-        meters.forEach(m => refreshAutoTimes(m.계기번호));
+        saveState();
+        meters.forEach(m => refreshAutoFields(m.계기번호));
     }
 
-    function refreshAutoTimes(no) {
+    function refreshAutoFields(no) {
         const ms = state[no];
-        if (!ms) return;
-        const fmt = v => v ? v.replace('T',' ') : '';
+        const fmt = v => v ? v.replace('T', ' ') : '';
         const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = fmt(v); };
         set(`at-before-${no}`, ms.times.before);
         set(`at-mac-${no}`,    ms.times.mac);
@@ -243,118 +222,85 @@
         if (!wrap) return;
         const m  = meters.find(x => x.계기번호 === no);
         const ms = state[no];
-        const role = ms?.role;
+        const isOpen = ms.open;
 
         const dcuid  = m.DCUID || '';
         const base   = m.변대주 || '';
         const suffix = dcuid.length > base.length ? dcuid.slice(base.length) : '';
         const poleHtml = suffix ? `${base}<b style="color:#ef4444">${suffix}</b>` : base;
 
-        const roleBtns = ROLES.map(r =>
-            `<button class="role-btn ${role === r ? 'sel-'+r : ''}" onclick="setRole('${no}','${r}')">${r}</button>`
-        ).join('');
+        // 사진 있으면 초록 점
+        const hasPhotos = ms.before || ms.mac || ms.after1.some(p => p.dataUrl) || ms.after2;
+        const dot = hasPhotos ? '<span class="has-dot"></span>' : '';
 
-        let body = '';
-        if (!role) {
-            body = '<div class="card-hint">역할을 선택하세요</div>';
-        } else {
-            const mkSingle = (type, lbl, isAuto) => {
-                const p = ms[type];
-                const has = !!p?.dataUrl;
-                const timeVal = isAuto ? (ms.times[type] || '') : '';
-                const timeId  = `at-${type}-${no}`;
-                return `<div class="single-row">
-                    <div class="slot-lbl">${lbl}</div>
-                    <div class="thumb${has ? ' has' : ''}">
-                        ${has ? `<img src="${p.dataUrl}" alt="">` : '+'}
-                        <input type="file" accept="image/*" onchange="onSingle('${no}','${type}',this)">
-                    </div>
-                    <div class="slot-meta">
-                        <div class="slot-fname">${has ? p.filename : '사진 선택'}</div>
-                        ${has && p.exif ? `<div class="slot-exif">원본: ${p.exif}</div>` : ''}
-                        ${isAuto
-                            ? `<input type="text" class="slot-time" id="${timeId}" readonly value="${timeVal.replace('T',' ')}" placeholder="자동계산">
-                               <div class="auto-tag">자동계산</div>`
-                            : ''
-                        }
-                    </div>
-                </div>`;
-            };
+        const mkSingle = (type, lbl) => {
+            const p = ms[type];
+            const has = !!p?.dataUrl;
+            return `<div class="single-row">
+                <div class="slot-lbl">${lbl}</div>
+                <div class="thumb${has ? ' has' : ''}">
+                    ${has ? `<img src="${p.dataUrl}" alt="">` : '+'}
+                    <input type="file" accept="image/*" onchange="onSingle('${no}','${type}',this)">
+                </div>
+                <div class="slot-meta">
+                    <div class="slot-fname">${has ? p.filename : '사진 선택'}</div>
+                    ${has && p.exif ? `<div class="slot-exif">원본: ${p.exif}</div>` : ''}
+                    <input type="text" class="slot-time" id="at-${type}-${no}" readonly
+                           value="${(ms.times[type]||'').replace('T',' ')}" placeholder="자동계산">
+                    <div class="auto-tag">자동계산</div>
+                </div>
+            </div>`;
+        };
 
-            // 시공후1 목록
-            const after1Items = ms.after1.map((p, i) => `
-                <div class="after1-item">
-                    <div class="after1-num">${i+1}</div>
-                    ${p.dataUrl ? `<img class="after1-img" src="${p.dataUrl}" alt="">` : '<div style="width:50px;height:50px;background:#e5e7eb;border-radius:6px;flex-shrink:0"></div>'}
-                    <div class="after1-info">
-                        <div class="after1-fname">${p.filename || '(저장됨)'}</div>
-                        ${p.exif ? `<div class="after1-exif">원본: ${p.exif}</div>` : ''}
-                        <input type="datetime-local" class="after1-time"
-                               value="${p.time || dateToLocal(new Date())}"
-                               oninput="onAfter1Time('${no}',${i},this.value)">
-                    </div>
-                    <div class="order-btns">
-                        <button class="ord-btn" onclick="moveAfter1('${no}',${i},-1)" ${i===0?'disabled':''}>↑</button>
-                        <button class="ord-btn" onclick="moveAfter1('${no}',${i},+1)" ${i===ms.after1.length-1?'disabled':''}>↓</button>
-                    </div>
-                    <button class="del-btn" onclick="removeAfter1('${no}',${i})">×</button>
-                </div>`).join('');
+        const after1Items = ms.after1.map((p, i) => `
+            <div class="after1-item">
+                <div class="after1-num">${i+1}</div>
+                ${p.dataUrl ? `<img class="after1-img" src="${p.dataUrl}" alt="">` : '<div style="width:50px;height:50px;background:#e5e7eb;border-radius:6px;flex-shrink:0"></div>'}
+                <div class="after1-info">
+                    <div class="after1-fname">${p.filename || '(저장됨)'}</div>
+                    ${p.exif ? `<div class="after1-exif">원본: ${p.exif}</div>` : ''}
+                    <input type="datetime-local" class="after1-time"
+                           value="${p.time || dateToLocal(new Date())}"
+                           oninput="onAfter1Time('${no}',${i},this.value)">
+                </div>
+                <div class="order-btns">
+                    <button class="ord-btn" onclick="moveAfter1('${no}',${i},-1)" ${i===0?'disabled':''}>↑</button>
+                    <button class="ord-btn" onclick="moveAfter1('${no}',${i},+1)" ${i===ms.after1.length-1?'disabled':''}>↓</button>
+                </div>
+                <button class="del-btn" onclick="removeAfter1('${no}',${i})">×</button>
+            </div>`).join('');
 
-            const slots = role === '슬레이브'
-                ? `<div class="slots-area">
-                    <div class="after1-section">
-                        <div class="after1-header">③ 시공후1</div>
-                        ${after1Items}
-                        <div class="add-after1">
-                            <span>+</span><span>시공후1 추가</span>
-                            <input type="file" accept="image/*" onchange="onAddAfter1('${no}',this)">
-                        </div>
+        const slotsHtml = isOpen ? `
+            <div class="slots-area">
+                ${mkSingle('before','① 시공전')}
+                ${mkSingle('mac',   '② 맥')}
+                <div>
+                    <div class="after1-header">③ 시공후1 (여러 장)</div>
+                    ${after1Items}
+                    <div class="add-after1">
+                        <span>+</span><span>시공후1 추가</span>
+                        <input type="file" accept="image/*" onchange="onAddAfter1('${no}',this)">
                     </div>
-                   </div>`
-                : `<div class="slots-area">
-                    ${mkSingle('before','① 시공전', true)}
-                    ${mkSingle('mac',   '② 맥',    true)}
-                    <div class="after1-section">
-                        <div class="after1-header">③ 시공후1 (여러 장)</div>
-                        ${after1Items}
-                        <div class="add-after1">
-                            <span>+</span><span>시공후1 추가</span>
-                            <input type="file" accept="image/*" onchange="onAddAfter1('${no}',this)">
-                        </div>
-                    </div>
-                    ${mkSingle('after2','④ 시공후2', true)}
-                   </div>`;
+                </div>
+                ${mkSingle('after2','④ 시공후2')}
+            </div>` : '';
 
-            body = slots;
-        }
-
-        wrap.innerHTML = `<div class="meter-card">
-            <div class="card-head">
+        wrap.innerHTML = `<div class="meter-card${isOpen ? ' open' : ''}">
+            <div class="card-head" onclick="toggle('${no}')">
                 <span class="type-badge type-${m.계기타입||''}">${m.계기타입||'?'}</span>
                 <span class="meter-no">${no}</span>
                 <span class="meter-pole">${poleHtml}</span>
+                ${dot}
+                <span class="toggle-icon">▼</span>
             </div>
-            <div class="role-row">${roleBtns}</div>
-            ${body}
+            ${slotsHtml}
         </div>`;
 
-        refreshAutoTimes(no);
+        if (isOpen) refreshAutoFields(no);
     }
 
     // ── 다운로드 ──────────────────────────────────────────────
     async function downloadAll() {
-        const slaveCount = meters.filter(m => state[m.계기번호]?.role === '슬레이브').length;
-
-        for (const m of meters) {
-            const ms = state[m.계기번호];
-            if (!ms?.role || !ms.after1.some(p => p.dataUrl)) continue;
-            if (ms.role !== '슬레이브') {
-                if (!ms.before?.dataUrl) { showStatus('error', `${m.계기번호}: 시공전 사진 필요`); return; }
-                if (!ms.mac?.dataUrl)    { showStatus('error', `${m.계기번호}: 맥 사진 필요`);    return; }
-                if (!ms.after2?.dataUrl) { showStatus('error', `${m.계기번호}: 시공후2 사진 필요`); return; }
-            }
-        }
-
         const btn = document.getElementById('dl-btn');
         btn.disabled = true; btn.textContent = '처리 중...';
         showStatus('info', '처리 중...');
@@ -362,26 +308,26 @@
         let done = 0;
         for (const m of meters) {
             const ms = state[m.계기번호];
-            if (!ms?.role || !ms.after1.some(p => p.dataUrl)) continue;
+            const after1s = ms.after1.filter(p => p.dataUrl);
+            if (!after1s.length) continue;
 
-            const after1Times = ms.after1.map(p => p.time ? new Date(p.time) : new Date());
+            const after1Times = after1s.map(p => p.time ? new Date(p.time) : new Date());
             const first = after1Times[0], last = after1Times[after1Times.length - 1];
+
+            const slaveCount = meters.filter(x => {
+                const xs = state[x.계기번호];
+                return xs.after1.length === 1 && !xs.before;
+            }).length;
+
             const beforeBase = new Date(first.getTime() - (10 + slaveCount * 2) * 60000);
             const macBase    = new Date(first.getTime() - 60000);
             const after2Base = new Date(last.getTime() + 10000);
 
             try {
-                if (ms.role !== '슬레이브') {
-                    if (ms.before?.dataUrl) { await proc(ms.before, jitter(beforeBase, 30)); done++; }
-                    if (ms.mac?.dataUrl)    { await proc(ms.mac,    jitter(macBase,    8));  done++; }
-                }
-                for (let i = 0; i < ms.after1.length; i++) {
-                    const p = ms.after1[i];
-                    if (p.dataUrl) { await proc(p, jitter(after1Times[i], 8)); done++; }
-                }
-                if (ms.role !== '슬레이브') {
-                    if (ms.after2?.dataUrl) { await proc(ms.after2, jitter(after2Base, 8)); done++; }
-                }
+                if (ms.before?.dataUrl) { await proc(ms.before, jitter(beforeBase, 30)); done++; }
+                if (ms.mac?.dataUrl)    { await proc(ms.mac,    jitter(macBase,    8));  done++; }
+                for (let i = 0; i < after1s.length; i++) { await proc(after1s[i], jitter(after1Times[i], 8)); done++; }
+                if (ms.after2?.dataUrl) { await proc(ms.after2, jitter(after2Base, 8)); done++; }
             } catch (e) {
                 showStatus('error', `${m.계기번호}: ${e.message}`);
                 btn.disabled = false; btn.textContent = '시간 변경 후 다운로드';
@@ -453,7 +399,7 @@
     }
     function showStatus(t,m) { const el=document.getElementById('status-msg'); el.className='status '+t; el.textContent=m; }
     function updateDlBtn() {
-        document.getElementById('dl-btn').disabled = !meters.some(m => state[m.계기번호]?.role && state[m.계기번호]?.after1?.some(p => p.dataUrl));
+        document.getElementById('dl-btn').disabled = !meters.some(m => state[m.계기번호]?.after1?.some(p => p.dataUrl));
     }
 
     init();
