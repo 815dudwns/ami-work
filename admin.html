@@ -1430,7 +1430,7 @@ async function startQrCamera(cameraId) {
             (errMsg) => { /* 매 프레임 디코딩 실패 — 무시 */ }
         );
         // 카메라 시작 후 줌 적용 (2배 — 초광각 회피)
-        await applyZoom(2.0);
+        await applyZoom(1.5);
     } catch(e) {
         showQrError(qrErrorMessage(e));
     }
