@@ -18,6 +18,9 @@ const ACCOUNTS = [
 ];
 
 const AUTH_KEY = 'ami_auth';
+// 강제 재로그인 버전 — 이 값을 바꾸면 모든 사용자가 자동 로그아웃됨
+const AUTH_VERSION = '20260514-2';
+const AUTH_VERSION_KEY = 'ami_auth_version';
 
 /**
  * 로그인 시도
@@ -32,6 +35,7 @@ function authLogin(id, pw) {
     }
     const session = { id: account.id, name: account.name, role: account.role };
     localStorage.setItem(AUTH_KEY, JSON.stringify(session));
+    localStorage.setItem(AUTH_VERSION_KEY, AUTH_VERSION);
     return { ok: true };
 }
 
@@ -60,6 +64,15 @@ function authLogout() {
  * 로그인 여부 확인 — 미인증이면 login.html로 리다이렉트
  */
 function authRequire() {
+    // 버전 불일치 시 강제 로그아웃
+    const localVer = localStorage.getItem(AUTH_VERSION_KEY);
+    if (localVer !== AUTH_VERSION) {
+        localStorage.removeItem(AUTH_KEY);
+        localStorage.removeItem(AUTH_VERSION_KEY);
+        alert('새 버전이 배포되어 다시 로그인이 필요합니다.');
+        window.location.href = 'login.html';
+        return;
+    }
     if (!authGetSession()) {
         window.location.href = 'login.html';
     }
