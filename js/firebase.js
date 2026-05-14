@@ -77,6 +77,8 @@ async function flushEventQueue() {
         updates[`${p}/updatedAt`]     = new Date(ev.ts).toISOString();
         updates[`${p}/updatedBy`]     = ev.updatedBy || '';
         updates[`${p}/updatedByName`] = ev.updatedByName || '';
+        // 작업 완료/보류/불가 시 rework 플래그 해제
+        if (ev.state !== 'pending') updates[`${p}/rework`] = false;
     });
 
     Object.values(checkMap).forEach(ev => {
@@ -152,6 +154,10 @@ function saveStateEvent(address, state, reason, updatedBy, updatedByName) {
     workStatus[address].updatedAt     = new Date().toISOString();
     workStatus[address].updatedBy     = updatedBy || '';
     workStatus[address].updatedByName = updatedByName || '';
+    // 재작업 처리 — complete 또는 fail/hold로 새로 작업하면 rework 플래그 해제
+    if (state !== 'pending' && workStatus[address].rework) {
+        workStatus[address].rework = false;
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
 
     addEvent({
@@ -161,6 +167,7 @@ function saveStateEvent(address, state, reason, updatedBy, updatedByName) {
         reason,
         updatedBy,
         updatedByName,
+        rework: state !== 'pending' ? false : undefined,
         ts: Date.now(),
     });
 }
@@ -216,6 +223,9 @@ function buildWorkStatusFromFirebase(data) {
             updatedAt:     val.updatedAt     || '',
             updatedBy:     val.updatedBy     || '',
             updatedByName: val.updatedByName || '',
+            rework:        val.rework === true,
+            previousCompleteAt: val.previousCompleteAt || '',
+            previousCompleteBy: val.previousCompleteBy || '',
             checkedMeters,
             meterChecks,  // 원본 보관 (ts 비교용)
         };

@@ -133,6 +133,7 @@ function createMarker(position, address, meters) {
     else if (status.state === 'hold') color = 'blue';
     else if (status.state === 'fail') color = 'red';
     const markerLabel = (isApproximate && status.state === 'pending') ? '?' : meterCount;
+    const isRework = status.rework === true;
 
     const markerContent = `
         <div class="custom-marker ${color}">
@@ -141,6 +142,7 @@ function createMarker(position, address, meters) {
                 <circle class="pin-circle" cx="10" cy="10" r="5.5" fill="white"/>
             </svg>
             <div class="marker-number">${markerLabel}</div>
+            ${isRework ? '<div class="marker-fraction">재</div>' : ''}
         </div>
     `;
 
@@ -182,6 +184,20 @@ function updateMarkerColor(address) {
 
     const labelEl = marker.element.querySelector('.marker-number');
     if (labelEl) labelEl.textContent = (isApproximate && status.state === 'pending') ? '?' : marker.meters.length;
+
+    // 재작업 라벨 동기화
+    const isRework = status.rework === true;
+    let fracEl = marker.element.querySelector('.marker-fraction');
+    if (isRework) {
+        if (!fracEl) {
+            fracEl = document.createElement('div');
+            fracEl.className = 'marker-fraction';
+            fracEl.textContent = '재';
+            el.appendChild(fracEl);
+        }
+    } else if (fracEl) {
+        fracEl.remove();
+    }
 }
 
 // 전체 마커 색상 일괄 갱신 (Firebase 동기화 후 호출)

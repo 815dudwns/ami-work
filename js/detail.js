@@ -114,27 +114,43 @@ function showDetail(address, meters) {
     });
     updateWorkerInfo(status);
 
-    // 변대주가 모두 같은 경우 공통 표시
+    // 변대주가 모두 같은 경우 공통 표시 — DCUID 형식(기존)만 큰 글씨 강조
     const allSamePole = meters.length > 0 && meters.every(m => m.변대주 === meters[0].변대주);
     const commonPoleEl = document.getElementById('common-pole');
-    if (allSamePole && meters[0].변대주 && meters[0].변대주 !== '0') {
+    const hasDcuId = !!meters[0].DCUID;
+    if (allSamePole && meters[0].변대주 && meters[0].변대주 !== '0' && hasDcuId) {
         const poleText = meters[0].변대주;
-        // DCUID 필드 유무로 강조 분기 (변대주만이면 강조 X, DCU 형태면 끝 2자리=차수+번호 강조)
-        const isDcuId = !!meters[0].DCUID;
-        const poleMain = isDcuId ? poleText.slice(0, -2) : poleText;
-        const poleHtml = isDcuId
-            ? `<span>${poleMain}</span><span class="seg-dup">${poleText.slice(-2)}</span>`
-            : `<span>${poleText}</span>`;
+        const poleMain = poleText.slice(0, -2);
+        const poleHtml = `<span>${poleMain}</span><span class="seg-dup">${poleText.slice(-2)}</span>`;
         const poleCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${poleMain}" title="변대주 복사" style="margin-left:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
         commonPoleEl.innerHTML = `변대주 ${poleHtml}${poleCopyBtn}`;
         commonPoleEl.style.display = 'block';
-        // 공통 변대주 복사 버튼 이벤트 바인딩
         commonPoleEl.querySelector('.pole-copy-btn').addEventListener('click', (e) => {
             e.stopPropagation();
             copyMeterNo(poleMain);
         });
     } else {
         commonPoleEl.style.display = 'none';
+    }
+
+    // 재작업 알림 (rework=true) — 상단에 표시
+    const reworkEl = document.getElementById('rework-notice');
+    if (reworkEl) {
+        if (status.rework === true) {
+            const prevName = status.previousCompleteBy || '';
+            const prevAt = status.previousCompleteAt || '';
+            let prevDate = '';
+            if (prevAt) {
+                try {
+                    const d = new Date(prevAt);
+                    prevDate = `${d.getMonth() + 1}월 ${d.getDate()}일`;
+                } catch (e) { prevDate = prevAt; }
+            }
+            reworkEl.innerHTML = `재작업 — 이전 완료: ${prevName} ${prevDate}`;
+            reworkEl.style.display = 'block';
+        } else {
+            reworkEl.style.display = 'none';
+        }
     }
 
     // 패널 열릴 때 검색창 초기화
@@ -300,19 +316,25 @@ function renderMetersList() {
         const checked = (status.checkedMeters || []).includes(meter.계기번호) ? 'checked' : '';
         const parsedType = parseType(meter.계기번호) || meter.계기타입;
         const detailParts = [];
-        // 변대주가 있고 공통 표시 영역에 없는 경우만 개별 표시 (복사 버튼 포함)
-        if (!allSamePole && meter.변대주 && meter.변대주 !== '0') {
+        // DCUID 형식 변대주 — 개별 큰 글씨 표시 (공통 표시 안 될 때만)
+        if (!allSamePole && meter.변대주 && meter.변대주 !== '0' && meter.DCUID) {
             const pv = meter.변대주;
-            // DCUID 필드 유무로 강조 분기
-            const pvIsDcu = !!meter.DCUID;
-            const pvMain = pvIsDcu ? pv.slice(0, -2) : pv;
-            const pHtml = pvIsDcu
-                ? `<span>${pvMain}</span><span class="seg-dup">${pv.slice(-2)}</span>`
-                : `<span>${pv}</span>`;
+            const pvMain = pv.slice(0, -2);
+            const pHtml = `<span>${pvMain}</span><span class="seg-dup">${pv.slice(-2)}</span>`;
             const pCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${pvMain}" title="변대주 복사" style="margin-left:3px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
             detailParts.push(`변대주 ${pHtml}${pCopyBtn}`);
         }
+        // 상호 (있을 때)
         if (meter.상호 && meter.상호 !== '0') detailParts.push(`상호 ${meter.상호}`);
+        // 공동주택명 (상호와 다를 때만)
+        if (meter.공동주택명 && meter.공동주택명 !== meter.상호) detailParts.push(meter.공동주택명);
+        // 통신방식 (빨강) · 검기만료 · 한글 변대주 (작은 글씨)
+        const subParts = [];
+        if (meter.통신방식) subParts.push(`<span class="comm-type">${meter.통신방식}</span>`);
+        if (meter.검기만료년월) subParts.push(`검기만료 ${meter.검기만료년월}`);
+        if (meter.변대주 && !meter.DCUID) subParts.push(`변대주 ${meter.변대주}`);
+        if (meter.고객번호) subParts.push(`고객 ${meter.고객번호}`);
+        const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
         const details = detailParts.join(', ');
 
         // 계기번호 4구간 색상 분리
@@ -356,6 +378,7 @@ function renderMetersList() {
                     ${noHtml}${copyBtn}
                     <button class="${failBtnClass}" data-meter="${meter.계기번호}">${failBtnLabel}</button>
                     ${details ? `<div class="meter-details">${details}</div>` : ''}
+                    ${subDetails}
                     ${failInputHtml}
                 </div>
             </div>
