@@ -114,20 +114,30 @@ function showDetail(address, meters) {
     });
     updateWorkerInfo(status);
 
-    // 변대주가 모두 같은 경우 공통 표시 — DCUID 형식(기존)만 큰 글씨 강조
-    const allSamePole = meters.length > 0 && meters.every(m => m.변대주 === meters[0].변대주);
+    // 변대주(전산화/DCUID)가 모두 같은 경우 공통 표시
+    // - 영문자 포함: DCU 케이스 → 끝 2자리(차수+번호) 강조 + 복사 시 절단
+    // - 숫자만: LTE 케이스 (DCU 미사용) → 강조 없음 + 전체 복사
+    const allSameDcu = meters.length > 0 && meters.every(m => m.DCUID === meters[0].DCUID);
     const commonPoleEl = document.getElementById('common-pole');
     const hasDcuId = !!meters[0].DCUID;
-    if (allSamePole && meters[0].변대주 && meters[0].변대주 !== '0' && hasDcuId) {
-        const poleText = meters[0].변대주;
-        const poleMain = poleText.slice(0, -2);
-        const poleHtml = `<span>${poleMain}</span><span class="seg-dup">${poleText.slice(-2)}</span>`;
-        const poleCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${poleMain}" title="변대주 복사" style="margin-left:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
-        commonPoleEl.innerHTML = `변대주 ${poleHtml}${poleCopyBtn}`;
+    if (allSameDcu && hasDcuId) {
+        const dcu = meters[0].DCUID;
+        const isDcuType = /[A-Za-z]/.test(dcu);
+        let dcuHtml, copyVal;
+        if (isDcuType) {
+            const dcuMain = dcu.slice(0, -2);
+            dcuHtml = `<span>${dcuMain}</span><span class="seg-dup">${dcu.slice(-2)}</span>`;
+            copyVal = dcuMain;
+        } else {
+            dcuHtml = `<span>${dcu}</span>`;
+            copyVal = dcu;
+        }
+        const poleCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="전산화번호 복사" style="margin-left:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+        commonPoleEl.innerHTML = `변대주 ${dcuHtml}${poleCopyBtn}`;
         commonPoleEl.style.display = 'block';
         commonPoleEl.querySelector('.pole-copy-btn').addEventListener('click', (e) => {
             e.stopPropagation();
-            copyMeterNo(poleMain);
+            copyMeterNo(copyVal);
         });
     } else {
         commonPoleEl.style.display = 'none';
@@ -283,7 +293,9 @@ function renderMetersList() {
     const meters = currentMeters;
     const sortedMeters = getSortedMeters();
     const status = workStatus[currentAddress] || { state: 'pending', checkedMeters: [], reason: '' };
-    const allSamePole = meters.length > 0 && meters.every(m => m.변대주 === meters[0].변대주);
+    // 큰 글씨(공통) 영역에 표시되었는지 — DCUID 기준으로 판단
+    const allSameDcu = meters.length > 0 && meters.every(m => m.DCUID === meters[0].DCUID);
+    const commonDcuShown = allSameDcu && !!meters[0].DCUID;
     const failedMeters = status.failedMeters || {};
 
     // 뒤 2자리 중복 그룹 계산 (중복 계기번호 색상 구분용)
@@ -316,23 +328,43 @@ function renderMetersList() {
         const checked = (status.checkedMeters || []).includes(meter.계기번호) ? 'checked' : '';
         const parsedType = parseType(meter.계기번호) || meter.계기타입;
         const detailParts = [];
-        // DCUID 형식 변대주 — 개별 큰 글씨 표시 (공통 표시 안 될 때만)
-        if (!allSamePole && meter.변대주 && meter.변대주 !== '0' && meter.DCUID) {
-            const pv = meter.변대주;
-            const pvMain = pv.slice(0, -2);
-            const pHtml = `<span>${pvMain}</span><span class="seg-dup">${pv.slice(-2)}</span>`;
-            const pCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${pvMain}" title="변대주 복사" style="margin-left:3px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+        // DCUID 큰 글씨 — 공통 표시 안 될 때만 개별 표시
+        // 영문자 포함: DCU 케이스 → 끝 2자리 강조 + 복사 시 절단
+        // 숫자만: LTE 케이스 → 강조 없음 + 전체 복사
+        if (!commonDcuShown && meter.DCUID) {
+            const dcu = meter.DCUID;
+            const isDcuType = /[A-Za-z]/.test(dcu);
+            let pHtml, copyVal;
+            if (isDcuType) {
+                const dcuMain = dcu.slice(0, -2);
+                pHtml = `<span>${dcuMain}</span><span class="seg-dup">${dcu.slice(-2)}</span>`;
+                copyVal = dcuMain;
+            } else {
+                pHtml = `<span>${dcu}</span>`;
+                copyVal = dcu;
+            }
+            const pCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="전산화번호 복사" style="margin-left:3px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
             detailParts.push(`변대주 ${pHtml}${pCopyBtn}`);
         }
         // 상호 (있을 때)
         if (meter.상호 && meter.상호 !== '0') detailParts.push(`상호 ${meter.상호}`);
         // 공동주택명 (상호와 다를 때만)
         if (meter.공동주택명 && meter.공동주택명 !== meter.상호) detailParts.push(meter.공동주택명);
-        // 통신방식 (빨강) · 검기만료 · 한글 변대주 (작은 글씨)
+        // 작은 글씨 영역
         const subParts = [];
+        // 1) 통신방식 (빨강) · 변대주 한글명 · 인입주
         if (meter.통신방식) subParts.push(`<span class="comm-type">${meter.통신방식}</span>`);
-        if (meter.검기만료년월) subParts.push(`검기만료 ${meter.검기만료년월}`);
-        if (meter.변대주 && !meter.DCUID) subParts.push(`변대주 ${meter.변대주}`);
+        if (meter.변대주) subParts.push(`변대주 ${meter.변대주}`);
+        if (meter.인입주) subParts.push(`인입주 ${meter.인입주}`);
+        // 2) 사업차수 (신·전)
+        if (meter['사업차수']) {
+            const prev = meter['사업차수_전'];
+            subParts.push(prev && prev !== meter['사업차수'] ? `차수 ${meter['사업차수']}(전 ${prev})` : `차수 ${meter['사업차수']}`);
+        }
+        // 3) 이전 통신·계기 (신과 다를 때만)
+        if (meter['통신방식_전'] && meter['통신방식_전'] !== meter.통신방식) subParts.push(`이전통신 ${meter['통신방식_전']}`);
+        if (meter['계기타입_전'] && meter['계기타입_전'] !== meter.계기타입) subParts.push(`이전계기 ${meter['계기타입_전']}`);
+        // 4) 고객번호
         if (meter.고객번호) subParts.push(`고객 ${meter.고객번호}`);
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
         const details = detailParts.join(', ');
