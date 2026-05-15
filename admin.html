@@ -84,12 +84,30 @@
 </div>
 
 <script>
-// ── 인증 ──────────────────────────────────────────────
+// ── 어드민 전용 게이트 (절대 우회 금지) ───────────────────
+// authRequire/redirect 는 비동기라 차단 전에 후속 코드가 실행될 수 있다.
+// role 체크 실패 시 즉시 body 비우고 throw 로 스크립트 중단.
+(function adminGate() {
+    const session = (typeof authGetSession === 'function') ? authGetSession() : null;
+    const isAdmin = !!session && session.role === 'admin';
+    if (!isAdmin) {
+        try { document.body.innerHTML = ''; } catch (_) {}
+        if (!session) {
+            window.location.replace('login.html');
+        } else {
+            alert('관리자 전용');
+            window.location.replace('map.html');
+        }
+        throw new Error('forbidden: admin only');
+    }
+})();
+
 authRequire();
 const _session = authGetSession();
 if (!_session || _session.role !== 'admin') {
-    alert('관리자 전용');
-    window.location.href = 'map.html';
+    document.body.innerHTML = '';
+    window.location.replace('map.html');
+    throw new Error('forbidden: admin only');
 }
 
 // ── 상태 ──────────────────────────────────────────────

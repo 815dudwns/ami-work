@@ -30,6 +30,8 @@
         <span class="user-divider">|</span>
         <a id="admin-btn" href="admin.html" style="display:none;color:rgba(255,255,255,0.85);font-size:12px;text-decoration:none;font-weight:600;">관리자</a>
         <span id="admin-divider" style="display:none;opacity:0.45;font-size:12px;">|</span>
+        <a id="stats-btn" href="stats.html" style="display:none;color:rgba(255,255,255,0.85);font-size:12px;text-decoration:none;font-weight:600;">📊 통계</a>
+        <span id="stats-divider" style="display:none;opacity:0.45;font-size:12px;">|</span>
         <button class="logout-btn" onclick="authLogout()">로그아웃</button>
     </div>
 
@@ -90,6 +92,8 @@
                 if (session.role === 'admin') {
                     document.getElementById('admin-btn').style.display = '';
                     document.getElementById('admin-divider').style.display = '';
+                    document.getElementById('stats-btn').style.display = '';
+                    document.getElementById('stats-divider').style.display = '';
                     document.getElementById('admin-upload-btn').style.display = '';
                 }
             }

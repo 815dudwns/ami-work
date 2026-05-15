@@ -24,3 +24,6 @@ node_modules/
 
 # 데모 파일
 sort-demo.html
+
+# Claude Code 로컬 설정 (개인 머신용)
+.claude/settings.local.json

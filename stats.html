@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>작업 현황 통계 - AMI</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/config.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 40px; color: #1f2937; }
+
+        .header { background: #1e3a8a; color: white; padding: 14px 16px; position: sticky; top: 0; z-index: 200; }
+        .header-top { display: flex; align-items: center; gap: 10px; }
+        .header a { color: rgba(255,255,255,0.75); text-decoration: none; font-size: 14px; }
+        .header h1 { font-size: 17px; font-weight: 700; flex: 1; }
+
+        .container { max-width: 1000px; margin: 0 auto; padding: 16px; }
+
+        .date-bar { background: white; border-radius: 12px; padding: 12px; margin-bottom: 14px; display: flex; gap: 8px; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+        .date-bar input { flex: 1; padding: 10px; border: 1.5px solid #d1d5db; border-radius: 8px; font-size: 15px; min-width: 0; }
+        .date-bar button { padding: 10px 12px; background: #f3f4f6; color: #374151; border: 1.5px solid #d1d5db; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+        .date-bar button:active { background: #e5e7eb; }
+        .date-bar .btn-refresh { background: #1d4ed8; color: white; border-color: #1d4ed8; }
+
+        .summary { background: white; border-radius: 12px; padding: 14px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+        .summary-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; }
+        .summary-item { text-align: center; padding: 8px 4px; border-radius: 8px; }
+        .summary-item .label { font-size: 11px; color: #6b7280; margin-bottom: 4px; }
+        .summary-item .value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+        .summary-item .sub { font-size: 10px; color: #9ca3af; margin-top: 2px; }
+        .si-complete { background: #ecfdf5; }
+        .si-complete .value { color: #047857; }
+        .si-hold { background: #fffbeb; }
+        .si-hold .value { color: #b45309; }
+        .si-fail { background: #fef2f2; }
+        .si-fail .value { color: #b91c1c; }
+        .si-sites { background: #eff6ff; }
+        .si-sites .value { color: #1d4ed8; }
+        .si-meters { background: #f5f3ff; }
+        .si-meters .value { color: #6d28d9; }
+
+        .type-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed #e5e7eb; }
+        .type-chip { padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #f3f4f6; color: #374151; }
+        .type-chip b { color: #1d4ed8; font-weight: 700; margin-left: 4px; }
+
+        /* 탭 */
+        .tabs { display: flex; gap: 6px; background: #e5e7eb; padding: 4px; border-radius: 10px; margin-bottom: 14px; }
+        .tab-btn { flex: 1; padding: 10px; background: transparent; color: #6b7280; border: none; border-radius: 7px; font-size: 14px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
+        .tab-btn.active { background: white; color: #1d4ed8; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        .card { background: white; border-radius: 12px; padding: 14px 14px 18px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+        .card-title { font-size: 14px; font-weight: 700; color: #1f2937; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+        .card-title .count { color: #6b7280; font-weight: 500; font-size: 12px; }
+
+        .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 560px; }
+        th, td { padding: 9px 6px; text-align: center; border-bottom: 1px solid #e5e7eb; }
+        th { background: #f9fafb; color: #374151; font-weight: 700; font-size: 12px; position: sticky; top: 0; }
+        td.name { text-align: left; font-weight: 600; padding-left: 10px; white-space: nowrap; }
+        td.num { font-variant-numeric: tabular-nums; }
+        td.sites { color: #1d4ed8; font-weight: 600; }
+        td.meters { color: #6d28d9; font-weight: 700; }
+        td.complete { color: #047857; font-weight: 600; }
+        td.hold { color: #b45309; }
+        td.fail { color: #b91c1c; }
+        td.types { font-size: 11px; color: #6b7280; text-align: left; padding-left: 10px; line-height: 1.5; }
+        td.types span { display: inline-block; margin-right: 6px; }
+        td.types b { color: #1f2937; font-weight: 700; }
+        tr.total-row { background: #f9fafb; }
+        tr.total-row td { border-top: 2px solid #d1d5db; font-weight: 700; }
+
+        .empty { text-align: center; color: #9ca3af; padding: 24px 8px; font-size: 13px; }
+        .err { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 10px; padding: 12px; margin-bottom: 14px; font-size: 13px; }
+        .loading { text-align: center; color: #6b7280; padding: 32px; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="header-top">
+        <a href="map.html">← 지도</a>
+        <h1>작업 현황 통계</h1>
+    </div>
+</div>
+
+<div class="container">
+
+    <div class="date-bar">
+        <input type="date" id="dateInput">
+        <button onclick="setToday()">오늘</button>
+        <button class="btn-refresh" onclick="loadAndRender()">새로고침</button>
+    </div>
+
+    <div id="errBox"></div>
+    <div id="content"><div class="loading">불러오는 중...</div></div>
+
+</div>
+
+<script>
+// ── 어드민 전용 게이트 (절대 우회 금지) ───────────────────
+(function adminGate() {
+    const session = (typeof authGetSession === 'function') ? authGetSession() : null;
+    const isAdmin = !!session && session.role === 'admin';
+    if (!isAdmin) {
+        try { document.body.innerHTML = ''; } catch (_) {}
+        if (!session) {
+            window.location.replace('login.html');
+        } else {
+            alert('관리자 전용');
+            window.location.replace('map.html');
+        }
+        throw new Error('forbidden: admin only');
+    }
+})();
+
+authRequire();
+const _session = authGetSession();
+if (!_session || _session.role !== 'admin') {
+    document.body.innerHTML = '';
+    window.location.replace('map.html');
+    throw new Error('forbidden: admin only');
+}
+
+// ── 초기화 ─────────────────────────────────────────────
+setToday();
+let _firebaseInited = false;
+let _db = null;
+let _metersByAddr = null;  // site-data.json 캐시: { address: [meter, ...] }
+let _activeTab = 'gu';     // 'gu' | 'worker'
+
+function initFB() {
+    if (_firebaseInited) return true;
+    try {
+        const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+        _db = firebase.database(app);
+        _firebaseInited = true;
+        return true;
+    } catch (e) {
+        console.error(e);
+        showErr('Firebase 초기화 실패: ' + e.message);
+        return false;
+    }
+}
+
+async function loadSiteData() {
+    if (_metersByAddr) return _metersByAddr;
+    const resp = await fetch('data/site-data.json', { cache: 'force-cache' });
+    if (!resp.ok) throw new Error('site-data.json 로드 실패');
+    const arr = await resp.json();
+    const map = {};
+    for (const item of arr) {
+        const a = item['주소'];
+        if (!a) continue;
+        if (!map[a]) map[a] = [];
+        map[a].push(item);
+    }
+    _metersByAddr = map;
+    return map;
+}
+
+document.getElementById('dateInput').addEventListener('change', loadAndRender);
+
+loadAndRender();
+
+// ── 유틸 ───────────────────────────────────────────────
+function setToday() {
+    const d = new Date();
+    const p = n => String(n).padStart(2, '0');
+    document.getElementById('dateInput').value = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+
+function getSelectedDate() {
+    return document.getElementById('dateInput').value;
+}
+
+function isSameLocalDay(iso, dateStr) {
+    if (!iso) return false;
+    const d = new Date(iso);
+    if (isNaN(d)) return false;
+    const p = n => String(n).padStart(2, '0');
+    const local = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+    return local === dateStr;
+}
+
+function extractGu(address) {
+    const m = /\s([^\s]+구)(?:\s|$)/.exec(address || '');
+    return m ? m[1] : '미상';
+}
+
+function showErr(msg) {
+    document.getElementById('errBox').innerHTML = `<div class="err">${msg}</div>`;
+}
+function clearErr() { document.getElementById('errBox').innerHTML = ''; }
+
+// ── 메인 로드 ──────────────────────────────────────────
+async function loadAndRender() {
+    clearErr();
+    const dateStr = getSelectedDate();
+    if (!dateStr) { showErr('날짜를 선택하세요'); return; }
+    if (!initFB()) return;
+
+    const content = document.getElementById('content');
+    content.innerHTML = '<div class="loading">불러오는 중...</div>';
+
+    try {
+        const [workStatusSnap, _] = await Promise.all([
+            _db.ref('workStatus/charger4eleccar').once('value'),
+            loadSiteData()
+        ]);
+        const workStatus = workStatusSnap.val() || {};
+        render(workStatus, dateStr);
+    } catch (e) {
+        console.error(e);
+        showErr('데이터 로드 실패: ' + e.message);
+        content.innerHTML = '';
+    }
+}
+
+// ── 집계 ───────────────────────────────────────────────
+function emptyAgg() {
+    return {
+        sites:  { complete: 0, hold: 0, fail: 0 },
+        meters: { complete: 0, hold: 0, fail: 0 },
+        types:  {} // 타입명 -> 계기수 (complete + hold + fail 합)
+    };
+}
+function addAgg(agg, state, meters) {
+    agg.sites[state] += 1;
+    agg.meters[state] += meters.length;
+    for (const m of meters) {
+        const t = m['계기타입'] || '?';
+        agg.types[t] = (agg.types[t] || 0) + 1;
+    }
+}
+function sumSites(s) { return s.complete + s.hold + s.fail; }
+function sumMeters(m) { return m.complete + m.hold + m.fail; }
+
+// ── 렌더 ───────────────────────────────────────────────
+function render(workStatus, dateStr) {
+    const items = [];
+    for (const addr in workStatus) {
+        const ws = workStatus[addr];
+        if (!ws || !ws.state || ws.state === 'pending') continue;
+        if (!isSameLocalDay(ws.updatedAt, dateStr)) continue;
+        const meters = (_metersByAddr && _metersByAddr[addr]) || [];
+        items.push({
+            address: addr,
+            state: ws.state,
+            worker: ws.updatedByName || ws.updatedBy || '(미상)',
+            gu: extractGu(addr),
+            meters
+        });
+    }
+
+    const content = document.getElementById('content');
+
+    if (items.length === 0) {
+        content.innerHTML = `<div class="card"><div class="empty">${escHtml(dateStr)} 작업 기록 없음</div></div>`;
+        return;
+    }
+
+    // 전체 합계
+    const total = emptyAgg();
+    for (const it of items) addAgg(total, it.state, it.meters);
+
+    // 구별 / 작업자별 집계
+    const byGu = {};
+    const byWorker = {};
+    for (const it of items) {
+        if (!byGu[it.gu]) byGu[it.gu] = emptyAgg();
+        addAgg(byGu[it.gu], it.state, it.meters);
+        if (!byWorker[it.worker]) byWorker[it.worker] = emptyAgg();
+        addAgg(byWorker[it.worker], it.state, it.meters);
+    }
+
+    const guRows = Object.entries(byGu).sort((a, b) => sumMeters(b[1].meters) - sumMeters(a[1].meters));
+    const workerRows = Object.entries(byWorker).sort((a, b) => sumMeters(b[1].meters) - sumMeters(a[1].meters));
+
+    content.innerHTML = `
+        ${renderSummary(total)}
+        <div class="tabs">
+            <button class="tab-btn ${_activeTab === 'gu' ? 'active' : ''}" data-tab="gu" onclick="setTab('gu')">📍 구별</button>
+            <button class="tab-btn ${_activeTab === 'worker' ? 'active' : ''}" data-tab="worker" onclick="setTab('worker')">👤 작업자별</button>
+        </div>
+        <div class="tab-panel ${_activeTab === 'gu' ? 'active' : ''}" id="tab-gu">
+            ${renderTable('구', guRows, total)}
+        </div>
+        <div class="tab-panel ${_activeTab === 'worker' ? 'active' : ''}" id="tab-worker">
+            ${renderTable('작업자', workerRows, total)}
+        </div>
+    `;
+}
+
+function setTab(t) {
+    _activeTab = t;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    const panel = document.getElementById('tab-' + t);
+    if (panel) panel.classList.add('active');
+}
+
+function renderSummary(total) {
+    const totalSites = sumSites(total.sites);
+    const totalMeters = sumMeters(total.meters);
+    return `
+        <div class="summary">
+            <div class="summary-row">
+                <div class="summary-item si-sites">
+                    <div class="label">개소</div>
+                    <div class="value">${totalSites}</div>
+                    <div class="sub">곳</div>
+                </div>
+                <div class="summary-item si-meters">
+                    <div class="label">계기</div>
+                    <div class="value">${totalMeters}</div>
+                    <div class="sub">개</div>
+                </div>
+                <div class="summary-item si-complete">
+                    <div class="label">완료</div>
+                    <div class="value">${total.sites.complete}</div>
+                    <div class="sub">${total.meters.complete}계기</div>
+                </div>
+                <div class="summary-item si-hold">
+                    <div class="label">보류</div>
+                    <div class="value">${total.sites.hold}</div>
+                    <div class="sub">${total.meters.hold}계기</div>
+                </div>
+                <div class="summary-item si-fail">
+                    <div class="label">불가</div>
+                    <div class="value">${total.sites.fail}</div>
+                    <div class="sub">${total.meters.fail}계기</div>
+                </div>
+            </div>
+            ${renderTypeRow(total.types)}
+        </div>
+    `;
+}
+
+function renderTypeRow(types) {
+    const entries = Object.entries(types).sort((a, b) => b[1] - a[1]);
+    if (entries.length === 0) return '';
+    const chips = entries.map(([t, n]) => `<span class="type-chip">${escHtml(t)} <b>${n}</b></span>`).join('');
+    return `<div class="type-row">${chips}</div>`;
+}
+
+function renderTable(label, rows, total) {
+    if (rows.length === 0) {
+        return `<div class="card"><div class="empty">${escHtml(label)} 데이터 없음</div></div>`;
+    }
+    return `
+        <div class="card">
+            <div class="card-title">${escHtml(label)}별 작업 현황 <span class="count">(${rows.length}${label === '구' ? '개 구' : '명'})</span></div>
+            <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>${escHtml(label)}</th>
+                        <th>개소</th>
+                        <th>계기</th>
+                        <th>완료<br><span style="font-weight:500;color:#9ca3af;">개소/계기</span></th>
+                        <th>보류<br><span style="font-weight:500;color:#9ca3af;">개소/계기</span></th>
+                        <th>불가<br><span style="font-weight:500;color:#9ca3af;">개소/계기</span></th>
+                        <th style="text-align:left;padding-left:10px;">계기 타입</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows.map(([name, agg]) => `
+                        <tr>
+                            <td class="name">${escHtml(name)}</td>
+                            <td class="num sites">${sumSites(agg.sites)}</td>
+                            <td class="num meters">${sumMeters(agg.meters)}</td>
+                            <td class="num complete">${agg.sites.complete || ''}${agg.sites.complete ? `<div style="font-size:10px;color:#9ca3af;font-weight:500;">${agg.meters.complete}</div>` : ''}</td>
+                            <td class="num hold">${agg.sites.hold || ''}${agg.sites.hold ? `<div style="font-size:10px;color:#9ca3af;font-weight:500;">${agg.meters.hold}</div>` : ''}</td>
+                            <td class="num fail">${agg.sites.fail || ''}${agg.sites.fail ? `<div style="font-size:10px;color:#9ca3af;font-weight:500;">${agg.meters.fail}</div>` : ''}</td>
+                            <td class="types">${renderTypesCell(agg.types)}</td>
+                        </tr>
+                    `).join('')}
+                    <tr class="total-row">
+                        <td class="name">합계</td>
+                        <td class="num sites">${sumSites(total.sites)}</td>
+                        <td class="num meters">${sumMeters(total.meters)}</td>
+                        <td class="num complete">${total.sites.complete}<div style="font-size:10px;color:#9ca3af;font-weight:500;">${total.meters.complete}</div></td>
+                        <td class="num hold">${total.sites.hold}<div style="font-size:10px;color:#9ca3af;font-weight:500;">${total.meters.hold}</div></td>
+                        <td class="num fail">${total.sites.fail}<div style="font-size:10px;color:#9ca3af;font-weight:500;">${total.meters.fail}</div></td>
+                        <td class="types">${renderTypesCell(total.types)}</td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+        </div>
+    `;
+}
+
+function renderTypesCell(types) {
+    const entries = Object.entries(types).sort((a, b) => b[1] - a[1]);
+    if (entries.length === 0) return '<span style="color:#d1d5db;">-</span>';
+    return entries.map(([t, n]) => `<span><b>${escHtml(t)}</b> ${n}</span>`).join(' ');
+}
+
+function escHtml(s) {
+    return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
