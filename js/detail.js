@@ -361,8 +361,8 @@ function renderMetersList() {
             const prev = meter['사업차수_전'];
             subParts.push(prev && prev !== meter['사업차수'] ? `차수 ${meter['사업차수']}(전 ${prev})` : `차수 ${meter['사업차수']}`);
         }
-        // 3) 이전 통신·계기 (신과 다를 때만)
-        if (meter['통신방식_전'] && meter['통신방식_전'] !== meter.통신방식) subParts.push(`이전통신 ${meter['통신방식_전']}`);
+        // 3) 이전 통신 (항상) · 이전 계기 (신과 다를 때만)
+        if (meter['통신방식_전']) subParts.push(`이전통신 ${meter['통신방식_전']}`);
         if (meter['계기타입_전'] && meter['계기타입_전'] !== meter.계기타입) subParts.push(`이전계기 ${meter['계기타입_전']}`);
         // 4) 고객번호
         if (meter.고객번호) subParts.push(`고객 ${meter.고객번호}`);
