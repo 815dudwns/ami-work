@@ -1,20 +1,22 @@
 // auth.js — 인증 관련 로직 (하드코딩 계정)
 
-// 계정 목록
+// 계정 목록 — 기존 user 번호 유지 + 신규 조장 2명 추가
 const ACCOUNTS = [
     { id: 'admin',  pw: '8414', name: '우영준', role: 'admin' },
-    { id: 'user01', pw: '1111', name: '김민성', role: 'user' },
-    { id: 'user02', pw: '1111', name: '이영길', role: 'user' },
-    { id: 'user03', pw: '1111', name: '김상권', role: 'user' },
-    { id: 'user04', pw: '1111', name: '김지호', role: 'user' },
-    { id: 'user05', pw: '1111', name: '장성훈', role: 'user' },
-    { id: 'user06', pw: '1111', name: '조은규', role: 'user' },
-    { id: 'user07', pw: '1111', name: '장진교', role: 'user' },
-    { id: 'user08', pw: '1111', name: '이규재', role: 'user' },
-    { id: 'user09', pw: '1111', name: '윤용운', role: 'user' },
-    { id: 'user10', pw: '1111', name: '이종우', role: 'user' },
-    { id: 'user11', pw: '1111', name: '최창호', role: 'user' },
-    { id: 'user12', pw: '1111', name: '우희근', role: 'user' },
+    { id: 'user01', pw: '1111', name: '김민성', role: 'user' },  // 도봉 부조장
+    { id: 'user02', pw: '1111', name: '이영길', role: 'user' },  // 도봉 조장
+    { id: 'user03', pw: '1111', name: '김상권', role: 'user' },  // 광진 부조장
+    { id: 'user04', pw: '1111', name: '김지호', role: 'user' },  // 동대문 부조장
+    { id: 'user05', pw: '1111', name: '장성훈', role: 'user' },  // 동대문 조장
+    { id: 'user06', pw: '1111', name: '조은규', role: 'user' },  // 중구 조장
+    { id: 'user07', pw: '1111', name: '장진교', role: 'user' },  // 종로 조장
+    { id: 'user08', pw: '1111', name: '이규재', role: 'user' },  // 은평 조장
+    { id: 'user09', pw: '1111', name: '윤용운', role: 'user' },  // 광진 조장
+    { id: 'user10', pw: '1111', name: '이종우', role: 'user' },  // 마포 조장
+    { id: 'user11', pw: '1111', name: '최창호', role: 'user' },  // 중랑 조장
+    { id: 'user12', pw: '1111', name: '우희근', role: 'user' },  // 강북 조장
+    { id: 'user13', pw: '1111', name: '양선왕', role: 'user' },  // 성북 조장 (신규)
+    { id: 'user14', pw: '1111', name: '이용택', role: 'user' },  // 노원 조장 (신규)
 ];
 
 const AUTH_KEY = 'ami_auth';
