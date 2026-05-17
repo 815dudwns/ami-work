@@ -57,18 +57,37 @@ function showDetail(address, meters) {
         btnComplete.onclick = () => { updateStatus('complete'); closeDetail(); };
     }
 
-    btnHold.onclick = () => { updateStatus('hold'); closeDetail(); };
-    btnFail.onclick = () => {
-        const failInput = document.getElementById('fail-reason');
-        const reason = failInput.value.trim();
-        if (!reason) {
-            failInput.style.borderColor = '#ef4444';
-            return;
-        }
-        failInput.style.borderColor = '';
-        updateStatus('fail');
-        closeDetail();
-    };
+    // 보류 상태면 초기화 버튼으로 전환
+    if (status.state === 'hold') {
+        btnHold.textContent = '🔄 초기화';
+        btnHold.className = 'action-btn reset';
+        btnHold.onclick = () => resetStatus();
+    } else {
+        btnHold.textContent = '⏸️ 보류';
+        btnHold.className = 'action-btn hold';
+        btnHold.onclick = () => { updateStatus('hold'); closeDetail(); };
+    }
+
+    // 불가 상태면 초기화 버튼으로 전환
+    if (status.state === 'fail') {
+        btnFail.textContent = '🔄 초기화';
+        btnFail.className = 'action-btn reset';
+        btnFail.onclick = () => resetStatus();
+    } else {
+        btnFail.textContent = '❌ 불가';
+        btnFail.className = 'action-btn fail';
+        btnFail.onclick = () => {
+            const failInput = document.getElementById('fail-reason');
+            const reason = failInput.value.trim();
+            if (!reason) {
+                failInput.style.borderColor = '#ef4444';
+                return;
+            }
+            failInput.style.borderColor = '';
+            updateStatus('fail');
+            closeDetail();
+        };
+    }
 
     // 현재 상태에 맞는 버튼 활성화
     [btnComplete, btnHold, btnFail].forEach(btn => btn.classList.remove('active'));
