@@ -6,7 +6,7 @@
 .custom-marker.blue   .pin-body { fill: #3b82f6; }
 .custom-marker.red    .pin-body { fill: #ef4444; }
 .custom-marker.yellow .pin-body { fill: #f59e0b; }
-.custom-marker.skt    .pin-body { fill: #34d399; }   /* SKT — 밝은 민트 (종로 2주차 채도 ↑) */
+.custom-marker.skt    .pin-body { fill: #a855f7; }   /* SKT — 진한 라벤더 (종로 3주차 채도 ↑) */
 
 /* 리스트1(미완·폴백): 흰 원 표시 / 리스트2(완료·보류·불가): 꽉찬 핀 */
 .pin-circle { display: none; }
@@ -16,9 +16,8 @@
 
 .marker-number { position: absolute; top: 3px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: bold; color: white; line-height: 1; pointer-events: none; }
 .custom-marker.green .marker-number,
-.custom-marker.yellow .marker-number,
-.custom-marker.skt .marker-number { color: #1f2937; }
-.custom-marker.skt .marker-number { font-size: 9px; top: 4px; }
+.custom-marker.yellow .marker-number { color: #1f2937; }
+.custom-marker.skt .marker-number { color: #ffffff; font-size: 9px; top: 4px; font-weight: 800; }
 
 /* 마커 위 보조 라벨 — "재" (재작업), 박스 없이 텍스트만 흰 외곽선 */
 .marker-fraction {
