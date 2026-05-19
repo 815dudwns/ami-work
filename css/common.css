@@ -59,8 +59,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothi
 .jisa-filter select:focus { outline: 2px solid #3b82f6; }
 @media (max-width: 640px) { .jisa-filter { top: 8px; left: 8px; } .jisa-filter select { font-size: 14px; padding: 8px 30px 8px 14px; } }
 
-/* 카테고리 필터 (체크박스) — 지사 필터 옆 */
-.category-filter { position: fixed; top: 10px; left: 165px; z-index: 500; display: flex; gap: 8px; background: rgba(17,24,39,0.85); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); padding: 6px 10px; border-radius: 20px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
-.category-filter label { color: #fff; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
+/* 카테고리 필터 (체크박스) — 지사 드롭다운 아래, 세로 배치 */
+.category-filter { position: fixed; top: 52px; left: 10px; z-index: 500; display: flex; flex-direction: column; gap: 4px; background: rgba(17,24,39,0.85); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); padding: 8px 12px; border-radius: 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+.category-filter label { color: #fff; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
 .category-filter input[type="checkbox"] { accent-color: #10b981; cursor: pointer; }
-@media (max-width: 640px) { .category-filter { top: 8px; left: 150px; padding: 6px 8px; gap: 6px; } .category-filter label { font-size: 11px; } }
+@media (max-width: 640px) { .category-filter { top: 50px; left: 8px; padding: 8px 10px; } .category-filter label { font-size: 12px; } }
