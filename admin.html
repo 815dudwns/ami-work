@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>작업 사진 등록 - AMI</title>
     <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
-    <script src="js/auth.js"></script>
+    <script src="js/auth.js?v=20260519i"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 40px; }
@@ -14,6 +14,8 @@
         .header-top { display: flex; align-items: center; gap: 10px; }
         .header a { color: rgba(255,255,255,0.75); text-decoration: none; font-size: 14px; }
         .header h1 { font-size: 17px; font-weight: 700; flex: 1; }
+        .header-close { background: rgba(255,255,255,0.15); color: white; border: none; width: 32px; height: 32px; border-radius: 6px; font-size: 22px; line-height: 1; cursor: pointer; font-weight: 600; padding: 0; }
+        .header-close:active { background: rgba(255,255,255,0.3); }
 
         .container { max-width: 720px; margin: 0 auto; padding: 16px; }
 
@@ -25,7 +27,7 @@
         .btn-now { padding: 12px 14px; background: #f3f4f6; color: #374151; border: 1.5px solid #d1d5db; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
         .btn-now:active { background: #e5e7eb; }
 
-        .file-drop { border: 2px dashed #93c5fd; border-radius: 10px; padding: 28px 16px; text-align: center; color: #1d4ed8; font-size: 14px; font-weight: 600; cursor: pointer; background: #eff6ff; }
+        .file-drop { display: block; width: 100%; border: 2px dashed #93c5fd; border-radius: 10px; padding: 28px 16px; text-align: center; color: #1d4ed8; font-size: 14px; font-weight: 600; cursor: pointer; background: #eff6ff; }
         .file-drop:active { background: #dbeafe; }
         .file-drop small { display: block; color: #6b7280; font-weight: 400; font-size: 12px; margin-top: 6px; }
 
@@ -53,13 +55,14 @@
     <div class="header-top">
         <a href="map.html">← 지도</a>
         <h1>작업 사진 등록</h1>
+        <button class="header-close" onclick="goBack()" title="닫기">×</button>
     </div>
 </div>
 
 <div class="container">
 
     <div class="card">
-        <div class="card-title">⏰ 기준 시간 (마지막 사진의 시간이 됩니다)</div>
+        <div class="card-title">기준 시간 (마지막 사진의 시간이 됩니다)</div>
         <div class="time-row">
             <input type="datetime-local" id="targetTime" step="1">
             <button class="btn-now" onclick="setNow()">현재</button>
@@ -67,9 +70,9 @@
     </div>
 
     <div class="card">
-        <div class="card-title">📷 사진 (여러 장 선택 가능)</div>
+        <div class="card-title">사진 (여러 장 선택 가능)</div>
         <label class="file-drop" for="fileInput">
-            + 사진 추가
+            사진 추가
             <small>JPEG. 같은 파일 다시 추가 시 중복으로 들어갑니다</small>
         </label>
         <input type="file" id="fileInput" accept="image/jpeg,image/jpg" multiple style="display:none">
@@ -108,6 +111,15 @@ if (!_session || _session.role !== 'admin') {
     document.body.innerHTML = '';
     window.location.replace('map.html');
     throw new Error('forbidden: admin only');
+}
+
+// ── 닫기 (직전 페이지로) ───────────────────────────────
+function goBack() {
+    if (document.referrer && new URL(document.referrer).origin === window.location.origin) {
+        window.history.back();
+    } else {
+        window.location.href = 'map.html';
+    }
 }
 
 // ── 상태 ──────────────────────────────────────────────

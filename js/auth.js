@@ -21,7 +21,7 @@ const ACCOUNTS = [
 
 const AUTH_KEY = 'ami_auth';
 // 강제 재로그인 버전 — 이 값을 바꾸면 모든 사용자가 자동 로그아웃됨
-const AUTH_VERSION = '20260515-1';
+const AUTH_VERSION = '20260519-2';
 const AUTH_VERSION_KEY = 'ami_auth_version';
 
 /**
@@ -64,18 +64,16 @@ function authLogout() {
 
 /**
  * 로그인 여부 확인 — 미인증이면 login.html로 리다이렉트
+ * 버전 차이는 silent migration (강제 로그아웃 없음, 페이지간 캐시 차이로 인한 팝업 방지)
  */
 function authRequire() {
-    // 버전 불일치 시 강제 로그아웃
-    const localVer = localStorage.getItem(AUTH_VERSION_KEY);
-    if (localVer !== AUTH_VERSION) {
-        localStorage.removeItem(AUTH_KEY);
-        localStorage.removeItem(AUTH_VERSION_KEY);
-        alert('새 버전이 배포되어 다시 로그인이 필요합니다.');
+    if (!authGetSession()) {
         window.location.href = 'login.html';
         return;
     }
-    if (!authGetSession()) {
-        window.location.href = 'login.html';
+    // 세션은 살아있는데 버전 문자열만 다른 경우 — 조용히 갱신
+    const localVer = localStorage.getItem(AUTH_VERSION_KEY);
+    if (localVer !== AUTH_VERSION) {
+        localStorage.setItem(AUTH_VERSION_KEY, AUTH_VERSION);
     }
 }

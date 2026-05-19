@@ -70,7 +70,13 @@ function populateJisaOptions() {
         select.appendChild(opt);
     });
     const saved = localStorage.getItem('ami_selected_jisa') || '';
-    if (saved && sorted.includes(saved)) select.value = saved;
+    if (saved && sorted.includes(saved)) {
+        select.value = saved;
+    } else if (sorted.length) {
+        // 저장값 없으면 첫 지사로 (전체 지사 옵션 제거됨 — 항상 단일 지사 표시)
+        select.value = sorted[0];
+        localStorage.setItem('ami_selected_jisa', sorted[0]);
+    }
 }
 
 // 지사 선택 변경 시 마커 재생성
@@ -289,6 +295,145 @@ function toggleLocation() {
         locationActive = false;
         btn.classList.remove('active');
     }
+}
+
+// ── 검색 기능 ─────────────────────────────────────────
+function openSearch() {
+    const overlay = document.getElementById('search-overlay');
+    if (!overlay) return;
+    overlay.classList.add('active');
+    const input = document.getElementById('search-input');
+    if (input) { input.value = ''; setTimeout(() => input.focus(), 50); }
+    document.getElementById('search-results').innerHTML = '';
+    document.getElementById('search-hint').textContent = '4자 이상 입력하세요';
+}
+
+function closeSearch() {
+    const overlay = document.getElementById('search-overlay');
+    if (overlay) overlay.classList.remove('active');
+}
+
+function runSearch() {
+    const q = (document.getElementById('search-input').value || '').trim();
+    const hintEl = document.getElementById('search-hint');
+    const resultsEl = document.getElementById('search-results');
+    if (q.length < 4) {
+        hintEl.textContent = '4자 이상 입력하세요';
+        resultsEl.innerHTML = '';
+        return;
+    }
+
+    const results = [];
+    const addrSeen = new Set();
+    for (const item of sampleData) {
+        const meterNo = String(item.계기번호 || '');
+        const road = String(item.도로명주소 || '');
+        const addr = String(item.주소 || '');
+        if (meterNo.includes(q)) {
+            // 계기번호 매치: primary=계기번호, secondary=지번주소+도로명
+            results.push({
+                type: 'meter',
+                primary: meterNo,
+                secondary: addr,
+                tertiary: road && road !== addr ? road : '',
+                item,
+            });
+        } else if (addr.includes(q) || road.includes(q)) {
+            const key = item.category + '||' + addr;
+            if (addrSeen.has(key)) continue;
+            addrSeen.add(key);
+            // 매치된 쪽을 primary로 (지번이 검색어 포함하면 지번 위, 아니면 도로명 위)
+            const addrMatched = addr.includes(q);
+            results.push({
+                type: 'address',
+                primary: addrMatched ? addr : (road || addr),
+                secondary: addrMatched ? (road && road !== addr ? road : '') : (addr && addr !== road ? addr : ''),
+                tertiary: '',
+                item,
+            });
+        }
+    }
+
+    hintEl.textContent = `${results.length}건 검색됨`;
+    if (results.length === 0) {
+        resultsEl.innerHTML = '<div class="search-empty">결과 없음</div>';
+        return;
+    }
+
+    const MAX = 200;
+    const shown = results.slice(0, MAX);
+    const rows = shown.map((r, i) => {
+        const it = r.item;
+        const jisa = it.지사 || '';
+        const cat = it.category === 'skt' ? 'SKT' : '실효';
+        const catClass = it.category === 'skt' ? 'cat-skt' : 'cat-real';
+        const sec = r.secondary ? `<div class="sr-secondary">${escapeSearchHtml(r.secondary)}</div>` : '';
+        const ter = r.tertiary ? `<div class="sr-secondary">${escapeSearchHtml(r.tertiary)}</div>` : '';
+        return `<div class="search-result-row" data-idx="${i}">
+            <div class="sr-main">
+                <div class="sr-primary">${escapeSearchHtml(r.primary)}</div>
+                ${sec}${ter}
+            </div>
+            <div class="sr-meta">
+                <span class="sr-cond">${escapeSearchHtml(jisa)}</span>
+                <span class="sr-cond ${catClass}">${cat}</span>
+            </div>
+        </div>`;
+    }).join('');
+
+    resultsEl.innerHTML = rows + (results.length > MAX ? `<div class="search-empty">+ ${results.length - MAX}건 더 — 검색어를 좁혀주세요</div>` : '');
+    resultsEl.querySelectorAll('.search-result-row').forEach((el, i) => {
+        el.addEventListener('click', () => gotoSearchResult(shown[i]));
+    });
+}
+
+function gotoSearchResult(r) {
+    const it = r.item;
+    if (it.lat == null || it.lng == null) {
+        alert('좌표가 없는 항목입니다');
+        return;
+    }
+    closeSearch();
+    const latlng = new kakao.maps.LatLng(it.lat, it.lng);
+    map.setLevel(1);
+    map.setCenter(latlng);
+
+    // 어떤 매치든 펄스 마커 10초 (계기 매치는 detail 창에 가려져도 창 닫으면 보임)
+    showSearchPulse(latlng);
+
+    if (r.type === 'meter') {
+        // 계기번호 매치: detail 패널도 함께 열기
+        setTimeout(() => {
+            const groupMeters = sampleData.filter(s => s.category === it.category && s.주소 === it.주소);
+            if (typeof showDetail === 'function') showDetail(it.주소, groupMeters);
+        }, 200);
+    }
+}
+
+// 임시 펄스 마커 — 10초 후 자동 사라짐
+let _searchPulseOverlay = null;
+let _searchPulseTimer = null;
+function showSearchPulse(latlng) {
+    if (_searchPulseTimer) { clearTimeout(_searchPulseTimer); _searchPulseTimer = null; }
+    if (_searchPulseOverlay) { _searchPulseOverlay.setMap(null); _searchPulseOverlay = null; }
+    const el = document.createElement('div');
+    el.className = 'search-pulse';
+    _searchPulseOverlay = new kakao.maps.CustomOverlay({
+        position: latlng,
+        content: el,
+        yAnchor: 0.5,
+        xAnchor: 0.5,
+        zIndex: 999,
+    });
+    _searchPulseOverlay.setMap(map);
+    _searchPulseTimer = setTimeout(() => {
+        if (_searchPulseOverlay) { _searchPulseOverlay.setMap(null); _searchPulseOverlay = null; }
+        _searchPulseTimer = null;
+    }, 10000);
+}
+
+function escapeSearchHtml(s) {
+    return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // 카카오맵 SDK 로드 완료 후 지도 초기화 실행
