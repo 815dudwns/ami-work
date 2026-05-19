@@ -18,20 +18,62 @@ function showDetail(address, meters) {
     const status = workStatus[address] || { state: 'pending', checkedMeters: [], reason: '' };
     status.checkedMeters = status.checkedMeters || [];
 
-    document.getElementById('detail-address').textContent = address;
+    // 주소 텍스트 추출 — 더러운 값(undefined/null/"-") 거름
+    const DIRTY_RE = /^\s*(undefined|null|-)(\s+(undefined|null|-))*\s*$/i;
+    const isUsable = (s) => {
+        if (s == null) return false;
+        const t = String(s).trim();
+        return !!t && !DIRTY_RE.test(t);
+    };
+    const pick = (...vals) => vals.find(isUsable) || '';
+    const jibunAddr = pick(meters[0] && meters[0].주소, address);
+    const roadAddr  = pick(meters[0] && meters[0].도로명주소);
+
+    // 헤더 = 도로명 우선(있으면), 없으면 지번
+    // 화면에 보이는 텍스트 = data-copy 속성 (계기번호 복사와 동일 패턴)
+    const esc = (s) => String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const COPY_ICON_SVG = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+    const headerAddr = roadAddr || jibunAddr;
+    document.getElementById('detail-address').innerHTML =
+        `<span>${esc(headerAddr)}</span>` +
+        `<button class="copy-btn" data-copy="${esc(headerAddr)}" title="주소 복사" style="margin-left:6px;vertical-align:middle;">${COPY_ICON_SVG}</button>`;
 
     // 좌표정확도가 approximate인 계기가 하나라도 있으면 "주소 오류" 표시
     const hasApproximate = meters.some(m => m.좌표정확도 === 'approximate');
     const errorTag = hasApproximate
         ? ' <span style="color:#ef4444;font-size:12px;">(주소 오류)</span>'
         : '';
-    document.getElementById('detail-road-address').innerHTML = '📍 ' + meters[0].도로명주소 + errorTag;
+
+    // 도로명/지번 라인 — 헤더와 다를 때만 노출 (중복 표시 방지)
+    let roadLine = '';
+    if (roadAddr && roadAddr !== headerAddr) {
+        roadLine = `📍 <span>${esc(roadAddr)}</span>` +
+            `<button class="copy-btn" data-copy="${esc(roadAddr)}" title="도로명 복사" style="margin-left:6px;vertical-align:middle;">${COPY_ICON_SVG}</button>` +
+            errorTag;
+    } else if (hasApproximate) {
+        roadLine = errorTag;
+    }
+    let jibunLine = '';
+    if (jibunAddr && jibunAddr !== headerAddr) {
+        const br = roadLine ? '<br>' : '';
+        jibunLine = `${br}<span style="color:#9ca3af;">🏠 ${esc(jibunAddr)}</span>` +
+            `<button class="copy-btn" data-copy="${esc(jibunAddr)}" title="지번 복사" style="margin-left:6px;vertical-align:middle;">${COPY_ICON_SVG}</button>`;
+    }
+    document.getElementById('detail-road-address').innerHTML = roadLine + jibunLine;
+
+    // 주소 복사 핸들러 — copy-btn 클래스 + data-copy 속성 (계기번호와 동일 패턴)
+    document.querySelectorAll('#detail-address .copy-btn, #detail-road-address .copy-btn').forEach(btn => {
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            const v = btn.dataset.copy;
+            if (v) copyMeterNo(v);
+        };
+    });
 
     // 상태 색상 바 업데이트 (기능 3)
     updateStatusBar(status.state);
 
     // 지도 앱 버튼 3개 — 도로명주소로 검색
-    const roadAddr = meters[0].도로명주소;
     document.getElementById('tmap-btn').onclick = () => {
         window.location.href = `tmap://search?name=${encodeURIComponent(roadAddr)}`;
     };
@@ -385,6 +427,22 @@ function renderMetersList() {
         if (meter['계기타입_전'] && meter['계기타입_전'] !== meter.계기타입) subParts.push(`이전계기 ${meter['계기타입_전']}`);
         // 4) 고객번호
         if (meter.고객번호) subParts.push(`고객 ${meter.고객번호}`);
+        // 5) 실효 미사용 컬럼 살리기 (값 있고 의미 있을 때만)
+        if (meter.검기만료년월) subParts.push(`검기만료 ${meter.검기만료년월}`);
+        if (meter.교체사유) subParts.push(`사유 ${meter.교체사유}`);
+        if (meter.DCU장애여부 && meter.DCU장애여부 !== '정상') {
+            subParts.push(`<span style="color:#dc2626;font-weight:700;">DCU ${meter.DCU장애여부}</span>`);
+        }
+        if (meter.계기교체일) subParts.push(`교체일 ${meter.계기교체일}`);
+        // 6) SKT 전용 필드 (category=skt일 때 + 값 있을 때만)
+        if (meter.category === 'skt') {
+            if (meter.실효년월)        subParts.push(`실효 ${meter.실효년월}`);
+            if (meter.skt_작업결과)    subParts.push(`SKT결과 ${meter.skt_작업결과}`);
+            if (meter.skt_불가사유)    subParts.push(`SKT사유 ${meter.skt_불가사유}`);
+            if (meter.skt_kdn_작업일)  subParts.push(`KDN작업일 ${meter.skt_kdn_작업일}`);
+            if (meter.skt_kdn_이력)    subParts.push(`이력 ${meter.skt_kdn_이력}`);
+            if (meter.skt_비고)        subParts.push(`비고 ${meter.skt_비고}`);
+        }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
         const details = detailParts.join(', ');
 

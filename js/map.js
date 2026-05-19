@@ -28,17 +28,29 @@ async function initMap() {
         localStorage.setItem('ami_map_view', JSON.stringify({ lat: c.getLat(), lng: c.getLng(), level: map.getLevel() }));
     });
 
-    // 로컬 JSON에서 현장 데이터 로드
+    // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
+    // (label: 마커에 표시할 글자, null이면 계기 개수 숫자)
+    const DATASETS = [
+        { file: './data/site-data.json', category: '실효', label: null },
+        { file: './data/skt-data.json',  category: 'skt',  label: 'SK' },
+    ];
+
     try {
-        const res = await fetch('./data/site-data.json');
-        sampleData = await res.json();
+        const loaded = await Promise.all(DATASETS.map(d =>
+            fetch(d.file).then(r => r.ok ? r.json() : [])
+                .then(rows => rows.map(r => ({ ...r, category: d.category })))
+                .catch(e => { console.warn(`[load ${d.category}] 실패:`, e); return []; })
+        ));
+        sampleData = loaded.flat();
     } catch (e) {
         console.error('[siteData] 로드 실패:', e);
         sampleData = [];
     }
-    console.log('[siteData] 로드 완료:', sampleData.length, '개');
+    console.log('[siteData] 로드 완료:', sampleData.length, '개',
+        DATASETS.map(d => `${d.category}=${sampleData.filter(r => r.category===d.category).length}`).join(', '));
 
     populateJisaOptions();
+    restoreCategoryCheckboxes();
     loadMarkers();
     await initFirebase();
     markers.forEach(m => updateMarkerColor(m.address));
@@ -72,31 +84,67 @@ function onJisaChange() {
     refreshAllMarkers();
 }
 
-// 전체 마커 생성 (주소 기준으로 계기 그룹핑) — 선택된 지사로 필터링
+// 카테고리 체크박스 변경 시 마커 재생성
+function onCategoryChange() {
+    const set = new Set();
+    document.querySelectorAll('.category-filter input[type="checkbox"]:checked').forEach(c => set.add(c.value));
+    setSelectedCategories(set);
+    markers.forEach(m => m.overlay.setMap(null));
+    markers = [];
+    loadMarkers();
+    refreshAllMarkers();
+}
+
+// 카테고리 체크박스 초기 복원 (저장된 상태 → UI 반영)
+function restoreCategoryCheckboxes() {
+    const saved = getSelectedCategories();
+    document.querySelectorAll('.category-filter input[type="checkbox"]').forEach(c => {
+        c.checked = saved.has(c.value);
+    });
+}
+
+// 카테고리 필터 — 체크된 카테고리만 표시 (localStorage 저장)
+function getSelectedCategories() {
+    const saved = localStorage.getItem('ami_selected_categories');
+    if (saved) try { return new Set(JSON.parse(saved)); } catch {}
+    // 기본값 = 전부 켬
+    return new Set(['실효', 'skt']);
+}
+function setSelectedCategories(setObj) {
+    localStorage.setItem('ami_selected_categories', JSON.stringify([...setObj]));
+}
+
+// 전체 마커 생성 (카테고리||주소 기준 그룹핑) — 지사·카테고리 필터링
 function loadMarkers() {
     const selectedJisa = localStorage.getItem('ami_selected_jisa') || '';
+    const selectedCats = getSelectedCategories();
+
     const grouped = {};
     sampleData.forEach(item => {
         if (selectedJisa && item.지사 !== selectedJisa) return;
         if (item.lat == null || item.lng == null) return;
-        const addr = item.주소;
-        if (!grouped[addr]) {
-            grouped[addr] = {
+        if (!selectedCats.has(item.category)) return;
+        // 같은 주소라도 카테고리 다르면 별도 마커
+        const key = `${item.category}||${item.주소}`;
+        if (!grouped[key]) {
+            grouped[key] = {
                 meters: [],
                 lat: item.lat,
                 lng: item.lng,
-                roadAddress: item.도로명주소
+                roadAddress: item.도로명주소,
+                category: item.category,
+                address: item.주소,
             };
         }
-        grouped[addr].meters.push(item);
+        grouped[key].meters.push(item);
     });
 
     // 같은 좌표에 겹친 approximate 마커들 — 작은 원형으로 분산
     spreadOverlappingMarkers(grouped);
 
-    Object.entries(grouped).forEach(([addr, data]) => {
+    Object.values(grouped).forEach(data => {
         const coords = new kakao.maps.LatLng(data.lat, data.lng);
-        createMarker(coords, addr, data.meters);
+        createMarker(coords, data.address, data.meters, data.category);
     });
 }
 
@@ -123,16 +171,21 @@ function spreadOverlappingMarkers(grouped) {
 }
 
 // 단일 마커 생성 및 지도에 추가
-function createMarker(position, address, meters) {
+function createMarker(position, address, meters, category) {
     const status = workStatus[address] || { state: 'pending', checkedMeters: [], reason: '' };
     const meterCount = meters.length;
+    const isSkt = category === 'skt';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
     let color = isApproximate ? 'yellow' : 'green';
+    if (isSkt) color = 'skt';
     if (status.state === 'complete') color = 'gray';
     else if (status.state === 'hold') color = 'blue';
     else if (status.state === 'fail') color = 'red';
-    const markerLabel = (isApproximate && status.state === 'pending') ? '?' : meterCount;
+    // SKT는 라벨 'SK', 일반은 개수 (approximate+pending이면 '?')
+    let markerLabel;
+    if (isSkt) markerLabel = 'SK';
+    else markerLabel = (isApproximate && status.state === 'pending') ? '?' : meterCount;
     const isRework = status.rework === true;
 
     const markerContent = `
@@ -163,7 +216,7 @@ function createMarker(position, address, meters) {
 
     customOverlay.setMap(map);
 
-    markers.push({ overlay: customOverlay, address, meters, element: markerEl });
+    markers.push({ overlay: customOverlay, address, meters, element: markerEl, category });
 }
 
 // 마커 색상 갱신 (상태 변경 시 호출)
@@ -173,8 +226,10 @@ function updateMarkerColor(address) {
 
     const status = workStatus[address] || { state: 'pending' };
     const isApproximate = marker.meters.some(m => m.좌표정확도 === 'approximate');
+    const isSkt = marker.category === 'skt';
 
     let color = isApproximate ? 'yellow' : 'green';
+    if (isSkt) color = 'skt';
     if (status.state === 'complete') color = 'gray';
     else if (status.state === 'hold') color = 'blue';
     else if (status.state === 'fail') color = 'red';
@@ -183,7 +238,10 @@ function updateMarkerColor(address) {
     if (el) el.className = `custom-marker ${color}`;
 
     const labelEl = marker.element.querySelector('.marker-number');
-    if (labelEl) labelEl.textContent = (isApproximate && status.state === 'pending') ? '?' : marker.meters.length;
+    if (labelEl) {
+        if (isSkt) labelEl.textContent = 'SK';
+        else labelEl.textContent = (isApproximate && status.state === 'pending') ? '?' : marker.meters.length;
+    }
 
     // 재작업 라벨 동기화
     const isRework = status.rework === true;

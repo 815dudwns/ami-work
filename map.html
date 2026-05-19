@@ -9,7 +9,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <link rel="stylesheet" href="css/common.css">
     <link rel="stylesheet" href="css/marker.css">
-    <link rel="stylesheet" href="css/panel.css?v=20260517e">
+    <link rel="stylesheet" href="css/panel.css?v=20260519a">
 </head>
 <body>
     <div id="map"></div>
@@ -22,6 +22,12 @@
         <select id="jisa-select" onchange="onJisaChange()">
             <option value="">전체 지사</option>
         </select>
+    </div>
+
+    <!-- 카테고리 필터 (체크박스) -->
+    <div class="category-filter" id="category-filter">
+        <label><input type="checkbox" id="cat-실효" value="실효" checked onchange="onCategoryChange()"> 실효계기</label>
+        <label><input type="checkbox" id="cat-skt" value="skt" checked onchange="onCategoryChange()"> SKT</label>
     </div>
 
     <!-- 사용자 정보 + 로그아웃 버튼 -->
