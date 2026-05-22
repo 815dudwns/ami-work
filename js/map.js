@@ -31,8 +31,8 @@ async function initMap() {
     // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
     // (label: 마커에 표시할 글자, null이면 계기 개수 숫자)
     const DATASETS = [
-        { file: './data/site-data.json?v=20260522a', category: '실효', label: null },
-        { file: './data/skt-data.json?v=20260522a',  category: 'skt',  label: 'SK' },
+        { file: './data/site-data.json?v=20260522b', category: '실효', label: null },
+        { file: './data/skt-data.json?v=20260522b',  category: 'skt',  label: 'SK' },
     ];
 
     try {
@@ -154,24 +154,26 @@ function loadMarkers() {
     });
 }
 
-// 같은 좌표에 겹친 approximate 주소 그룹을 작은 원형으로 분산
+// 같은 좌표에 겹친 마커 그룹을 작은 원형으로 분산
+// approximate 포함 그룹은 넓게 (≈33m), exact만 모인 그룹은 좁게 (≈6m)
 function spreadOverlappingMarkers(grouped) {
-    const SPREAD_RADIUS = 0.0003;   // ≈ 33m
-    const coordToAddrs = {};
-    Object.entries(grouped).forEach(([addr, data]) => {
-        const isApprox = data.meters.some(m => m.좌표정확도 === 'approximate');
-        if (!isApprox) return;
-        const key = `${data.lat.toFixed(6)},${data.lng.toFixed(6)}`;
-        if (!coordToAddrs[key]) coordToAddrs[key] = [];
-        coordToAddrs[key].push(addr);
+    const RADIUS_APPROX = 0.0003;   // ≈ 33m
+    const RADIUS_EXACT  = 0.00006;  // ≈ 6.7m
+    const coordToKeys = {};
+    Object.entries(grouped).forEach(([key, data]) => {
+        const k = `${data.lat.toFixed(6)},${data.lng.toFixed(6)}`;
+        if (!coordToKeys[k]) coordToKeys[k] = [];
+        coordToKeys[k].push(key);
     });
-    Object.values(coordToAddrs).forEach(addrs => {
-        if (addrs.length <= 1) return;
-        const n = addrs.length;
-        addrs.forEach((addr, i) => {
+    Object.values(coordToKeys).forEach(keys => {
+        if (keys.length <= 1) return;
+        const hasApprox = keys.some(k => grouped[k].meters.some(m => m.좌표정확도 === 'approximate'));
+        const r = hasApprox ? RADIUS_APPROX : RADIUS_EXACT;
+        const n = keys.length;
+        keys.forEach((key, i) => {
             const angle = (2 * Math.PI * i) / n;
-            grouped[addr].lat += SPREAD_RADIUS * Math.cos(angle);
-            grouped[addr].lng += SPREAD_RADIUS * Math.sin(angle);
+            grouped[key].lat += r * Math.cos(angle);
+            grouped[key].lng += r * Math.sin(angle);
         });
     });
 }
