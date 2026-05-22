@@ -31,8 +31,8 @@ async function initMap() {
     // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
     // (label: 마커에 표시할 글자, null이면 계기 개수 숫자)
     const DATASETS = [
-        { file: './data/site-data.json?v=20260522e', category: '실효', label: null },
-        { file: './data/skt-data.json?v=20260522e',  category: 'skt',  label: 'SK' },
+        { file: './data/site-data.json?v=20260522f', category: '실효', label: null },
+        { file: './data/skt-data.json?v=20260522f',  category: 'skt',  label: 'SK' },
     ];
 
     try {
@@ -154,11 +154,12 @@ function loadMarkers() {
     });
 }
 
-// 같은 좌표에 겹친 마커 그룹을 격자(네모) 형태로 분산
-// 원형보다 공간 효율 좋아 빡빡하게 채움
+// 같은 좌표에 겹친 마커 그룹을 좌표 중심으로 소용돌이(Sunflower spiral) 분산
+// 첫 마커는 정중앙, 이후 황금각(137.5°)으로 빡빡하게 나선형 확장
 function spreadOverlappingMarkers(grouped) {
-    const CELL_EXACT  = 0.00013;  // ≈ 14m 마커 간 격자 간격 (exact)
-    const CELL_APPROX = 0.0003;   // ≈ 33m (approximate)
+    const SPIRAL_EXACT  = 0.00008;  // ≈ 9m 기본 간격 (exact)
+    const SPIRAL_APPROX = 0.0002;   // ≈ 22m (approximate)
+    const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));   // ≈ 137.508°
     const coordToKeys = {};
     Object.entries(grouped).forEach(([key, data]) => {
         const k = `${data.lat.toFixed(6)},${data.lng.toFixed(6)}`;
@@ -169,15 +170,14 @@ function spreadOverlappingMarkers(grouped) {
         const n = keys.length;
         if (n <= 1) return;
         const hasApprox = keys.some(k => grouped[k].meters.some(m => m.좌표정확도 === 'approximate'));
-        const cell = hasApprox ? CELL_APPROX : CELL_EXACT;
-        // ceil(√n) × ceil(n/cols) 격자, 중심 정렬
-        const cols = Math.ceil(Math.sqrt(n));
-        const rows = Math.ceil(n / cols);
+        const c = hasApprox ? SPIRAL_APPROX : SPIRAL_EXACT;
+        // Sunflower seed pattern: r = c·√i, θ = i·golden_angle
+        // i=0이 중심, i 증가하면서 빡빡한 나선형
         keys.forEach((key, i) => {
-            const col = i % cols;
-            const row = Math.floor(i / cols);
-            grouped[key].lat += (row - (rows - 1) / 2) * cell;
-            grouped[key].lng += (col - (cols - 1) / 2) * cell;
+            const r = c * Math.sqrt(i);
+            const angle = i * GOLDEN_ANGLE;
+            grouped[key].lat += r * Math.cos(angle);
+            grouped[key].lng += r * Math.sin(angle);
         });
     });
 }
