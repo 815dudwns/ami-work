@@ -31,8 +31,8 @@ async function initMap() {
     // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
     // (label: 마커에 표시할 글자, null이면 계기 개수 숫자)
     const DATASETS = [
-        { file: './data/site-data.json?v=20260522c', category: '실효', label: null },
-        { file: './data/skt-data.json?v=20260522c',  category: 'skt',  label: 'SK' },
+        { file: './data/site-data.json?v=20260522d', category: '실효', label: null },
+        { file: './data/skt-data.json?v=20260522d',  category: 'skt',  label: 'SK' },
     ];
 
     try {
@@ -155,11 +155,12 @@ function loadMarkers() {
 }
 
 // 같은 좌표에 겹친 마커 그룹을 작은 원형으로 분산
-// approximate 포함 그룹은 넓게, exact만 모인 그룹은 좁게
-// 마커 수가 많을수록 반지름을 키워서 빽빽함 방지
+// 마커 간 최소 호 거리(arc distance)를 보장 → n이 커질수록 반지름 자동 확대
 function spreadOverlappingMarkers(grouped) {
-    const BASE_APPROX = 0.0003;    // ≈ 33m
-    const BASE_EXACT  = 0.00006;   // ≈ 6.7m
+    const BASE_APPROX = 0.0003;     // ≈ 33m (approximate 그룹 최소 반지름)
+    const BASE_EXACT  = 0.00006;    // ≈ 6.7m (exact 그룹 최소 반지름)
+    const MIN_ARC_EXACT  = 0.00018; // ≈ 20m 마커 간 호 거리 (exact)
+    const MIN_ARC_APPROX = 0.0004;  // ≈ 44m (approximate)
     const coordToKeys = {};
     Object.entries(grouped).forEach(([key, data]) => {
         const k = `${data.lat.toFixed(6)},${data.lng.toFixed(6)}`;
@@ -171,10 +172,9 @@ function spreadOverlappingMarkers(grouped) {
         if (n <= 1) return;
         const hasApprox = keys.some(k => grouped[k].meters.some(m => m.좌표정확도 === 'approximate'));
         const base = hasApprox ? BASE_APPROX : BASE_EXACT;
-        // n이 커지면 반지름도 키워서 마커 간 최소 간격 유지
-        // 원주 = 2π * r, 마커당 호 = 2π * r / n
-        // 마커당 호가 base 이상이 되도록: r = base * n / (2π) (n 작을 땐 base 유지)
-        const r = Math.max(base, base * n / 5);
+        const minArc = hasApprox ? MIN_ARC_APPROX : MIN_ARC_EXACT;
+        // 인접 마커 간 거리 d = 2r·sin(π/n) ≥ minArc → r ≥ minArc / (2·sin(π/n))
+        const r = Math.max(base, minArc / (2 * Math.sin(Math.PI / n)));
         keys.forEach((key, i) => {
             const angle = (2 * Math.PI * i) / n;
             grouped[key].lat += r * Math.cos(angle);
