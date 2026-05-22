@@ -31,8 +31,8 @@ async function initMap() {
     // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
     // (label: 마커에 표시할 글자, null이면 계기 개수 숫자)
     const DATASETS = [
-        { file: './data/site-data.json?v=20260522f', category: '실효', label: null },
-        { file: './data/skt-data.json?v=20260522f',  category: 'skt',  label: 'SK' },
+        { file: './data/site-data.json?v=20260522g', category: '실효', label: null },
+        { file: './data/skt-data.json?v=20260522g',  category: 'skt',  label: 'SK' },
     ];
 
     try {
@@ -157,8 +157,8 @@ function loadMarkers() {
 // 같은 좌표에 겹친 마커 그룹을 좌표 중심으로 소용돌이(Sunflower spiral) 분산
 // 첫 마커는 정중앙, 이후 황금각(137.5°)으로 빡빡하게 나선형 확장
 function spreadOverlappingMarkers(grouped) {
-    const SPIRAL_EXACT  = 0.00008;  // ≈ 9m 기본 간격 (exact)
-    const SPIRAL_APPROX = 0.0002;   // ≈ 22m (approximate)
+    const SPIRAL_EXACT  = 0.00004;  // ≈ 4.5m 기본 간격 (exact)
+    const SPIRAL_APPROX = 0.00012;  // ≈ 13m (approximate)
     const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));   // ≈ 137.508°
     const coordToKeys = {};
     Object.entries(grouped).forEach(([key, data]) => {
