@@ -45,6 +45,13 @@ const QrScanner = (() => {
     if (!sel) return;
     const did = currentDeviceId();
     sel.innerHTML = '';
+    if (!_cameras || _cameras.length === 0) {
+      const opt = document.createElement('option');
+      opt.textContent = '카메라 1개 (전환 불가)';
+      opt.disabled = true;
+      sel.appendChild(opt);
+      return;
+    }
     _cameras.forEach((cam, i) => {
       const opt = document.createElement('option');
       opt.value = cam.id;
@@ -59,6 +66,13 @@ const QrScanner = (() => {
     _detected = false;
     document.getElementById('qr-scan-overlay').style.display = 'flex';
     document.getElementById('qr-error-msg').style.display = 'none';
+    // 권한 부여 전이라도 카메라 목록 미리 시도 (라벨은 빈값일 수 있음)
+    if (typeof Html5Qrcode !== 'undefined') {
+      Html5Qrcode.getCameras().then(cs => {
+        _cameras = cs || [];
+        populateCamSelect();
+      }).catch(() => {});
+    }
     start();
   }
 
