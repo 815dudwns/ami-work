@@ -8,9 +8,9 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-    <link rel="stylesheet" href="css/common.css?v=20260526j">
-    <link rel="stylesheet" href="css/marker.css?v=20260526j">
-    <link rel="stylesheet" href="css/panel.css?v=20260526j">
+    <link rel="stylesheet" href="css/common.css?v=20260526k">
+    <link rel="stylesheet" href="css/marker.css?v=20260526k">
+    <link rel="stylesheet" href="css/panel.css?v=20260526k">
 </head>
 <body>
     <div id="map"></div>
@@ -120,6 +120,13 @@
                     <input id="add-meter-input" type="text" inputmode="numeric" maxlength="11" placeholder="수기 입력 또는 QR 스캔" style="flex:1;padding:10px 12px;border:2px solid #e5e7eb;border-radius:8px;font-size:14px;font-family:ui-monospace,monospace;">
                     <button onclick="openAddMeterQr()" style="padding:10px 14px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;">QR</button>
                 </div>
+                <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;">
+                    <button type="button" class="add-meter-alpha-btn" data-ch="A" style="padding:8px 14px;background:#ede9fe;color:#6d28d9;border:1px solid #c4b5fd;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-width:38px;">A</button>
+                    <button type="button" class="add-meter-alpha-btn" data-ch="B" style="padding:8px 14px;background:#ede9fe;color:#6d28d9;border:1px solid #c4b5fd;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-width:38px;">B</button>
+                    <button type="button" class="add-meter-alpha-btn" data-ch="G" style="padding:8px 14px;background:#ede9fe;color:#6d28d9;border:1px solid #c4b5fd;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-width:38px;">G</button>
+                    <button type="button" class="add-meter-alpha-btn" data-ch="L" style="padding:8px 14px;background:#ede9fe;color:#6d28d9;border:1px solid #c4b5fd;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-width:38px;">L</button>
+                    <button type="button" class="add-meter-alpha-btn" data-ch="BS" style="margin-left:auto;padding:8px 14px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-width:38px;">⌫</button>
+                </div>
             </div>
 
             <div id="add-meter-toast" style="display:none;font-size:12px;color:#dc2626;text-align:center;"></div>
@@ -149,7 +156,7 @@
         </div>
     </div>
 
-    <script src="js/auth.js?v=20260526j"></script>
+    <script src="js/auth.js?v=20260526k"></script>
     <script>
         // 로그인 체크 — 미인증이면 login.html로 이동
         authRequire();
@@ -170,11 +177,11 @@
             }
         })();
     </script>
-    <script src="js/config.js?v=20260526j"></script>
-    <script src="js/utils.js?v=20260526j"></script>
-    <script src="js/firebase.js?v=20260526j"></script>
-    <script src="js/qr-scanner.js?v=20260526j"></script>
-    <script src="js/detail.js?v=20260526j"></script>
-    <script src="js/map.js?v=20260526j"></script>
+    <script src="js/config.js?v=20260526k"></script>
+    <script src="js/utils.js?v=20260526k"></script>
+    <script src="js/firebase.js?v=20260526k"></script>
+    <script src="js/qr-scanner.js?v=20260526k"></script>
+    <script src="js/detail.js?v=20260526k"></script>
+    <script src="js/map.js?v=20260526k"></script>
 </body>
 </html>

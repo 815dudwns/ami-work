@@ -659,6 +659,19 @@ function openAddMeterModal() {
     document.getElementById('add-meter-input').value = '';
     document.getElementById('add-meter-toast').style.display = 'none';
     document.getElementById('add-meter-overlay').style.display = 'flex';
+    // 알파벳 보조 버튼 핸들러 (한 번만 바인딩되도록 매번 재할당)
+    document.querySelectorAll('.add-meter-alpha-btn').forEach(btn => {
+        btn.onclick = () => {
+            const inp = document.getElementById('add-meter-input');
+            const ch = btn.dataset.ch;
+            if (ch === 'BS') {
+                inp.value = inp.value.slice(0, -1);
+            } else if (inp.value.length < 11) {
+                inp.value = inp.value + ch;
+            }
+            inp.focus();
+        };
+    });
     setTimeout(() => document.getElementById('add-meter-input').focus(), 100);
 }
 
