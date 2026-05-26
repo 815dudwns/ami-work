@@ -123,10 +123,17 @@ const QrScanner = (() => {
   }
 
   async function startWithSavedId(id) {
-    if (_scanner) { try { await _scanner.stop(); } catch {} _scanner = null; }
+    if (_scanner) {
+      try { await _scanner.stop(); } catch {}
+      try { await _scanner.clear(); } catch {}
+      _scanner = null;
+    }
+    await new Promise(r => setTimeout(r, 200));
     _scanner = new Html5Qrcode('qr-reader');
+    // Android 대응: string 대신 명시적 constraints 객체
+    const constraints = { deviceId: { exact: id } };
     try {
-      await _scanner.start(id, buildConfig(),
+      await _scanner.start(constraints, buildConfig(),
         (text) => onDetected(text),
         () => {});
       // 라벨·전환버튼·드롭다운은 카메라 목록 비동기 로드
@@ -137,14 +144,38 @@ const QrScanner = (() => {
         document.getElementById('qr-switch-btn').style.display = _cameras.length > 1 ? '' : 'none';
         populateCamSelect();
       }).catch(() => {});
+      // 실제 잡힌 deviceId 확인 — 다르면 사용자가 의도 안한 카메라
+      const actualId = currentDeviceId();
+      if (actualId && actualId !== id) {
+        console.warn('[QR] 저장 ID와 실제 mismatch — 저장:', id, '실제:', actualId);
+        saveCameraId(actualId); // 실제 잡힌 걸로 갱신
+      }
       await applyZoom(loadZoom() ?? 2.0);
       return true;
     } catch (e) {
-      console.warn('[QR] 저장된 cameraId 실패 — 폴백 진행:', e?.message || e);
-      clearCameraId(); // 사라진 디바이스일 수 있으니 정리
-      try { await _scanner.stop(); } catch {}
-      _scanner = null;
-      return false;
+      console.warn('[QR] 저장된 cameraId(객체) 실패, string 폴백 시도:', e?.message || e);
+      // 폴백 1: string 방식 재시도
+      try {
+        try { await _scanner.stop(); } catch {}
+        _scanner = new Html5Qrcode('qr-reader');
+        await _scanner.start(id, buildConfig(),
+          (text) => onDetected(text),
+          () => {});
+        Html5Qrcode.getCameras().then(cs => {
+          _cameras = cs || [];
+          const idx = _cameras.findIndex(c => c.id === id);
+          _camIndex = idx >= 0 ? idx : 0;
+          populateCamSelect();
+        }).catch(() => {});
+        await applyZoom(loadZoom() ?? 2.0);
+        return true;
+      } catch (e2) {
+        console.warn('[QR] 저장된 cameraId 폴백도 실패 — facingMode로 넘어감:', e2?.message || e2);
+        clearCameraId();
+        try { await _scanner.stop(); } catch {}
+        _scanner = null;
+        return false;
+      }
     }
   }
 
@@ -214,10 +245,11 @@ const QrScanner = (() => {
         (text) => onDetected(text),
         () => {});
       // _camIndex 동기화 + 실제 잡힌 deviceId 확인
+      // Android에서 currentDeviceId가 빈값일 수 있으니 빈값이면 요청 ID 저장
       const actualId = currentDeviceId() || cameraId;
       const idx = _cameras.findIndex(c => c.id === actualId);
       if (idx >= 0) _camIndex = idx;
-      saveCameraId(actualId);
+      saveCameraId(actualId || cameraId);  // 빈값 방어
       populateCamSelect();
       await applyZoom(loadZoom() ?? 2.0);
 
