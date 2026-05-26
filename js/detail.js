@@ -349,10 +349,32 @@ function saveMeterFailReason(meterNumber, reason) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
 }
 
+// 추가된 계기(added_meters)를 currentMeters에 가짜 객체로 합쳐서 함께 표시
+function getMetersWithAdded() {
+    const base = currentMeters || [];
+    const status = workStatus[currentAddress] || {};
+    const added = status.added_meters || {};
+    const addedList = Object.values(added).map(a => ({
+        계기번호: a.meter_id,
+        계기타입: parseType(a.meter_id) || '?',
+        주소: currentAddress,
+        도로명주소: base[0]?.도로명주소 || '',
+        DCUID: '',
+        category: base[0]?.category || '실효',
+        __added: true,
+        __added_meta: a,
+    }));
+    return base.concat(addedList);
+}
+
 // 계기 목록 HTML 생성 및 렌더링
 function renderMetersList() {
-    const meters = currentMeters;
+    const meters = getMetersWithAdded();
+    // currentMeters를 임시로 합친 배열로 교체 (정렬 함수가 currentMeters 참조)
+    const origCurrent = currentMeters;
+    currentMeters = meters;
     const sortedMeters = getSortedMeters();
+    currentMeters = origCurrent;
     const status = workStatus[currentAddress] || { state: 'pending', checkedMeters: [], reason: '' };
     // 큰 글씨(공통) 영역에 표시되었는지 — DCUID 기준으로 판단
     const allSameDcu = meters.length > 0 && meters.every(m => m.DCUID === meters[0].DCUID);
@@ -473,21 +495,36 @@ function renderMetersList() {
                </div>`
             : '';
 
+        // 추가된 계기 (admin이 + 계기 추가로 등록한 것)
+        const isAdded = !!meter.__added;
+        const addedMeta = meter.__added_meta || {};
+        const addedBadge = isAdded
+            ? `<span style="background:#ede9fe;color:#6d28d9;font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;margin-right:6px;">추가</span>`
+            : '';
+        const addedRemoveBtn = isAdded
+            ? `<button class="meter-add-remove-btn" data-meter="${meter.계기번호}" title="추가 계기 삭제" style="margin-left:6px;background:#fee2e2;color:#b91c1c;border:none;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;cursor:pointer;">삭제</button>`
+            : '';
+        const addedInfo = isAdded
+            ? `<div class="meter-sub-details" style="color:#7c3aed;">추가: ${(addedMeta.added_by_name || addedMeta.added_by || '?')}${addedMeta.mfg_ym ? ' · 제조 ' + addedMeta.mfg_ym : ''}</div>`
+            : '';
+
         // 불가 처리된 계기는 취소선 클래스 추가
-        const itemClass = isFailed
+        let itemClass = isFailed
             ? `meter-item ${rowClass(s2)} meter-item-failed`
             : `meter-item ${rowClass(s2)}`;
+        if (isAdded) itemClass += ' meter-item-added';
 
         return `
             <div class="${itemClass}">
                 <input type="checkbox" class="meter-checkbox"
                        data-meter="${meter.계기번호}" ${checked}>
                 <div class="meter-info">
-                    <span class="meter-type">${parsedType}</span>
-                    ${noHtml}${copyBtn}
+                    ${addedBadge}<span class="meter-type">${parsedType}</span>
+                    ${noHtml}${copyBtn}${addedRemoveBtn}
                     <button class="${failBtnClass}" data-meter="${meter.계기번호}">${failBtnLabel}</button>
                     ${details ? `<div class="meter-details">${details}</div>` : ''}
                     ${subDetails}
+                    ${addedInfo}
                     ${failInputHtml}
                 </div>
             </div>
@@ -513,6 +550,21 @@ function renderMetersList() {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 toggleMeterFail(btn.dataset.meter);
+            });
+        });
+
+        // 추가 계기 삭제 버튼
+        document.querySelectorAll('.meter-add-remove-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const m = btn.dataset.meter;
+                if (!confirm(`추가 계기 ${m}를 삭제할까요?`)) return;
+                try {
+                    await removeAddedMeter(currentAddress, m);
+                    renderMetersList();
+                } catch (err) {
+                    alert('삭제 실패: ' + err.message);
+                }
             });
         });
 
@@ -597,4 +649,75 @@ function toggleMeterCheck(meterNumber) {
     const checkedMeters = workStatus[currentAddress].checkedMeters || [];
     const isChecked = checkedMeters.includes(meterNumber);
     saveCheckEvent(currentAddress, meterNumber, !isChecked);
+}
+
+// ── 계기 추가 모달 (admin 전용) ───────────────────────────────
+function openAddMeterModal() {
+    if (!currentAddress) return;
+    document.getElementById('add-meter-addr').textContent = currentAddress;
+    document.getElementById('add-meter-input').value = '';
+    document.getElementById('add-meter-mfg').value = '';
+    document.getElementById('add-meter-toast').style.display = 'none';
+    document.getElementById('add-meter-overlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('add-meter-input').focus(), 100);
+}
+
+function closeAddMeterModal() {
+    document.getElementById('add-meter-overlay').style.display = 'none';
+}
+
+function showAddMeterToast(msg) {
+    const t = document.getElementById('add-meter-toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+}
+
+// QR 스캐너 호출 — 종로앱과 동일한 QrScanner 모듈
+function openAddMeterQr() {
+    if (typeof QrScanner === 'undefined') {
+        return showAddMeterToast('QR 스캐너 로드 실패');
+    }
+    QrScanner.show((text /*, photoBlob */) => {
+        const raw = String(text || '');
+        // 신형 QR 포맷: "PID:127825 YYMM:24.11 MID:07530057365"
+        const midMatch = raw.match(/MID\s*[:：]?\s*([A-Za-z0-9]+)/i);
+        const ymMatch  = raw.match(/YYMM\s*[:：]?\s*(\d{2})\.(\d{2})/i);
+        let meterId = '';
+        if (midMatch) {
+            meterId = String(midMatch[1]).toUpperCase();
+            if (meterId.length > 11) meterId = meterId.slice(0, 11);
+        } else {
+            // 구형 폴백
+            const cleaned = raw.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+            meterId = cleaned.length >= 11 ? cleaned.slice(0, 11) : cleaned;
+        }
+        document.getElementById('add-meter-input').value = meterId;
+        if (ymMatch) {
+            document.getElementById('add-meter-mfg').value = '20' + ymMatch[1] + '-' + ymMatch[2];
+        }
+    });
+}
+
+async function saveNewMeter() {
+    const input = document.getElementById('add-meter-input');
+    const mfgInput = document.getElementById('add-meter-mfg');
+    const meterId = (input.value || '').trim().toUpperCase();
+    const mfgYm = (mfgInput.value || '').trim();
+
+    if (!meterId || meterId.length !== 11) {
+        return showAddMeterToast('계기번호 11자리 확인');
+    }
+    // 중복 체크 (기존 + 추가)
+    const allMeters = getMetersWithAdded();
+    if (allMeters.some(m => m.계기번호 === meterId)) {
+        return showAddMeterToast('이미 등록된 계기번호');
+    }
+
+    try {
+        await saveAddedMeter(currentAddress, meterId, mfgYm ? { mfg_ym: mfgYm } : {});
+        closeAddMeterModal();
+        renderMetersList();
+    } catch (e) {
+        showAddMeterToast('저장 실패: ' + e.message);
+    }
 }

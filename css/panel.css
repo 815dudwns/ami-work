@@ -97,6 +97,9 @@
 .meter-item-failed .seg-last,
 .meter-item-failed .seg-dup { color: #9ca3af; }
 
+/* 사용자 추가 계기 (admin이 + 계기 추가로 등록) */
+.meter-item-added { background: #faf5ff !important; border-color: #c4b5fd !important; border-style: dashed !important; }
+
 /* 불가 사유 입력창 */
 .meter-fail-input-wrap { margin-top: 6px; }
 .meter-fail-input { width: 100%; padding: 5px 8px; font-size: 12px; border: 1.5px solid #fca5a5; border-radius: 6px; background: white; color: #374151; box-sizing: border-box; outline: none; }

@@ -7,9 +7,10 @@
     <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=2eae4b699110525f0dc62295ed8ed43d&autoload=false"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-    <link rel="stylesheet" href="css/common.css?v=20260519j">
-    <link rel="stylesheet" href="css/marker.css?v=20260519j">
-    <link rel="stylesheet" href="css/panel.css?v=20260519j">
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <link rel="stylesheet" href="css/common.css?v=20260526a">
+    <link rel="stylesheet" href="css/marker.css?v=20260526a">
+    <link rel="stylesheet" href="css/panel.css?v=20260526a">
 </head>
 <body>
     <div id="map"></div>
@@ -98,11 +99,59 @@
         <div class="meter-sort-bar" id="meter-sort-bar">
             <button class="sort-btn" id="sort-btn-dup" onclick="toggleSort('dup')">중복 정렬</button>
             <button class="sort-btn" id="sort-btn-maker" onclick="toggleSort('maker')">제조사 정렬</button>
+            <button class="sort-btn" id="add-meter-btn" onclick="openAddMeterModal()" style="display:none;margin-left:auto;background:#8b5cf6;color:white;border-color:#7c3aed;">+ 계기 추가</button>
         </div>
         <div class="overlay-meters" id="meters-list"></div>
     </div>
 
-    <script src="js/auth.js?v=20260519j"></script>
+    <!-- 계기 추가 모달 (admin 전용) -->
+    <div id="add-meter-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:2500;align-items:center;justify-content:center;padding:16px;">
+        <div style="background:white;border-radius:12px;width:100%;max-width:420px;padding:18px;display:flex;flex-direction:column;gap:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+                <h3 style="font-size:16px;font-weight:700;color:#111827;">계기 추가</h3>
+                <button onclick="closeAddMeterModal()" style="width:32px;height:32px;border:none;background:#e5e7eb;border-radius:6px;cursor:pointer;font-size:20px;font-weight:600;color:#374151;">×</button>
+            </div>
+
+            <div style="font-size:12px;color:#6b7280;">현재 주소: <span id="add-meter-addr" style="font-weight:600;color:#111827;"></span></div>
+
+            <div style="display:flex;flex-direction:column;gap:4px;">
+                <label style="font-size:12px;font-weight:600;color:#6b7280;">계기번호 (11자리)</label>
+                <div style="display:flex;gap:6px;">
+                    <input id="add-meter-input" type="text" inputmode="numeric" maxlength="11" placeholder="수기 입력 또는 QR 스캔" style="flex:1;padding:10px 12px;border:2px solid #e5e7eb;border-radius:8px;font-size:14px;font-family:ui-monospace,monospace;">
+                    <button onclick="openAddMeterQr()" style="padding:10px 14px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;">QR</button>
+                </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:4px;">
+                <label style="font-size:12px;font-weight:600;color:#6b7280;">제조년월 (선택, QR로 자동 채움)</label>
+                <input id="add-meter-mfg" type="text" placeholder="2024-11" style="padding:10px 12px;border:2px solid #e5e7eb;border-radius:8px;font-size:14px;">
+            </div>
+
+            <div id="add-meter-toast" style="display:none;font-size:12px;color:#dc2626;text-align:center;"></div>
+
+            <div style="display:flex;gap:8px;padding-top:8px;border-top:1px solid #e5e7eb;">
+                <button onclick="closeAddMeterModal()" style="flex:1;padding:12px;border:2px solid #e5e7eb;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;background:white;color:#6b7280;">취소</button>
+                <button onclick="saveNewMeter()" style="flex:1;padding:12px;border:2px solid #10b981;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;background:white;color:#10b981;">저장</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR 라이브 스캔 오버레이 -->
+    <div id="qr-scan-overlay" style="display:none;position:fixed;inset:0;background:black;z-index:3000;flex-direction:column;">
+        <div style="display:flex;align-items:center;padding:10px 14px;background:#111;color:white;">
+            <span id="qr-cam-label" style="flex:1;font-size:13px;font-weight:600;">QR / 바코드 스캔</span>
+            <button id="qr-switch-btn" style="display:none;margin-right:8px;padding:6px 10px;background:#374151;color:white;border:none;border-radius:6px;font-size:12px;font-weight:600;">카메라</button>
+            <button id="qr-close-btn" style="padding:6px 12px;background:#ef4444;color:white;border:none;border-radius:6px;font-size:14px;font-weight:700;">×</button>
+        </div>
+        <div id="qr-reader" style="width:100%;flex:1;background:black;"></div>
+        <div id="qr-error-msg" style="display:none;padding:14px;background:#7f1d1d;color:white;font-size:13px;text-align:center;"></div>
+        <div style="display:flex;gap:6px;padding:8px;background:#111;">
+            <button id="qr-zoom-out" style="flex:1;padding:10px;background:#374151;color:white;border:none;border-radius:6px;font-size:14px;font-weight:700;">- 줌</button>
+            <button id="qr-zoom-in" style="flex:1;padding:10px;background:#374151;color:white;border:none;border-radius:6px;font-size:14px;font-weight:700;">+ 줌</button>
+        </div>
+    </div>
+
+    <script src="js/auth.js?v=20260526a"></script>
     <script>
         // 로그인 체크 — 미인증이면 login.html로 이동
         authRequire();
@@ -118,14 +167,16 @@
                     document.getElementById('stats-btn').style.display = '';
                     document.getElementById('stats-divider').style.display = '';
                     document.getElementById('admin-upload-btn').style.display = '';
+                    document.getElementById('add-meter-btn').style.display = '';
                 }
             }
         })();
     </script>
-    <script src="js/config.js?v=20260519j"></script>
-    <script src="js/utils.js?v=20260519j"></script>
-    <script src="js/firebase.js?v=20260519j"></script>
-    <script src="js/detail.js?v=20260519j"></script>
-    <script src="js/map.js?v=20260519j"></script>
+    <script src="js/config.js?v=20260526a"></script>
+    <script src="js/utils.js?v=20260526a"></script>
+    <script src="js/firebase.js?v=20260526a"></script>
+    <script src="js/qr-scanner.js?v=20260526a"></script>
+    <script src="js/detail.js?v=20260526a"></script>
+    <script src="js/map.js?v=20260526a"></script>
 </body>
 </html>

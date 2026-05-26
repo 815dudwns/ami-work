@@ -228,9 +228,42 @@ function buildWorkStatusFromFirebase(data) {
             previousCompleteBy: val.previousCompleteBy || '',
             checkedMeters,
             meterChecks,  // 원본 보관 (ts 비교용)
+            added_meters: val.added_meters || {},   // 사용자 추가 계기 (admin 등)
         };
     });
     return result;
+}
+
+// ── 사용자 추가 계기 (admin 등) ────────────────────────────────
+// added_meters/{meter_id}: { meter_id, added_by, added_by_name, added_at, mfg_ym, source }
+async function saveAddedMeter(address, meterId, extra) {
+    if (!statusRef) throw new Error('Firebase 미초기화');
+    const session = (typeof authGetSession === 'function') ? authGetSession() : null;
+    const data = {
+        meter_id: meterId,
+        added_by: session ? session.id : '',
+        added_by_name: session ? session.name : '',
+        added_at: Date.now(),
+        ...(extra || {}),
+    };
+    const p = encodeKey(address);
+    await statusRef.child(`${p}/added_meters/${meterId}`).set(data);
+    // 로컬 반영
+    if (!workStatus[address]) {
+        workStatus[address] = { state: 'pending', checkedMeters: [], reason: '', added_meters: {} };
+    }
+    if (!workStatus[address].added_meters) workStatus[address].added_meters = {};
+    workStatus[address].added_meters[meterId] = data;
+    return data;
+}
+
+async function removeAddedMeter(address, meterId) {
+    if (!statusRef) throw new Error('Firebase 미초기화');
+    const p = encodeKey(address);
+    await statusRef.child(`${p}/added_meters/${meterId}`).remove();
+    if (workStatus[address] && workStatus[address].added_meters) {
+        delete workStatus[address].added_meters[meterId];
+    }
 }
 
 // Firebase 데이터와 로컬 데이터를 updatedAt 기준으로 병합 (더 최신 쪽 유지)
