@@ -8,9 +8,9 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-    <link rel="stylesheet" href="css/common.css?v=20260526h">
-    <link rel="stylesheet" href="css/marker.css?v=20260526h">
-    <link rel="stylesheet" href="css/panel.css?v=20260526h">
+    <link rel="stylesheet" href="css/common.css?v=20260526i">
+    <link rel="stylesheet" href="css/marker.css?v=20260526i">
+    <link rel="stylesheet" href="css/panel.css?v=20260526i">
 </head>
 <body>
     <div id="map"></div>
@@ -138,7 +138,9 @@
             <select id="qr-cam-select" style="flex:1;min-width:140px;padding:8px 10px;background:#374151;color:white;border:1.5px solid #6b7280;border-radius:6px;font-size:13px;font-weight:600;appearance:auto;-webkit-appearance:auto;"><option>카메라 로드 중...</option></select>
             <button id="qr-close-btn" style="padding:6px 12px;background:#ef4444;color:white;border:none;border-radius:6px;font-size:14px;font-weight:700;">×</button>
         </div>
-        <div id="qr-reader" style="width:100%;flex:1;background:black;"></div>
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;background:black;overflow:hidden;">
+            <div id="qr-reader" style="width:min(100vw, 100%); aspect-ratio:1/1; max-height:100%; background:black; position:relative; overflow:hidden;"></div>
+        </div>
         <div id="qr-debug-log" style="padding:6px 10px;background:#0f172a;color:#34d399;font-size:11px;font-family:ui-monospace,monospace;max-height:120px;overflow-y:auto;border-top:1px solid #334155;"></div>
         <div id="qr-error-msg" style="display:none;padding:14px;background:#7f1d1d;color:white;font-size:13px;text-align:center;"></div>
         <div style="display:flex;gap:6px;padding:8px;background:#111;">
@@ -148,7 +150,7 @@
         </div>
     </div>
 
-    <script src="js/auth.js?v=20260526h"></script>
+    <script src="js/auth.js?v=20260526i"></script>
     <script>
         // 로그인 체크 — 미인증이면 login.html로 이동
         authRequire();
@@ -169,11 +171,11 @@
             }
         })();
     </script>
-    <script src="js/config.js?v=20260526h"></script>
-    <script src="js/utils.js?v=20260526h"></script>
-    <script src="js/firebase.js?v=20260526h"></script>
-    <script src="js/qr-scanner.js?v=20260526h"></script>
-    <script src="js/detail.js?v=20260526h"></script>
-    <script src="js/map.js?v=20260526h"></script>
+    <script src="js/config.js?v=20260526i"></script>
+    <script src="js/utils.js?v=20260526i"></script>
+    <script src="js/firebase.js?v=20260526i"></script>
+    <script src="js/qr-scanner.js?v=20260526i"></script>
+    <script src="js/detail.js?v=20260526i"></script>
+    <script src="js/map.js?v=20260526i"></script>
 </body>
 </html>

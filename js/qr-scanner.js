@@ -139,7 +139,7 @@ const QrScanner = (() => {
       _video.setAttribute('playsinline', 'true');
       _video.setAttribute('autoplay', 'true');
       _video.muted = true;
-      _video.style.cssText = 'width:100%;height:100%;object-fit:cover;background:black;';
+      _video.style.cssText = 'width:100%;height:100%;object-fit:cover;background:black;display:block;';
       host.appendChild(_video);
     }
     start();
@@ -278,8 +278,8 @@ const QrScanner = (() => {
   }
 
   function finish(text) {
-    capturePhoto((blob) => {
-      stopAll();
+    capturePhoto(async (blob) => {
+      await stop();   // overlay까지 닫음
       _onSuccess && _onSuccess(text, blob);
     });
   }
