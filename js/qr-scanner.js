@@ -34,25 +34,13 @@ const QrScanner = (() => {
     catch { return null; }
   }
 
-  // ─── 디버그 로그 ─────────────────────────
-  function debugLog(text) {
-    const box = document.getElementById('qr-debug-log');
-    if (!box) return;
-    const ts = new Date().toLocaleTimeString();
-    const line = document.createElement('div');
-    line.textContent = `[${ts}] ${text}`;
-    box.appendChild(line);
-    box.scrollTop = box.scrollHeight;
-  }
-  function clearDebugLog() {
-    const box = document.getElementById('qr-debug-log');
-    if (box) box.innerHTML = '';
-  }
   function setLabel(text) {
     const lbl = document.getElementById('qr-cam-label');
     if (lbl) lbl.textContent = text;
-    debugLog(text);
   }
+  // 디버그 로그는 화면 제거됨. 호출은 그대로 두고 콘솔에만 남김
+  function debugLog(text) { try { console.log('[QR]', text); } catch {} }
+  function clearDebugLog() {}
 
   // ─── BarcodeDetector 가능 여부 ─────────────────────────
   function hasBarcodeDetector() {
