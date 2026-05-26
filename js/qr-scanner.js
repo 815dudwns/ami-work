@@ -9,11 +9,18 @@ const QrScanner = (() => {
   let _detected = false; // 한 번 인식되면 후속 콜백 차단
 
   const LS_CAM = 'qr_camera_id';
+  const LS_CAM_LABEL = 'qr_camera_label';
   const LS_ZOOM = 'qr_zoom';
 
-  function saveCameraId(id) { try { if (id) localStorage.setItem(LS_CAM, id); } catch {} }
+  function saveCameraId(id, label) {
+    try {
+      if (id) localStorage.setItem(LS_CAM, id);
+      if (label) localStorage.setItem(LS_CAM_LABEL, label);
+    } catch {}
+  }
   function loadCameraId() { try { return localStorage.getItem(LS_CAM) || ''; } catch { return ''; } }
-  function clearCameraId() { try { localStorage.removeItem(LS_CAM); } catch {} }
+  function loadCameraLabel() { try { return localStorage.getItem(LS_CAM_LABEL) || ''; } catch { return ''; } }
+  function clearCameraId() { try { localStorage.removeItem(LS_CAM); /* label은 유지 — 매칭 시도 위해 */ } catch {} }
   function saveZoom(z) { try { if (z > 0) localStorage.setItem(LS_ZOOM, String(z)); } catch {} }
   function loadZoom() {
     try { const v = parseFloat(localStorage.getItem(LS_ZOOM)); return isNaN(v) ? null : v; }
@@ -112,14 +119,43 @@ const QrScanner = (() => {
     }
 
     // 0차: 저장된 카메라 ID 우선 (사용자가 마지막에 쓴 것)
+    // 0.5차: 저장 ID 실패 → 저장된 라벨로 _cameras 매칭 후 그 ID로 재시도
+    //        (Android에서 deviceId가 세션마다 바뀌는 경우 대응)
     // 1차: facingMode exact environment (후면 강제)
     // 2차: facingMode ideal environment (후면 선호)
     // 3차: getCameras() + 라벨 매칭 폴백
     const savedId = loadCameraId();
     if (savedId && await startWithSavedId(savedId)) return;
+    if (await startWithSavedLabel()) return;
     if (await startWithFacing({ exact: 'environment' }, '후면(강제)')) return;
     if (await startWithFacing('environment', '후면(선호)'))         return;
     await startWithCameraList();
+  }
+
+  // 저장된 라벨로 카메라 매칭 (deviceId가 무효해진 Android 대응)
+  async function startWithSavedLabel() {
+    const savedLabel = loadCameraLabel();
+    if (!savedLabel) return false;
+    setStatusLabel(`라벨 매칭 시도…`);
+    try {
+      const cams = await Html5Qrcode.getCameras();
+      _cameras = cams || [];
+      const match = _cameras.find(c => (c.label || '') === savedLabel);
+      if (!match) {
+        setStatusLabel(`라벨 매칭 실패: "${savedLabel.slice(0,20)}" 없음`);
+        await new Promise(r => setTimeout(r, 400));
+        return false;
+      }
+      setStatusLabel(`라벨 매칭 ok → ${match.id.slice(-6)} 시작…`);
+      // 새 deviceId로 저장 갱신
+      saveCameraId(match.id, savedLabel);
+      // 재진입 — savedId가 갱신됐으니 다시 startWithSavedId
+      return await startWithSavedId(match.id);
+    } catch (e) {
+      setStatusLabel(`라벨 매칭 에러: ${(e?.message||e).toString().slice(0,40)}`);
+      await new Promise(r => setTimeout(r, 400));
+      return false;
+    }
   }
 
   function setStatusLabel(text) {
@@ -261,7 +297,9 @@ const QrScanner = (() => {
       const actualId = currentDeviceId() || cameraId;
       const idx = _cameras.findIndex(c => c.id === actualId);
       if (idx >= 0) _camIndex = idx;
-      saveCameraId(actualId || cameraId);  // 빈값 방어
+      // label도 함께 저장 — deviceId 만료 시 라벨 폴백용
+      const usedCam = _cameras[_camIndex];
+      saveCameraId(actualId || cameraId, usedCam?.label || '');
       populateCamSelect();
       await applyZoom(loadZoom() ?? 2.0);
 
