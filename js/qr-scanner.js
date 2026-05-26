@@ -183,21 +183,51 @@ const QrScanner = (() => {
   }
 
   async function startCamera(cameraId) {
-    if (_scanner) { try { await _scanner.stop(); } catch {} _scanner = null; }
+    // Android Chrome 대응: stop → clear → 짧은 delay → 새 인스턴스
+    if (_scanner) {
+      try { await _scanner.stop(); } catch {}
+      try { await _scanner.clear(); } catch {}
+      _scanner = null;
+    }
+    await new Promise(r => setTimeout(r, 300));  // race condition 회피
     _scanner = new Html5Qrcode('qr-reader');
 
+    // string deviceId 대신 명시적 constraints 객체 (Android에서 적용 안 되는 경우 대응)
+    const constraints = { deviceId: { exact: cameraId } };
+
     try {
-      await _scanner.start(cameraId, buildConfig(),
+      await _scanner.start(constraints, buildConfig(),
         (text) => onDetected(text),
         () => {});
-      // _camIndex 동기화
-      const idx = _cameras.findIndex(c => c.id === cameraId);
+      // _camIndex 동기화 + 실제 잡힌 deviceId 확인
+      const actualId = currentDeviceId() || cameraId;
+      const idx = _cameras.findIndex(c => c.id === actualId);
       if (idx >= 0) _camIndex = idx;
-      saveCameraId(cameraId);
+      saveCameraId(actualId);
       populateCamSelect();
       await applyZoom(loadZoom() ?? 2.0);
+
+      // 디버그: 의도와 실제가 다르면 콘솔에 경고
+      if (actualId !== cameraId) {
+        console.warn('[QR] 카메라 전환 mismatch — 요청:', cameraId, '실제:', actualId);
+      }
     } catch (e) {
-      showError(camErrorMsg(e));
+      console.warn('[QR] startCamera 실패, string id 폴백 시도:', e?.message || e);
+      // 폴백: 명시 constraints가 실패하면 string 방식 시도
+      try {
+        try { await _scanner.stop(); } catch {}
+        _scanner = new Html5Qrcode('qr-reader');
+        await _scanner.start(cameraId, buildConfig(),
+          (text) => onDetected(text),
+          () => {});
+        const idx = _cameras.findIndex(c => c.id === cameraId);
+        if (idx >= 0) _camIndex = idx;
+        saveCameraId(cameraId);
+        populateCamSelect();
+        await applyZoom(loadZoom() ?? 2.0);
+      } catch (e2) {
+        showError(camErrorMsg(e2));
+      }
     }
   }
 
@@ -315,7 +345,17 @@ const QrScanner = (() => {
     if (sel) {
       sel.onchange = async () => {
         const id = sel.value;
-        if (id) await startCamera(id);
+        if (!id) return;
+        const lbl = document.getElementById('qr-cam-label');
+        const prev = lbl ? lbl.textContent : '';
+        if (lbl) lbl.textContent = '카메라 전환 중...';
+        sel.disabled = true;
+        try {
+          await startCamera(id);
+        } finally {
+          sel.disabled = false;
+          if (lbl && lbl.textContent === '카메라 전환 중...') lbl.textContent = prev || 'QR / 바코드';
+        }
       };
     }
   }
