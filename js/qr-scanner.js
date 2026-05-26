@@ -73,12 +73,18 @@ const QrScanner = (() => {
     _detected = false;
     document.getElementById('qr-scan-overlay').style.display = 'flex';
     document.getElementById('qr-error-msg').style.display = 'none';
-    // 권한 부여 전이라도 카메라 목록 미리 시도 (라벨은 빈값일 수 있음)
+    clearDebugLog();
+    // 저장 상태 즉시 표시
+    const sid = loadCameraId();
+    const slbl = loadCameraLabel();
+    debugLog(`savedId=${sid ? sid.slice(-8) : '(없음)'} savedLabel="${slbl.slice(0,30)}"`);
     if (typeof Html5Qrcode !== 'undefined') {
       Html5Qrcode.getCameras().then(cs => {
         _cameras = cs || [];
+        debugLog(`getCameras → ${_cameras.length}개`);
+        _cameras.forEach((c, i) => debugLog(`  ${i}: id=...${String(c.id).slice(-8)} label="${(c.label||'').slice(0,40)}"`));
         populateCamSelect();
-      }).catch(() => {});
+      }).catch(e => debugLog(`getCameras 에러: ${e?.message||e}`));
     }
     start();
   }
@@ -161,6 +167,20 @@ const QrScanner = (() => {
   function setStatusLabel(text) {
     const lbl = document.getElementById('qr-cam-label');
     if (lbl) lbl.textContent = text;
+    debugLog(text);
+  }
+  function debugLog(text) {
+    const box = document.getElementById('qr-debug-log');
+    if (!box) return;
+    const ts = new Date().toLocaleTimeString();
+    const line = document.createElement('div');
+    line.textContent = `[${ts}] ${text}`;
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+  }
+  function clearDebugLog() {
+    const box = document.getElementById('qr-debug-log');
+    if (box) box.innerHTML = '';
   }
 
   async function startWithSavedId(id) {
