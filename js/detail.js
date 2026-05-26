@@ -562,6 +562,7 @@ function renderMetersList() {
                 try {
                     await removeAddedMeter(currentAddress, m);
                     renderMetersList();
+                    if (typeof updateMarkerColor === 'function') updateMarkerColor(currentAddress);
                 } catch (err) {
                     alert('삭제 실패: ' + err.message);
                 }
@@ -710,6 +711,7 @@ async function saveNewMeter() {
         await saveAddedMeter(currentAddress, meterId, {});
         closeAddMeterModal();
         renderMetersList();
+        if (typeof updateMarkerColor === 'function') updateMarkerColor(currentAddress);
     } catch (e) {
         showAddMeterToast('저장 실패: ' + e.message);
     }

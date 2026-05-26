@@ -185,7 +185,8 @@ function spreadOverlappingMarkers(grouped) {
 // 단일 마커 생성 및 지도에 추가
 function createMarker(position, address, meters, category) {
     const status = workStatus[address] || { state: 'pending', checkedMeters: [], reason: '' };
-    const meterCount = meters.length;
+    const addedCount = status.added_meters ? Object.keys(status.added_meters).length : 0;
+    const meterCount = meters.length + addedCount;
     const isSkt = category === 'skt';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
@@ -249,10 +250,12 @@ function updateMarkerColor(address) {
     const el = marker.element.querySelector('.custom-marker');
     if (el) el.className = `custom-marker ${color}`;
 
+    const addedCount = status.added_meters ? Object.keys(status.added_meters).length : 0;
+    const totalCount = marker.meters.length + addedCount;
     const labelEl = marker.element.querySelector('.marker-number');
     if (labelEl) {
         if (isSkt) labelEl.textContent = 'SK';
-        else labelEl.textContent = (isApproximate && status.state === 'pending') ? '?' : marker.meters.length;
+        else labelEl.textContent = (isApproximate && status.state === 'pending') ? '?' : totalCount;
     }
 
     // 재작업 라벨 동기화
