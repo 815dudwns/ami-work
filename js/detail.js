@@ -656,7 +656,6 @@ function openAddMeterModal() {
     if (!currentAddress) return;
     document.getElementById('add-meter-addr').textContent = currentAddress;
     document.getElementById('add-meter-input').value = '';
-    document.getElementById('add-meter-mfg').value = '';
     document.getElementById('add-meter-toast').style.display = 'none';
     document.getElementById('add-meter-overlay').style.display = 'flex';
     setTimeout(() => document.getElementById('add-meter-input').focus(), 100);
@@ -681,7 +680,6 @@ function openAddMeterQr() {
         const raw = String(text || '');
         // 신형 QR 포맷: "PID:127825 YYMM:24.11 MID:07530057365"
         const midMatch = raw.match(/MID\s*[:：]?\s*([A-Za-z0-9]+)/i);
-        const ymMatch  = raw.match(/YYMM\s*[:：]?\s*(\d{2})\.(\d{2})/i);
         let meterId = '';
         if (midMatch) {
             meterId = String(midMatch[1]).toUpperCase();
@@ -692,17 +690,12 @@ function openAddMeterQr() {
             meterId = cleaned.length >= 11 ? cleaned.slice(0, 11) : cleaned;
         }
         document.getElementById('add-meter-input').value = meterId;
-        if (ymMatch) {
-            document.getElementById('add-meter-mfg').value = '20' + ymMatch[1] + '-' + ymMatch[2];
-        }
     });
 }
 
 async function saveNewMeter() {
     const input = document.getElementById('add-meter-input');
-    const mfgInput = document.getElementById('add-meter-mfg');
     const meterId = (input.value || '').trim().toUpperCase();
-    const mfgYm = (mfgInput.value || '').trim();
 
     if (!meterId || meterId.length !== 11) {
         return showAddMeterToast('계기번호 11자리 확인');
@@ -714,7 +707,7 @@ async function saveNewMeter() {
     }
 
     try {
-        await saveAddedMeter(currentAddress, meterId, mfgYm ? { mfg_ym: mfgYm } : {});
+        await saveAddedMeter(currentAddress, meterId, {});
         closeAddMeterModal();
         renderMetersList();
     } catch (e) {

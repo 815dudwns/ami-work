@@ -97,8 +97,10 @@
 .meter-item-failed .seg-last,
 .meter-item-failed .seg-dup { color: #9ca3af; }
 
-/* 사용자 추가 계기 (admin이 + 계기 추가로 등록) */
-.meter-item-added { background: #faf5ff !important; border-color: #c4b5fd !important; border-style: dashed !important; }
+/* 사용자 추가 계기 (admin이 + 계기 추가로 등록)
+   배경/테두리는 중복 색상(dup-row-N)이 우선되도록 두고
+   점선 테두리·보라색 배지로만 "추가" 구분 표시 */
+.meter-item-added { border-style: dashed !important; border-color: #c4b5fd !important; }
 
 /* 불가 사유 입력창 */
 .meter-fail-input-wrap { margin-top: 6px; }

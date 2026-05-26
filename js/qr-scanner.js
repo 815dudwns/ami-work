@@ -27,6 +27,33 @@ const QrScanner = (() => {
     } catch { return ''; }
   }
 
+  // 카메라 라벨 다듬기 — 광각/일반 등 추정 힌트 표시
+  function prettyCamLabel(cam, idx) {
+    const raw = (cam.label || '').trim();
+    const lower = raw.toLowerCase();
+    let hint = '';
+    if (/(ultra.?wide|wide.?angle|광각|초광각)/i.test(raw)) hint = ' [광각]';
+    else if (/(tele|망원|줌)/i.test(raw)) hint = ' [망원]';
+    else if (/(front|전면)/i.test(raw)) hint = ' [전면]';
+    else if (/(back|rear|environment|후면)/i.test(raw)) hint = ' [후면]';
+    const name = raw || `카메라 ${idx + 1}`;
+    return name + hint;
+  }
+
+  function populateCamSelect() {
+    const sel = document.getElementById('qr-cam-select');
+    if (!sel) return;
+    const did = currentDeviceId();
+    sel.innerHTML = '';
+    _cameras.forEach((cam, i) => {
+      const opt = document.createElement('option');
+      opt.value = cam.id;
+      opt.textContent = prettyCamLabel(cam, i);
+      if (cam.id === did) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
   function show(onSuccess) {
     _onSuccess = onSuccess;
     _detected = false;
@@ -88,15 +115,13 @@ const QrScanner = (() => {
       await _scanner.start(id, buildConfig(),
         (text) => onDetected(text),
         () => {});
-      // 라벨·전환버튼은 카메라 목록 비동기 로드
+      // 라벨·전환버튼·드롭다운은 카메라 목록 비동기 로드
       Html5Qrcode.getCameras().then(cs => {
         _cameras = cs || [];
         const idx = _cameras.findIndex(c => c.id === id);
         _camIndex = idx >= 0 ? idx : 0;
-        const cam = _cameras[_camIndex];
-        const lbl = document.getElementById('qr-cam-label');
-        if (lbl && cam) lbl.textContent = `${cam.label || '카메라'} (${_camIndex + 1}/${_cameras.length})`;
         document.getElementById('qr-switch-btn').style.display = _cameras.length > 1 ? '' : 'none';
+        populateCamSelect();
       }).catch(() => {});
       await applyZoom(loadZoom() ?? 2.0);
       return true;
@@ -117,16 +142,15 @@ const QrScanner = (() => {
         (text) => onDetected(text),
         () => {});
       _cameras = []; _camIndex = 0;
-      const lbl = document.getElementById('qr-cam-label');
-      if (lbl) lbl.textContent = labelHint;
       document.getElementById('qr-switch-btn').style.display = 'none';
-      // 권한 부여된 뒤 카메라 목록 로드 (전환 버튼용 — 비동기, 실패 무시)
+      // 권한 부여된 뒤 카메라 목록 로드 (전환 버튼/드롭다운용 — 비동기, 실패 무시)
       Html5Qrcode.getCameras().then(cs => {
         _cameras = cs || [];
         const did = currentDeviceId();
         const idx = _cameras.findIndex(c => c.id === did);
         if (idx >= 0) _camIndex = idx;
         document.getElementById('qr-switch-btn').style.display = _cameras.length > 1 ? '' : 'none';
+        populateCamSelect();
       }).catch(() => {});
       saveCameraId(currentDeviceId());
       await applyZoom(loadZoom() ?? 2.0);
@@ -162,15 +186,15 @@ const QrScanner = (() => {
     if (_scanner) { try { await _scanner.stop(); } catch {} _scanner = null; }
     _scanner = new Html5Qrcode('qr-reader');
 
-    const cam = _cameras[_camIndex];
-    document.getElementById('qr-cam-label').textContent =
-      `${cam.label || '카메라'} (${_camIndex + 1}/${_cameras.length})`;
-
     try {
       await _scanner.start(cameraId, buildConfig(),
         (text) => onDetected(text),
         () => {});
+      // _camIndex 동기화
+      const idx = _cameras.findIndex(c => c.id === cameraId);
+      if (idx >= 0) _camIndex = idx;
       saveCameraId(cameraId);
+      populateCamSelect();
       await applyZoom(loadZoom() ?? 2.0);
     } catch (e) {
       showError(camErrorMsg(e));
@@ -187,8 +211,6 @@ const QrScanner = (() => {
         const zoom = Math.min(Math.max(z, cap.zoom.min), cap.zoom.max);
         await t.applyConstraints({ advanced: [{ zoom }] });
         saveZoom(zoom);
-        const lbl = document.getElementById('qr-cam-label');
-        if (lbl) lbl.textContent += ` · ${zoom}x`;
       }
     } catch {}
   }
@@ -204,10 +226,6 @@ const QrScanner = (() => {
       const next = Math.max(cap.zoom.min, Math.min(cap.zoom.max, cur + delta));
       await t.applyConstraints({ advanced: [{ zoom: next }] });
       saveZoom(next);
-      const cam = _cameras[_camIndex];
-      const lbl = document.getElementById('qr-cam-label');
-      const camName = cam ? `${cam.label || '카메라'} (${_camIndex + 1}/${_cameras.length})` : '카메라';
-      if (lbl) lbl.textContent = `${camName} · ${next.toFixed(1)}x`;
     } catch {}
   }
 
@@ -289,9 +307,17 @@ const QrScanner = (() => {
 
   function init() {
     document.getElementById('qr-close-btn').onclick = stop;
-    document.getElementById('qr-switch-btn').onclick = switchCamera;
+    const sw = document.getElementById('qr-switch-btn');
+    if (sw) sw.onclick = switchCamera;
     document.getElementById('qr-zoom-in').onclick = () => adjustZoom(+0.5);
     document.getElementById('qr-zoom-out').onclick = () => adjustZoom(-0.5);
+    const sel = document.getElementById('qr-cam-select');
+    if (sel) {
+      sel.onchange = async () => {
+        const id = sel.value;
+        if (id) await startCamera(id);
+      };
+    }
   }
 
   return { show, stop, init };
