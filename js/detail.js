@@ -214,7 +214,7 @@ function showDetail(address, meters) {
             if (prevAt) {
                 try {
                     const d = new Date(prevAt);
-                    prevDate = `${d.getMonth() + 1}월 ${d.getDate()}일`;
+                    prevDate = kstDayLabel(d);
                 } catch (e) { prevDate = prevAt; }
             }
             reworkEl.innerHTML = `재작업 — 이전 완료: ${prevName} ${prevDate}`;
@@ -276,9 +276,7 @@ function updateWorkerInfo(status) {
     let dateStr = '';
     try {
         const d = new Date(status.updatedAt);
-        const month = d.getMonth() + 1;
-        const day = d.getDate();
-        dateStr = `${month}월 ${day}일`;
+        dateStr = kstDayLabel(d);
     } catch (e) {
         dateStr = status.updatedAt;
     }

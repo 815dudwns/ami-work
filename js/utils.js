@@ -1,5 +1,30 @@
 // utils.js — 유틸리티 함수
 
+// KST ISO 문자열 생성 (예: "2026-05-27T14:30:00+09:00")
+function isoKst(d = new Date()) {
+    const pad = n => String(n).padStart(2, '0');
+    const p = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Seoul',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false
+    }).formatToParts(d);
+    const g = t => p.find(x => x.type === t).value;
+    return `${g('year')}-${g('month')}-${g('day')}T${g('hour')}:${g('minute')}:${g('second')}+09:00`;
+}
+
+// KST 기준 "M월 D일" 문자열 반환 (예: "5월 27일")
+function kstDayLabel(d) {
+    const p = new Intl.DateTimeFormat('ko-KR', {
+        timeZone: 'Asia/Seoul',
+        month: 'numeric', day: 'numeric'
+    }).formatToParts(d);
+    const month = p.find(x => x.type === 'month').value;
+    const day   = p.find(x => x.type === 'day').value;
+    return `${month}월 ${day}일`;
+}
+
+
 // 계기번호 앞 2~4자리 코드로 타입 판별 (전부 대문자 표기: E / AE / G / AMIGO)
 function parseType(meterNo) {
     const code = (meterNo || '').substring(2, 4);

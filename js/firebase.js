@@ -74,7 +74,7 @@ async function flushEventQueue() {
         const p = encodeKey(ev.address);
         updates[`${p}/state`]         = ev.state;
         updates[`${p}/reason`]        = ev.reason || '';
-        updates[`${p}/updatedAt`]     = new Date(ev.ts).toISOString();
+        updates[`${p}/updatedAt`]     = isoKst(new Date(ev.ts));
         updates[`${p}/updatedBy`]     = ev.updatedBy || '';
         updates[`${p}/updatedByName`] = ev.updatedByName || '';
         // 작업 완료/보류/불가 시 rework 플래그 해제
@@ -151,7 +151,7 @@ function saveStateEvent(address, state, reason, updatedBy, updatedByName) {
     }
     workStatus[address].state         = state;
     workStatus[address].reason        = reason || '';
-    workStatus[address].updatedAt     = new Date().toISOString();
+    workStatus[address].updatedAt     = isoKst();
     workStatus[address].updatedBy     = updatedBy || '';
     workStatus[address].updatedByName = updatedByName || '';
     // 재작업 처리 — complete 또는 fail/hold로 새로 작업하면 rework 플래그 해제
@@ -277,6 +277,8 @@ function mergeFirebaseData(firebaseData) {
             workStatus[addr] = fb;
             return;
         }
+        // new Date(isoString).getTime()은 timezone 무관하게 동일 ms로 환산됨.
+        // 신규 저장은 isoKst() 사용 — 옛 레코드(timezone 미표기)는 UTC 해석 주의.
         const fbTime    = fb.updatedAt    ? new Date(fb.updatedAt).getTime()    : 0;
         const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
         if (fbTime > localTime) {

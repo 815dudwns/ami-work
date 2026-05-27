@@ -35,11 +35,11 @@ const db = admin.database();
  */
 function getUpdatedAt(address) {
   if (address.includes('한남동')) {
-    return '2026-03-25T09:00:00';
+    return '2026-03-25T09:00:00+09:00';
   } else if (address.includes('이촌동')) {
-    return '2026-03-26T09:00:00';
+    return '2026-03-26T09:00:00+09:00';
   } else {
-    return '2026-03-27T09:00:00';
+    return '2026-03-27T09:00:00+09:00';
   }
 }
 
