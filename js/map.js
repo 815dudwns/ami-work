@@ -31,8 +31,9 @@ async function initMap() {
     // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
     // (label: 마커에 표시할 글자, null이면 계기 개수 숫자)
     const DATASETS = [
-        { file: './data/site-data.json?v=20260522h', category: '실효', label: null },
-        { file: './data/skt-data.json?v=20260522h',  category: 'skt',  label: 'SK' },
+        { file: './data/site-data.json?v=20260529a', category: '실효', label: null },
+        { file: './data/skt-data.json?v=20260529a',  category: 'skt',  label: 'SK' },
+        { file: './data/tou-data.json?v=20260529a',  category: 'tou',  label: 'TOU' },
     ];
 
     try {
@@ -114,7 +115,7 @@ function getSelectedCategories() {
     const saved = localStorage.getItem('ami_selected_categories');
     if (saved) try { return new Set(JSON.parse(saved)); } catch {}
     // 기본값 = 전부 켬
-    return new Set(['실효', 'skt']);
+    return new Set(['실효', 'skt', 'tou']);
 }
 function setSelectedCategories(setObj) {
     localStorage.setItem('ami_selected_categories', JSON.stringify([...setObj]));
@@ -188,18 +189,23 @@ function createMarker(position, address, meters, category) {
     const addedCount = status.added_meters ? Object.keys(status.added_meters).length : 0;
     const meterCount = meters.length + addedCount;
     const isSkt = category === 'skt';
+    const isTou = category === 'tou';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
+    if (isTou) color = 'tou';
     if (status.state === 'complete') color = 'gray';
     else if (status.state === 'hold') color = 'blue';
     else if (status.state === 'fail') color = 'red';
-    // SKT는 라벨 'SK', 일반은 개수 (approximate+pending이면 '?')
+    // SKT는 라벨 'SK', TOU는 'TOU', 일반은 개수 (approximate+pending이면 '?')
     let markerLabel;
     if (isSkt) markerLabel = 'SK';
+    else if (isTou) markerLabel = 'TOU';
     else markerLabel = (isApproximate && status.state === 'pending') ? '?' : meterCount;
-    const isRework = status.rework === true;
+    // TOU는 항목 단위 rework (해당 주소에 rework가 1건 이상이면 '재' 표시)
+    const touHasRework = isTou && meters.some(m => m.tou_type === 'rework');
+    const isRework = status.rework === true || touHasRework;
 
     const markerContent = `
         <div class="custom-marker ${color}">
@@ -240,9 +246,11 @@ function updateMarkerColor(address) {
     const status = workStatus[address] || { state: 'pending' };
     const isApproximate = marker.meters.some(m => m.좌표정확도 === 'approximate');
     const isSkt = marker.category === 'skt';
+    const isTou = marker.category === 'tou';
 
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
+    if (isTou) color = 'tou';
     if (status.state === 'complete') color = 'gray';
     else if (status.state === 'hold') color = 'blue';
     else if (status.state === 'fail') color = 'red';
@@ -255,11 +263,13 @@ function updateMarkerColor(address) {
     const labelEl = marker.element.querySelector('.marker-number');
     if (labelEl) {
         if (isSkt) labelEl.textContent = 'SK';
+        else if (isTou) labelEl.textContent = 'TOU';
         else labelEl.textContent = (isApproximate && status.state === 'pending') ? '?' : totalCount;
     }
 
-    // 재작업 라벨 동기화
-    const isRework = status.rework === true;
+    // 재작업 라벨 동기화 (TOU는 항목 단위 rework 체크)
+    const touHasRework = isTou && marker.meters.some(m => m.tou_type === 'rework');
+    const isRework = status.rework === true || touHasRework;
     let fracEl = marker.element.querySelector('.marker-fraction');
     if (isRework) {
         if (!fracEl) {

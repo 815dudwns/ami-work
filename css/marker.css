@@ -7,6 +7,7 @@
 .custom-marker.red    .pin-body { fill: #ef4444; }
 .custom-marker.yellow .pin-body { fill: #f59e0b; }
 .custom-marker.skt    .pin-body { fill: #a78bfa; }   /* SKT — 부드러운 라벤더 (채도 한 단계 ↓) */
+.custom-marker.tou    .pin-body { fill: #5ca7c9; }   /* TOU — 청록빛 파랑 (SKT 라벤더와 실효 녹색 중간) */
 
 /* 리스트1(미완·폴백): 흰 원 표시 / 리스트2(완료·보류·불가): 꽉찬 핀 */
 .pin-circle { display: none; }
@@ -17,6 +18,7 @@
 .custom-marker.green .marker-number,
 .custom-marker.yellow .marker-number { color: #1f2937; }
 .custom-marker.skt .marker-number { color: #ffffff; font-size: 9px; top: 4px; font-weight: 800; }
+.custom-marker.tou .marker-number { color: #ffffff; font-size: 9px; top: 4px; font-weight: 800; }
 
 /* 마커 위 보조 라벨 — "재" (재작업), 박스 없이 텍스트만 흰 외곽선 */
 .marker-fraction {

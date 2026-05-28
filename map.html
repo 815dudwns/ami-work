@@ -8,9 +8,9 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-    <link rel="stylesheet" href="css/common.css?v=20260526k">
-    <link rel="stylesheet" href="css/marker.css?v=20260526k">
-    <link rel="stylesheet" href="css/panel.css?v=20260526k">
+    <link rel="stylesheet" href="css/common.css?v=20260529a">
+    <link rel="stylesheet" href="css/marker.css?v=20260529a">
+    <link rel="stylesheet" href="css/panel.css?v=20260529a">
 </head>
 <body>
     <div id="map"></div>
@@ -28,6 +28,7 @@
     <div class="category-filter" id="category-filter">
         <label><input type="checkbox" id="cat-실효" value="실효" checked onchange="onCategoryChange()"> 실효계기</label>
         <label><input type="checkbox" id="cat-skt" value="skt" checked onchange="onCategoryChange()"> SKT</label>
+        <label><input type="checkbox" id="cat-tou" value="tou" checked onchange="onCategoryChange()"> TOU</label>
     </div>
 
     <!-- 사용자 정보 + 검색 + 로그아웃 버튼 -->
@@ -156,7 +157,7 @@
         </div>
     </div>
 
-    <script src="js/auth.js?v=20260526k"></script>
+    <script src="js/auth.js?v=20260529a"></script>
     <script>
         // 로그인 체크 — 미인증이면 login.html로 이동
         authRequire();
@@ -177,11 +178,11 @@
             }
         })();
     </script>
-    <script src="js/config.js?v=20260526k"></script>
-    <script src="js/utils.js?v=20260526k"></script>
-    <script src="js/firebase.js?v=20260526k"></script>
-    <script src="js/qr-scanner.js?v=20260526k"></script>
-    <script src="js/detail.js?v=20260526k"></script>
-    <script src="js/map.js?v=20260526k"></script>
+    <script src="js/config.js?v=20260529a"></script>
+    <script src="js/utils.js?v=20260529a"></script>
+    <script src="js/firebase.js?v=20260529a"></script>
+    <script src="js/qr-scanner.js?v=20260529a"></script>
+    <script src="js/detail.js?v=20260529a"></script>
+    <script src="js/map.js?v=20260529a"></script>
 </body>
 </html>
