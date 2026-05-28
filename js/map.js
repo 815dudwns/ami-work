@@ -31,9 +31,9 @@ async function initMap() {
     // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
     // (label: 마커에 표시할 글자, null이면 계기 개수 숫자)
     const DATASETS = [
-        { file: './data/site-data.json?v=20260529b', category: '실효', label: null },
-        { file: './data/skt-data.json?v=20260529b',  category: 'skt',  label: 'SK' },
-        { file: './data/tou-data.json?v=20260529b',  category: 'tou',  label: 'TOU' },
+        { file: './data/site-data.json?v=20260529c', category: '실효', label: null },
+        { file: './data/skt-data.json?v=20260529c',  category: 'skt',  label: 'SK' },
+        { file: './data/tou-data.json?v=20260529c',  category: 'tou',  label: 'TOU' },
     ];
 
     try {
@@ -112,10 +112,24 @@ function restoreCategoryCheckboxes() {
 
 // 카테고리 필터 — 체크된 카테고리만 표시 (localStorage 저장)
 function getSelectedCategories() {
+    const ALL = ['실효', 'skt', 'tou'];
     const saved = localStorage.getItem('ami_selected_categories');
-    if (saved) try { return new Set(JSON.parse(saved)); } catch {}
-    // 기본값 = 전부 켬
-    return new Set(['실효', 'skt', 'tou']);
+    if (saved) try {
+        const set = new Set(JSON.parse(saved));
+        // 새 카테고리가 추가된 경우 default로 켬 (한 번만)
+        const seenKey = 'ami_seen_categories';
+        const seen = new Set(JSON.parse(localStorage.getItem(seenKey) || '[]'));
+        let changed = false;
+        ALL.forEach(c => { if (!seen.has(c)) { set.add(c); seen.add(c); changed = true; } });
+        if (changed) {
+            localStorage.setItem(seenKey, JSON.stringify([...seen]));
+            localStorage.setItem('ami_selected_categories', JSON.stringify([...set]));
+        }
+        return set;
+    } catch {}
+    // 첫 진입 — 전부 켬
+    localStorage.setItem('ami_seen_categories', JSON.stringify(ALL));
+    return new Set(ALL);
 }
 function setSelectedCategories(setObj) {
     localStorage.setItem('ami_selected_categories', JSON.stringify([...setObj]));
