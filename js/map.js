@@ -31,9 +31,9 @@ async function initMap() {
     // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
     // (label: 마커에 표시할 글자, null이면 계기 개수 숫자)
     const DATASETS = [
-        { file: './data/site-data.json?v=20260529c', category: '실효', label: null },
-        { file: './data/skt-data.json?v=20260529c',  category: 'skt',  label: 'SK' },
-        { file: './data/tou-data.json?v=20260529c',  category: 'tou',  label: 'TOU' },
+        { file: './data/site-data.json?v=20260529d', category: '실효', label: null,  uiLabel: '실효계기' },
+        { file: './data/skt-data.json?v=20260529d',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
+        { file: './data/tou-data.json?v=20260529d',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
     ];
 
     try {
@@ -51,7 +51,7 @@ async function initMap() {
         DATASETS.map(d => `${d.category}=${sampleData.filter(r => r.category===d.category).length}`).join(', '));
 
     populateJisaOptions();
-    restoreCategoryCheckboxes();
+    populateCategoryFilter();
     loadMarkers();
     await initFirebase();
     markers.forEach(m => updateMarkerColor(m.address));
@@ -107,6 +107,43 @@ function restoreCategoryCheckboxes() {
     const saved = getSelectedCategories();
     document.querySelectorAll('.category-filter input[type="checkbox"]').forEach(c => {
         c.checked = saved.has(c.value);
+    });
+}
+
+// 카테고리 토글 패널 — DATASETS 기반 동적 생성 + 토글/외부클릭/ESC 처리
+function populateCategoryFilter() {
+    const panel = document.getElementById('category-panel');
+    const toggleBtn = document.getElementById('category-toggle');
+    if (!panel || !toggleBtn) return;
+
+    const saved = getSelectedCategories();
+
+    DATASETS.forEach(d => {
+        const lbl = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.id = 'cat-' + d.category;
+        cb.value = d.category;
+        cb.checked = saved.has(d.category);
+        cb.addEventListener('change', onCategoryChange);
+        lbl.appendChild(cb);
+        lbl.appendChild(document.createTextNode(d.uiLabel));
+        panel.appendChild(lbl);
+    });
+
+    toggleBtn.addEventListener('click', () => {
+        panel.classList.toggle('open');
+    });
+
+    document.addEventListener('click', (e) => {
+        const filter = document.getElementById('category-filter');
+        if (filter && !filter.contains(e.target)) {
+            panel.classList.remove('open');
+        }
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') panel.classList.remove('open');
     });
 }
 

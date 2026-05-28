@@ -8,9 +8,9 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-    <link rel="stylesheet" href="css/common.css?v=20260529c">
-    <link rel="stylesheet" href="css/marker.css?v=20260529c">
-    <link rel="stylesheet" href="css/panel.css?v=20260529c">
+    <link rel="stylesheet" href="css/common.css?v=20260529d">
+    <link rel="stylesheet" href="css/marker.css?v=20260529d">
+    <link rel="stylesheet" href="css/panel.css?v=20260529d">
 </head>
 <body>
     <div id="map"></div>
@@ -24,11 +24,12 @@
         </select>
     </div>
 
-    <!-- 카테고리 필터 (체크박스) -->
+    <!-- 카테고리 필터 (토글 패널) -->
     <div class="category-filter" id="category-filter">
-        <label><input type="checkbox" id="cat-실효" value="실효" checked onchange="onCategoryChange()"> 실효계기</label>
-        <label><input type="checkbox" id="cat-skt" value="skt" checked onchange="onCategoryChange()"> SKT</label>
-        <label><input type="checkbox" id="cat-tou" value="tou" checked onchange="onCategoryChange()"> TOU</label>
+        <button class="category-toggle" id="category-toggle">리스트 &#9662;</button>
+        <div class="category-panel" id="category-panel">
+            <!-- JS에서 DATASETS 기반으로 동적 생성 -->
+        </div>
     </div>
 
     <!-- 사용자 정보 + 검색 + 로그아웃 버튼 -->
@@ -157,7 +158,7 @@
         </div>
     </div>
 
-    <script src="js/auth.js?v=20260529c"></script>
+    <script src="js/auth.js?v=20260529d"></script>
     <script>
         // 로그인 체크 — 미인증이면 login.html로 이동
         authRequire();
@@ -178,11 +179,11 @@
             }
         })();
     </script>
-    <script src="js/config.js?v=20260529c"></script>
-    <script src="js/utils.js?v=20260529c"></script>
-    <script src="js/firebase.js?v=20260529c"></script>
-    <script src="js/qr-scanner.js?v=20260529c"></script>
-    <script src="js/detail.js?v=20260529c"></script>
-    <script src="js/map.js?v=20260529c"></script>
+    <script src="js/config.js?v=20260529d"></script>
+    <script src="js/utils.js?v=20260529d"></script>
+    <script src="js/firebase.js?v=20260529d"></script>
+    <script src="js/qr-scanner.js?v=20260529d"></script>
+    <script src="js/detail.js?v=20260529d"></script>
+    <script src="js/map.js?v=20260529d"></script>
 </body>
 </html>
