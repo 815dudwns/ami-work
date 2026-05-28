@@ -4,6 +4,14 @@ let map;
 let markers = [];
 let sampleData = [];
 
+// 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
+// (label: 마커에 표시할 글자, null이면 계기 개수 숫자 / uiLabel: 카테고리 패널 표시명)
+const DATASETS = [
+    { file: './data/site-data.json?v=20260529f', category: '실효', label: null,  uiLabel: '실효계기' },
+    { file: './data/skt-data.json?v=20260529f',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
+    { file: './data/tou-data.json?v=20260529f',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
+];
+
 // 위치 추적 관련 상태
 let locationOverlay = null;
 let locationWatchId = null;
@@ -27,14 +35,6 @@ async function initMap() {
         const c = map.getCenter();
         localStorage.setItem('ami_map_view', JSON.stringify({ lat: c.getLat(), lng: c.getLng(), level: map.getLevel() }));
     });
-
-    // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
-    // (label: 마커에 표시할 글자, null이면 계기 개수 숫자)
-    const DATASETS = [
-        { file: './data/site-data.json?v=20260529e', category: '실효', label: null,  uiLabel: '실효계기' },
-        { file: './data/skt-data.json?v=20260529e',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
-        { file: './data/tou-data.json?v=20260529e',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
-    ];
 
     try {
         const loaded = await Promise.all(DATASETS.map(d =>
