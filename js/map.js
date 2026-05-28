@@ -31,9 +31,9 @@ async function initMap() {
     // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
     // (label: 마커에 표시할 글자, null이면 계기 개수 숫자)
     const DATASETS = [
-        { file: './data/site-data.json?v=20260529a', category: '실효', label: null },
-        { file: './data/skt-data.json?v=20260529a',  category: 'skt',  label: 'SK' },
-        { file: './data/tou-data.json?v=20260529a',  category: 'tou',  label: 'TOU' },
+        { file: './data/site-data.json?v=20260529b', category: '실효', label: null },
+        { file: './data/skt-data.json?v=20260529b',  category: 'skt',  label: 'SK' },
+        { file: './data/tou-data.json?v=20260529b',  category: 'tou',  label: 'TOU' },
     ];
 
     try {
