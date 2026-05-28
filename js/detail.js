@@ -471,7 +471,6 @@ function renderMetersList() {
             if (meter.시공일 && meter.시공일 !== '#N/A')
                 subParts.push(`시공일 ${meter.시공일}`);
             if (meter.고객번호)         subParts.push(`고객 ${meter.고객번호}`);
-            if (meter.본부)             subParts.push(`${meter.본부}`);
         }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
         const details = detailParts.join(', ');

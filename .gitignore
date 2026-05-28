@@ -6,6 +6,7 @@
 # 데이터 원본 / 유틸 스크립트 (로컬 전용)
 *.xlsx
 *.py
+data/original/
 ami-work-1c49a-firebase-adminsdk-*.json
 
 # 이전 버전 아카이브
