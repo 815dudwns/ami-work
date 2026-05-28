@@ -31,9 +31,9 @@ async function initMap() {
     // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
     // (label: 마커에 표시할 글자, null이면 계기 개수 숫자)
     const DATASETS = [
-        { file: './data/site-data.json?v=20260529d', category: '실효', label: null,  uiLabel: '실효계기' },
-        { file: './data/skt-data.json?v=20260529d',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
-        { file: './data/tou-data.json?v=20260529d',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
+        { file: './data/site-data.json?v=20260529e', category: '실효', label: null,  uiLabel: '실효계기' },
+        { file: './data/skt-data.json?v=20260529e',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
+        { file: './data/tou-data.json?v=20260529e',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
     ];
 
     try {
@@ -179,8 +179,7 @@ function loadMarkers() {
 
     const grouped = {};
     sampleData.forEach(item => {
-        // TOU는 서울본부 단일 — 지사 필터 무시 (모든 지사에서 보임)
-        if (selectedJisa && item.category !== 'tou' && item.지사 !== selectedJisa) return;
+        if (selectedJisa && item.지사 !== selectedJisa) return;
         if (item.lat == null || item.lng == null) return;
         if (!selectedCats.has(item.category)) return;
         // 같은 주소라도 카테고리 다르면 별도 마커
