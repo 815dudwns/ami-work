@@ -4,6 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AMI 작업 지도</title>
+    <!-- 자동 캐시 마이그레이션 — APP_VERSION 바뀌면 강제 새로고침 (한 번만) -->
+    <script>
+    (function () {
+        const APP_VERSION = '20260529e';
+        if (localStorage.getItem('ami_app_version') !== APP_VERSION) {
+            localStorage.setItem('ami_app_version', APP_VERSION);
+            const reloadKey = 'ami_reloaded_for_' + APP_VERSION;
+            if (!sessionStorage.getItem(reloadKey)) {
+                sessionStorage.setItem(reloadKey, '1');
+                window.location.reload(true);
+                return;
+            }
+        }
+    })();
+    </script>
     <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=2eae4b699110525f0dc62295ed8ed43d&autoload=false"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
