@@ -463,6 +463,18 @@ function renderMetersList() {
             if (meter.skt_kdn_이력)    subParts.push(`이력 ${meter.skt_kdn_이력}`);
             if (meter.skt_비고)        subParts.push(`비고 ${meter.skt_비고}`);
         }
+        // 7) TOU 전용 필드 (category=tou일 때)
+        if (meter.category === 'tou') {
+            if (meter.tou_source)       subParts.push(`${meter.tou_source}`);
+            if (meter.LP != null && meter.LP !== '' && meter.LP !== '#N/A')
+                subParts.push(`LP ${meter.LP}`);
+            if (meter.시공일 && meter.시공일 !== '#N/A')
+                subParts.push(`시공일 ${meter.시공일}`);
+            if (meter.계기타입_xlsx && meter.계기타입_xlsx !== meter.계기타입)
+                subParts.push(`원본타입 ${meter.계기타입_xlsx}`);
+            if (meter.고객번호)         subParts.push(`고객 ${meter.고객번호}`);
+            if (meter.본부)             subParts.push(`${meter.본부}`);
+        }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
         const details = detailParts.join(', ');
 
