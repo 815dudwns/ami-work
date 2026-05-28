@@ -470,8 +470,6 @@ function renderMetersList() {
                 subParts.push(`LP ${meter.LP}`);
             if (meter.시공일 && meter.시공일 !== '#N/A')
                 subParts.push(`시공일 ${meter.시공일}`);
-            if (meter.계기타입_xlsx && meter.계기타입_xlsx !== meter.계기타입)
-                subParts.push(`원본타입 ${meter.계기타입_xlsx}`);
             if (meter.고객번호)         subParts.push(`고객 ${meter.고객번호}`);
             if (meter.본부)             subParts.push(`${meter.본부}`);
         }
