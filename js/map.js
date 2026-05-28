@@ -7,9 +7,9 @@ let sampleData = [];
 // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
 // (label: 마커에 표시할 글자, null이면 계기 개수 숫자 / uiLabel: 카테고리 패널 표시명)
 const DATASETS = [
-    { file: './data/site-data.json?v=20260529f', category: '실효', label: null,  uiLabel: '실효계기' },
-    { file: './data/skt-data.json?v=20260529f',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
-    { file: './data/tou-data.json?v=20260529f',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
+    { file: './data/site-data.json?v=20260529g', category: '실효', label: null,  uiLabel: '실효계기' },
+    { file: './data/skt-data.json?v=20260529g',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
+    { file: './data/tou-data.json?v=20260529g',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
 ];
 
 // 위치 추적 관련 상태
