@@ -142,7 +142,8 @@ function loadMarkers() {
 
     const grouped = {};
     sampleData.forEach(item => {
-        if (selectedJisa && item.지사 !== selectedJisa) return;
+        // TOU는 서울본부 단일 — 지사 필터 무시 (모든 지사에서 보임)
+        if (selectedJisa && item.category !== 'tou' && item.지사 !== selectedJisa) return;
         if (item.lat == null || item.lng == null) return;
         if (!selectedCats.has(item.category)) return;
         // 같은 주소라도 카테고리 다르면 별도 마커
