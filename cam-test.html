@@ -30,6 +30,7 @@
     ① 권한 허용 → ② 각 카메라 "미리보기" 눌러 화면 확인 → ③ 일반 카메라의 번호/이름 알려주세요.</div>
 
   <button class="btn-main" id="start">① 카메라 권한 허용 + 목록 보기</button>
+  <button class="btn-main" id="testhook" style="background:#16a34a">② 후킹 테스트: OCR처럼 요청 → 일반 카메라 나오나?</button>
   <div id="list"></div>
   <video id="preview" playsinline muted></video>
   <div class="hint" id="hint"></div>
@@ -66,6 +67,66 @@ async function preview(deviceId, label){
     log('preview err: ' + e.message);
   }
 }
+
+// ===== 일반(메인) 후면 카메라 판별 — awms-bridge 후킹에 그대로 이식할 함수 =====
+function pickNormalBackCamera(devices){
+  const back = devices.filter(d => d.kind === 'videoinput' && /back|후면/i.test(d.label));
+  // iOS: 수식어 없는 "후면 카메라" (트리플/듀얼/와이드/울트라/망원 제외)
+  let n = back.find(d => d.label.trim() === '후면 카메라');
+  // Android(삼성/크롬): "camera 0, facing back"
+  if(!n) n = back.find(d => /(^|[^0-9])0(,|\s|$)/.test(d.label) && /back/i.test(d.label));
+  if(!n) n = back.find(d => /camera\s*0\b/i.test(d.label));
+  return n || back[0] || null;  // 못 찾으면 후면 첫번째
+}
+
+// getUserMedia 후킹 — 후면 카메라 요청을 일반 카메라로 강제 (awms-bridge RECORDER_JS용 원본)
+let _hookInstalled = false, _origGUM = null;
+function installCameraHook(){
+  if(_hookInstalled) return;
+  _origGUM = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  navigator.mediaDevices.getUserMedia = async function(constraints){
+    try {
+      const v = constraints && constraints.video;
+      const facing = v && (v.facingMode === 'environment' || (v.facingMode && v.facingMode.exact === 'environment'));
+      const wantsBack = v === true || facing || (v && typeof v === 'object');
+      const isFront = v && (v.facingMode === 'user' || (v.facingMode && v.facingMode.exact === 'user'));
+      if(wantsBack && !isFront){
+        let tmp = null;
+        try { tmp = await _origGUM({ video: { facingMode: 'environment' }, audio: false }); } catch(e){}
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        if(tmp) tmp.getTracks().forEach(t => t.stop());
+        const normal = pickNormalBackCamera(devices);
+        if(normal){
+          const nv = (typeof v === 'object' && v) ? Object.assign({}, v) : {};
+          delete nv.facingMode;
+          nv.deviceId = { exact: normal.deviceId };
+          log('  [HOOK] 후면 요청 → 일반 카메라 강제: ' + normal.label);
+          return _origGUM(Object.assign({}, constraints, { video: nv }));
+        }
+      }
+    } catch(e){ log('[HOOK] err: ' + e.message); }
+    return _origGUM(constraints);
+  };
+  _hookInstalled = true;
+}
+
+$('#testhook').addEventListener('click', async () => {
+  out.textContent = '후킹 설치 후 OCR처럼 facingMode:environment 로 요청...';
+  installCameraHook();
+  await stopCur();
+  try {
+    // awms OCR과 동일한 요청
+    curStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    const v = $('#preview'); v.srcObject = curStream; v.classList.add('on'); await v.play().catch(()=>{});
+    const tr = curStream.getVideoTracks()[0];
+    const lbl = tr.label || '(label없음)';
+    $('#hint').textContent = '후킹 결과 카메라: ' + lbl + '\n이게 일반 화각이면 성공입니다.';
+    log('\n▶ 후킹 후 실제 잡힌 카메라: ' + lbl);
+  } catch(e){
+    $('#hint').textContent = '후킹 테스트 실패: ' + e.message;
+    log('testhook err: ' + e.message);
+  }
+});
 
 $('#start').addEventListener('click', async () => {
   out.textContent = 'UA: ' + navigator.userAgent;
