@@ -3,20 +3,20 @@
 
 (function () {
   'use strict';
-  var VER = 'v10-closemodal';
-  // awms 촬영선택 모달(flmnMode) 닫기 — jQuery 레이어 모달. class로 직접 클릭 + 강제 숨김
+  var VER = 'v11-modalfix';
+  // awms 촬영선택 모달(flmnMode) 닫기 — jQuery 레이어 모달.
+  // 주의: inline style.display='none' 강제 금지 → 잔류 시 awms 재오픈(클래스 토글)이 안 먹어 모달이 다시 안 뜸.
+  // awms 정식 닫기 버튼만 클릭 (상태 일관 유지). 닫기 버튼 없으면 그냥 둠 — 네이티브 스캐너가 위에 풀스크린으로 떠 안 보임.
   function closeFlmnModal() {
     try {
       var modal = document.getElementById('flmnMode');
       if (!modal) return;
       rec({ stage: 'close-modal' });
-      ['.layer_close', '.cbtn', '[title*="닫기"]'].forEach(function (s) {
-        var b = modal.querySelector(s); if (b) b.click();
+      ['.layer_close', '.cbtn', '[title*="닫기"]'].some(function (s) {
+        var b = modal.querySelector(s);
+        if (b) { b.click(); return true; }
+        return false;
       });
-      // 강제 숨김 폴백 (네이티브 스캐너가 위에 뜨므로 안 보이면 충분)
-      modal.style.display = 'none';
-      var wrap = modal.closest('.modal-layer-wrap');
-      if (wrap) wrap.style.display = 'none';
     } catch (e) {}
   }
   function rec(o) {
