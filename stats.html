@@ -9,9 +9,9 @@
     <title>작업 현황 통계 - AMI</title>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-    <script src="js/auth.js?v=20260601a"></script>
-    <script src="js/config.js?v=20260601a"></script>
-    <script src="js/utils.js?v=20260601a"></script>
+    <script src="js/auth.js?v=20260601b"></script>
+    <script src="js/config.js?v=20260601b"></script>
+    <script src="js/utils.js?v=20260601b"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 40px; color: #1f2937; }
@@ -107,27 +107,28 @@
 
 <script>
 // ── 어드민 전용 게이트 (절대 우회 금지) ───────────────────
-(function adminGate() {
+(function statsGate() {
+    // 통계 접근 허용 = 관리자 + 윤용운(user09, 작업자 총괄)
     const session = (typeof authGetSession === 'function') ? authGetSession() : null;
-    const isAdmin = !!session && session.role === 'admin';
-    if (!isAdmin) {
+    const allowed = !!session && (session.role === 'admin' || session.id === 'user09');
+    if (!allowed) {
         try { document.body.innerHTML = ''; } catch (_) {}
         if (!session) {
             window.location.replace('login.html');
         } else {
-            alert('관리자 전용');
+            alert('접근 권한이 없습니다');
             window.location.replace('map.html');
         }
-        throw new Error('forbidden: admin only');
+        throw new Error('forbidden: stats access');
     }
 })();
 
 authRequire();
 const _session = authGetSession();
-if (!_session || _session.role !== 'admin') {
+if (!_session || (_session.role !== 'admin' && _session.id !== 'user09')) {
     document.body.innerHTML = '';
     window.location.replace('map.html');
-    throw new Error('forbidden: admin only');
+    throw new Error('forbidden: stats access');
 }
 
 // ── 초기화 ─────────────────────────────────────────────

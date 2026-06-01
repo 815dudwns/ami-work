@@ -159,7 +159,7 @@
         </div>
     </div>
 
-    <script src="js/auth.js?v=20260601a"></script>
+    <script src="js/auth.js?v=20260601b"></script>
     <script>
         // 로그인 체크 — 미인증이면 login.html로 이동
         authRequire();
@@ -169,22 +169,27 @@
             const session = authGetSession();
             if (session) {
                 document.getElementById('user-name-display').textContent = session.name;
-                if (session.role === 'admin') {
+                const isAdmin = session.role === 'admin';
+                // 사진등록·계기추가·관리자 메뉴 = 관리자 전용
+                if (isAdmin) {
                     document.getElementById('admin-btn').style.display = '';
                     document.getElementById('admin-divider').style.display = '';
-                    document.getElementById('stats-btn').style.display = '';
-                    document.getElementById('stats-divider').style.display = '';
                     document.getElementById('admin-upload-btn').style.display = '';
                     document.getElementById('add-meter-btn').style.display = '';
+                }
+                // 통계 = 관리자 + 윤용운(user09, 작업자 총괄)
+                if (isAdmin || session.id === 'user09') {
+                    document.getElementById('stats-btn').style.display = '';
+                    document.getElementById('stats-divider').style.display = '';
                 }
             }
         })();
     </script>
-    <script src="js/config.js?v=20260601a"></script>
-    <script src="js/utils.js?v=20260601a"></script>
-    <script src="js/firebase.js?v=20260601a"></script>
-    <script src="js/qr-scanner.js?v=20260601a"></script>
-    <script src="js/detail.js?v=20260601a"></script>
-    <script src="js/map.js?v=20260601a"></script>
+    <script src="js/config.js?v=20260601b"></script>
+    <script src="js/utils.js?v=20260601b"></script>
+    <script src="js/firebase.js?v=20260601b"></script>
+    <script src="js/qr-scanner.js?v=20260601b"></script>
+    <script src="js/detail.js?v=20260601b"></script>
+    <script src="js/map.js?v=20260601b"></script>
 </body>
 </html>

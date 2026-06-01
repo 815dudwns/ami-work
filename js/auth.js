@@ -11,7 +11,7 @@ const ACCOUNTS = [
     { id: 'user06', pw: '1111', name: '조은규', role: 'user' },  // 중구 조장
     { id: 'user07', pw: '1111', name: '장진교', role: 'user' },  // 종로 조장
     { id: 'user08', pw: '1111', name: '이규재', role: 'user' },  // 은평 조장
-    { id: 'user09', pw: '1111', name: '윤용운', role: 'user' },  // 광진 조장
+    { id: 'user09', pw: '1890', name: '윤용운', role: 'user' },  // 광진 조장 (작업자 총괄)
     { id: 'user10', pw: '1111', name: '이종우', role: 'user' },  // 마포 조장
     { id: 'user11', pw: '1111', name: '최창호', role: 'user' },  // 중랑 조장
     { id: 'user12', pw: '1111', name: '우희근', role: 'user' },  // 강북 조장
@@ -21,7 +21,7 @@ const ACCOUNTS = [
 
 const AUTH_KEY = 'ami_auth';
 // 강제 재로그인 버전 — 이 값을 바꾸면 모든 사용자가 자동 로그아웃됨
-const AUTH_VERSION = '20260601a';
+const AUTH_VERSION = '20260601b';
 const AUTH_VERSION_KEY = 'ami_auth_version';
 
 /**

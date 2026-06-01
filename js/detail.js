@@ -373,6 +373,8 @@ function getMetersWithAdded() {
 
 // 계기 목록 HTML 생성 및 렌더링
 function renderMetersList() {
+    // 관리자 여부 (추가계기 삭제 등 관리자 전용 UI 제어)
+    const isAdmin = (typeof authGetSession === 'function') && ((authGetSession() || {}).role === 'admin');
     const meters = getMetersWithAdded();
     // currentMeters를 임시로 합친 배열로 교체 (정렬 함수가 currentMeters 참조)
     const origCurrent = currentMeters;
@@ -513,7 +515,7 @@ function renderMetersList() {
         const addedBadge = isAdded
             ? `<span style="background:#ede9fe;color:#6d28d9;font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;margin-right:6px;">추가</span>`
             : '';
-        const addedRemoveBtn = isAdded
+        const addedRemoveBtn = (isAdded && isAdmin)
             ? `<button class="meter-add-remove-btn" data-meter="${meter.계기번호}" title="추가 계기 삭제" style="margin-left:6px;background:#fee2e2;color:#b91c1c;border:none;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;cursor:pointer;">삭제</button>`
             : '';
         const addedInfo = isAdded
