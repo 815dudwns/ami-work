@@ -208,7 +208,13 @@ function showDetail(address, meters) {
     const reworkEl = document.getElementById('rework-notice');
     if (reworkEl) {
         if (status.rework === true) {
-            const prevName = status.previousCompleteBy || '';
+            // 이전 완료자: 이름 우선, 없으면 ID를 계정명으로 변환
+            const prevRaw = status.previousCompleteByName || status.previousCompleteBy || '';
+            let prevName = prevRaw;
+            if (typeof ACCOUNTS !== 'undefined') {
+                const acc = ACCOUNTS.find(a => a.id === prevRaw);
+                if (acc) prevName = acc.name;
+            }
             const prevAt = status.previousCompleteAt || '';
             let prevDate = '';
             if (prevAt) {
