@@ -63,10 +63,17 @@
     if (d.length >= 8) return '012' + d.slice(-8);
     return d || id;
   }
-  function toMeter(raw) {                             // 계기번호: 변환 X, 라벨/숫자만
+  function toMeter(raw) {                             // 계기번호: 변환 X. 앞 데이터 제거 → 마지막 계기번호 숫자열만
     var s = String(raw || '').trim();
-    var m = s.match(/계기\s*번?호?\s*[:：]?\s*([0-9]+)/);
-    return m ? m[1] : digitsOf(s);
+    // "계기번호 : 12345678901" 라벨 있으면 그 값
+    var m = s.match(/계기\s*번?호?\s*[:：]?\s*([0-9]{6,})/);
+    if (m) return m[1];
+    // 라벨 없으면: 마지막 줄 우선 → 그 안의 마지막 긴 숫자열(6자리+). 없으면 전체에서 마지막 숫자열.
+    var lines = s.split(/[\r\n]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+    var scope = lines.length ? lines[lines.length - 1] : s;
+    var nums = scope.match(/\d{6,}/g) || s.match(/\d{6,}/g);
+    if (nums && nums.length) return nums[nums.length - 1];
+    return digitsOf(s);
   }
   function convertForField(field, raw) {
     var f = field || '';
