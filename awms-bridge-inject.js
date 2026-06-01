@@ -3,19 +3,20 @@
 
 (function () {
   'use strict';
-  var VER = 'v9-closemodal';
-  // awms 촬영선택 모달(flmnMode: BARCODE/QRCODE/OCR) 닫기
+  var VER = 'v10-closemodal';
+  // awms 촬영선택 모달(flmnMode) 닫기 — jQuery 레이어 모달. class로 직접 클릭 + 강제 숨김
   function closeFlmnModal() {
     try {
       var modal = document.getElementById('flmnMode');
       if (!modal) return;
-      var els = Array.prototype.slice.call(modal.querySelectorAll('button,a,span,div,p,i'));
-      var btn = els.find(function (b) { return /^\s*닫기\s*$/.test(b.textContent || ''); });
-      if (btn) { btn.click(); return; }
+      rec({ stage: 'close-modal' });
+      ['.layer_close', '.cbtn', '[title*="닫기"]'].forEach(function (s) {
+        var b = modal.querySelector(s); if (b) b.click();
+      });
+      // 강제 숨김 폴백 (네이티브 스캐너가 위에 뜨므로 안 보이면 충분)
       modal.style.display = 'none';
-      if (modal.parentElement && /modal|dim|overlay|popup/i.test(modal.parentElement.className || '')) {
-        modal.parentElement.style.display = 'none';
-      }
+      var wrap = modal.closest('.modal-layer-wrap');
+      if (wrap) wrap.style.display = 'none';
     } catch (e) {}
   }
   function rec(o) {
