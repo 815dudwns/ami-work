@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>카메라 진단</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #0f172a; color: #e5e7eb; padding: 16px; }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  .sub { font-size: 12px; color: #94a3b8; margin-bottom: 16px; line-height: 1.5; }
+  button { font-family: inherit; cursor: pointer; border: none; border-radius: 8px; font-weight: 700; }
+  .btn-main { width: 100%; padding: 14px; background: #2563eb; color: #fff; font-size: 15px; margin-bottom: 14px; }
+  .cam { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+  .cam.awms { border-color: #f59e0b; }
+  .cam .idx { font-size: 11px; color: #94a3b8; }
+  .cam .label { font-size: 14px; font-weight: 700; margin: 3px 0 8px; word-break: break-all; }
+  .cam .tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; margin-left: 6px; }
+  .tag.awms { background: #78350f; color: #fcd34d; }
+  .cam button { padding: 9px 14px; background: #334155; color: #e5e7eb; font-size: 13px; width: 100%; }
+  video { width: 100%; border-radius: 8px; margin-top: 10px; background: #000; display: none; }
+  video.on { display: block; }
+  #out { font-family: ui-monospace, monospace; font-size: 11px; background: #111827; padding: 10px; border-radius: 8px; white-space: pre-wrap; margin-top: 14px; line-height: 1.5; max-height: 40vh; overflow:auto; }
+  .hint { font-size: 13px; color: #fbbf24; margin: 10px 0; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <h1>카메라 진단</h1>
+  <div class="sub">광각 말고 어느 게 <b>일반 카메라</b>인지 찾는 페이지입니다.<br>
+    ① 권한 허용 → ② 각 카메라 "미리보기" 눌러 화면 확인 → ③ 일반 카메라의 번호/이름 알려주세요.</div>
+
+  <button class="btn-main" id="start">① 카메라 권한 허용 + 목록 보기</button>
+  <div id="list"></div>
+  <video id="preview" playsinline muted></video>
+  <div class="hint" id="hint"></div>
+  <div id="out">대기중...</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const out = $('#out');
+let curStream = null;
+const log = (m) => { out.textContent += '\n' + m; };
+
+function isAndroid(){ return /android/i.test(navigator.userAgent); }
+function isiOS(){ return /iphone|ipad/i.test(navigator.userAgent); }
+
+async function stopCur(){
+  if(curStream){ curStream.getTracks().forEach(t=>t.stop()); curStream=null; }
+}
+
+async function preview(deviceId, label){
+  await stopCur();
+  const v = $('#preview');
+  try {
+    curStream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: deviceId } }, audio: false
+    });
+    v.srcObject = curStream; v.classList.add('on'); await v.play().catch(()=>{});
+    // 실제 트랙 설정 확인
+    const tr = curStream.getVideoTracks()[0];
+    const st = tr.getSettings ? tr.getSettings() : {};
+    $('#hint').textContent = `지금 보이는 카메라: ${label}\n이게 일반(평소 쓰는) 화각이면 이 번호를 알려주세요.`;
+    log(`▶ preview: ${label}\n   settings: w=${st.width} h=${st.height} zoom=${st.zoom||'-'} facing=${st.facingMode||'-'}`);
+  } catch(e){
+    $('#hint').textContent = '이 카메라 미리보기 실패: ' + e.message;
+    log('preview err: ' + e.message);
+  }
+}
+
+$('#start').addEventListener('click', async () => {
+  out.textContent = 'UA: ' + navigator.userAgent;
+  log('platform: ' + (isAndroid()?'Android':isiOS()?'iOS':'기타'));
+  try {
+    // 권한 트리거 (label 노출용)
+    const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    s.getTracks().forEach(t=>t.stop());
+  } catch(e){ log('권한 요청 실패: ' + e.message); }
+
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const cams = devices.filter(d => d.kind === 'videoinput');
+  log(`\n전체 비디오 입력 ${cams.length}개:`);
+  cams.forEach((c,i)=> log(`  [${i}] ${c.label || '(label없음)'} | ${c.deviceId.slice(0,12)}...`));
+
+  // awms 로직 재현: label에 back/후면 포함된 것만
+  const back = cams.filter(d => /back|후면/i.test(d.label));
+  // awms가 고르는 것
+  let awmsPick = null;
+  if(isiOS()) awmsPick = back[0];
+  else if(isAndroid()) awmsPick = back[back.length-1];
+  log(`\n후면 카메라 ${back.length}개. awms가 고르는 건: [${isAndroid()?'안드로이드=마지막':'아이폰=첫번째'}] → ${awmsPick? awmsPick.label : '없음'}`);
+
+  const listEl = $('#list');
+  listEl.innerHTML = '';
+  const showList = back.length ? back : cams;
+  showList.forEach((c, i) => {
+    const isAwms = awmsPick && c.deviceId === awmsPick.deviceId;
+    const div = document.createElement('div');
+    div.className = 'cam' + (isAwms ? ' awms' : '');
+    div.innerHTML = `<div class="idx">후면 #${i}${isAwms?'<span class="tag awms">awms가 지금 고르는 것(광각 의심)</span>':''}</div>
+      <div class="label">${c.label || '(label 없음)'}</div>`;
+    const b = document.createElement('button');
+    b.textContent = '미리보기';
+    b.onclick = () => preview(c.deviceId, c.label || ('후면 #'+i));
+    div.appendChild(b);
+    listEl.appendChild(div);
+  });
+  $('#hint').textContent = '각 "미리보기"를 눌러 일반 화각인 것을 찾으세요.';
+});
+</script>
+</body>
+</html>
