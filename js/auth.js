@@ -21,7 +21,7 @@ const ACCOUNTS = [
 
 const AUTH_KEY = 'ami_auth';
 // 강제 재로그인 버전 — 이 값을 바꾸면 모든 사용자가 자동 로그아웃됨
-const AUTH_VERSION = '20260529k';
+const AUTH_VERSION = '20260601a';
 const AUTH_VERSION_KEY = 'ami_auth_version';
 
 /**
