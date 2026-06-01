@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v13-parseValue';
+  var VER = 'v14-deptwith';
 
   function rec(o) {
     try {
@@ -643,5 +643,36 @@ function parseValue(text) {
       }, true);
       console.log('[awms-inject] scan-intercept + parseValue + vFlmnCl autofill installed');
     }
+  } catch (e) {}
+
+  // ── 헬퍼: 설비등록 폼 자동선택 (지사/동행) — 통신팀 기본값. 추후 __TEAM/앱설정으로 분기/on·off ──
+  var TEAM_DEFAULTS = { DEPT2: '7793', MTR_WITH_YN: 'Y' };   // 통신팀(종로/서울본부직할). 계기팀=N+다른지사
+  function setRow(vm, row, key, val) {
+    if (row[key]) return;                                     // 빈 칸일 때만 — 수동/기존값 보존
+    if (typeof vm.$set === 'function') vm.$set(row, key, val); else row[key] = val;
+  }
+  function applyDeptWith(vm) {
+    try {
+      var row = vm && vm.mainList && vm.mainList.currentRow;
+      if (!row) return;
+      setRow(vm, row, 'DEPT2', TEAM_DEFAULTS.DEPT2);
+      setRow(vm, row, 'MTR_WITH_YN', TEAM_DEFAULTS.MTR_WITH_YN);
+      rec({ stage: 'auto-deptwith', DEPT2: row.DEPT2, WITH: row.MTR_WITH_YN });
+    } catch (e) {}
+  }
+  function installHelper() {
+    var vm = getAwmsVM();
+    if (!vm) return false;
+    if (vm.__helperInstalled) return true;
+    vm.__helperInstalled = true;
+    applyDeptWith(vm);
+    try { vm.$watch('mainList.currentRow', function () { applyDeptWith(vm); }); } catch (e) {}
+    rec({ stage: 'helper-installed' });
+    return true;
+  }
+  try {
+    var __t = 0, __iv = setInterval(function () {
+      if (installHelper() || ++__t > 40) clearInterval(__iv);
+    }, 1000);
   } catch (e) {}
 })();
