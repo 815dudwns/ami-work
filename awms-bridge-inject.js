@@ -1,13 +1,12 @@
-// awms-bridge 리모컨 — QRCODE/BARCODE 클릭 → 네이티브 구글 스캐너(ML Kit) → 값 변환 → 타겟 칸 입력.
-// 타겟 칸 = awms Vue(new Vue, __vue__)의 vFlmnCl (modalOpen('FIELD')가 세팅). 필드별로 변환 규칙 분기.
-//   - 모뎀맥/맥 계열(MAC/MODEM) → 012 + 끝8자리
-//   - 계기번호 계열(INSTR_NUM/METER_ID) → 변환 안 함 (숫자/라벨만)
-//   - 설비ID(자재관리) → 012 변환 + 검색
-// OCR은 awms 원본 그대로.
+// awms-bridge 리모컨 — QRCODE/BARCODE 클릭 → 네이티브 구글 스캐너(ML Kit) → 검증 parseValue로 추출 → 타겟 칸 입력.
+// 타겟 칸 = awms Vue(__vue__)의 vFlmnCl (modalOpen('FIELD')가 세팅).
+//   - 모뎀맥/맥 계열(MAC/MODEM) → parseValue.value 를 012+끝8 변환
+//   - 계기번호/대표계기(INSTR_NUM/METER_ID), DCU_ID → parseValue.value 그대로
+// parseValue = ami-work/js/awms-parseValue.js (awms 원본 검증본) 인라인. OCR은 awms 원본.
 
 (function () {
   'use strict';
-  var VER = 'v12-vflmncl';
+  var VER = 'v13-parseValue';
 
   function rec(o) {
     try {
@@ -16,7 +15,6 @@
     } catch (e) {}
   }
 
-  // awms 촬영선택 모달(flmnMode) 닫기 — 정식 닫기 버튼만 클릭(inline display:none 금지: 잔류 시 재오픈 안 됨).
   function closeFlmnModal() {
     try {
       var modal = document.getElementById('flmnMode');
@@ -30,7 +28,6 @@
     } catch (e) {}
   }
 
-  // ── awms Vue2 인스턴스(vFlmnCl + mainList 보유 컴포넌트) 찾기 ──
   function getAwmsVM() {
     try {
       var all = document.querySelectorAll('body *');
@@ -48,42 +45,512 @@
     return null;
   }
 
-  // ── 변환 ──
-  function digitsOf(s) { return String(s || '').replace(/\D/g, ''); }
-  function extractMaterialId(raw) {
-    var s = String(raw || '').trim();
-    var m = s.match(/자재\s*ID\s*[:：]?\s*([A-Za-z0-9]+)/);
-    return m ? m[1] : s;
-  }
-  function toModemMac(raw) {                          // 모뎀맥/설비ID: 012 + 끝8자리
-    var id = extractMaterialId(raw);
-    if (/^012\d{8}$/.test(id)) return id;
-    var d = digitsOf(id);
+  // 모뎀맥: parseValue 결과(자재ID 등) → 012 + 끝8자리
+  function modemTo012(v) {
+    var s = String(v || '').trim();
+    if (/^012\d{8}$/.test(s)) return s;
+    var d = s.replace(/\D/g, '');
     if (/^012\d{8}$/.test(d)) return d;
     if (d.length >= 8) return '012' + d.slice(-8);
-    return d || id;
-  }
-  function toMeter(raw) {                             // 계기번호: 변환 X. 앞 데이터 제거 → 마지막 계기번호 숫자열만
-    var s = String(raw || '').trim();
-    // "계기번호 : 12345678901" 라벨 있으면 그 값
-    var m = s.match(/계기\s*번?호?\s*[:：]?\s*([0-9]{6,})/);
-    if (m) return m[1];
-    // 라벨 없으면: 마지막 줄 우선 → 그 안의 마지막 긴 숫자열(6자리+). 없으면 전체에서 마지막 숫자열.
-    var lines = s.split(/[\r\n]+/).map(function (x) { return x.trim(); }).filter(Boolean);
-    var scope = lines.length ? lines[lines.length - 1] : s;
-    var nums = scope.match(/\d{6,}/g) || s.match(/\d{6,}/g);
-    if (nums && nums.length) return nums[nums.length - 1];
-    return digitsOf(s);
-  }
-  function convertForField(field, raw) {
-    var f = field || '';
-    if (/INSTR_NUM|METER_ID/.test(f)) return toMeter(raw);        // 계기/대표계기
-    if (/DCU_ID/.test(f)) return String(raw || '').trim();         // DCU ID 원본
-    if (/MAC|MODEM/.test(f)) return toModemMac(raw);              // 모뎀맥/맥 계열
-    return toModemMac(raw);                                        // 기본(설비ID/자재관리)
+    return d || s;
   }
 
-  // ── DOM 폴백 입력칸 (Vue 못 찾을 때) ──
+  // ===== awms 검증 parseValue (js/awms-parseValue.js 인라인) =====
+function parseValue(text) {
+            function lpad(text, padString, length) {
+                let temp = "";
+                for(let i = 0; i < length; i++) {
+                    temp += "" + padString;
+                }
+                temp += text;
+                return temp.substring(temp.length - 6, temp.length);
+            }
+            let parsedText = "";
+			let parsedText2 = "";
+			text = text.split("\x00").join("");
+            if(text.split(" ").join("").length == 13) {
+                var exp = /^\*\d{11}\*$/;
+                var clearedText = text.split(" ").join("");
+                if(exp.test(clearedText)) {
+                    parsedText = clearedText.split("*").join("");
+                }
+            }
+            else if(text.split(" ").join("").length == 11) {
+                var exp = /\d{11}/;
+                var clearedText = text.split(" ").join("");
+                if(exp.test(clearedText)) {
+                    parsedText = clearedText;
+                }
+            }else if(text.split(" ").join("").length == 15){
+				var exp = /^\*[\d-]{11,}\*$/;
+				var clearedText = text.split(" ").join("");
+				if(exp.test(clearedText)) {
+				    parsedText = clearedText.replace(/[*-]/g, "");
+				}
+			}
+            else if(text.indexOf("자재번호") > -1 && text.indexOf("제조년월") > -1 && text.indexOf("제조사") > -1 && text.indexOf("자재 ID") > -1) {
+                let textArray = [];
+                if(text.split('\r').length > 1) {
+                    textArray = text.split('\r');
+                }
+                else if(text.split('\n').length > 1) {
+                    textArray = text.split('\n');
+                }
+                if(textArray.length > 1) {
+                    for(let i = 0; i < textArray.length; i++) {
+                        if(textArray[i].indexOf("자재 ID") > -1) {
+                            let keyValueArray = textArray[i].split(":");
+                            parsedText = keyValueArray[1].trim();
+                            break;
+                        }
+                    }
+                }
+            }
+			else if(text.indexOf("제조자") > -1 
+			        && text.indexOf("상담전화번호") > -1 
+			        && text.indexOf("자재번호") > -1 
+			        && text.indexOf("제조년월") > -1 
+			        && (text.indexOf("계기ID") > -1 || text.indexOf("계기 ID") > -1)) {
+			    let textArray = [];
+			    if(text.split('\r').length > 1) {
+			        textArray = text.split('\r');
+			    }
+			    else if(text.split('\n').length > 1) {
+			        textArray = text.split('\n');
+			    }
+			    if(textArray.length > 1) {
+			        for(let i = 0; i < textArray.length; i++) {
+						if(textArray[i].indexOf("제조년월") > -1) {
+						    let keyValueArray = textArray[i].split(":");
+						    parsedText2 = "20"+keyValueArray[1].trim().replace(/\D/g, "");
+						}
+			            if(textArray[i].indexOf("계기ID") > -1 || textArray[i].indexOf("계기 ID") > -1) {
+			                let keyValueArray = textArray[i].split(":");
+			                parsedText = keyValueArray[1].trim();
+			            }
+			        }
+			    }
+			}
+            else if(text.indexOf("제조사") > -1 
+                    && text.indexOf("상담전화번호") > -1 
+                    && text.indexOf("자재번호") > -1 
+                    && text.indexOf("제조년월") > -1 
+                    && (text.indexOf("계기ID") > -1 || text.indexOf("계기 ID") > -1)) {
+                let textArray = [];
+                if(text.split('\r').length > 1) {
+                    textArray = text.split('\r');
+                }
+                else if(text.split('\n').length > 1) {
+                    textArray = text.split('\n');
+                }
+                if(textArray.length > 1) {
+                    for(let i = 0; i < textArray.length; i++) {
+						if(textArray[i].indexOf("제조년월") > -1) {
+						    let keyValueArray = textArray[i].split(":");
+						    parsedText2 = "20"+keyValueArray[1].trim().replace(/\D/g, "");
+						}						
+                        if(textArray[i].indexOf("계기ID") > -1 || textArray[i].indexOf("계기 ID") > -1) {
+                            let keyValueArray = textArray[i].split(":");
+                            parsedText = keyValueArray[1].trim();
+                        }
+                    }
+                }
+            }
+            else if(text.indexOf("자재번호") > -1 && text.indexOf("제조년월") > -1 && text.indexOf("자재ID") > -1 && text.indexOf("전화번호") > -1) {
+                let textArray = [];
+                if(text.split('\r').length > 1) {
+                    textArray = text.split('\r');
+                }
+                else if(text.split('\n').length > 1) {
+                    textArray = text.split('\n');
+                }
+                if(textArray.length > 1) {
+                    for(let i = 0; i < textArray.length; i++) {
+                        if(textArray[i].indexOf("전화번호") > -1) {
+                            let keyValueArray = textArray[i].split(":");
+                            parsedText = keyValueArray[1].trim();
+                            break;
+                        }
+                    }
+                }
+            }
+            else if(text.indexOf("기기명") > -1 && text.indexOf("제조년월") > -1 && text.indexOf("제조사") > -1 && text.indexOf("제조국가") > -1 && text.indexOf("제조번호") > -1) {
+                let textArray = [];
+                if(text.split('\r').length > 1) {
+                    textArray = text.split('\r');
+                }
+                else if(text.split('\n').length > 1) {
+                    textArray = text.split('\n');
+                }
+                if(textArray.length > 1) {
+                    for(let i = 0; i < textArray.length; i++) {
+                        if(textArray[i].indexOf("제조번호") > -1) {
+                            let keyValueArray = textArray[i].split(":");
+                            parsedText = keyValueArray[1].trim();
+                            break;
+                        }
+                    }
+                }
+            }
+            else if(text.indexOf("PID") > -1 && text.indexOf("YYMM") > -1 && text.indexOf("MID") > -1) {
+                let textArray = [];
+                textArray = text.split(/\r?\n/);
+                if(textArray.length > 1) {
+                    for(let i = 0; i < textArray.length; i++) {
+						if(textArray[i].indexOf("YYMM") > -1) {
+						    let keyValueArray = textArray[i].split(":");
+						    parsedText2 = "20"+keyValueArray[1].trim().replace(/\D/g, "");
+						}						
+                        if(textArray[i].indexOf("MID") > -1) {
+                            let keyValueArray = textArray[i].split(":");
+                            parsedText = keyValueArray[1].trim();
+                        }
+                    }
+                }else if(textArray.length == 1){ //한 줄에 PID, YYMM, MID 존재
+					for (let i = 0; i < textArray.length; i++) {
+						const line = textArray[i];
+						const yymmMatch = line.match(/YYMM\s*:\s*([\d.]+)/);
+						const midMatch = line.match(/MID\s*:\s*([0-9A-Z]+)/);
+						if (yymmMatch) {
+							parsedText2 = "20" + yymmMatch[1].replace(/\D/g, "");
+						}
+						if (midMatch) {
+							parsedText = midMatch[1];
+						}
+					}
+				}
+            }
+            else if(text.indexOf("PID") > -1 && text.indexOf("MID") > -1 && text.indexOf("YYMM") == -1) {
+                parsedText = text.substring(text.indexOf("MID") + 4, text.length);
+                if(parsedText) {
+                    parsedText = parsedText.trim();
+                }
+            }
+			else if(text.indexOf("BID.NO") > -1 && text.indexOf("PID") > -1 && text.indexOf("BID") > -1 && text.indexOf("Q'TY") > -1 && text.indexOf("PLID") == -1) {
+				let textArray = [];
+				textArray = text.split(/\r?\n/);
+				if(textArray.length == 1) { //한 줄에 BID.NO, PID, BID, Q'TY 존재
+				    for(let i = 0; i < textArray.length; i++) {
+						const line = textArray[i];
+						const bidMatch = line.match(/BID\s*:\s*([A-Z]?\d+)/);
+						//const bidMatch = line.match(/BID\s*:\s*(\d+)/);
+						if (bidMatch) {
+							const value = bidMatch[1].trim();
+							const result = value.indexOf("B") > -1 ? value : lpad(value, "0", 6);
+							parsedText = result;
+				        }
+				        
+				        const pidMatch = line.match(/PID\s*:\s*([A-Z]?\d+)/);
+				        if(pidMatch){
+							const value = bidMatch[1].trim();
+							const result = value.indexOf("P") > -1 ? value : lpad(value, "0", 6);
+							parsedText2 = result;
+						}
+				    }
+				}else if(textArray.length > 1) {
+				    for(let i = 0; i < textArray.length; i++) {
+				        if(textArray[i].indexOf("BID") > -1 && textArray[i].indexOf("BID.NO") == -1) {
+				            let keyValueArray = textArray[i].split(":");
+				            if(keyValueArray[1].indexOf("B") > -1 ){
+				                parsedText = keyValueArray[1].trim(); //new QR
+				            }else{
+				                parsedText = lpad(keyValueArray[1].trim(), "0", 6); //old QR
+				            }
+				            break;
+				        }
+				    }
+				    
+				    for(let i = 0; i < textArray.length; i++) {
+				        if(textArray[i].indexOf("PID") > -1) {
+				            let keyValueArray = textArray[i].split(":");
+				            if(keyValueArray[1].indexOf("P") > -1 ){
+				                parsedText2 = keyValueArray[1].trim(); //new QR
+				            }else{
+				                parsedText2 = lpad(keyValueArray[1].trim(), "0", 6); //old QR
+				            }
+				            break;
+				        }
+				    }
+				}
+			}
+            else if(text.indexOf("BID.NO") > -1 && text.indexOf("PID") > -1 && text.indexOf("BID") > -1 && text.indexOf("Q'TY") > -1 && text.indexOf("PLID") == -1) {
+                let textArray = [];
+                if(text.split('\r').length > 1) {
+                    textArray = text.split('\r');
+                }
+                else if(text.split('\n').length > 1) {
+                    textArray = text.split('\n');
+                }
+                if(textArray.length > 1) {
+                    for(let i = 0; i < textArray.length; i++) {
+						if(textArray[i].indexOf("BID.NO") > -1) {
+						    let keyValueArray = textArray[i].split(":");
+						    parsedText2 = keyValueArray[1].trim();
+						}
+                        if(textArray[i].indexOf("BID") > -1 && textArray[i].indexOf("BID.NO") == -1) {
+                            let keyValueArray = textArray[i].split(":");
+                            parsedText = lpad(keyValueArray[1].trim(), "0", 6);
+                        }
+                    }
+                }
+            }
+            else if(text.indexOf("BID.NO") > -1 && text.indexOf("CON.NO") > -1 && text.indexOf("PID") > -1 && text.indexOf("BID") > -1 && text.indexOf("QTY") > -1 && text.indexOf("PLID") == -1) {
+                let textArray = [];
+                if(text.split('\r').length > 1) {
+                    textArray = text.split('\r');
+                }
+                else if(text.split('\n').length > 1) {
+                    textArray = text.split('\n');
+                }
+                if(textArray.length > 1) {
+                    for(let i = 0; i < textArray.length; i++) {
+						if(textArray[i].indexOf("BID.NO") > -1) {
+						    let keyValueArray = textArray[i].split(":");
+						    parsedText2 = keyValueArray[1].trim();
+						}
+                        if(textArray[i].indexOf("BID") > -1 && textArray[i].indexOf("BID.NO") == -1) {
+                            let keyValueArray = textArray[i].split(":");
+                            parsedText = lpad(keyValueArray[1].trim(), "0", 6);
+                        }
+                    }
+                }
+            }
+            else if(text.indexOf("BID NO") > -1 && text.indexOf("PID") > -1 && text.indexOf("PLID") > -1 && text.indexOf("Q'TY") > -1) {
+                let textArray = [];
+                if(text.split('\r').length > 1) {
+                    textArray = text.split('\r');
+                }
+                else if(text.split('\n').length > 1) {
+                    textArray = text.split('\n');
+                }
+                if(textArray.length > 1) {
+                    for(let i = 0; i < textArray.length; i++) {
+                        if(textArray[i].indexOf("PLID") > -1) {
+                            let keyValueArray = textArray[i].split(":");
+                            parsedText = lpad(keyValueArray[1].trim(), "0", 6);
+                            break;
+                        }
+                    }
+                    
+                    for(let i = 0; i < textArray.length; i++) {
+				        if(textArray[i].indexOf("PID") > -1) {
+				            let keyValueArray = textArray[i].split(":");
+				            if(keyValueArray[1].indexOf("P") > -1 ){
+				                parsedText2 = keyValueArray[1].trim(); //new QR
+				            }else{
+				                parsedText2 = lpad(keyValueArray[1].trim(), "0", 6); //old QR
+				            }
+				            break;
+				        }
+				    }
+				    
+                }
+            }
+			else if(text.indexOf("BID NO") > -1 && text.indexOf("PID") > -1 && text.indexOf("PLID") > -1 && text.indexOf("Q'YT") > -1) {
+			    let textArray = [];
+			    textArray = text.split(/\r?\n/);
+			    if(textArray.length > 0) { //한 줄에 BID NO,  PID, PLID, Q'YT 존재
+			        for(let i = 0; i < textArray.length; i++) {
+			            if(textArray[i].indexOf("PLID") > -1) {
+							const line = textArray[i];
+							const plidMatch = line.match(/PLID\s*:\s*(\d+)/);
+							if (plidMatch) {
+								parsedText = lpad(plidMatch[1].trim(), "0", 6);
+							}
+							break;
+			            }
+			        }
+			    }
+			}
+			else if(text.indexOf("BID.NO") > -1 && text.indexOf("PID") > -1 && text.indexOf("PLID") > -1 && text.indexOf("QTY") > -1) {
+                let textArray = [];
+                if(text.split('\r').length > 1) {
+                    textArray = text.split('\r');
+                }
+                else if(text.split('\n').length > 1) {
+                    textArray = text.split('\n');
+                }
+                if(textArray.length > 1) {
+                    for(let i = 0; i < textArray.length; i++) {
+                        if(textArray[i].indexOf("PLID") > -1) {
+                            let keyValueArray = textArray[i].split(":");
+                            parsedText = lpad(keyValueArray[1].trim(), "0", 6);
+                            break;
+                        }
+                    }
+                    
+                    for(let i = 0; i < textArray.length; i++) {
+				        if(textArray[i].indexOf("PID") > -1) {
+				            let keyValueArray = textArray[i].split(":");
+				            if(keyValueArray[1].indexOf("P") > -1 ){
+				                parsedText2 = keyValueArray[1].trim(); //new QR
+				            }else{
+				                parsedText2 = lpad(keyValueArray[1].trim(), "0", 6); //old QR
+				            }
+				            break;
+				        }
+				    }
+				    
+                }
+            }
+            else if(text.indexOf("BID.NO") > -1 && text.indexOf("PID") > -1 && text.indexOf("PLID") > -1 && text.indexOf("Q'TY") > -1) {
+                let textArray = [];
+                if(text.split('\r').length > 1) {
+                    textArray = text.split('\r');
+                }
+                else if(text.split('\n').length > 1) {
+                    textArray = text.split('\n');
+                }
+                if(textArray.length > 1) {
+                    for(let i = 0; i < textArray.length; i++) {
+                        if(textArray[i].indexOf("PLID") > -1) {
+                            let keyValueArray = textArray[i].split(":");
+							if(keyValueArray[1].indexOf("P") > -1 ){
+								parsedText = keyValueArray[1].trim();
+							}else{
+								parsedText = lpad(keyValueArray[1].trim(), "0", 6);	
+							}
+                            break;
+                        }
+                    }
+                    
+                    for(let i = 0; i < textArray.length; i++) {
+				        if(textArray[i].indexOf("PID") > -1) {
+				            let keyValueArray = textArray[i].split(":");
+				            if(keyValueArray[1].indexOf("P") > -1 ){
+				                parsedText2 = keyValueArray[1].trim(); //new QR
+				            }else{
+				                parsedText2 = lpad(keyValueArray[1].trim(), "0", 6); //old QR
+				            }
+				            break;
+				        }
+				    }
+				    
+                }
+            }
+            else if(text.indexOf("BIN NO") > -1 && text.indexOf("PID") > -1 && text.indexOf("PLID") > -1 && text.indexOf("Q'TY") > -1) {
+                let textArray = [];
+                if(text.split('\r').length > 1) {
+                    textArray = text.split('\r');
+                }
+                else if(text.split('\n').length > 1) {
+                    textArray = text.split('\n');
+                }
+                if(textArray.length > 1) {
+                    for(let i = 0; i < textArray.length; i++) {
+                        if(textArray[i].indexOf("PLID") > -1) {
+                            let keyValueArray = textArray[i].split(":");
+                            parsedText = lpad(keyValueArray[1].trim(), "0", 6);
+                            break;
+                        }
+                    }
+                    
+                    for(let i = 0; i < textArray.length; i++) {
+				        if(textArray[i].indexOf("PID") > -1) {
+				            let keyValueArray = textArray[i].split(":");
+				            if(keyValueArray[1].indexOf("P") > -1 ){
+				                parsedText2 = keyValueArray[1].trim(); //new QR
+				            }else{
+				                parsedText2 = lpad(keyValueArray[1].trim(), "0", 6); //old QR
+				            }
+				            break;
+				        }
+				    }
+                }
+            }
+			else if(text.indexOf("BID NO") > -1 && text.indexOf("PID") > -1 && text.indexOf("PLID") > -1 && text.indexOf("Q' TY") > -1) {
+			    let textArray = [];
+			    if(text.split('\r').length > 1) {
+			        textArray = text.split('\r');
+			    }
+			    else if(text.split('\n').length > 1) {
+			        textArray = text.split('\n');
+			    }
+			    if(textArray.length > 1) {
+			        for(let i = 0; i < textArray.length; i++) {
+			            if(textArray[i].indexOf("PLID") > -1) {
+			                let keyValueArray = textArray[i].split(":");
+			                parsedText = lpad(keyValueArray[1].trim(), "0", 6);
+			                break;
+			            }
+			        }
+			        
+			        for(let i = 0; i < textArray.length; i++) {
+				        if(textArray[i].indexOf("PID") > -1) {
+				            let keyValueArray = textArray[i].split(":");
+				            if(keyValueArray[1].indexOf("P") > -1 ){
+				                parsedText2 = keyValueArray[1].trim(); //new QR
+				            }else{
+				                parsedText2 = lpad(keyValueArray[1].trim(), "0", 6); //old QR
+				            }
+				            break;
+				        }
+				    }
+			    }
+			}
+			else if(text.indexOf("SKT") > -1) {
+				const match = text.match(/\d{11}/);
+				const textVal = match ? match[0] : text;
+				parsedText = textVal;
+			}
+			else if(text.indexOf("계약번호") > -1 && text.indexOf("자재번호") > -1 && text.indexOf("박스번호") > -1 && text.indexOf("수량") > -1) {
+				let textArray = [];
+				textArray = text.split(/\r?\n/);
+				if(textArray.length > 1) {
+				    for(let i = 0; i < textArray.length; i++) {
+				        if(textArray[i].indexOf("박스번호") > -1) {
+				            let keyValueArray = textArray[i].split(":");
+				            parsedText = lpad(keyValueArray[1].trim(), "0", 6);
+				            break;
+				        }
+				    }
+				}
+			}
+			else if(text.indexOf("자재번호") > -1 && text.indexOf("제조년월") > -1 && text.indexOf("자재 ID") > -1) {
+				let textArray = [];
+				textArray = text.split(/\r?\n/);
+				if(textArray.length > 1) {
+				    for(let i = 0; i < textArray.length; i++) {
+				        if(textArray[i].indexOf("자재 ID") > -1) {
+				            let keyValueArray = textArray[i].split(":");
+				            parsedText = keyValueArray[1].trim();
+				            break;
+				        }
+				    }
+				}
+			}
+			//20260305 신규패턴 추가 {"pcknNo":"0PCW99JP4QKY3"}
+			else if(text.indexOf("pcknNo") > -1) {
+				const match = text.match(/"pcknNo"\s*:\s*"([^"]+)"/);
+				const textVal = match ? match[0] : text;
+				parsedText = textVal;
+			}
+            else {
+                parsedText = text;
+            }
+            if(parsedText.indexOf("*") > -1) {
+                parsedText.replaceAll("*", "");
+            }
+            return { value: parsedText, value2: parsedText2 };
+}
+  // ===== /parseValue =====
+
+  function convertForField(field, raw) {
+    var p = (typeof parseValue === 'function') ? (parseValue(raw) || {}) : {};
+    var value = (p.value != null && p.value !== '') ? p.value : raw;
+    var f = field || '';
+    var r = String(raw || '');
+    // 1) raw 형식으로 계기/모뎀 자동 판별 (계기 QR과 모뎀 QR은 형식이 다름 — 영준님)
+    if (/계기\s*ID/.test(r)) return value;             // 계기 QR = 변환 없음 (계기번호 그대로)
+    if (/자재\s*ID/.test(r)) return modemTo012(value);  // 모뎀(자재) QR = 012 + 끝8 변환
+    // 2) raw가 애매하면 타겟 필드(vFlmnCl)로 보조 판별
+    if (/INSTR_NUM|METER_ID/.test(f)) return value;
+    if (/DCU_ID/.test(f)) return value;
+    if (/MAC|MODEM/.test(f)) return modemTo012(value);
+    // 3) 기본: 변환 안 함 (계기 오변환 방지). 순수 모뎀 11자리(012…)면 parseValue가 그대로 반환.
+    return value;
+  }
+
   var NAME_BY_FIELD = { 'MAC_MODEM': '모뎀맥', 'INSTR_NUM': '계기번호', 'MB_METER_ID': '대표계기',
     'EXT_DCU_ID': '기존 DCU_ID', 'NEW_DCU_MAC': '사용 DCU자재', 'EXT_DCU_MAC': '기존 DCU자재' };
   function findInputByField(field) {
@@ -114,7 +581,6 @@
 
   try { console.log('[awms-inject] ' + VER); } catch (e) {}
 
-  // 배지
   try {
     if (location.host.indexOf('awms') > -1 && !document.getElementById('__inject_badge')) {
       var show = function () {
@@ -129,7 +595,6 @@
     }
   } catch (e) {}
 
-  // 네이티브 스캔 결과 → 타겟 필드 변환 → Vue 주입(+DOM 폴백)
   window.__onNativeScan = function (raw) {
     var field = window.__pendingField || '';
     var vm = window.__pendingVM || getAwmsVM();
@@ -138,7 +603,6 @@
     var val = convertForField(field, raw);
     rec({ stage: 'convert', val: val, field: field });
 
-    // 1) Vue currentRow 직접 주입 (정확 — vFlmnCl 기반)
     if (vm && field && vm.mainList && vm.mainList.currentRow) {
       try {
         if (typeof vm.$set === 'function') vm.$set(vm.mainList.currentRow, field, val);
@@ -147,7 +611,6 @@
         return;
       } catch (e) { rec({ stage: 'inject-vue-fail', msg: String(e) }); }
     }
-    // 2) DOM 폴백
     var input = findInputByField(field);
     if (input) {
       setInput(input, val);
@@ -158,7 +621,6 @@
     }
   };
 
-  // QRCODE/BARCODE 클릭 가로채 → 타겟 필드 캐싱 → 네이티브 스캐너 (OCR은 통과 = awms 원본)
   try {
     if (!window.__scanHook) {
       window.__scanHook = true;
@@ -171,7 +633,7 @@
             e.preventDefault(); e.stopImmediatePropagation();
             var vm = getAwmsVM();
             window.__pendingVM = vm;
-            window.__pendingField = vm ? (vm.vFlmnCl || '') : '';   // 모달 닫기 전에 타겟 캐싱
+            window.__pendingField = vm ? (vm.vFlmnCl || '') : '';
             rec({ stage: 'intercept', txt: txt, field: window.__pendingField });
             closeFlmnModal();
             if (window.AndroidScanner && window.AndroidScanner.scan) window.AndroidScanner.scan();
@@ -179,7 +641,7 @@
           }
         } catch (err) {}
       }, true);
-      console.log('[awms-inject] scan-intercept + vFlmnCl autofill installed');
+      console.log('[awms-inject] scan-intercept + parseValue + vFlmnCl autofill installed');
     }
   } catch (e) {}
 })();
