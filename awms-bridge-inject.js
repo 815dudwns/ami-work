@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v33-noxhr';
+  var VER = 'v34-helperson';
 
   function rec(o) {
     try {
@@ -652,7 +652,6 @@ function parseValue(text) {
     if (typeof vm.$set === 'function') vm.$set(row, key, val); else row[key] = val;
   }
   function applyDeptWith(vm) {
-    return;  // [v32] 계기팀 작업 중 통신팀 기본값(7793/Y) 자동입력 끔 — 권한 불일치로 저장거부('관리자 문의') 회피. 지사/동행 직접 입력.
     try {
       var row = vm && vm.mainList && vm.mainList.currentRow;
       if (!row) return;
@@ -793,7 +792,7 @@ function parseValue(text) {
     try { if (j && j.atchFileId3) { window.__masterPhoto3 = j.atchFileId3; rec({ stage: 'master-photo-saved', f3: j.atchFileId3 }); } } catch (e) {}
   }
   try {
-    if (false && !window.__xhrHooked) {   // [v33] 계기팀 saveRow status=0 진단 — XHR/fetch 래핑 일시 비활성 (시공전 사진 후킹은 currentRow polling이 대체)
+    if (!window.__xhrHooked) {
       window.__xhrHooked = true;
       // recorder가 window.XMLHttpRequest 생성자를 교체 + 인스턴스 메서드 래핑 → prototype 래핑은 빗나감.
       // 동일하게 생성자 래핑 + 인스턴스 메서드로 후킹 (recorder PXHR 위에 한 겹 더).
@@ -821,7 +820,7 @@ function parseValue(text) {
       window.XMLHttpRequest = HookedXHR;
     }
     // fetch도 후킹 (awms가 fetch로 saveAct 보낼 수 있음 — recorder xhr 분류와 무관하게 양쪽 커버)
-    if (false && !window.__fetchHooked && window.fetch) {   // [v33] 진단 — fetch 래핑도 일시 비활성
+    if (!window.__fetchHooked && window.fetch) {
       window.__fetchHooked = true;
       var _f = window.fetch;
       window.fetch = function (u) {
