@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v34-helperson';
+  var VER = 'v35-noxhrperm';
 
   function rec(o) {
     try {
@@ -792,7 +792,7 @@ function parseValue(text) {
     try { if (j && j.atchFileId3) { window.__masterPhoto3 = j.atchFileId3; rec({ stage: 'master-photo-saved', f3: j.atchFileId3 }); } } catch (e) {}
   }
   try {
-    if (!window.__xhrHooked) {
+    if (false && !window.__xhrHooked) {   // [v35] XHR 래핑 영구 제거 — 시공전 사진은 currentRow polling(v31)이 대체, 계기팀 saveRow(MOBMTR) 충돌 방지
       window.__xhrHooked = true;
       // recorder가 window.XMLHttpRequest 생성자를 교체 + 인스턴스 메서드 래핑 → prototype 래핑은 빗나감.
       // 동일하게 생성자 래핑 + 인스턴스 메서드로 후킹 (recorder PXHR 위에 한 겹 더).
@@ -820,7 +820,7 @@ function parseValue(text) {
       window.XMLHttpRequest = HookedXHR;
     }
     // fetch도 후킹 (awms가 fetch로 saveAct 보낼 수 있음 — recorder xhr 분류와 무관하게 양쪽 커버)
-    if (!window.__fetchHooked && window.fetch) {
+    if (false && !window.__fetchHooked && window.fetch) {   // [v35] fetch 래핑도 영구 제거 (시공전 사진은 polling 대체)
       window.__fetchHooked = true;
       var _f = window.fetch;
       window.fetch = function (u) {
