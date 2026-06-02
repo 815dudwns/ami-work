@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v26-xhrfix';
+  var VER = 'v27-ocrcam';
 
   function rec(o) {
     try {
@@ -825,5 +825,46 @@ function parseValue(text) {
         }
       } catch (e) {}
     }, 1200);
+  } catch (e) {}
+
+  // OCR 카메라 광각→일반 후킹. awms OCR(ocr-reader-warebiz)이 facingMode:environment로 요청 시
+  // 일반 후면 렌즈 deviceId로 교체(영준님 폰 광각 깨짐 회피). QR/바코드는 네이티브 스캐너라 무관.
+  function pickNormalBackCamera(devices) {
+    var back = devices.filter(function (d) { return d.kind === 'videoinput' && /back|후면/i.test(d.label); });
+    var n = back.find(function (d) { return d.label.trim() === '후면 카메라'; });                       // iOS 일반
+    if (!n) n = back.find(function (d) { return /(^|[^0-9])0(,|\s|$)/.test(d.label) && /back/i.test(d.label); }); // 안드 camera 0
+    if (!n) n = back.find(function (d) { return /camera\s*0\b/i.test(d.label); });
+    return n || back[0] || null;
+  }
+  try {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia && !window.__camHooked) {
+      window.__camHooked = true;
+      var _gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = function (constraints) {
+        return (async function () {
+          try {
+            var v = constraints && constraints.video;
+            var facing = v && (v.facingMode === 'environment' || (v.facingMode && v.facingMode.exact === 'environment'));
+            var isFront = v && (v.facingMode === 'user' || (v.facingMode && v.facingMode.exact === 'user'));
+            var wantsBack = v === true || facing || (v && typeof v === 'object');
+            if (wantsBack && !isFront) {
+              var tmp = null;
+              try { tmp = await _gum({ video: { facingMode: 'environment' }, audio: false }); } catch (e) {}
+              var devices = await navigator.mediaDevices.enumerateDevices();
+              if (tmp) tmp.getTracks().forEach(function (t) { t.stop(); });
+              var normal = pickNormalBackCamera(devices);
+              if (normal) {
+                var nv = (typeof v === 'object' && v) ? Object.assign({}, v) : {};
+                delete nv.facingMode;
+                nv.deviceId = { exact: normal.deviceId };
+                rec({ stage: 'cam-hook', label: normal.label });
+                return _gum(Object.assign({}, constraints, { video: nv }));
+              }
+            }
+          } catch (e) { rec({ stage: 'cam-hook-err', msg: String(e) }); }
+          return _gum(constraints);
+        })();
+      };
+    }
   } catch (e) {}
 })();
