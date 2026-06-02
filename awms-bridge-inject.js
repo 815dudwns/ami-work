@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v22-plcmac';
+  var VER = 'v23-slaveinst';
 
   function rec(o) {
     try {
@@ -665,7 +665,7 @@ function parseValue(text) {
   // 마스터(MODEM_DIV=10): INST_S = 계기타입+맥 추론. 슬래이브(20): 직전 마스터 통신방식 따라옴.
   // 분기: 슬래이브가 아미고면 무선·아니면 0.5. (PLC는 site-data 통신방식 매핑 단계에서 확장 — __commMap)
   // INST_S suffix: 10=ks-plc 20=hpgp 40=LTE 70=lte_IV 80=iot-plc 90=k-dcu 92=smgw-c
-  var lastMasterINST_S = '';
+  var lastMasterINST_S = '', lastMasterSuffix = '';
   function isAmigo(m) { return m === 'HW4050'; }
   function macIsLte(mac) { return /^012\d{8}$/.test(String(mac || '').replace(/\D/g, '')); }
   // site-data 통신방식 문자열 → INST_S suffix
@@ -731,13 +731,13 @@ function parseValue(text) {
       var row = vm && vm.mainList && vm.mainList.currentRow;
       if (!row) return;
       var instM = row.INST_M, mac = row.MAC_MODEM, modem = String(row.MODEM_DIV || ''), meter = row.INSTR_NUM;
-      if (modem === '20') {                                 // 슬래이브: 통신방식 따라옴 + 분기
-        setSelectVal(vm, row, 'INST_S', lastMasterINST_S, '통신방식');
-        setSelectVal(vm, row, 'BUNGI', isAmigo(instM) ? '무선' : '0.5', '분기기');
-        rec({ stage: 'auto-comm-slave', INST_S: row.INST_S, BUNGI: row.BUNGI });
+      if (modem === '20') {                                 // 슬래이브: 슬래이브계기타입 + 마스터 통신suffix
+        if (instM && lastMasterSuffix) setSelectVal(vm, row, 'INST_S', instM + lastMasterSuffix, '통신방식');
+        setSelectVal(vm, row, 'BUNGI', lastMasterSuffix === '92' ? '무선' : '0.5', '분기기'); // smgw-c(아미고모뎀)=무선, 그외 0.5
+        rec({ stage: 'auto-comm-slave', INST_S: row.INST_S, BUNGI: row.BUNGI, suf: lastMasterSuffix });
       } else if (modem === '10') {                          // 마스터
         var s = inferMasterINST_S(instM, mac, meter);
-        if (s) { setSelectVal(vm, row, 'INST_S', s, '통신방식'); lastMasterINST_S = s; rec({ stage: 'auto-comm-master', INST_S: s }); }
+        if (s) { setSelectVal(vm, row, 'INST_S', s, '통신방식'); lastMasterINST_S = s; lastMasterSuffix = s.slice(-2); rec({ stage: 'auto-comm-master', INST_S: s, suf: lastMasterSuffix }); }
       }
     } catch (e) {}
   }
