@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v14-deptwith';
+  var VER = 'v15-commtype';
 
   function rec(o) {
     try {
@@ -660,13 +660,73 @@ function parseValue(text) {
       rec({ stage: 'auto-deptwith', DEPT2: row.DEPT2, WITH: row.MTR_WITH_YN });
     } catch (e) {}
   }
+
+  // ── 통신방식/분기 자동선택 (계기번호+맥 입력 후) ──
+  // 마스터(MODEM_DIV=10): INST_S = 계기타입+맥 추론. 슬래이브(20): 직전 마스터 통신방식 따라옴.
+  // 분기: 슬래이브가 아미고면 무선·아니면 0.5. (PLC는 site-data 통신방식 매핑 단계에서 확장 — __commMap)
+  // INST_S suffix: 10=ks-plc 20=hpgp 40=LTE 70=lte_IV 80=iot-plc 90=k-dcu 92=smgw-c
+  var lastMasterINST_S = '';
+  function isAmigo(m) { return m === 'HW4050'; }
+  function macIsLte(mac) { return /^012\d{8}$/.test(String(mac || '').replace(/\D/g, '')); }
+  // site-data 통신방식 문자열 → INST_S suffix
+  function commToSuffix(c) {
+    var s = String(c || '').toUpperCase().replace(/[\s_-]/g, '');
+    if (/SMGWC|SMGW/.test(s)) return '92';
+    if (/LTEIV/.test(s)) return '70';
+    if (s === 'LTE') return '40';
+    if (/HPGP/.test(s)) return '20';
+    if (/KDCU|IOTPLC/.test(s)) return '90';
+    if (/KSPLC|^PLC$/.test(s)) return '10';
+    return '';
+  }
+  function inferMasterINST_S(instM, mac, meterNo) {
+    if (!instM) return '';
+    if (macIsLte(mac)) return isAmigo(instM) ? instM + '92' : instM + '70';  // 실제 맥이 LTE면 우선
+    // 비LTE → site-data 통신방식 매핑 (PLC/DCU/HPGP). __commMap 로드돼 있으면.
+    if (window.__commMap && meterNo && window.__commMap[meterNo]) {
+      var suf = commToSuffix(window.__commMap[meterNo]);
+      if (suf) return instM + suf;
+    }
+    return '';  // 미상 → 비워둠(영준님 직접 선택)
+  }
+  function setSelectVal(vm, row, key, val, selName) {
+    if (!val || row[key]) return;                          // 빈 칸일 때만 — 수동값 보존
+    var tries = 0;
+    (function w() {
+      if (typeof vm.$set === 'function') vm.$set(row, key, val); else row[key] = val;
+      var sel = document.querySelector('select[name="' + selName + '"]');
+      if (sel && String(sel.value) === String(val)) return;  // select 반영 확인
+      if (++tries < 12) setTimeout(w, 150);                  // INST_S 옵션 비동기 로드 대기
+    })();
+  }
+  function applyCommBungi(vm) {
+    try {
+      var row = vm && vm.mainList && vm.mainList.currentRow;
+      if (!row) return;
+      var instM = row.INST_M, mac = row.MAC_MODEM, modem = String(row.MODEM_DIV || ''), meter = row.INSTR_NUM;
+      if (modem === '20') {                                 // 슬래이브: 직전 마스터 통신방식 따라옴
+        setSelectVal(vm, row, 'INST_S', lastMasterINST_S, '통신방식');
+        setSelectVal(vm, row, 'BUNGI', isAmigo(instM) ? '무선' : '0.5', '분기기');
+        rec({ stage: 'auto-comm-slave', INST_S: row.INST_S, BUNGI: row.BUNGI });
+      } else if (modem === '10') {                          // 마스터
+        var s = inferMasterINST_S(instM, mac, meter);
+        if (s) { setSelectVal(vm, row, 'INST_S', s, '통신방식'); lastMasterINST_S = s; rec({ stage: 'auto-comm-master', INST_S: s }); }
+      }
+    } catch (e) {}
+  }
+
   function installHelper() {
     var vm = getAwmsVM();
     if (!vm) return false;
     if (vm.__helperInstalled) return true;
     vm.__helperInstalled = true;
     applyDeptWith(vm);
-    try { vm.$watch('mainList.currentRow', function () { applyDeptWith(vm); }); } catch (e) {}
+    try {
+      vm.$watch('mainList.currentRow', function () { applyDeptWith(vm); });
+      vm.$watch('mainList.currentRow.MAC_MODEM', function () { setTimeout(function () { applyCommBungi(vm); }, 200); });
+      vm.$watch('mainList.currentRow.INST_M', function () { setTimeout(function () { applyCommBungi(vm); }, 300); });
+      vm.$watch('mainList.currentRow.MODEM_DIV', function () { setTimeout(function () { applyCommBungi(vm); }, 150); });
+    } catch (e) {}
     rec({ stage: 'helper-installed' });
     return true;
   }
