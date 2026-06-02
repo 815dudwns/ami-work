@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v27-ocrcam';
+  var VER = 'v28-fetchhook';
 
   function rec(o) {
     try {
@@ -788,27 +788,41 @@ function parseValue(text) {
 
   // 마스터 saveAct(XHR) 응답에서 시공전 파일ID 캡처 (사진은 binary 관리 → 저장 후 파일ID로만 공유 가능)
   // awms가 모뎀맥(atchFileId4) 유지하듯, 시공전(atchFileId3)을 받아 슬래이브에 참조로 넣음.
+  function captureMasterPhoto(j) {
+    try { if (j && j.atchFileId3) { window.__masterPhoto3 = j.atchFileId3; rec({ stage: 'master-photo-saved', f3: j.atchFileId3 }); } } catch (e) {}
+  }
   try {
     if (!window.__xhrHooked) {
       window.__xhrHooked = true;
       var _xopen = XMLHttpRequest.prototype.open, _xsend = XMLHttpRequest.prototype.send;
-      XMLHttpRequest.prototype.open = function (m, u) { this.__u = u; return _xopen.apply(this, arguments); };
+      XMLHttpRequest.prototype.open = function (m, u) { this.__u = u; if (String(u).indexOf('saveAct') > -1) rec({ stage: 'xhr-open' }); return _xopen.apply(this, arguments); };
       XMLHttpRequest.prototype.send = function () {
         var x = this;
         if (String(x.__u || '').indexOf('saveAct') > -1) {
           rec({ stage: 'xhr-saveact' });
           x.addEventListener('load', function () {
-            var txt = '';
-            try { txt = x.responseText; } catch (e) {}
-            if (!txt && x.response) txt = (typeof x.response === 'string') ? x.response : '';
+            var txt = ''; try { txt = x.responseText; } catch (e) {}
+            if (!txt && x.response && typeof x.response === 'string') txt = x.response;
             rec({ stage: 'xhr-load', len: (txt || '').length });
-            try {
-              var j = (x.response && typeof x.response === 'object') ? x.response : JSON.parse(txt);
-              if (j && j.atchFileId3) { window.__masterPhoto3 = j.atchFileId3; rec({ stage: 'master-photo-saved', f3: j.atchFileId3 }); }
-            } catch (e) { rec({ stage: 'xhr-parse-fail', msg: String(e) }); }
+            try { captureMasterPhoto((x.response && typeof x.response === 'object') ? x.response : JSON.parse(txt)); }
+            catch (e) { rec({ stage: 'xhr-parse-fail', msg: String(e) }); }
           });
         }
         return _xsend.apply(this, arguments);
+      };
+    }
+    // fetch도 후킹 (awms가 fetch로 saveAct 보낼 수 있음 — recorder xhr 분류와 무관하게 양쪽 커버)
+    if (!window.__fetchHooked && window.fetch) {
+      window.__fetchHooked = true;
+      var _f = window.fetch;
+      window.fetch = function (u) {
+        var url = (u && u.url) ? u.url : String(u);
+        var p = _f.apply(this, arguments);
+        if (url.indexOf('saveAct') > -1) {
+          rec({ stage: 'fetch-saveact' });
+          p.then(function (r) { return r.clone().json(); }).then(captureMasterPhoto).catch(function (e) { rec({ stage: 'fetch-parse-fail', msg: String(e) }); });
+        }
+        return p;
       };
     }
   } catch (e) {}
