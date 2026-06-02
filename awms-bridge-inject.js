@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v25-acskip';
+  var VER = 'v26-xhrfix';
 
   function rec(o) {
     try {
@@ -738,7 +738,7 @@ function parseValue(text) {
   }
   // 사진 공유: 마스터 시공전(ATCH_FILE_ID_3)만 슬래이브에 복사. (모뎀맥 4는 awms가 자동 공유함)
   // awms가 슬래이브 전환 시 3을 리셋 → ATCH_FILE_ID_3 watch가 리셋 직후 마스터값 복원(경쟁 회피).
-  var masterPhoto3 = '';
+  window.__masterPhoto3 = window.__masterPhoto3 || '';   // inject 재주입에도 영속
   function applyCommBungi(vm) {
     try {
       var row = vm && vm.mainList && vm.mainList.currentRow;
@@ -789,17 +789,28 @@ function parseValue(text) {
   // 마스터 saveAct(XHR) 응답에서 시공전 파일ID 캡처 (사진은 binary 관리 → 저장 후 파일ID로만 공유 가능)
   // awms가 모뎀맥(atchFileId4) 유지하듯, 시공전(atchFileId3)을 받아 슬래이브에 참조로 넣음.
   try {
-    var _xopen = XMLHttpRequest.prototype.open, _xsend = XMLHttpRequest.prototype.send;
-    XMLHttpRequest.prototype.open = function (m, u) { this.__u = u; return _xopen.apply(this, arguments); };
-    XMLHttpRequest.prototype.send = function () {
-      var x = this;
-      if (String(x.__u || '').indexOf('saveAct') > -1) {
-        x.addEventListener('load', function () {
-          try { var j = JSON.parse(x.responseText); if (j && j.atchFileId3) { masterPhoto3 = j.atchFileId3; rec({ stage: 'master-photo-saved', f3: j.atchFileId3 }); } } catch (e) {}
-        });
-      }
-      return _xsend.apply(this, arguments);
-    };
+    if (!window.__xhrHooked) {
+      window.__xhrHooked = true;
+      var _xopen = XMLHttpRequest.prototype.open, _xsend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.open = function (m, u) { this.__u = u; return _xopen.apply(this, arguments); };
+      XMLHttpRequest.prototype.send = function () {
+        var x = this;
+        if (String(x.__u || '').indexOf('saveAct') > -1) {
+          rec({ stage: 'xhr-saveact' });
+          x.addEventListener('load', function () {
+            var txt = '';
+            try { txt = x.responseText; } catch (e) {}
+            if (!txt && x.response) txt = (typeof x.response === 'string') ? x.response : '';
+            rec({ stage: 'xhr-load', len: (txt || '').length });
+            try {
+              var j = (x.response && typeof x.response === 'object') ? x.response : JSON.parse(txt);
+              if (j && j.atchFileId3) { window.__masterPhoto3 = j.atchFileId3; rec({ stage: 'master-photo-saved', f3: j.atchFileId3 }); }
+            } catch (e) { rec({ stage: 'xhr-parse-fail', msg: String(e) }); }
+          });
+        }
+        return _xsend.apply(this, arguments);
+      };
+    }
   } catch (e) {}
 
   // 사진 공유 polling — 슬래이브 시공전 칸이 비면 마스터 저장 파일ID로 채움 (미리보기도 파일ID로 표시됨)
@@ -808,9 +819,9 @@ function parseValue(text) {
       try {
         var vm = getAwmsVM(); if (!vm || !vm.mainList) return;
         var r = vm.mainList.currentRow; if (!r) return;
-        if (String(r.MODEM_DIV || '') === '20' && !r.ATCH_FILE_ID_3 && masterPhoto3) {
-          if (typeof vm.$set === 'function') vm.$set(r, 'ATCH_FILE_ID_3', masterPhoto3); else r.ATCH_FILE_ID_3 = masterPhoto3;
-          rec({ stage: 'slave-photo-copy', f3: masterPhoto3 });
+        if (String(r.MODEM_DIV || '') === '20' && !r.ATCH_FILE_ID_3 && window.__masterPhoto3) {
+          if (typeof vm.$set === 'function') vm.$set(r, 'ATCH_FILE_ID_3', window.__masterPhoto3); else r.ATCH_FILE_ID_3 = window.__masterPhoto3;
+          rec({ stage: 'slave-photo-copy', f3: window.__masterPhoto3 });
         }
       } catch (e) {}
     }, 1200);
