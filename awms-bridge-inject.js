@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v24-macsuffix';
+  var VER = 'v25-acskip';
 
   function rec(o) {
     try {
@@ -687,12 +687,13 @@ function parseValue(text) {
     if (/^847207/.test(m)) { var c = m.charAt(6); if (c === '0' || c === 'E') return '90'; if (c === 'B' || c === 'C' || c === 'D') return '10'; }
     if (/^E0AEED/.test(m)) return '10';                       // ks-plc
     if (/^44B433/.test(m) || /^0014B0/.test(m)) return '20';  // hpgp
-    if (/^AC5E8C/.test(m)) return '90';                       // k-dcu
+    if (/^AC5E8C/.test(m)) return 'SKIP';                     // 혼재(K-DCU67/PLC27) → 자동 안 함, 직접 선택
     return '';
   }
   function inferMasterINST_S(instM, mac, meterNo) {
     if (!instM) return '';
     var suf = macToSuffix(mac);
+    if (suf === 'SKIP') return '';                            // AC5E8C 등 애매 → commMap 폴백도 안 함, 직접 선택
     if (suf === 'LTE') return isAmigo(instM) ? instM + '92' : instM + '70';  // 아미고=smgw-c, 그외=lte_IV
     if (suf) return instM + suf;                               // PLC/k-dcu/hpgp = 맥 스캔값으로 확정
     if (window.__commMap && meterNo && window.__commMap[meterNo]) {  // 맥 미판별 → 계기번호 commMap 폴백
