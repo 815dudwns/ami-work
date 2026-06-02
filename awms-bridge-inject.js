@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v29-xhrctor';
+  var VER = 'v30-photocb';
 
   function rec(o) {
     try {
@@ -842,8 +842,14 @@ function parseValue(text) {
         var vm = getAwmsVM(); if (!vm || !vm.mainList) return;
         var r = vm.mainList.currentRow; if (!r) return;
         if (String(r.MODEM_DIV || '') === '20' && !r.ATCH_FILE_ID_3 && window.__masterPhoto3) {
-          if (typeof vm.$set === 'function') vm.$set(r, 'ATCH_FILE_ID_3', window.__masterPhoto3); else r.ATCH_FILE_ID_3 = window.__masterPhoto3;
-          rec({ stage: 'slave-photo-copy', f3: window.__masterPhoto3 });
+          // awms 정식 사진등록 호출(innorixFileUploadSingleCallback)로 시공전(ATCH_FILE3) 주입 — 미리보기/저장 일관
+          if (typeof vm.innorixFileUploadSingleCallback === 'function') {
+            vm.innorixFileUploadSingleCallback({ id: 'ATCH_FILE3', status: 'uploadComplete', ATCH_FILE_ID: window.__masterPhoto3 });
+            rec({ stage: 'slave-photo-copy', f3: window.__masterPhoto3, via: 'callback' });
+          } else {
+            if (typeof vm.$set === 'function') vm.$set(r, 'ATCH_FILE_ID_3', window.__masterPhoto3); else r.ATCH_FILE_ID_3 = window.__masterPhoto3;
+            rec({ stage: 'slave-photo-copy', f3: window.__masterPhoto3, via: 'set' });
+          }
         }
       } catch (e) {}
     }, 1200);
