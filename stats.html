@@ -154,7 +154,7 @@ function initFB() {
 
 async function loadSiteData() {
     if (_metersByAddr) return _metersByAddr;
-    const resp = await fetch('data/site-data.json', { cache: 'force-cache' });
+    const resp = await fetch('data/site-data.json?t=' + Date.now(), { cache: 'no-store' });   // force-cache 제거 — 어제 갱신 데이터를 브라우저 캐시가 막던 문제
     if (!resp.ok) throw new Error('site-data.json 로드 실패');
     const arr = await resp.json();
     const map = {};
