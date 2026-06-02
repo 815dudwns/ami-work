@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v16-commmap';
+  var VER = 'v17-bungi';
 
   function rec(o) {
     try {
@@ -689,14 +689,17 @@ function parseValue(text) {
     }
     return '';  // 미상 → 비워둠(영준님 직접 선택)
   }
-  function setSelectVal(vm, row, key, val, selName) {
+  function setSelectVal(vm, row, key, val, sel) {
     if (!val || row[key]) return;                          // 빈 칸일 때만 — 수동값 보존
     var tries = 0;
     (function w() {
       if (typeof vm.$set === 'function') vm.$set(row, key, val); else row[key] = val;
-      var sel = document.querySelector('select[name="' + selName + '"]');
-      if (sel && String(sel.value) === String(val)) return;  // select 반영 확인
-      if (++tries < 12) setTimeout(w, 150);                  // INST_S 옵션 비동기 로드 대기
+      var el = document.getElementById(sel) || document.querySelector('select[name="' + sel + '"]');
+      if (el) {                                            // DOM 직접 set + change (Vue 미반영 대비)
+        el.value = val; el.dispatchEvent(new Event('change', { bubbles: true }));
+        if (String(el.value) === String(val)) return;      // 옵션 존재·반영 확인
+      }
+      if (++tries < 12) setTimeout(w, 150);                 // 옵션 비동기 로드 대기
     })();
   }
   function applyCommBungi(vm) {
@@ -705,12 +708,12 @@ function parseValue(text) {
       if (!row) return;
       var instM = row.INST_M, mac = row.MAC_MODEM, modem = String(row.MODEM_DIV || ''), meter = row.INSTR_NUM;
       if (modem === '20') {                                 // 슬래이브: 직전 마스터 통신방식 따라옴
-        setSelectVal(vm, row, 'INST_S', lastMasterINST_S, '통신방식');
-        setSelectVal(vm, row, 'BUNGI', isAmigo(instM) ? '무선' : '0.5', '분기기');
+        setSelectVal(vm, row, 'INST_S', lastMasterINST_S, 'form0106');
+        setSelectVal(vm, row, 'BUNGI', isAmigo(instM) ? '무선' : '0.5', 'form0119');
         rec({ stage: 'auto-comm-slave', INST_S: row.INST_S, BUNGI: row.BUNGI });
       } else if (modem === '10') {                          // 마스터
         var s = inferMasterINST_S(instM, mac, meter);
-        if (s) { setSelectVal(vm, row, 'INST_S', s, '통신방식'); lastMasterINST_S = s; rec({ stage: 'auto-comm-master', INST_S: s }); }
+        if (s) { setSelectVal(vm, row, 'INST_S', s, 'form0106'); lastMasterINST_S = s; rec({ stage: 'auto-comm-master', INST_S: s }); }
       }
     } catch (e) {}
   }
