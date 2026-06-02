@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v19-slavephoto';
+  var VER = 'v20-label';
 
   function rec(o) {
     try {
@@ -689,17 +689,38 @@ function parseValue(text) {
     }
     return '';  // 미상 → 비워둠(영준님 직접 선택)
   }
-  function setSelectVal(vm, row, key, val, sel) {
-    if (!val || row[key]) return;                          // 빈 칸일 때만 — 수동값 보존
+  // label 텍스트로 select 찾기 — awms가 id(form0119 등)를 여러 칸에 중복 사용해 getElementById는 위험
+  function findSelectByLabel(text) {
+    var ths = document.querySelectorAll('th');
+    for (var i = 0; i < ths.length; i++) {
+      var lb = ths[i].querySelector('label');
+      if (lb && (lb.textContent || '').trim() === text) {
+        var tr = ths[i].closest('tr');
+        var sel = tr && tr.querySelector('select');
+        if (sel) return sel;
+      }
+    }
+    return null;
+  }
+  // val이 option value면 그대로, 아니면 option 라벨로 매칭해 value 반환 (BUNGI는 value=C_CODE, 라벨=무선/0.5)
+  function resolveOptionValue(sel, val) {
+    var i;
+    for (i = 0; i < sel.options.length; i++) if (String(sel.options[i].value) === String(val)) return val;
+    for (i = 0; i < sel.options.length; i++) if ((sel.options[i].text || '').trim() === String(val)) return sel.options[i].value;
+    return val;
+  }
+  function setSelectVal(vm, row, key, val, labelText) {
+    if (!val) return;
     var tries = 0;
     (function w() {
-      if (typeof vm.$set === 'function') vm.$set(row, key, val); else row[key] = val;
-      var el = document.getElementById(sel) || document.querySelector('select[name="' + sel + '"]');
-      if (el) {                                            // DOM 직접 set + change (Vue 미반영 대비)
-        el.value = val; el.dispatchEvent(new Event('change', { bubbles: true }));
-        if (String(el.value) === String(val)) return;      // 옵션 존재·반영 확인
+      var sel = findSelectByLabel(labelText);
+      if (sel) {
+        var v = resolveOptionValue(sel, val);
+        if (!row[key]) { if (typeof vm.$set === 'function') vm.$set(row, key, v); else row[key] = v; }  // 빈칸만 — 수동값 보존
+        sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true }));
+        if (String(sel.value) === String(v)) return;       // 반영 확인
       }
-      if (++tries < 12) setTimeout(w, 150);                 // 옵션 비동기 로드 대기
+      if (++tries < 15) setTimeout(w, 150);                 // select/옵션 로드 대기
     })();
   }
   // 사진 공유: 마스터 시공전(ATCH_FILE_ID_3)만 슬래이브에 복사. (모뎀맥 4는 awms가 자동 공유함)
@@ -711,12 +732,12 @@ function parseValue(text) {
       if (!row) return;
       var instM = row.INST_M, mac = row.MAC_MODEM, modem = String(row.MODEM_DIV || ''), meter = row.INSTR_NUM;
       if (modem === '20') {                                 // 슬래이브: 통신방식 따라옴 + 분기
-        setSelectVal(vm, row, 'INST_S', lastMasterINST_S, 'form0106');
-        setSelectVal(vm, row, 'BUNGI', isAmigo(instM) ? '무선' : '0.5', 'form0119');
+        setSelectVal(vm, row, 'INST_S', lastMasterINST_S, '통신방식');
+        setSelectVal(vm, row, 'BUNGI', isAmigo(instM) ? '무선' : '0.5', '분기기');
         rec({ stage: 'auto-comm-slave', INST_S: row.INST_S, BUNGI: row.BUNGI });
       } else if (modem === '10') {                          // 마스터
         var s = inferMasterINST_S(instM, mac, meter);
-        if (s) { setSelectVal(vm, row, 'INST_S', s, 'form0106'); lastMasterINST_S = s; rec({ stage: 'auto-comm-master', INST_S: s }); }
+        if (s) { setSelectVal(vm, row, 'INST_S', s, '통신방식'); lastMasterINST_S = s; rec({ stage: 'auto-comm-master', INST_S: s }); }
       }
     } catch (e) {}
   }
@@ -759,5 +780,21 @@ function parseValue(text) {
     var __t = 0, __iv = setInterval(function () {
       if (installHelper() || ++__t > 40) clearInterval(__iv);
     }, 1000);
+  } catch (e) {}
+
+  // 사진 공유 polling — watch가 안 걸리는 경우 보완. 마스터 시공전 기억 + 슬래이브 비면 복원.
+  try {
+    setInterval(function () {
+      try {
+        var vm = getAwmsVM(); if (!vm || !vm.mainList) return;
+        var r = vm.mainList.currentRow; if (!r) return;
+        var md = String(r.MODEM_DIV || '');
+        if (md === '10' && r.ATCH_FILE_ID_3) { masterPhoto3 = r.ATCH_FILE_ID_3; }
+        else if (md === '20' && !r.ATCH_FILE_ID_3 && masterPhoto3) {
+          if (typeof vm.$set === 'function') vm.$set(r, 'ATCH_FILE_ID_3', masterPhoto3); else r.ATCH_FILE_ID_3 = masterPhoto3;
+          rec({ stage: 'slave-photo-copy', f3: masterPhoto3 });
+        }
+      } catch (e) {}
+    }, 1200);
   } catch (e) {}
 })();
