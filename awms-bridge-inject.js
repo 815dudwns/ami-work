@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v23-slaveinst';
+  var VER = 'v24-macsuffix';
 
   function rec(o) {
     try {
@@ -679,13 +679,25 @@ function parseValue(text) {
     if (/KSPLC|^PLC$/.test(s)) return '10';
     return '';
   }
+  // 모뎀맥 스캔값 → 통신방식 suffix. LTE(012)는 별도, hex MAC prefix는 결론문서 §3.
+  function macToSuffix(mac) {
+    var raw = String(mac || '');
+    if (/^012\d{8}$/.test(raw.replace(/\D/g, ''))) return 'LTE';
+    var m = raw.toUpperCase().replace(/[^0-9A-F]/g, '');
+    if (/^847207/.test(m)) { var c = m.charAt(6); if (c === '0' || c === 'E') return '90'; if (c === 'B' || c === 'C' || c === 'D') return '10'; }
+    if (/^E0AEED/.test(m)) return '10';                       // ks-plc
+    if (/^44B433/.test(m) || /^0014B0/.test(m)) return '20';  // hpgp
+    if (/^AC5E8C/.test(m)) return '90';                       // k-dcu
+    return '';
+  }
   function inferMasterINST_S(instM, mac, meterNo) {
     if (!instM) return '';
-    if (macIsLte(mac)) return isAmigo(instM) ? instM + '92' : instM + '70';  // 실제 맥이 LTE면 우선
-    // 비LTE → site-data 통신방식 매핑 (PLC/DCU/HPGP). __commMap 로드돼 있으면.
-    if (window.__commMap && meterNo && window.__commMap[meterNo]) {
-      var suf = commToSuffix(window.__commMap[meterNo]);
-      if (suf) return instM + suf;
+    var suf = macToSuffix(mac);
+    if (suf === 'LTE') return isAmigo(instM) ? instM + '92' : instM + '70';  // 아미고=smgw-c, 그외=lte_IV
+    if (suf) return instM + suf;                               // PLC/k-dcu/hpgp = 맥 스캔값으로 확정
+    if (window.__commMap && meterNo && window.__commMap[meterNo]) {  // 맥 미판별 → 계기번호 commMap 폴백
+      var s2 = commToSuffix(window.__commMap[meterNo]);
+      if (s2) return instM + s2;
     }
     return '';  // 미상 → 비워둠(영준님 직접 선택)
   }
@@ -733,7 +745,7 @@ function parseValue(text) {
       var instM = row.INST_M, mac = row.MAC_MODEM, modem = String(row.MODEM_DIV || ''), meter = row.INSTR_NUM;
       if (modem === '20') {                                 // 슬래이브: 슬래이브계기타입 + 마스터 통신suffix
         if (instM && lastMasterSuffix) setSelectVal(vm, row, 'INST_S', instM + lastMasterSuffix, '통신방식');
-        setSelectVal(vm, row, 'BUNGI', lastMasterSuffix === '92' ? '무선' : '0.5', '분기기'); // smgw-c(아미고모뎀)=무선, 그외 0.5
+        setSelectVal(vm, row, 'BUNGI', (lastMasterSuffix === '92' && isAmigo(instM)) ? '무선' : '0.5', '분기기'); // 무선=아미고모뎀(마스터smgw-c)+아미고계기(슬래이브) 둘다, 그외 0.5
         rec({ stage: 'auto-comm-slave', INST_S: row.INST_S, BUNGI: row.BUNGI, suf: lastMasterSuffix });
       } else if (modem === '10') {                          // 마스터
         var s = inferMasterINST_S(instM, mac, meter);
