@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v28-fetchhook';
+  var VER = 'v29-xhrctor';
 
   function rec(o) {
     try {
@@ -794,22 +794,30 @@ function parseValue(text) {
   try {
     if (!window.__xhrHooked) {
       window.__xhrHooked = true;
-      var _xopen = XMLHttpRequest.prototype.open, _xsend = XMLHttpRequest.prototype.send;
-      XMLHttpRequest.prototype.open = function (m, u) { this.__u = u; if (String(u).indexOf('saveAct') > -1) rec({ stage: 'xhr-open' }); return _xopen.apply(this, arguments); };
-      XMLHttpRequest.prototype.send = function () {
-        var x = this;
-        if (String(x.__u || '').indexOf('saveAct') > -1) {
-          rec({ stage: 'xhr-saveact' });
-          x.addEventListener('load', function () {
-            var txt = ''; try { txt = x.responseText; } catch (e) {}
-            if (!txt && x.response && typeof x.response === 'string') txt = x.response;
-            rec({ stage: 'xhr-load', len: (txt || '').length });
-            try { captureMasterPhoto((x.response && typeof x.response === 'object') ? x.response : JSON.parse(txt)); }
-            catch (e) { rec({ stage: 'xhr-parse-fail', msg: String(e) }); }
-          });
-        }
-        return _xsend.apply(this, arguments);
-      };
+      // recorder가 window.XMLHttpRequest 생성자를 교체 + 인스턴스 메서드 래핑 → prototype 래핑은 빗나감.
+      // 동일하게 생성자 래핑 + 인스턴스 메서드로 후킹 (recorder PXHR 위에 한 겹 더).
+      var PrevXHR = window.XMLHttpRequest;
+      function HookedXHR() {
+        var x = new PrevXHR();
+        var oOpen = x.open;
+        x.open = function (m, u) { x.__u = u; if (String(u).indexOf('saveAct') > -1) rec({ stage: 'xhr-open' }); return oOpen.apply(x, arguments); };
+        var oSend = x.send;
+        x.send = function () {
+          if (String(x.__u || '').indexOf('saveAct') > -1) {
+            rec({ stage: 'xhr-saveact' });
+            x.addEventListener('loadend', function () {
+              var txt = ''; try { txt = x.responseText; } catch (e) {}
+              rec({ stage: 'xhr-load', len: (txt || '').length });
+              try { captureMasterPhoto(JSON.parse(txt)); } catch (e) { rec({ stage: 'xhr-parse-fail', msg: String(e) }); }
+            });
+          }
+          return oSend.apply(x, arguments);
+        };
+        return x;
+      }
+      try { for (var k in PrevXHR) { try { HookedXHR[k] = PrevXHR[k]; } catch (e) {} } } catch (e) {}
+      try { HookedXHR.prototype = PrevXHR.prototype; } catch (e) {}
+      window.XMLHttpRequest = HookedXHR;
     }
     // fetch도 후킹 (awms가 fetch로 saveAct 보낼 수 있음 — recorder xhr 분류와 무관하게 양쪽 커버)
     if (!window.__fetchHooked && window.fetch) {
