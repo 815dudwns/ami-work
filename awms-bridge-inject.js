@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v15-commtype';
+  var VER = 'v16-commmap';
 
   function rec(o) {
     try {
@@ -730,6 +730,16 @@ function parseValue(text) {
     rec({ stage: 'helper-installed' });
     return true;
   }
+  // site-data 통신방식 매핑 1회 로드 (PLC/DCU 통신방식 자동선택용 — 계기번호→통신방식)
+  try {
+    if (!window.__commMap) {
+      fetch('https://815dudwns.github.io/ami-work/data/comm-map.json', { cache: 'force-cache' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) { window.__commMap = j; rec({ stage: 'commmap-loaded', n: Object.keys(j).length }); })
+        .catch(function (e) { rec({ stage: 'commmap-fail', msg: String(e) }); });
+    }
+  } catch (e) {}
+
   try {
     var __t = 0, __iv = setInterval(function () {
       if (installHelper() || ++__t > 40) clearInterval(__iv);
