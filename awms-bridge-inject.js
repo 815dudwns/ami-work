@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v21-photoid';
+  var VER = 'v22-plcmac';
 
   function rec(o) {
     try {
@@ -45,14 +45,14 @@
     return null;
   }
 
-  // 모뎀맥: parseValue 결과(자재ID 등) → 012 + 끝8자리
+  // 모뎀맥 변환: LTE(자재ID G1S3 / 012숫자)만 012+끝8. PLC hex MAC(847207D… 등)은 원본 유지.
   function modemTo012(v) {
     var s = String(v || '').trim();
-    if (/^012\d{8}$/.test(s)) return s;
+    if (/^012\d{8}$/.test(s)) return s;                              // 이미 LTE 스캔값
     var d = s.replace(/\D/g, '');
     if (/^012\d{8}$/.test(d)) return d;
-    if (d.length >= 8) return '012' + d.slice(-8);
-    return d || s;
+    if (/G1S3/i.test(s) && d.length >= 8) return '012' + d.slice(-8); // LTE 자재ID(G1S3) → 012+끝8
+    return s;                                                         // PLC hex MAC 등 = 원본 그대로
   }
 
   // ===== awms 검증 parseValue (js/awms-parseValue.js 인라인) =====
