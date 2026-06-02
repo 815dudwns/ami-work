@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v20-label';
+  var VER = 'v21-photoid';
 
   function rec(o) {
     try {
@@ -753,15 +753,6 @@ function parseValue(text) {
       vm.$watch('mainList.currentRow.MAC_MODEM', function () { setTimeout(function () { applyCommBungi(vm); }, 200); });
       vm.$watch('mainList.currentRow.INST_M', function () { setTimeout(function () { applyCommBungi(vm); }, 300); });
       vm.$watch('mainList.currentRow.MODEM_DIV', function () { setTimeout(function () { applyCommBungi(vm); }, 150); });
-      // 시공전 사진: 마스터면 기억, 슬래이브에서 비워지면(awms 리셋) 즉시 마스터값 복원
-      vm.$watch('mainList.currentRow.ATCH_FILE_ID_3', function (nv) {
-        var r = vm.mainList.currentRow; if (!r) return;
-        if (String(r.MODEM_DIV) === '10') { if (nv) masterPhoto3 = nv; }
-        else if (String(r.MODEM_DIV) === '20' && !nv && masterPhoto3) {
-          if (typeof vm.$set === 'function') vm.$set(r, 'ATCH_FILE_ID_3', masterPhoto3); else r.ATCH_FILE_ID_3 = masterPhoto3;
-          rec({ stage: 'slave-photo-copy', f3: masterPhoto3 });
-        }
-      });
     } catch (e) {}
     rec({ stage: 'helper-installed' });
     return true;
@@ -782,15 +773,29 @@ function parseValue(text) {
     }, 1000);
   } catch (e) {}
 
-  // 사진 공유 polling — watch가 안 걸리는 경우 보완. 마스터 시공전 기억 + 슬래이브 비면 복원.
+  // 마스터 saveAct(XHR) 응답에서 시공전 파일ID 캡처 (사진은 binary 관리 → 저장 후 파일ID로만 공유 가능)
+  // awms가 모뎀맥(atchFileId4) 유지하듯, 시공전(atchFileId3)을 받아 슬래이브에 참조로 넣음.
+  try {
+    var _xopen = XMLHttpRequest.prototype.open, _xsend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function (m, u) { this.__u = u; return _xopen.apply(this, arguments); };
+    XMLHttpRequest.prototype.send = function () {
+      var x = this;
+      if (String(x.__u || '').indexOf('saveAct') > -1) {
+        x.addEventListener('load', function () {
+          try { var j = JSON.parse(x.responseText); if (j && j.atchFileId3) { masterPhoto3 = j.atchFileId3; rec({ stage: 'master-photo-saved', f3: j.atchFileId3 }); } } catch (e) {}
+        });
+      }
+      return _xsend.apply(this, arguments);
+    };
+  } catch (e) {}
+
+  // 사진 공유 polling — 슬래이브 시공전 칸이 비면 마스터 저장 파일ID로 채움 (미리보기도 파일ID로 표시됨)
   try {
     setInterval(function () {
       try {
         var vm = getAwmsVM(); if (!vm || !vm.mainList) return;
         var r = vm.mainList.currentRow; if (!r) return;
-        var md = String(r.MODEM_DIV || '');
-        if (md === '10' && r.ATCH_FILE_ID_3) { masterPhoto3 = r.ATCH_FILE_ID_3; }
-        else if (md === '20' && !r.ATCH_FILE_ID_3 && masterPhoto3) {
+        if (String(r.MODEM_DIV || '') === '20' && !r.ATCH_FILE_ID_3 && masterPhoto3) {
           if (typeof vm.$set === 'function') vm.$set(r, 'ATCH_FILE_ID_3', masterPhoto3); else r.ATCH_FILE_ID_3 = masterPhoto3;
           rec({ stage: 'slave-photo-copy', f3: masterPhoto3 });
         }
