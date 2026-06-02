@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v31-currentrow';
+  var VER = 'v32-deptoff';
 
   function rec(o) {
     try {
@@ -652,6 +652,7 @@ function parseValue(text) {
     if (typeof vm.$set === 'function') vm.$set(row, key, val); else row[key] = val;
   }
   function applyDeptWith(vm) {
+    return;  // [v32] 계기팀 작업 중 통신팀 기본값(7793/Y) 자동입력 끔 — 권한 불일치로 저장거부('관리자 문의') 회피. 지사/동행 직접 입력.
     try {
       var row = vm && vm.mainList && vm.mainList.currentRow;
       if (!row) return;
