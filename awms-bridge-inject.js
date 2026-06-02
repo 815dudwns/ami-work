@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v30-photocb';
+  var VER = 'v31-currentrow';
 
   function rec(o) {
     try {
@@ -841,7 +841,9 @@ function parseValue(text) {
       try {
         var vm = getAwmsVM(); if (!vm || !vm.mainList) return;
         var r = vm.mainList.currentRow; if (!r) return;
-        if (String(r.MODEM_DIV || '') === '20' && !r.ATCH_FILE_ID_3 && window.__masterPhoto3) {
+        var md = String(r.MODEM_DIV || '');
+        if (md === '10' && r.ATCH_FILE_ID_3) { window.__masterPhoto3 = r.ATCH_FILE_ID_3; }  // 마스터 폼의 시공전 파일ID 직접 기억(응답 아님)
+        if (md === '20' && !r.ATCH_FILE_ID_3 && window.__masterPhoto3) {
           // awms 정식 사진등록 호출(innorixFileUploadSingleCallback)로 시공전(ATCH_FILE3) 주입 — 미리보기/저장 일관
           if (typeof vm.innorixFileUploadSingleCallback === 'function') {
             vm.innorixFileUploadSingleCallback({ id: 'ATCH_FILE3', status: 'uploadComplete', ATCH_FILE_ID: window.__masterPhoto3 });
