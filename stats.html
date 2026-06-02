@@ -158,11 +158,15 @@ async function loadSiteData() {
     if (!resp.ok) throw new Error('site-data.json 로드 실패');
     const arr = await resp.json();
     const map = {};
+    const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();   // 이중공백 정규화
+    const addKey = (k, item) => { if (!k) return; if (!map[k]) map[k] = []; if (map[k].indexOf(item) < 0) map[k].push(item); };
     for (const item of arr) {
-        const a = item['주소'];
-        if (!a) continue;
-        if (!map[a]) map[a] = [];
-        map[a].push(item);
+        // 지번 + 도로명 둘 다 키로 (workStatus가 도로명으로 들어오는 건 매칭) + 공백 정규화 키
+        [item['주소'], item['도로명주소']].forEach((a) => {
+            if (!a) return;
+            addKey(a, item);
+            addKey(norm(a), item);
+        });
     }
     _metersByAddr = map;
     return map;
@@ -253,7 +257,7 @@ function render(workStatus, dateStr) {
         const ws = workStatus[addr];
         if (!ws || !ws.state || ws.state === 'pending') continue;
         if (!isSameLocalDay(ws.updatedAt, dateStr)) continue;
-        const meters = (_metersByAddr && _metersByAddr[addr]) || [];
+        const meters = (_metersByAddr && (_metersByAddr[addr] || _metersByAddr[String(addr).replace(/\s+/g, ' ').trim()])) || [];
         items.push({
             address: addr,
             state: ws.state,
