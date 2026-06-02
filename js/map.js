@@ -7,9 +7,9 @@ let sampleData = [];
 // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
 // (label: 마커에 표시할 글자, null이면 계기 개수 숫자 / uiLabel: 카테고리 패널 표시명)
 const DATASETS = [
-    { file: './data/site-data.json?v=20260601b', category: '실효', label: null,  uiLabel: '실효계기' },
-    { file: './data/skt-data.json?v=20260601b',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
-    { file: './data/tou-data.json?v=20260601b',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
+    { file: './data/site-data.json', category: '실효', label: null,  uiLabel: '실효계기' },
+    { file: './data/skt-data.json',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
+    { file: './data/tou-data.json',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
 ];
 
 // 위치 추적 관련 상태
@@ -38,7 +38,7 @@ async function initMap() {
 
     try {
         const loaded = await Promise.all(DATASETS.map(d =>
-            fetch(d.file).then(r => r.ok ? r.json() : [])
+            fetch(d.file, { cache: 'no-cache' }).then(r => r.ok ? r.json() : [])
                 .then(rows => rows.map(r => ({ ...r, category: d.category })))
                 .catch(e => { console.warn(`[load ${d.category}] 실패:`, e); return []; })
         ));
