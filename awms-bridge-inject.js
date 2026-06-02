@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v17-bungi';
+  var VER = 'v18-photoshare';
 
   function rec(o) {
     try {
@@ -702,16 +702,30 @@ function parseValue(text) {
       if (++tries < 12) setTimeout(w, 150);                 // 옵션 비동기 로드 대기
     })();
   }
+  // 사진 공유: 마스터 시공전(ATCH_FILE_ID_3)+모뎀맥(ATCH_FILE_ID_4) → 슬래이브 복사.
+  // (awms는 슬래이브 전환 시 3·4 자동 리셋 → 그 후 복사. 시공후 5·6은 개별이라 복사 안 함)
+  var masterPhoto = { f3: '', f4: '' };
+  function rememberMaster(row) {
+    if (row.ATCH_FILE_ID_3) masterPhoto.f3 = row.ATCH_FILE_ID_3;
+    if (row.ATCH_FILE_ID_4) masterPhoto.f4 = row.ATCH_FILE_ID_4;
+  }
+  function applySlavePhotos(vm, row) {
+    setRow(vm, row, 'ATCH_FILE_ID_3', masterPhoto.f3);     // 시공전
+    setRow(vm, row, 'ATCH_FILE_ID_4', masterPhoto.f4);     // 모뎀맥
+    rec({ stage: 'slave-photos', f3: row.ATCH_FILE_ID_3, f4: row.ATCH_FILE_ID_4 });
+  }
   function applyCommBungi(vm) {
     try {
       var row = vm && vm.mainList && vm.mainList.currentRow;
       if (!row) return;
       var instM = row.INST_M, mac = row.MAC_MODEM, modem = String(row.MODEM_DIV || ''), meter = row.INSTR_NUM;
-      if (modem === '20') {                                 // 슬래이브: 직전 마스터 통신방식 따라옴
+      if (modem === '20') {                                 // 슬래이브: 통신방식 따라옴 + 분기 + 시공전/모뎀맥 사진 복사
         setSelectVal(vm, row, 'INST_S', lastMasterINST_S, 'form0106');
         setSelectVal(vm, row, 'BUNGI', isAmigo(instM) ? '무선' : '0.5', 'form0119');
+        applySlavePhotos(vm, row);
         rec({ stage: 'auto-comm-slave', INST_S: row.INST_S, BUNGI: row.BUNGI });
       } else if (modem === '10') {                          // 마스터
+        rememberMaster(row);
         var s = inferMasterINST_S(instM, mac, meter);
         if (s) { setSelectVal(vm, row, 'INST_S', s, 'form0106'); lastMasterINST_S = s; rec({ stage: 'auto-comm-master', INST_S: s }); }
       }
@@ -728,7 +742,9 @@ function parseValue(text) {
       vm.$watch('mainList.currentRow', function () { applyDeptWith(vm); });
       vm.$watch('mainList.currentRow.MAC_MODEM', function () { setTimeout(function () { applyCommBungi(vm); }, 200); });
       vm.$watch('mainList.currentRow.INST_M', function () { setTimeout(function () { applyCommBungi(vm); }, 300); });
-      vm.$watch('mainList.currentRow.MODEM_DIV', function () { setTimeout(function () { applyCommBungi(vm); }, 150); });
+      vm.$watch('mainList.currentRow.MODEM_DIV', function () { setTimeout(function () { applyCommBungi(vm); }, 250); }); // awms 사진 리셋 후 복사
+      vm.$watch('mainList.currentRow.ATCH_FILE_ID_3', function () { var r = vm.mainList.currentRow; if (r && String(r.MODEM_DIV) === '10') rememberMaster(r); });
+      vm.$watch('mainList.currentRow.ATCH_FILE_ID_4', function () { var r = vm.mainList.currentRow; if (r && String(r.MODEM_DIV) === '10') rememberMaster(r); });
     } catch (e) {}
     rec({ stage: 'helper-installed' });
     return true;
