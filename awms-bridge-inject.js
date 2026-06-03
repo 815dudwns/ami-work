@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v36-helper-branch'; // v36: __awmsHelper 마커 분기 — 지사/동행 복원, 카메라 __helperCam 우선
+  var VER = 'v37-login-autofill'; // v37: 로그인 페이지 아이디/비번 자동입력 (헬퍼+__helperCred 있을 때만)
 
   function rec(o) {
     try {
@@ -592,6 +592,95 @@ function parseValue(text) {
         setTimeout(function () { try { b.remove(); } catch (e) {} }, 3000);
       };
       if (document.body) show(); else document.addEventListener('DOMContentLoaded', show);
+    }
+  } catch (e) {}
+
+  // ── 로그인 자동입력 ──
+  // 헬퍼 앱(__awmsHelper)이 주입한 __helperCred {id, pw} 를 로그인 폼에 채운다.
+  // awms-bridge(통신팀) 또는 __helperCred 미주입 시 완전 무동작.
+  function isVisibleInput(el) {
+    if (!el || el.type === 'hidden') return false;
+    try {
+      var r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) return false;
+    } catch (e) {}
+    return el.offsetParent !== null;
+  }
+  function tryLoginAutofill() {
+    if (!window.__awmsHelper) return;
+    var cred = window.__helperCred;
+    if (!cred || !cred.id) return;
+
+    // 로그인 화면 판별: visible password input 1개 이상
+    var pwInputs = Array.prototype.filter.call(
+      document.querySelectorAll('input[type="password"]'), isVisibleInput
+    );
+    if (pwInputs.length === 0) return;
+
+    // 이미 채웠으면 중복 방지 (flag는 채운 직후 설정)
+    if (window.__loginAutofillDone) return;
+
+    var pwInput = pwInputs[0];
+
+    // 아이디칸: password 보다 DOM 앞에 있는 visible text 계열 input
+    var allInputs = Array.prototype.slice.call(document.querySelectorAll('input'));
+    var pwIdx = allInputs.indexOf(pwInput);
+    var scope = pwInput.closest ? pwInput.closest('form') : null;
+    var candidates = allInputs.slice(0, pwIdx).filter(function (el) {
+      if (!isVisibleInput(el)) return false;
+      var t = (el.type || '').toLowerCase();
+      // DOM이 type 없으면 'text'로 normalize됨 — text/tel/email 허용
+      return t === 'text' || t === 'tel' || t === 'email';
+    });
+    // scope 제한: 같은 form 안에 있으면 우선 (없으면 document 전체 후보 그대로)
+    var scopeCandidates = scope
+      ? candidates.filter(function (el) { return scope.contains(el); })
+      : candidates;
+    if (scopeCandidates.length) candidates = scopeCandidates;
+
+    // id|user|아이디|로그인 포함 name/id/placeholder 있으면 우선
+    var idInput = null;
+    var keyRe = /id|user|아이디|로그인/i;
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      if (keyRe.test(el.name || '') || keyRe.test(el.id || '') || keyRe.test(el.placeholder || '')) {
+        idInput = el; break;
+      }
+    }
+    if (!idInput && candidates.length) idInput = candidates[candidates.length - 1]; // 가장 가까운 앞 input
+
+    // 디버그 표시 (id칸 감지 결과 — 작업자 셀렉터 보정용)
+    try {
+      var dbgId = idInput
+        ? (idInput.name || idInput.id || '(noname)')
+        : 'NONE';
+      var dbgPw = pwInput ? 'OK' : 'NONE';
+      var toast = document.createElement('div');
+      toast.textContent = 'helper: id=' + dbgId + ' pw=' + dbgPw;
+      toast.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:2147483647;background:rgba(0,0,0,.55);color:#fff;font:10px monospace;padding:3px 7px;border-radius:4px;pointer-events:none;';
+      document.body.appendChild(toast);
+      setTimeout(function () { try { toast.remove(); } catch (e) {} }, 1500);
+    } catch (e) {}
+
+    // 채우기
+    if (idInput) setInput(idInput, cred.id);
+    setInput(pwInput, cred.pw);
+
+    // 실제로 채운 후에만 중복 방지 플래그 설정
+    window.__loginAutofillDone = true;
+    rec({ stage: 'login-autofill', idField: idInput ? (idInput.name || idInput.id || '?') : 'NONE' });
+  }
+
+  // 로그인 자동입력 트리거: 즉시 + 300ms + 1000ms (늦게 렌더되는 폼 대응)
+  try {
+    if (window.__awmsHelper && window.__helperCred && window.__helperCred.id) {
+      if (document.body) {
+        tryLoginAutofill();
+      } else {
+        document.addEventListener('DOMContentLoaded', tryLoginAutofill);
+      }
+      setTimeout(tryLoginAutofill, 300);
+      setTimeout(tryLoginAutofill, 1000);
     }
   } catch (e) {}
 
