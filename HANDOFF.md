@@ -6,9 +6,16 @@
   1. **종로 큐 가짜 3건 삭제 완료(검증됨)** — workStatus/jongno에서 누상166-9·창신651-4·무악82 제거, 평창 2건(9953/9955) 유지. 백업 후 5→2 assert 통과.
   2. **독립 큐앱 `awms-queue` 분리·빌드 성공** — awms-bridge에서 복제→큐 중심 슬림화. 2탭 멀티웹뷰, 완료받기 자동화, saveRow 빌더 포팅. 디버그 APK 빌드 OK(02:32, 4.8MB).
 
-- 진행 중: **plumbing(JS↔네이티브 콜백)은 검증 완료**, 실제 awms 인증호출만 미검증(세션 만료).
-  - [검증됨 02:43] APK 설치·실행 → Promise.resolve(42)→json=42, fetch await도 정상(login.html HTML 수신). awmsEval/AwmsResult.deliver 콜백 경로 OK.
-  - ※ 중요 수정: Android evaluateJavascript는 CDP awaitPromise가 없어 Promise를 안 기다림 → JS가 await 후 네이티브로 직접 콜백(AwmsResult.deliver)하는 방식으로 고침(advisor 발견).
+- **[통합 테스트 통과 06:xx — 빌더/CDP 경로]** 영준님 awms 재로그인(브릿지) 후 평창 9953(단상)·9955(삼상) 임시저장 등록·getDetail 검증:
+  - 9953 단상(100): 제조월 202601 / 봉인 1개(+1) / 주간 DAY=지침 / 사진 2장(F100...) ✓
+  - 9955 삼상(905): 제조월 202601 / 봉인 2개(+2) / **야간 MNGT=지침** ✓ / 사진 2장 ✓
+  - **사진 해결**: awms 페이지가 외부 firebase fetch를 CSP/CORS로 차단 → 맥에서 받아 base64로 saveRow에 주입(빌더 수정). awms ATCH_FILE_ID에 파일ID 박힘 확인.
+  - **버그 수정**: 905(야간)인데 주간칸 DAY에 템플릿 잡값 '111'이 남던 것 → 템플릿 DAY 기본값 ''로, 빌더/앱 지침분기를 "해당없는 칸 명시적 비움"으로 대칭 수정. **awms 재검증은 다음(영준님 폰 회수)**.
+
+- 진행 중: **plumbing(JS↔네이티브 콜백) 검증 완료** + **빌더 경로 awms 쓰기 전 항목 검증 완료**. awms-queue 앱 경로(awmsEval)는 인증 fetch 미검증.
+  - [검증됨 02:43] Promise.resolve(42)→42, fetch await 정상. awmsEval/AwmsResult.deliver 콜백 OK.
+  - ※ Android evaluateJavascript는 Promise 미await → JS가 await 후 네이티브 콜백(AwmsResult.deliver) 방식(advisor 발견).
+  - ※ **awms-queue 앱 사진**: 앱도 같은 CSP/CORS라 awms 컨텍스트 fetch 불가 → 네이티브가 사진 다운로드해 base64로 awmsWebView에 넘기는 방식 필요(추후). 빌더(맥)는 해결됨.
 
 - **다음 (영준님 OTP 재로그인 후)**:
   - awms-queue APK는 폰에 이미 설치됨. OTP 로그인 후 awms 탭이 메인 뜨면 → **통합 테스트**: 평창 9953(단상/주간/봉인+1)·9955(삼상/심야야간MNGT/봉인+2) 큐 등록 → 제조월(202601)·봉인·1행·사진2장·지침 검증
