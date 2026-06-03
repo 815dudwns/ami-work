@@ -6,12 +6,19 @@
 
 (function () {
   'use strict';
-  var VER = 'v46'; // v46: 리모컨 배지 제거(안정화)
+  var VER = 'v47'; // v47: 시공전 진단 로그 — rec()를 firebase에도 기록(helper엔 AndroidRecorder 없음)
 
+  // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
+  // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
+  var _FBLOG = 'https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/awmslog/helper.json';
   function rec(o) {
     try {
       o.kind = 'cam'; o.ts = Date.now(); o.url = 'https://awms.kdn.com/__cam__/' + (o.stage || '');
       if (window.AndroidRecorder && window.AndroidRecorder.record) window.AndroidRecorder.record(JSON.stringify(o));
+    } catch (e) {}
+    try {
+      fetch(_FBLOG, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ s: o.stage || '', d: o, iso: new Date().toISOString(), ver: VER }) }).catch(function () {});
     } catch (e) {}
   }
 
@@ -1119,6 +1126,13 @@ function parseValue(text) {
     }
   } catch (e) {}
 
+  // 시공전 진단 — 상태 변화 시에만 firebase 기록 (매 틱 폭주 방지)
+  var __lastPhotoDiag = '';
+  function _photoDiag(snap) {
+    if (snap === __lastPhotoDiag) return;
+    __lastPhotoDiag = snap;
+    rec({ stage: 'photo-diag', snap: snap });
+  }
   // 사진 공유 polling — 슬래이브 시공전 칸이 비면 마스터 저장 파일ID로 채움 (미리보기도 파일ID로 표시됨)
   try {
     setInterval(function () {
@@ -1126,10 +1140,14 @@ function parseValue(text) {
         applyDeptSelect();
       } catch (e) {}
       try {
-        var vm = getAwmsVM(); if (!vm || !vm.mainList) return;
-        var r = vm.mainList.currentRow; if (!r) return;
+        var vm = getAwmsVM();
+        if (!vm || !vm.mainList) { _photoDiag('no-vm'); return; }
+        var r = vm.mainList.currentRow;
+        if (!r) { _photoDiag('no-currentRow'); return; }
         var md = String(r.MODEM_DIV || '');
-        if (md === '10' && r.ATCH_FILE_ID_3) { window.__masterPhoto3 = r.ATCH_FILE_ID_3; }  // 마스터 폼의 시공전 파일ID 직접 기억(응답 아님)
+        // 진단: 상태 변화 시에만 firebase 기록 (매 틱 폭주 방지)
+        _photoDiag('MD=' + md + '|ATCH3=' + (r.ATCH_FILE_ID_3 || '-') + '|m3=' + (window.__masterPhoto3 || '-') + '|cb=' + (typeof vm.innorixFileUploadSingleCallback));
+        if (md === '10' && r.ATCH_FILE_ID_3) { window.__masterPhoto3 = r.ATCH_FILE_ID_3; rec({ stage: 'master-photo-saved', f3: r.ATCH_FILE_ID_3 }); }  // 마스터 폼의 시공전 파일ID 직접 기억(응답 아님)
         if (md === '20' && !r.ATCH_FILE_ID_3 && window.__masterPhoto3) {
           // awms 정식 사진등록 호출(innorixFileUploadSingleCallback)로 시공전(ATCH_FILE3) 주입 — 미리보기/저장 일관
           if (typeof vm.innorixFileUploadSingleCallback === 'function') {
