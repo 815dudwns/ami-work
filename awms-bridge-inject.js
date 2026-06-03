@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v35-noxhrperm';
+  var VER = 'v36-helper-branch'; // v36: __awmsHelper 마커 분기 — 지사/동행 복원, 카메라 __helperCam 우선
 
   function rec(o) {
     try {
@@ -645,7 +645,9 @@ function parseValue(text) {
     }
   } catch (e) {}
 
-  // ── 헬퍼: 설비등록 폼 자동선택 (지사/동행) — 통신팀 기본값. 추후 __TEAM/앱설정으로 분기/on·off ──
+  // ── 헬퍼: 설비등록 폼 자동선택 (지사/동행) ──
+  // awms-bridge(통신팀): TEAM_DEFAULTS 고정값 항상 적용
+  // awms-helper(__awmsHelper=true, 계기팀): localStorage 마지막 저장값 복원 (없으면 아무것도 안 함)
   var TEAM_DEFAULTS = { DEPT2: '7793', MTR_WITH_YN: 'Y' };   // 통신팀(종로/서울본부직할). 계기팀=N+다른지사
   function setRow(vm, row, key, val) {
     if (row[key]) return;                                     // 빈 칸일 때만 — 수동/기존값 보존
@@ -655,9 +657,19 @@ function parseValue(text) {
     try {
       var row = vm && vm.mainList && vm.mainList.currentRow;
       if (!row) return;
-      setRow(vm, row, 'DEPT2', TEAM_DEFAULTS.DEPT2);
-      setRow(vm, row, 'MTR_WITH_YN', TEAM_DEFAULTS.MTR_WITH_YN);
-      rec({ stage: 'auto-deptwith', DEPT2: row.DEPT2, WITH: row.MTR_WITH_YN });
+      if (window.__awmsHelper) {
+        // 헬퍼 모드: localStorage 마지막 저장값 복원. 피드백 루프 없음 — 저장 버튼 클릭 시에만 기록.
+        var ld = localStorage.getItem('helper_last_dept');
+        var lw = localStorage.getItem('helper_last_with');
+        if (ld) setRow(vm, row, 'DEPT2', ld);
+        if (lw) setRow(vm, row, 'MTR_WITH_YN', lw);
+        rec({ stage: 'auto-deptwith-helper', DEPT2: row.DEPT2, WITH: row.MTR_WITH_YN });
+      } else {
+        // awms-bridge(통신팀): 기존 동작 그대로 — 고정값 항상 적용
+        setRow(vm, row, 'DEPT2', TEAM_DEFAULTS.DEPT2);
+        setRow(vm, row, 'MTR_WITH_YN', TEAM_DEFAULTS.MTR_WITH_YN);
+        rec({ stage: 'auto-deptwith', DEPT2: row.DEPT2, WITH: row.MTR_WITH_YN });
+      }
     } catch (e) {}
   }
 
@@ -755,6 +767,29 @@ function parseValue(text) {
     } catch (e) {}
   }
 
+  // 헬퍼 모드: 저장 버튼 클릭 시 currentRow 지사/동행값을 localStorage에 기록.
+  // vm.saveAct 래핑 대신 버튼 이벤트 사용 — 저장 메서드명이 팀별로 다름(통신팀=saveAct, 계기팀=saveRow 등, v35 주석 참고).
+  // preventDefault 없이 캡처만 — 저장 동작은 그대로.
+  function installSaveListener() {
+    if (window.__helperSaveListenerInstalled) return;
+    window.__helperSaveListenerInstalled = true;
+    document.addEventListener('click', function (e) {
+      try {
+        var btn = e.target && (e.target.closest ? e.target.closest('button,a,.btn') : null);
+        if (!btn) return;
+        var txt = (btn.textContent || btn.innerText || '').trim();
+        if (txt !== '저장') return;
+        var vm = getAwmsVM();
+        if (!vm || !vm.mainList) return;
+        var r = vm.mainList.currentRow;
+        if (!r) return;
+        if (r.DEPT2) localStorage.setItem('helper_last_dept', r.DEPT2);
+        if (r.MTR_WITH_YN) localStorage.setItem('helper_last_with', r.MTR_WITH_YN);
+        rec({ stage: 'helper-save-record', DEPT2: r.DEPT2, WITH: r.MTR_WITH_YN });
+      } catch (ex) {}
+    }, true);
+  }
+
   function installHelper() {
     var vm = getAwmsVM();
     if (!vm) return false;
@@ -767,6 +802,8 @@ function parseValue(text) {
       vm.$watch('mainList.currentRow.INST_M', function () { setTimeout(function () { applyCommBungi(vm); }, 300); });
       vm.$watch('mainList.currentRow.MODEM_DIV', function () { setTimeout(function () { applyCommBungi(vm); }, 150); });
     } catch (e) {}
+    // 헬퍼 모드에서만 저장 리스너 등록
+    if (window.__awmsHelper) { installSaveListener(); }
     rec({ stage: 'helper-installed' });
     return true;
   }
@@ -882,12 +919,25 @@ function parseValue(text) {
               try { tmp = await _gum({ video: { facingMode: 'environment' }, audio: false }); } catch (e) {}
               var devices = await navigator.mediaDevices.enumerateDevices();
               if (tmp) tmp.getTracks().forEach(function (t) { t.stop(); });
-              var normal = pickNormalBackCamera(devices);
+              var chosen = null;
+              // __helperCam 우선: 헬퍼 앱이 주입한 카메라 선택값(deviceId/label). awms-bridge는 미주입 → 자동 폴백.
+              if (window.__helperCam && (window.__helperCam.deviceId || window.__helperCam.label)) {
+                var hc = window.__helperCam;
+                var vdevs = devices.filter(function (d) { return d.kind === 'videoinput'; });
+                // 1순위: deviceId 정확 일치
+                if (hc.deviceId) { chosen = vdevs.find(function (d) { return d.deviceId === hc.deviceId; }) || null; }
+                // 2순위: label 일치
+                if (!chosen && hc.label) { chosen = vdevs.find(function (d) { return d.label === hc.label; }) || null; }
+                if (chosen) { rec({ stage: 'cam-hook-helperCam', label: chosen.label }); }
+                else { rec({ stage: 'cam-hook-helperCam-nomatch', wanted: hc }); }
+              }
+              // __helperCam 없거나 매칭 실패 → 기존 pickNormalBackCamera 폴백
+              var normal = chosen || pickNormalBackCamera(devices);
               if (normal) {
                 var nv = (typeof v === 'object' && v) ? Object.assign({}, v) : {};
                 delete nv.facingMode;
                 nv.deviceId = { exact: normal.deviceId };
-                rec({ stage: 'cam-hook', label: normal.label });
+                if (!chosen) rec({ stage: 'cam-hook', label: normal.label });
                 return _gum(Object.assign({}, constraints, { video: nv }));
               }
             }
