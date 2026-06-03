@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v39-diag'; // v39: 지사목록/자동복원 진단 + innorix 사진 업로드 흐름 진단(멀티 4장→3/4/5/6 구현 준비)
+  var VER = 'v40-dept-select'; // v40: 임의추가 폼 지사/동행 select 자동적용(__helperDept/__helperWith)
 
   function rec(o) {
     try {
@@ -861,6 +861,77 @@ function parseValue(text) {
     } catch (e) {}
   }
 
+  // ── 헬퍼 전용: 임의추가 폼 지사/동행 <select> 자동적용 ──
+  // __helperDept(지사코드) / __helperWith('Y'|'N') 를 select.value로 직접 세팅.
+  // applyDeptWith(currentRow.DEPT2)와 역할이 달라 별도 함수 — 기존 함수 건드리지 않음.
+  var __deptSelApplied = { dept: false, with: false };
+  function applyDeptSelect() {
+    if (!window.__awmsHelper) return;
+    var hDept = window.__helperDept;
+    var hWith = window.__helperWith;
+    if (!hDept && !hWith) return;
+
+    var selDept = null, selWith = null;
+    var sels = document.querySelectorAll('select');
+    for (var i = 0; i < sels.length; i++) {
+      var sel = sels[i];
+      var nm = sel.name || '';
+      // 지사 select 찾기: name==='지사' 우선, 아니면 옵션 text에 '지사'/'본부' 포함
+      if (!selDept && nm === '지사') { selDept = sel; }
+      // 동행 select 찾기: name==='동행시공여부' 우선
+      if (!selWith && nm === '동행시공여부') { selWith = sel; }
+    }
+    // 휴리스틱 폴백: name 없을 때
+    if (!selDept || !selWith) {
+      for (var j = 0; j < sels.length; j++) {
+        var s2 = sels[j];
+        var opts = [].slice.call(s2.options || []);
+        // 지사 폴백: 옵션 text에 '지사' 또는 '본부' 포함하는 옵션이 있는 select
+        if (!selDept && opts.some(function (o) { return /(지사|본부)/.test(o.text); })) { selDept = s2; }
+        // 동행 폴백: 옵션이 정확히 N/Y 2개인 select (value 기준)
+        if (!selWith && opts.length === 2) {
+          var vals = opts.map(function (o) { return o.value; }).sort().join(',');
+          if (vals === 'N,Y') { selWith = s2; }
+        }
+      }
+    }
+
+    // 지사 적용: 현재 value가 비어있을 때만
+    if (selDept && hDept) {
+      var curDept = selDept.value;
+      var isEmpty = !curDept || curDept === '' || /지사\s*선택|선택/.test(curDept);
+      if (isEmpty) {
+        selDept.value = hDept;
+        var deptOk = selDept.value === hDept;
+        if (!__deptSelApplied.dept) {
+          selDept.dispatchEvent(new Event('input', { bubbles: true }));
+          selDept.dispatchEvent(new Event('change', { bubbles: true }));
+          __deptSelApplied.dept = true;
+          console.log('[DEPTSEL] dept set=' + hDept + ' ok=' + deptOk + ' with set=' + (hWith || ''));
+        }
+      }
+    }
+    // 동행 적용: 현재 value가 비어있을 때만
+    if (selWith && hWith) {
+      var curWith = selWith.value;
+      var isWithEmpty = !curWith || curWith === '';
+      if (isWithEmpty) {
+        selWith.value = hWith;
+        var withOk = selWith.value === hWith;
+        if (!__deptSelApplied.with) {
+          selWith.dispatchEvent(new Event('input', { bubbles: true }));
+          selWith.dispatchEvent(new Event('change', { bubbles: true }));
+          __deptSelApplied.with = true;
+          if (!__deptSelApplied.dept) { // dept 로그에서 이미 출력 안 된 경우
+            console.log('[DEPTSEL] dept set=' + (hDept || '') + ' ok=- with set=' + hWith + ' ok=' + withOk);
+          }
+        }
+      }
+    }
+    // select가 사라지면(폼 닫힘) 다음 폼 오픈 시 재적용 가능하도록 플래그 리셋
+    if (!selDept && !selWith) { __deptSelApplied.dept = false; __deptSelApplied.with = false; }
+  }
+
   // ── 통신방식/분기 자동선택 (계기번호+맥 입력 후) ──
   // 마스터(MODEM_DIV=10): INST_S = 계기타입+맥 추론. 슬래이브(20): 직전 마스터 통신방식 따라옴.
   // 분기: 슬래이브가 아미고면 무선·아니면 0.5. (PLC는 site-data 통신방식 매핑 단계에서 확장 — __commMap)
@@ -1063,6 +1134,9 @@ function parseValue(text) {
   // 사진 공유 polling — 슬래이브 시공전 칸이 비면 마스터 저장 파일ID로 채움 (미리보기도 파일ID로 표시됨)
   try {
     setInterval(function () {
+      try {
+        applyDeptSelect();
+      } catch (e) {}
       try {
         var vm = getAwmsVM(); if (!vm || !vm.mainList) return;
         var r = vm.mainList.currentRow; if (!r) return;
