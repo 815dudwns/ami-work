@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v45-logo-diag'; // v45: awms 로고 이미지 URL 덤프(설정페이지 디자인용)
+  var VER = 'v46'; // v46: 리모컨 배지 제거(안정화)
 
   function rec(o) {
     try {
@@ -581,19 +581,7 @@ function parseValue(text) {
 
   try { console.log('[awms-inject] ' + VER); } catch (e) {}
 
-  try {
-    if (location.host.indexOf('awms') > -1 && !document.getElementById('__inject_badge')) {
-      var show = function () {
-        if (!document.body || document.getElementById('__inject_badge')) return;
-        var b = document.createElement('div');
-        b.id = '__inject_badge'; b.textContent = '리모컨 ' + VER + (window.AndroidScanner ? ' [스캐너O]' : ' [스캐너X]');
-        b.style.cssText = 'position:fixed;top:env(safe-area-inset-top,0);left:0;z-index:2147483647;background:#16a34a;color:#fff;font:11px -apple-system,sans-serif;padding:3px 8px;border-bottom-right-radius:6px;opacity:.85';
-        document.body.appendChild(b);
-        setTimeout(function () { try { b.remove(); } catch (e) {} }, 3000);
-      };
-      if (document.body) show(); else document.addEventListener('DOMContentLoaded', show);
-    }
-  } catch (e) {}
+  // (리모컨 버전 배지 제거 — 안정화)
 
   // ── 로그인 자동입력 ──
   // 계정 소스 우선순위: __helperCred(네이티브) > localStorage(리모컨 저장) > 없음
