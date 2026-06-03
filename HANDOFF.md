@@ -6,12 +6,13 @@
   1. **종로 큐 가짜 3건 삭제 완료(검증됨)** — workStatus/jongno에서 누상166-9·창신651-4·무악82 제거, 평창 2건(9953/9955) 유지. 백업 후 5→2 assert 통과.
   2. **독립 큐앱 `awms-queue` 분리·빌드 성공** — awms-bridge에서 복제→큐 중심 슬림화. 2탭 멀티웹뷰, 완료받기 자동화, saveRow 빌더 포팅. 디버그 APK 빌드 OK(02:32, 4.8MB).
 
-- 진행 중: **awms-queue awms 호출부 전부 미검증** — 세션 만료(login.html)로 오늘 밤 실측 불가. 컴파일/빌드/렌더까지만 검증됨.
+- 진행 중: **plumbing(JS↔네이티브 콜백)은 검증 완료**, 실제 awms 인증호출만 미검증(세션 만료).
+  - [검증됨 02:43] APK 설치·실행 → Promise.resolve(42)→json=42, fetch await도 정상(login.html HTML 수신). awmsEval/AwmsResult.deliver 콜백 경로 OK.
+  - ※ 중요 수정: Android evaluateJavascript는 CDP awaitPromise가 없어 Promise를 안 기다림 → JS가 await 후 네이티브로 직접 콜백(AwmsResult.deliver)하는 방식으로 고침(advisor 발견).
 
 - **다음 (영준님 OTP 재로그인 후)**:
-  - awms-queue APK 폰 설치(`adb install -r app-debug.apk`) → **plumbing 실측**: 두 WebView 쿠키 공유 + awmsEval(evaluateJavascript) 콜백 이중JSON 인코딩 동작 확인
-  - **통합 테스트**: 평창 9953(단상/주간/봉인+1)·9955(삼상/심야야간MNGT/봉인+2) 큐 등록 → 제조월(202601)·봉인·1행·사진2장·지침 검증
-  - 미검증 항목: awmsEval 콜백 이중JSON / 사진 cross-origin fetch→blob(CORS) / 봉인 NQNT 값(삼상도 "1"?, 빌더 WARN) / `<input type=file>` onShowFileChooser / awms탭 시스템 백버튼
+  - awms-queue APK는 폰에 이미 설치됨. OTP 로그인 후 awms 탭이 메인 뜨면 → **통합 테스트**: 평창 9953(단상/주간/봉인+1)·9955(삼상/심야야간MNGT/봉인+2) 큐 등록 → 제조월(202601)·봉인·1행·사진2장·지침 검증
+  - 남은 미검증(세션 필요): 실제 awms fetch 인증호출 / saveRow 등록 결과 / 사진 cross-origin fetch→blob(CORS) / 봉인 NQNT 값(삼상도 "1"?, 빌더 WARN) / `<input type=file>` onShowFileChooser / awms탭 시스템 백버튼
   - 큐 입력 자동화(jongno 완료 → registerReplacement 인자)는 이미 queue.js loadQueue가 workStatus/jongno에서 추출하도록 연결됨
 
 - 블로커:
