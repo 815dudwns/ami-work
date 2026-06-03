@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v37-login-autofill'; // v37: 로그인 페이지 아이디/비번 자동입력 (헬퍼+__helperCred 있을 때만)
+  var VER = 'v38-login-localstorage'; // v38: 로그인 자동입력 localStorage 기반 전환 — 옛 APK(__helperCred 없음)도 동작, 첫 제출 시 계정 저장
 
   function rec(o) {
     try {
@@ -596,8 +596,9 @@ function parseValue(text) {
   } catch (e) {}
 
   // ── 로그인 자동입력 ──
-  // 헬퍼 앱(__awmsHelper)이 주입한 __helperCred {id, pw} 를 로그인 폼에 채운다.
-  // awms-bridge(통신팀) 또는 __helperCred 미주입 시 완전 무동작.
+  // 계정 소스 우선순위: __helperCred(네이티브) > localStorage(리모컨 저장) > 없음
+  // awms-bridge(통신팀, __awmsHelper 없음)는 완전 무동작.
+  // 옛 APK(__helperCred 없음)도 __awmsHelper=true 주입 → localStorage 기반 동작.
   function isVisibleInput(el) {
     if (!el || el.type === 'hidden') return false;
     try {
@@ -606,39 +607,26 @@ function parseValue(text) {
     } catch (e) {}
     return el.offsetParent !== null;
   }
-  function tryLoginAutofill() {
-    if (!window.__awmsHelper) return;
-    var cred = window.__helperCred;
-    if (!cred || !cred.id) return;
 
-    // 로그인 화면 판별: visible password input 1개 이상
+  // 로그인 폼에서 아이디/비번칸 탐색 (tryLoginAutofill + 저장 리스너 양쪽에서 재사용)
+  function detectLoginFields() {
     var pwInputs = Array.prototype.filter.call(
       document.querySelectorAll('input[type="password"]'), isVisibleInput
     );
-    if (pwInputs.length === 0) return;
-
-    // 이미 채웠으면 중복 방지 (flag는 채운 직후 설정)
-    if (window.__loginAutofillDone) return;
-
+    if (pwInputs.length === 0) return null;
     var pwInput = pwInputs[0];
-
-    // 아이디칸: password 보다 DOM 앞에 있는 visible text 계열 input
     var allInputs = Array.prototype.slice.call(document.querySelectorAll('input'));
     var pwIdx = allInputs.indexOf(pwInput);
     var scope = pwInput.closest ? pwInput.closest('form') : null;
     var candidates = allInputs.slice(0, pwIdx).filter(function (el) {
       if (!isVisibleInput(el)) return false;
       var t = (el.type || '').toLowerCase();
-      // DOM이 type 없으면 'text'로 normalize됨 — text/tel/email 허용
       return t === 'text' || t === 'tel' || t === 'email';
     });
-    // scope 제한: 같은 form 안에 있으면 우선 (없으면 document 전체 후보 그대로)
     var scopeCandidates = scope
       ? candidates.filter(function (el) { return scope.contains(el); })
       : candidates;
     if (scopeCandidates.length) candidates = scopeCandidates;
-
-    // id|user|아이디|로그인 포함 name/id/placeholder 있으면 우선
     var idInput = null;
     var keyRe = /id|user|아이디|로그인/i;
     for (var i = 0; i < candidates.length; i++) {
@@ -647,20 +635,45 @@ function parseValue(text) {
         idInput = el; break;
       }
     }
-    if (!idInput && candidates.length) idInput = candidates[candidates.length - 1]; // 가장 가까운 앞 input
+    if (!idInput && candidates.length) idInput = candidates[candidates.length - 1];
+    return { idInput: idInput, pwInput: pwInput };
+  }
 
-    // 디버그 표시 (id칸 감지 결과 — 작업자 셀렉터 보정용)
+  function tryLoginAutofill() {
+    if (!window.__awmsHelper) return;
+
+    // 계정 소스: 네이티브(__helperCred) 우선, 없으면 localStorage
+    var cred = (window.__helperCred && window.__helperCred.id)
+      ? window.__helperCred
+      : { id: localStorage.getItem('helper_cred_id') || '', pw: localStorage.getItem('helper_cred_pw') || '' };
+
+    // 로그인 화면 판별: visible password input 1개 이상
+    var fields = detectLoginFields();
+    if (!fields) return;
+    var idInput = fields.idInput;
+    var pwInput = fields.pwInput;
+
+    // 이미 채웠으면 중복 방지
+    if (window.__loginAutofillDone) return;
+
+    // 저장 리스너: cred 유무와 무관하게 로그인 폼 감지되면 1회 등록
+    installLoginCredListener(idInput, pwInput);
+
+    // 디버그 표시 (소스 + 칸 감지 결과)
     try {
-      var dbgId = idInput
-        ? (idInput.name || idInput.id || '(noname)')
-        : 'NONE';
+      var src = (window.__helperCred && window.__helperCred.id) ? 'cred'
+              : (localStorage.getItem('helper_cred_id') ? 'ls' : 'none');
+      var dbgId = idInput ? (idInput.name || idInput.id || '(noname)') : 'NONE';
       var dbgPw = pwInput ? 'OK' : 'NONE';
       var toast = document.createElement('div');
-      toast.textContent = 'helper: id=' + dbgId + ' pw=' + dbgPw;
+      toast.textContent = 'helper: src=' + src + ' id=' + dbgId + ' pw=' + dbgPw;
       toast.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:2147483647;background:rgba(0,0,0,.55);color:#fff;font:10px monospace;padding:3px 7px;border-radius:4px;pointer-events:none;';
       document.body.appendChild(toast);
       setTimeout(function () { try { toast.remove(); } catch (e) {} }, 1500);
     } catch (e) {}
+
+    // 채울 값 없으면 자동입력은 건너뜀 (저장 리스너는 이미 등록됨)
+    if (!cred.id) return;
 
     // 채우기
     if (idInput) setInput(idInput, cred.id);
@@ -668,12 +681,68 @@ function parseValue(text) {
 
     // 실제로 채운 후에만 중복 방지 플래그 설정
     window.__loginAutofillDone = true;
-    rec({ stage: 'login-autofill', idField: idInput ? (idInput.name || idInput.id || '?') : 'NONE' });
+    rec({ stage: 'login-autofill', src: (window.__helperCred && window.__helperCred.id) ? 'cred' : 'ls',
+          idField: idInput ? (idInput.name || idInput.id || '?') : 'NONE' });
+  }
+
+  // 로그인 제출 시 계정 저장 리스너 (click + submit 캡처, 1회만 등록)
+  function installLoginCredListener(idInputHint, pwInputHint) {
+    if (!window.__awmsHelper) return;
+    if (window.__loginCredListener) return;
+    window.__loginCredListener = true;
+
+    var loginSubmitRe = /로그인|login/i;
+
+    function saveCurrentCred() {
+      try {
+        // 제출 시점에 실제 값을 다시 읽음 (자동입력 후 작업자 수정 반영)
+        var f = detectLoginFields();
+        var idEl = (f && f.idInput) || idInputHint;
+        var pwEl = (f && f.pwInput) || pwInputHint;
+        var id = idEl ? idEl.value : '';
+        var pw = pwEl ? pwEl.value : '';
+        if (id && pw) {
+          localStorage.setItem('helper_cred_id', id);
+          localStorage.setItem('helper_cred_pw', pw);
+          rec({ stage: 'login-cred-save', src: 'submit' });
+        }
+      } catch (e) {}
+    }
+
+    // click 캡처: 로그인 버튼/제출 텍스트 감지
+    document.addEventListener('click', function (e) {
+      try {
+        var el = e.target;
+        if (!el) return;
+        // 버튼/submit 타입이거나 텍스트에 "로그인"/"login" 포함
+        var tag = (el.tagName || '').toLowerCase();
+        var type = (el.type || '').toLowerCase();
+        var txt = (el.textContent || el.value || '').trim();
+        var isSubmitEl = (tag === 'button') || (tag === 'input' && (type === 'submit' || type === 'button'));
+        var hasLoginTxt = loginSubmitRe.test(txt);
+        if (isSubmitEl || hasLoginTxt) {
+          // password input 있는 폼과 연관된 경우만
+          var f = detectLoginFields();
+          if (f) saveCurrentCred();
+        }
+      } catch (e) {}
+    }, true); // 캡처 단계
+
+    // submit 이벤트도 후킹 (엔터 제출 대비)
+    document.addEventListener('submit', function (e) {
+      try {
+        // form 안에 password input 있으면 저장
+        var form = e.target;
+        if (form && form.querySelector && form.querySelector('input[type="password"]')) {
+          saveCurrentCred();
+        }
+      } catch (e) {}
+    }, true); // 캡처 단계, preventDefault 절대 없음
   }
 
   // 로그인 자동입력 트리거: 즉시 + 300ms + 1000ms (늦게 렌더되는 폼 대응)
   try {
-    if (window.__awmsHelper && window.__helperCred && window.__helperCred.id) {
+    if (window.__awmsHelper) {
       if (document.body) {
         tryLoginAutofill();
       } else {
