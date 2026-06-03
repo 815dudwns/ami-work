@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v38-login-localstorage'; // v38: 로그인 자동입력 localStorage 기반 전환 — 옛 APK(__helperCred 없음)도 동작, 첫 제출 시 계정 저장
+  var VER = 'v39-diag'; // v39: 지사목록/자동복원 진단 + innorix 사진 업로드 흐름 진단(멀티 4장→3/4/5/6 구현 준비)
 
   function rec(o) {
     try {
@@ -811,16 +811,46 @@ function parseValue(text) {
     if (row[key]) return;                                     // 빈 칸일 때만 — 수동/기존값 보존
     if (typeof vm.$set === 'function') vm.$set(row, key, val); else row[key] = val;
   }
+  // 진단/수집: 지사·동행 옵션 목록을 logcat(console)으로 덤프. 찾으면 1회만.
+  var __deptDumped = false;
+  function dumpDeptOptions(vm) {
+    if (__deptDumped) return;
+    try {
+      var hit = false;
+      var src = (vm && vm.$data) || vm || {};
+      for (var k in src) {
+        var v = src[k];
+        if (Array.isArray(v) && v.length && v.length < 2000) {
+          var s = JSON.stringify(v[0] || {});
+          if (/DEPT|OFFICE|HDQR|본부|지사/i.test(s) || /dept|office|hdqr/i.test(k)) {
+            console.log('[DEPTLIST] vm.' + k + ' n=' + v.length + ' ' + JSON.stringify(v).slice(0, 1200));
+            hit = true;
+          }
+        }
+      }
+      document.querySelectorAll('select').forEach(function (sel, i) {
+        if (sel.options && sel.options.length > 1) {
+          var o = [].map.call(sel.options, function (x) { return x.value + ':' + (x.text || '').trim(); });
+          console.log('[DEPTDOM] ' + (sel.name || sel.id || ('sel' + i)) + ' n=' + o.length + ' ' + o.slice(0, 120).join(' | '));
+          hit = true;
+        }
+      });
+      if (hit) __deptDumped = true;
+    } catch (e) { console.log('[DEPTLIST] err ' + e.message); }
+  }
   function applyDeptWith(vm) {
     try {
       var row = vm && vm.mainList && vm.mainList.currentRow;
       if (!row) return;
+      dumpDeptOptions(vm);
       if (window.__awmsHelper) {
         // 헬퍼 모드: localStorage 마지막 저장값 복원. 피드백 루프 없음 — 저장 버튼 클릭 시에만 기록.
         var ld = localStorage.getItem('helper_last_dept');
         var lw = localStorage.getItem('helper_last_with');
+        console.log('[DEPT] helper=true ld=' + ld + ' lw=' + lw + ' before DEPT2=' + row.DEPT2 + ' WITH=' + row.MTR_WITH_YN);
         if (ld) setRow(vm, row, 'DEPT2', ld);
         if (lw) setRow(vm, row, 'MTR_WITH_YN', lw);
+        console.log('[DEPT] after DEPT2=' + row.DEPT2 + ' WITH=' + row.MTR_WITH_YN);
         rec({ stage: 'auto-deptwith-helper', DEPT2: row.DEPT2, WITH: row.MTR_WITH_YN });
       } else {
         // awms-bridge(통신팀): 기존 동작 그대로 — 고정값 항상 적용
@@ -1050,6 +1080,38 @@ function parseValue(text) {
         }
       } catch (e) {}
     }, 1200);
+  } catch (e) {}
+
+  // ── 진단: innorix 사진 업로드 흐름 (멀티 4장 → ATCH_FILE 3/4/5/6 순서 배분 구현용) ──
+  try {
+    // 사진칸 클릭 시 file input 구조 덤프 (multiple/accept/id 파악)
+    document.addEventListener('click', function (e) {
+      try {
+        var t = e.target;
+        var near = t && t.closest && t.closest('[id*=ATCH],[id*=atch],[class*=upload],[class*=innorix],[class*=file],[class*=photo],[class*=img]');
+        if (!(t && (t.type === 'file' || near))) return;
+        var ins = document.querySelectorAll('input[type=file]');
+        console.log('[FILEINPUT] count=' + ins.length);
+        ins.forEach(function (inp, i) {
+          console.log('[FILEINPUT] ' + i + ' id=' + inp.id + ' name=' + inp.name + ' multiple=' + inp.multiple + ' accept=' + inp.accept + ' cls=' + inp.className + ' parentcls=' + (inp.parentElement && inp.parentElement.className));
+        });
+      } catch (_) {}
+    }, true);
+    // innorix 업로드 완료 콜백 래핑 → 호출 인자(파일ID/슬롯) logcat. vm 갱신 대비 주기 재시도.
+    setInterval(function () {
+      try {
+        var vm = getAwmsVM(); if (!vm) return;
+        if (typeof vm.innorixFileUploadSingleCallback === 'function' && !vm.__innorixCbWrapped) {
+          var _o = vm.innorixFileUploadSingleCallback.bind(vm);
+          vm.innorixFileUploadSingleCallback = function (a) {
+            try { console.log('[INNORIX-CB] ' + JSON.stringify(a)); } catch (_) { console.log('[INNORIX-CB] id=' + (a && a.id) + ' fid=' + (a && a.ATCH_FILE_ID)); }
+            return _o(a);
+          };
+          vm.__innorixCbWrapped = true;
+          console.log('[INNORIX] cb wrapped; related fns: ' + Object.keys(vm).filter(function (k) { return /innorix|upload|file|atch/i.test(k); }).join(','));
+        }
+      } catch (_) {}
+    }, 1500);
   } catch (e) {}
 
   // OCR 카메라 광각→일반 후킹. awms OCR(ocr-reader-warebiz)이 facingMode:environment로 요청 시
