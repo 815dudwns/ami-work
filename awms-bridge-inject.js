@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v44'; // v44: 자동클릭 진단 제거 (수동 탭 방식 확정)
+  var VER = 'v45-logo-diag'; // v45: awms 로고 이미지 URL 덤프(설정페이지 디자인용)
 
   function rec(o) {
     try {
@@ -1227,6 +1227,21 @@ function parseValue(text) {
         } catch (_) {}
       } catch (_) {}
     }, 1500);
+  } catch (e) {}
+
+  // [로고 추출] awms 로고 이미지/배경이미지 URL 덤프 (설정페이지 디자인용) — 1회
+  try {
+    setTimeout(function () {
+      try {
+        if (window.__logoDumped) return; window.__logoDumped = true;
+        document.querySelectorAll('img').forEach(function (img) {
+          if (img.naturalWidth > 25) console.log('[IMG] ' + img.naturalWidth + 'x' + img.naturalHeight + ' alt=' + (img.alt || '') + ' cls=' + (img.className || '') + ' ' + img.src);
+        });
+        document.querySelectorAll('[class*=logo],[id*=logo],[class*=Logo],header,.header,[class*=top],[class*=brand],[class*=ci]').forEach(function (el) {
+          try { var bg = getComputedStyle(el).backgroundImage; if (bg && bg !== 'none') console.log('[BGIMG] ' + (el.id || el.className || el.tagName) + ' ' + bg.slice(0, 250)); } catch (_) {}
+        });
+      } catch (_) {}
+    }, 1800);
   } catch (e) {}
 
   // OCR 카메라 광각→일반 후킹. awms OCR(ocr-reader-warebiz)이 facingMode:environment로 요청 시
