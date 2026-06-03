@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v42-atch-snap'; // v42: 업로드 후 파일ID 저장위치/개수 추적(ATCH-SNAP, ROW-KEY, VM-ARR)
+  var VER = 'v43-slot-click-diag'; // v43: 사진 슬롯 클릭요소 파악(자동클릭 셀렉터용)
 
   function rec(o) {
     try {
@@ -1169,6 +1169,18 @@ function parseValue(text) {
         ins.forEach(function (inp, i) {
           console.log('[FILEINPUT] ' + i + ' id=' + inp.id + ' name=' + inp.name + ' multiple=' + inp.multiple + ' accept=' + inp.accept + ' cls=' + inp.className + ' parentcls=' + (inp.parentElement && inp.parentElement.className));
         });
+      } catch (_) {}
+    }, true);
+    // [자동클릭용] 사진 슬롯 클릭 요소 파악 — 4·5·6 슬롯의 셀렉터 확보
+    document.addEventListener('click', function (e) {
+      try {
+        var el = e.target, chain = [];
+        for (var i = 0; i < 6 && el; i++) {
+          chain.push((el.tagName || '') + (el.id ? '#' + el.id : '') + (el.className ? '.' + String(el.className).replace(/\s+/g, '.').slice(0, 50) : ''));
+          el = el.parentElement;
+        }
+        var s = chain.join(' > ');
+        if (/atch|file|photo|img|사진|첨부|upload|innorix|ATCH/i.test(s)) console.log('[SLOT-CLICK] ' + s);
       } catch (_) {}
     }, true);
     // innorix 업로드 완료 콜백 래핑 → 호출 인자(파일ID/슬롯) logcat. vm 갱신 대비 주기 재시도.
