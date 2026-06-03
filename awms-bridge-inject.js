@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v41-photo-diag'; // v41: innorix upload/updateAtachFile 래핑 + fileFields/uploadTarget 덤프 (4장 분배 분석)
+  var VER = 'v42-atch-snap'; // v42: 업로드 후 파일ID 저장위치/개수 추적(ATCH-SNAP, ROW-KEY, VM-ARR)
 
   function rec(o) {
     try {
@@ -1212,6 +1212,19 @@ function parseValue(text) {
           try { console.log('[INX-uploadResolvers] keys=' + JSON.stringify(Object.keys(vm.uploadResolvers || {}))); } catch (_) {}
           vm.__inxDumped = true;
         }
+        // [핵심] 업로드 후 파일ID 저장 위치/개수 추적 — 4장 올리면 몇 개 생기나
+        try {
+          var r = vm.mainList && vm.mainList.currentRow;
+          if (r) {
+            var snap = '3=' + r.ATCH_FILE_ID_3 + '|4=' + r.ATCH_FILE_ID_4 + '|5=' + r.ATCH_FILE_ID_5 + '|6=' + r.ATCH_FILE_ID_6;
+            if (snap !== window.__lastAtchSnap) {
+              window.__lastAtchSnap = snap;
+              console.log('[ATCH-SNAP] ' + snap);
+              for (var k in r) { if (/ATCH|FILE|atch|file|img|photo|사진/i.test(k)) { try { console.log('[ROW-KEY] ' + k + '=' + JSON.stringify(r[k]).slice(0, 250)); } catch (_) {} } }
+              for (var vk in vm) { try { var vv = vm[vk]; if (Array.isArray(vv) && vv.length && vv.length < 50 && /file|atch|name|id|sn|seq/i.test(JSON.stringify(vv[0] || {}))) console.log('[VM-ARR] ' + vk + ' n=' + vv.length + ' ' + JSON.stringify(vv).slice(0, 350)); } catch (_) {} }
+            }
+          }
+        } catch (_) {}
       } catch (_) {}
     }, 1500);
   } catch (e) {}
