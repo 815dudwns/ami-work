@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v40-dept-select'; // v40: 임의추가 폼 지사/동행 select 자동적용(__helperDept/__helperWith)
+  var VER = 'v41-photo-diag'; // v41: innorix upload/updateAtachFile 래핑 + fileFields/uploadTarget 덤프 (4장 분배 분석)
 
   function rec(o) {
     try {
@@ -1183,6 +1183,34 @@ function parseValue(text) {
           };
           vm.__innorixCbWrapped = true;
           console.log('[INNORIX] cb wrapped; related fns: ' + Object.keys(vm).filter(function (k) { return /innorix|upload|file|atch/i.test(k); }).join(','));
+        }
+        // upload / updateAtachFile 래핑 → 4장이 어떻게 처리되는지 인자 logcat
+        if (typeof vm.upload === 'function' && !vm.__inxUploadWrapped) {
+          var _up = vm.upload.bind(vm);
+          vm.upload = function () {
+            try { console.log('[INX-upload] args=' + JSON.stringify([].slice.call(arguments)).slice(0, 600)); } catch (_) { console.log('[INX-upload] (args unserializable) n=' + arguments.length); }
+            return _up.apply(this, arguments);
+          };
+          vm.__inxUploadWrapped = true;
+          console.log('[INX-upload] toString=' + String(_up).replace(/\s+/g, ' ').slice(0, 500));
+        }
+        if (typeof vm.updateAtachFile === 'function' && !vm.__inxUpdWrapped) {
+          var _ua = vm.updateAtachFile.bind(vm);
+          vm.updateAtachFile = function () {
+            try { console.log('[INX-updAtach] args=' + JSON.stringify([].slice.call(arguments)).slice(0, 600)); } catch (_) { console.log('[INX-updAtach] (args unserializable) n=' + arguments.length); }
+            var ret = _ua.apply(this, arguments);
+            try { var r = vm.mainList && vm.mainList.currentRow; if (r) console.log('[INX-row] 3=' + r.ATCH_FILE_ID_3 + ' 4=' + r.ATCH_FILE_ID_4 + ' 5=' + r.ATCH_FILE_ID_5 + ' 6=' + r.ATCH_FILE_ID_6); } catch (_) {}
+            return ret;
+          };
+          vm.__inxUpdWrapped = true;
+          console.log('[INX-updAtach] toString=' + String(_ua).replace(/\s+/g, ' ').slice(0, 500));
+        }
+        // fileFields / uploadTarget / uploadResolvers 구조 1회 덤프
+        if (vm.__innorixCbWrapped && !vm.__inxDumped) {
+          try { console.log('[INX-fileFields] ' + JSON.stringify(vm.fileFields).slice(0, 800)); } catch (_) {}
+          try { console.log('[INX-uploadTarget] ' + JSON.stringify(vm.uploadTarget).slice(0, 400)); } catch (_) {}
+          try { console.log('[INX-uploadResolvers] keys=' + JSON.stringify(Object.keys(vm.uploadResolvers || {}))); } catch (_) {}
+          vm.__inxDumped = true;
         }
       } catch (_) {}
     }, 1500);
