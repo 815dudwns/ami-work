@@ -51,6 +51,12 @@
 - workStatus 30초 동기화
 - Rules .read/.write가 false면 동기화 안 됨
 
+## awms 완료 → 종로 동기화
+- **프로세스 문서**: `research/awms-poc/awms_완료_종로동기화_프로세스.md` (작업 전 반드시 참조)
+- 요약: awms-bridge "완료받기" 버튼 → Firebase awmscomplete/ → awms-all.json → sync 도구 업로드 → ami-jongno push
+- sync 도구: https://815dudwns.github.io/jongno-combined/tools/sync-meter-from-awms.html
+- 매칭키 = WHM_NO(신설계기) ↔ 종로 계기번호 / 종로 DB = **ami-jongno** (ami-work 아님)
+
 ## 예정 기능 (우선순위순)
 1. UI 개선 (DaisyUI 또는 Variant 방식)
 2. 리스트 선택 페이지
