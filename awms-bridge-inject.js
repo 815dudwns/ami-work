@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v55'; // v55: 빈값 저장거부(저장값 보호)+폰ID 읽기차단 제거+만료30분 — 영준님 통찰
+  var VER = 'v56'; // v56: MD구분 제거(작업폼 전부 MD20)+클릭시 A3저장+빈폼 주입+전파차단(재저장방지)
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1160,6 +1160,7 @@ function parseValue(text) {
   // 폰ID 비교 제거(localStorage 자체가 기기별 — 폰ID 불일치로 읽기 차단되던 게 mp3=- 원인). 만료 30분.
   function _setMP3(v) {
     if (!v) return;                       // 빈값 거부 — 저장값 보호
+    if (v === window.__lastInjected) return; // [v56] 방금 주입한 값 재저장 차단 — 옛 사진 무한전파 방지
     window.__masterPhoto3 = v;
     try { localStorage.setItem('__mp3', JSON.stringify({ ph: _phoneId(), f3: v, ts: Date.now() })); } catch (e) {}
   }
@@ -1191,8 +1192,9 @@ function parseValue(text) {
           row: JSON.stringify(r).slice(0, 1300)
         });
         window.__pvm = vm; window.__prow = r;
-        if (md === '10' && r.ATCH_FILE_ID_3) {
-          if (_getMP3() !== r.ATCH_FILE_ID_3) { _setMP3(r.ATCH_FILE_ID_3); rec({ stage: 'master-photo-saved', via: 'click', f3: r.ATCH_FILE_ID_3 }); }
+        // [v56] MD 구분 제거 — 영준님 작업폼은 전부 MD=20(MD=10 없음 확인). 클릭 순간 A3 있으면 저장.
+        if (r.ATCH_FILE_ID_3) {
+          if (_getMP3() !== r.ATCH_FILE_ID_3) { _setMP3(r.ATCH_FILE_ID_3); rec({ stage: 'master-photo-saved', via: 'click', md: md, f3: r.ATCH_FILE_ID_3 }); }
         }
       } catch (e) { rec({ stage: 'row-dump-err', e: String(e && e.message || e) }); }
     }, true);
@@ -1212,12 +1214,12 @@ function parseValue(text) {
         var mp3 = _getMP3();
         // 진단: 상태 변화 시에만 firebase 기록 (매 틱 폭주 방지) + 마스터의 모든 ATCH 슬롯
         _photoDiag('MD=' + md + '|A3=' + (r.ATCH_FILE_ID_3 || '-') + '|A4=' + (r.ATCH_FILE_ID_4 || '-') + '|A5=' + (r.ATCH_FILE_ID_5 || '-') + '|A6=' + (r.ATCH_FILE_ID_6 || '-') + '|mp3=' + (mp3 || '-'));
-        // 마스터(10): 시공전 파일ID 잡히면 localStorage 저장 (페이지 갱신 견딤)
-        if (md === '10' && r.ATCH_FILE_ID_3) {
-          if (_getMP3() !== r.ATCH_FILE_ID_3) { _setMP3(r.ATCH_FILE_ID_3); rec({ stage: 'master-photo-saved', f3: r.ATCH_FILE_ID_3 }); }
+        // [v56] 원본(A3 있음): localStorage 저장 (MD 무관)
+        if (r.ATCH_FILE_ID_3) {
+          if (_getMP3() !== r.ATCH_FILE_ID_3) { _setMP3(r.ATCH_FILE_ID_3); rec({ stage: 'master-photo-saved', via: 'poll', md: md, f3: r.ATCH_FILE_ID_3 }); }
         }
-        // 슬래이브(20): 시공전 칸 비면 localStorage 값으로 주입
-        if (md === '20' && !r.ATCH_FILE_ID_3 && mp3) {
+        // [v56] 대상(A3 없음): localStorage 값 주입 (MD 무관) + 1회용
+        if (!r.ATCH_FILE_ID_3 && mp3) {
           // awms 정식 사진등록 호출(innorixFileUploadSingleCallback)로 시공전(ATCH_FILE3) 주입 — 미리보기/저장 일관
           if (typeof vm.innorixFileUploadSingleCallback === 'function') {
             vm.innorixFileUploadSingleCallback({ id: 'ATCH_FILE3', status: 'uploadComplete', ATCH_FILE_ID: mp3 });
@@ -1226,7 +1228,8 @@ function parseValue(text) {
             if (typeof vm.$set === 'function') vm.$set(r, 'ATCH_FILE_ID_3', mp3); else r.ATCH_FILE_ID_3 = mp3;
             rec({ stage: 'slave-photo-copy', f3: mp3, via: 'set' });
           }
-          _clearMP3(); // [v52] 주입 1회 후 즉시 삭제 — 다음 작업에 잔재 안 남게
+          window.__lastInjected = mp3; // [v56] 주입한 값 기록 — 재저장(전파) 차단용
+          _clearMP3(); // 주입 1회 후 즉시 삭제 — 다음 작업에 잔재 안 남게
         }
       } catch (e) {}
     }, 500);
