@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v50'; // v50: 버전 배지(화면 우측상단 inj vNN) + boot 로그 — 최신 수신 확인용
+  var VER = 'v51'; // v51: 슬래이브 추가 클릭 순간 마스터 시공전(ATCH_FILE_ID_3) localStorage 저장 (영준님 프로세스)
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1150,6 +1150,23 @@ function parseValue(text) {
   // [v49] 시공전 기억 = localStorage (영준님 발견: 슬래이브 버튼→페이지 갱신 시 window 변수는 날아감. localStorage는 유지)
   function _getMP3() { try { return localStorage.getItem('__mp3') || window.__masterPhoto3 || ''; } catch (e) { return window.__masterPhoto3 || ''; } }
   function _setMP3(v) { window.__masterPhoto3 = v; try { localStorage.setItem('__mp3', v); } catch (e) {} }
+  // [v51] 영준님 프로세스 1번: 슬래이브 추가 버튼 누르는 순간(=마스터 폼 살아있는 마지막 시점)에
+  // 마스터 시공전(ATCH_FILE_ID_3)을 localStorage에 저장. polling이 놓치는 타이밍을 클릭으로 확정.
+  try {
+    document.addEventListener('click', function () {
+      try {
+        var vm = getAwmsVM();
+        var r = vm && vm.mainList && vm.mainList.currentRow;
+        if (!r) return;
+        var md = String(r.MODEM_DIV || '');
+        // 클릭 순간 마스터 시공전 진단(값 유무 확인) + 있으면 즉시 저장
+        rec({ stage: 'click-capture', md: md, a3: r.ATCH_FILE_ID_3 || '-' });
+        if (md === '10' && r.ATCH_FILE_ID_3) {
+          if (_getMP3() !== r.ATCH_FILE_ID_3) { _setMP3(r.ATCH_FILE_ID_3); rec({ stage: 'master-photo-saved', via: 'click', f3: r.ATCH_FILE_ID_3 }); }
+        }
+      } catch (e) {}
+    }, true);
+  } catch (e) {}
   // 사진 공유 polling — 슬래이브 시공전 칸이 비면 마스터 저장 파일ID로 채움 (미리보기도 파일ID로 표시됨)
   try {
     setInterval(function () {
