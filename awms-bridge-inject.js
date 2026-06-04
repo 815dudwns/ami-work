@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v66'; // v66: late-injection 부활(setRow) — 한버튼/서버랙 슬래이브 시공전 누락 복구
+  var VER = 'v67'; // v67: 대표→계기번호는 11자리 완성 시만(수기 한글자씩 부분복사 버그수정)
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1069,9 +1069,12 @@ function parseValue(text) {
     var row = vm && vm.mainList && vm.mainList.currentRow;
     if (!row) return;
     if (String(row.MODEM_DIV || '') !== '10') return;      // 마스터 전용 (슬래이브 MD=20 제외)
-    if (row.MB_METER_ID && !row.INSTR_NUM) {               // 대표계기 있고 계기번호 빈칸일 때만(수동값 보존)
-      setRow(vm, row, 'INSTR_NUM', row.MB_METER_ID);
-      rec({ stage: 'mb-to-meter', v: row.MB_METER_ID });
+    var _mb = String(row.MB_METER_ID || '');
+    // [v67] 11자리(계기번호 자릿수) 완성 시만 복사. 수기 입력은 한 글자씩 watch 발화 →
+    //   첫 글자만 복사되고 빈칸조건에 막히던 버그. QR/OCR은 한번에 11자리라 정상.
+    if (_mb.length >= 11 && !row.INSTR_NUM) {              // 자릿수 충족 + 계기번호 빈칸일 때만(수동값 보존)
+      setRow(vm, row, 'INSTR_NUM', _mb);
+      rec({ stage: 'mb-to-meter', v: _mb });
     }
   }
   // [v63] 시공전(A3) 슬래이브 전파 — awms가 addRow로 모뎀 슬래이브 자동생성 시 param.ATCH_FILE_ID_4만 채우고 A3는 빈값으로 둠.
