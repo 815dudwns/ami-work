@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v48'; // v48: 시공전 진단 강화 — file input change + innorix 콜백 + ATCH 결과 firebase
+  var VER = 'v49'; // v49: 시공전 기억 localStorage 전환(슬래이브 버튼→페이지 갱신에도 유지) + polling 500ms
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1133,6 +1133,9 @@ function parseValue(text) {
     __lastPhotoDiag = snap;
     rec({ stage: 'photo-diag', snap: snap });
   }
+  // [v49] 시공전 기억 = localStorage (영준님 발견: 슬래이브 버튼→페이지 갱신 시 window 변수는 날아감. localStorage는 유지)
+  function _getMP3() { try { return localStorage.getItem('__mp3') || window.__masterPhoto3 || ''; } catch (e) { return window.__masterPhoto3 || ''; } }
+  function _setMP3(v) { window.__masterPhoto3 = v; try { localStorage.setItem('__mp3', v); } catch (e) {} }
   // 사진 공유 polling — 슬래이브 시공전 칸이 비면 마스터 저장 파일ID로 채움 (미리보기도 파일ID로 표시됨)
   try {
     setInterval(function () {
@@ -1145,21 +1148,26 @@ function parseValue(text) {
         var r = vm.mainList.currentRow;
         if (!r) { _photoDiag('no-currentRow'); return; }
         var md = String(r.MODEM_DIV || '');
-        // 진단: 상태 변화 시에만 firebase 기록 (매 틱 폭주 방지)
-        _photoDiag('MD=' + md + '|ATCH3=' + (r.ATCH_FILE_ID_3 || '-') + '|m3=' + (window.__masterPhoto3 || '-') + '|cb=' + (typeof vm.innorixFileUploadSingleCallback));
-        if (md === '10' && r.ATCH_FILE_ID_3) { window.__masterPhoto3 = r.ATCH_FILE_ID_3; rec({ stage: 'master-photo-saved', f3: r.ATCH_FILE_ID_3 }); }  // 마스터 폼의 시공전 파일ID 직접 기억(응답 아님)
-        if (md === '20' && !r.ATCH_FILE_ID_3 && window.__masterPhoto3) {
+        var mp3 = _getMP3();
+        // 진단: 상태 변화 시에만 firebase 기록 (매 틱 폭주 방지) + 마스터의 모든 ATCH 슬롯
+        _photoDiag('MD=' + md + '|A3=' + (r.ATCH_FILE_ID_3 || '-') + '|A4=' + (r.ATCH_FILE_ID_4 || '-') + '|A5=' + (r.ATCH_FILE_ID_5 || '-') + '|A6=' + (r.ATCH_FILE_ID_6 || '-') + '|mp3=' + (mp3 || '-'));
+        // 마스터(10): 시공전 파일ID 잡히면 localStorage 저장 (페이지 갱신 견딤)
+        if (md === '10' && r.ATCH_FILE_ID_3) {
+          if (_getMP3() !== r.ATCH_FILE_ID_3) { _setMP3(r.ATCH_FILE_ID_3); rec({ stage: 'master-photo-saved', f3: r.ATCH_FILE_ID_3 }); }
+        }
+        // 슬래이브(20): 시공전 칸 비면 localStorage 값으로 주입
+        if (md === '20' && !r.ATCH_FILE_ID_3 && mp3) {
           // awms 정식 사진등록 호출(innorixFileUploadSingleCallback)로 시공전(ATCH_FILE3) 주입 — 미리보기/저장 일관
           if (typeof vm.innorixFileUploadSingleCallback === 'function') {
-            vm.innorixFileUploadSingleCallback({ id: 'ATCH_FILE3', status: 'uploadComplete', ATCH_FILE_ID: window.__masterPhoto3 });
-            rec({ stage: 'slave-photo-copy', f3: window.__masterPhoto3, via: 'callback' });
+            vm.innorixFileUploadSingleCallback({ id: 'ATCH_FILE3', status: 'uploadComplete', ATCH_FILE_ID: mp3 });
+            rec({ stage: 'slave-photo-copy', f3: mp3, via: 'callback' });
           } else {
-            if (typeof vm.$set === 'function') vm.$set(r, 'ATCH_FILE_ID_3', window.__masterPhoto3); else r.ATCH_FILE_ID_3 = window.__masterPhoto3;
-            rec({ stage: 'slave-photo-copy', f3: window.__masterPhoto3, via: 'set' });
+            if (typeof vm.$set === 'function') vm.$set(r, 'ATCH_FILE_ID_3', mp3); else r.ATCH_FILE_ID_3 = mp3;
+            rec({ stage: 'slave-photo-copy', f3: mp3, via: 'set' });
           }
         }
       } catch (e) {}
-    }, 1200);
+    }, 500);
   } catch (e) {}
 
   // ── 진단: innorix 사진 업로드 흐름 (멀티 4장 → ATCH_FILE 3/4/5/6 순서 배분 구현용) ──
