@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v65'; // v65: 시공전 모뎀맵 캡처를 _setMP3로 이동(타이밍 독립) / v64: 대표계기→계기번호
+  var VER = 'v66'; // v66: late-injection 부활(setRow) — 한버튼/서버랙 슬래이브 시공전 누락 복구
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1297,7 +1297,21 @@ function parseValue(text) {
             }
           }
         } catch (e) {}
-        // [v63] 기존 callback/set polling 주입은 제거 — awms가 덮어써 실패(영준님 "안 따라옴"). addRow 후킹(행 생성 시점)으로 대체.
+        // [v66] late-injection 부활 — 한버튼/서버랙으로 addRow 시점에 시공전ID가 아직 없던 슬래이브를
+        //   saveAct 응답 후(=__sigongMap 채워진 후) setRow로 채움. v62 polling 주입을 callback 대신 setRow로 복원.
+        //   (v63에서 통째 제거한 게 새 임의추가 회귀 원인. callback=innorix 부작용만 문제였고 개념은 옳았음)
+        //   모뎀별 맵으로 cross-modem 안전. 행별 1회 시도(__a3tried)로 폭주/재시도 방지.
+        try {
+          if (String(r.MODEM_DIV || '') === '20' && !r.ATCH_FILE_ID_3 && !r.__a3tried) {
+            var _lm = r.MAC_MODEM || '';
+            var _ls = (_lm && window.__sigongMap && window.__sigongMap[_lm]) || '';
+            if (_ls) {
+              r.__a3tried = true;                       // 행별 1회만 (덮어써도 무한재시도 방지)
+              setRow(vm, r, 'ATCH_FILE_ID_3', _ls);     // setRow=빈칸만, innorix callback 아님
+              rec({ stage: 'slave-a3-inject', via: 'poll-late', mac: _lm, f3: _ls });
+            }
+          }
+        } catch (e) {}
       } catch (e) {}
     }, 500);
   } catch (e) {}
