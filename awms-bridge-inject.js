@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v58'; // v58: v57 A4조건 제거(회귀복구) — 근본은 CDP로
+  var VER = 'v59'; // v59: XHR/fetch 후킹 부활(helper 통신팀) — saveAct 응답서 시공전 캡처 + 슬래이브추가 호출 로그
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1094,10 +1094,14 @@ function parseValue(text) {
   // 마스터 saveAct(XHR) 응답에서 시공전 파일ID 캡처 (사진은 binary 관리 → 저장 후 파일ID로만 공유 가능)
   // awms가 모뎀맥(atchFileId4) 유지하듯, 시공전(atchFileId3)을 받아 슬래이브에 참조로 넣음.
   function captureMasterPhoto(j) {
-    try { if (j && j.atchFileId3) { window.__masterPhoto3 = j.atchFileId3; rec({ stage: 'master-photo-saved', f3: j.atchFileId3 }); } } catch (e) {}
+    try {
+      // [v59] saveAct 응답 진단 — 어떤 필드가 오는지 + 시공전(atchFileId3) 있으면 localStorage 저장
+      rec({ stage: 'saveact-resp', a3: (j && j.atchFileId3) || '-', a4: (j && j.atchFileId4) || '-', keys: j ? Object.keys(j).filter(function (k) { return /atch|file|photo|seqno/i.test(k); }).join(',') : 'null' });
+      if (j && j.atchFileId3) { _setMP3(j.atchFileId3); rec({ stage: 'master-photo-saved', via: 'saveAct', f3: j.atchFileId3 }); }
+    } catch (e) {}
   }
   try {
-    if (false && !window.__xhrHooked) {   // [v35] XHR 래핑 영구 제거 — 시공전 사진은 currentRow polling(v31)이 대체, 계기팀 saveRow(MOBMTR) 충돌 방지
+    if (!window.__xhrHooked) {   // [v59] XHR 후킹 부활 — helper는 통신팀이라 계기팀 saveRow 충돌 없음. saveAct 응답서 시공전 캡처
       window.__xhrHooked = true;
       // recorder가 window.XMLHttpRequest 생성자를 교체 + 인스턴스 메서드 래핑 → prototype 래핑은 빗나감.
       // 동일하게 생성자 래핑 + 인스턴스 메서드로 후킹 (recorder PXHR 위에 한 겹 더).
@@ -1125,7 +1129,7 @@ function parseValue(text) {
       window.XMLHttpRequest = HookedXHR;
     }
     // fetch도 후킹 (awms가 fetch로 saveAct 보낼 수 있음 — recorder xhr 분류와 무관하게 양쪽 커버)
-    if (false && !window.__fetchHooked && window.fetch) {   // [v35] fetch 래핑도 영구 제거 (시공전 사진은 polling 대체)
+    if (!window.__fetchHooked && window.fetch) {   // [v59] fetch 후킹 부활 (helper 통신팀)
       window.__fetchHooked = true;
       var _f = window.fetch;
       window.fetch = function (u) {
