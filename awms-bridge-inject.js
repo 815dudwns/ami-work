@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v47'; // v47: 시공전 진단 로그 — rec()를 firebase에도 기록(helper엔 AndroidRecorder 없음)
+  var VER = 'v48'; // v48: 시공전 진단 강화 — file input change + innorix 콜백 + ATCH 결과 firebase
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1177,6 +1177,14 @@ function parseValue(text) {
         });
       } catch (_) {}
     }, true);
+    // [v48] file input change 감지 — 앨범/카메라 사진이 awms input까지 도달하는지 firebase 기록
+    document.addEventListener('change', function (e) {
+      try {
+        if (e.target && e.target.type === 'file') {
+          rec({ stage: 'file-change', id: e.target.id || '', name: e.target.name || '', n: e.target.files ? e.target.files.length : 0 });
+        }
+      } catch (_) {}
+    }, true);
     // innorix 업로드 완료 콜백 래핑 → 호출 인자(파일ID/슬롯) logcat. vm 갱신 대비 주기 재시도.
     setInterval(function () {
       try {
@@ -1185,10 +1193,18 @@ function parseValue(text) {
           var _o = vm.innorixFileUploadSingleCallback.bind(vm);
           vm.innorixFileUploadSingleCallback = function (a) {
             try { console.log('[INNORIX-CB] ' + JSON.stringify(a)); } catch (_) { console.log('[INNORIX-CB] id=' + (a && a.id) + ' fid=' + (a && a.ATCH_FILE_ID)); }
+            // [v48] 업로드 콜백 어느 id/파일ID인지 + 직후 currentRow ATCH 전부 firebase
+            try {
+              rec({ stage: 'innorix-cb', id: a && a.id, fid: a && a.ATCH_FILE_ID, st: a && a.status });
+              var rr = vm.mainList && vm.mainList.currentRow;
+              if (rr) rec({ stage: 'inx-row', a3: rr.ATCH_FILE_ID_3 || '-', a4: rr.ATCH_FILE_ID_4 || '-', a5: rr.ATCH_FILE_ID_5 || '-', a6: rr.ATCH_FILE_ID_6 || '-', md: rr.MODEM_DIV });
+            } catch (_) {}
             return _o(a);
           };
           vm.__innorixCbWrapped = true;
           console.log('[INNORIX] cb wrapped; related fns: ' + Object.keys(vm).filter(function (k) { return /innorix|upload|file|atch/i.test(k); }).join(','));
+          // [v48] vm의 사진 관련 필드명 목록 firebase (ATCH_FILE_ID_3가 맞는 키인지 확인용)
+          try { rec({ stage: 'inx-keys', keys: Object.keys(vm.mainList && vm.mainList.currentRow || {}).filter(function (k) { return /atch|file|photo|img/i.test(k); }).join(',') }); } catch (_) {}
         }
         // upload / updateAtachFile 래핑 → 4장이 어떻게 처리되는지 인자 logcat
         if (typeof vm.upload === 'function' && !vm.__inxUploadWrapped) {
