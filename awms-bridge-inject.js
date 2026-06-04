@@ -6,13 +6,13 @@
 
 (function () {
   'use strict';
-  var VER = 'v62'; // v62: 로그인 자동입력 __awmsHelper 게이트 제거 — bridge에서도 자동입력(영준님 전용)
+  var VER = 'v63'; // v62: 로그인 자동입력 __awmsHelper 게이트 제거 — bridge에서도 자동입력(영준님 전용)
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
   var _FBLOG = 'https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/awmslog/helper.json';
   // [v61] firebase 로그 화이트리스트 — 핵심만 보냄(진단 폭주 차단). 디버깅 필요시 window.__FBLOG_ALL=true 로 전체.
-  var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1 };
+  var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1 };
   function rec(o) {
     try {
       o.kind = 'cam'; o.ts = Date.now(); o.url = 'https://awms.kdn.com/__cam__/' + (o.stage || '');
@@ -1062,6 +1062,33 @@ function parseValue(text) {
     }, true);
   }
 
+  // [v63] 시공전(A3) 슬래이브 전파 — awms가 addRow로 모뎀 슬래이브 자동생성 시 param.ATCH_FILE_ID_4만 채우고 A3는 빈값으로 둠.
+  // 그 addRow를 가로채 같은 모뎀(MAC_MODEM)의 마스터 시공전을 param.ATCH_FILE_ID_3에 주입 → A4와 동일하게 따라감.
+  // 행 생성 시점 주입이라 polling/callback(awms가 덮어씀)보다 확실. 모뎀별 맵(__sigongMap)으로 cross-modem 안전. __awmsHelper 전용.
+  // (CDP trap 실증: param.A4=F656은 awms가 채움 / param.A3=""→주입 시 슬래이브에 시공전 따라옴 확인)
+  function installAddRowHook(vm) {
+    if (!window.__awmsHelper) return;
+    var m = vm && vm.mainList;
+    if (!m || m.__sigongAddRowHook) return;
+    var orig = m.addRow;
+    if (typeof orig !== 'function') return;
+    m.addRow = function (p) {
+      try {
+        if (p && typeof p === 'object') {
+          rec({ stage: 'addrow-life', md: p.MODEM_DIV, mac: p.MAC_MODEM || '', a3: p.ATCH_FILE_ID_3 || '', a4: p.ATCH_FILE_ID_4 || '' });
+          if (p.ATCH_FILE_ID_4 && !p.ATCH_FILE_ID_3) {          // awms가 A4 담아준 모뎀 슬래이브 = A3도 따라가야 할 자리
+            var mac = p.MAC_MODEM || '';
+            var src = (window.__sigongMap && window.__sigongMap[mac]) || '';
+            if (!src) { var cr = m.currentRow; if (cr && cr.MAC_MODEM === mac && cr.ATCH_FILE_ID_3) src = cr.ATCH_FILE_ID_3; } // 폴백: 같은 모뎀 현재행
+            if (src) { p.ATCH_FILE_ID_3 = src; rec({ stage: 'slave-a3-inject', mac: mac, f3: src }); }
+          }
+        }
+      } catch (e) {}
+      return orig.apply(m, arguments);
+    };
+    m.__sigongAddRowHook = true;
+    rec({ stage: 'addrow-hook-on' });
+  }
   function installHelper() {
     var vm = getAwmsVM();
     if (!vm) return false;
@@ -1075,7 +1102,7 @@ function parseValue(text) {
       vm.$watch('mainList.currentRow.MODEM_DIV', function () { setTimeout(function () { applyCommBungi(vm); }, 150); });
     } catch (e) {}
     // 헬퍼 모드에서만 저장 리스너 등록
-    if (window.__awmsHelper) { installSaveListener(); }
+    if (window.__awmsHelper) { installSaveListener(); installAddRowHook(vm); }
     rec({ stage: 'helper-installed' });
     return true;
   }
@@ -1237,24 +1264,24 @@ function parseValue(text) {
         var mp3 = _getMP3();
         // 진단: 상태 변화 시에만 firebase 기록 (매 틱 폭주 방지) + 마스터의 모든 ATCH 슬롯
         _photoDiag('MD=' + md + '|A3=' + (r.ATCH_FILE_ID_3 || '-') + '|A4=' + (r.ATCH_FILE_ID_4 || '-') + '|A5=' + (r.ATCH_FILE_ID_5 || '-') + '|A6=' + (r.ATCH_FILE_ID_6 || '-') + '|mp3=' + (mp3 || '-'));
-        // [v56] 원본(A3 있음): localStorage 저장 (MD 무관)
+        // [v63] 캡처: 마스터 시공전을 모뎀별 맵(__sigongMap[MAC_MODEM])에 저장 → addRow 후킹이 param.MAC_MODEM으로 조회(cross-modem 안전)
         if (r.ATCH_FILE_ID_3) {
-          _setMP3(r.ATCH_FILE_ID_3, 'poll'); // [v60] 중복/로그는 _setMP3가 처리
+          _setMP3(r.ATCH_FILE_ID_3, 'poll'); // 호환 유지
+          if (r.MAC_MODEM) { window.__sigongMap = window.__sigongMap || {}; window.__sigongMap[r.MAC_MODEM] = r.ATCH_FILE_ID_3; }
         }
-        // [v57] 대상 = 4번이 awms로 카피된 슬래이브(A4 있음 + A3 리셋). 영준님 통찰: 4 따라가는 신호로 3 주입.
-        // A4 없는 폼엔 주입 안 함 → 옛 사진 전파/오주입 방지.
-        if (!r.ATCH_FILE_ID_3 && mp3) {  // [v58] A4 조건 제거 — A4 없는 슬래이브도 주입(v57 회귀 복구)
-          // awms 정식 사진등록 호출(innorixFileUploadSingleCallback)로 시공전(ATCH_FILE3) 주입 — 미리보기/저장 일관
-          if (typeof vm.innorixFileUploadSingleCallback === 'function') {
-            vm.innorixFileUploadSingleCallback({ id: 'ATCH_FILE3', status: 'uploadComplete', ATCH_FILE_ID: mp3 });
-            rec({ stage: 'slave-photo-copy', f3: mp3, via: 'callback' });
-          } else {
-            if (typeof vm.$set === 'function') vm.$set(r, 'ATCH_FILE_ID_3', mp3); else r.ATCH_FILE_ID_3 = mp3;
-            rec({ stage: 'slave-photo-copy', f3: mp3, via: 'set' });
+        // [v63] mainList 재생성 대비 addRow 후킹 재확인
+        try { installAddRowHook(vm); } catch (e) {}
+        // [v63] 미리보기 지속: A3 데이터 있으나 img.src가 플레이스홀더면 singleFile URL로 세팅.
+        //       (awms는 A4 미리보기만 관리/복원 → A3는 우리가 매 틱 유지해야 행 전환 후에도 사진이 뜸. 영준님 "미리보기까지 떠야")
+        try {
+          if (r.ATCH_FILE_ID_3) {
+            var _img3 = document.getElementById('ATCH_FILE3_IMG');
+            if (_img3 && String(_img3.src || '').indexOf('singleFile') < 0) {
+              _img3.src = 'https://awms.kdn.com/singleFile.innorix?atchFileId=' + r.ATCH_FILE_ID_3;
+            }
           }
-          window.__lastInjected = mp3; // [v56] 주입한 값 기록 — 재저장(전파) 차단용
-          _clearMP3(); // 주입 1회 후 즉시 삭제 — 다음 작업에 잔재 안 남게
-        }
+        } catch (e) {}
+        // [v63] 기존 callback/set polling 주입은 제거 — awms가 덮어써 실패(영준님 "안 따라옴"). addRow 후킹(행 생성 시점)으로 대체.
       } catch (e) {}
     }, 500);
   } catch (e) {}
