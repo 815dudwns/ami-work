@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v52'; // v52: 시공전 폰고유ID+5분만료+1회용(주입후삭제) — 이전 테스트 잔재 차단, 최신만 반영
+  var VER = 'v53'; // v53: 로그에 폰 고유ID(ph) 포함 — 두 작업자 폰 구분
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -18,7 +18,7 @@
     } catch (e) {}
     try {
       fetch(_FBLOG, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ s: o.stage || '', d: o, iso: new Date().toISOString(), ver: VER }) }).catch(function () {});
+        body: JSON.stringify({ s: o.stage || '', d: o, iso: new Date().toISOString(), ver: VER, ph: (function(){try{return _phoneId();}catch(e){return '';}})() }) }).catch(function () {});
     } catch (e) {}
   }
 
