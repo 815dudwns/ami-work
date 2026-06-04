@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v51'; // v51: 슬래이브 추가 클릭 순간 마스터 시공전(ATCH_FILE_ID_3) localStorage 저장 (영준님 프로세스)
+  var VER = 'v52'; // v52: 시공전 폰고유ID+5분만료+1회용(주입후삭제) — 이전 테스트 잔재 차단, 최신만 반영
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1148,8 +1148,28 @@ function parseValue(text) {
     rec({ stage: 'photo-diag', snap: snap });
   }
   // [v49] 시공전 기억 = localStorage (영준님 발견: 슬래이브 버튼→페이지 갱신 시 window 변수는 날아감. localStorage는 유지)
-  function _getMP3() { try { return localStorage.getItem('__mp3') || window.__masterPhoto3 || ''; } catch (e) { return window.__masterPhoto3 || ''; } }
-  function _setMP3(v) { window.__masterPhoto3 = v; try { localStorage.setItem('__mp3', v); } catch (e) {} }
+  // [v52] 폰 고유ID + 만료(5분) + 1회용 — "내가 안 한 사진"(이전 작업 잔재/다른 폰) 차단
+  function _phoneId() {
+    try {
+      var p = localStorage.getItem('__phoneId');
+      if (!p) { p = 'ph_' + Math.random().toString(36).slice(2, 10) + '_' + Date.now(); localStorage.setItem('__phoneId', p); }
+      return p;
+    } catch (e) { return 'ph_x'; }
+  }
+  function _setMP3(v) {
+    window.__masterPhoto3 = v;
+    try { localStorage.setItem('__mp3', JSON.stringify({ id: _phoneId(), f3: v, ts: Date.now() })); } catch (e) {}
+  }
+  function _getMP3() {
+    try {
+      var raw = localStorage.getItem('__mp3'); if (!raw) return '';
+      var o = JSON.parse(raw);
+      if (!o || o.id !== _phoneId()) return '';        // 다른 폰 것 차단
+      if (Date.now() - (o.ts || 0) > 300000) return ''; // 5분 만료 — 이전 작업 잔재 차단
+      return o.f3 || '';
+    } catch (e) { return ''; }
+  }
+  function _clearMP3() { window.__masterPhoto3 = ''; try { localStorage.removeItem('__mp3'); } catch (e) {} }
   // [v51] 영준님 프로세스 1번: 슬래이브 추가 버튼 누르는 순간(=마스터 폼 살아있는 마지막 시점)에
   // 마스터 시공전(ATCH_FILE_ID_3)을 localStorage에 저장. polling이 놓치는 타이밍을 클릭으로 확정.
   try {
@@ -1196,6 +1216,7 @@ function parseValue(text) {
             if (typeof vm.$set === 'function') vm.$set(r, 'ATCH_FILE_ID_3', mp3); else r.ATCH_FILE_ID_3 = mp3;
             rec({ stage: 'slave-photo-copy', f3: mp3, via: 'set' });
           }
+          _clearMP3(); // [v52] 주입 1회 후 즉시 삭제 — 다음 작업에 잔재 안 남게
         }
       } catch (e) {}
     }, 500);
