@@ -6,13 +6,13 @@
 
 (function () {
   'use strict';
-  var VER = 'v63'; // v62: 로그인 자동입력 __awmsHelper 게이트 제거 — bridge에서도 자동입력(영준님 전용)
+  var VER = 'v64'; // v64: 대표계기→계기번호 자동복사 옵션(마스터 전용) / v63: 시공전 addRow 후킹
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
   var _FBLOG = 'https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/awmslog/helper.json';
   // [v61] firebase 로그 화이트리스트 — 핵심만 보냄(진단 폭주 차단). 디버깅 필요시 window.__FBLOG_ALL=true 로 전체.
-  var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1 };
+  var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1 };
   function rec(o) {
     try {
       o.kind = 'cam'; o.ts = Date.now(); o.url = 'https://awms.kdn.com/__cam__/' + (o.stage || '');
@@ -1062,6 +1062,18 @@ function parseValue(text) {
     }, true);
   }
 
+  // [v64] 대표계기(MB_METER_ID) → 계기번호(INSTR_NUM) 자동복사 — 마스터(MODEM_DIV=10) 전용, 옵션 ON일 때만, 계기번호 빈칸일 때만.
+  // 옵션값 window.__helperMbToMeter 는 헬퍼 앱이 네이티브로 주입(지사/동행과 동일 경로). APK 적용 전엔 undefined → 자동 비활성.
+  function applyMbToMeter(vm) {
+    if (!window.__helperMbToMeter) return;                 // 옵션 OFF면 미동작
+    var row = vm && vm.mainList && vm.mainList.currentRow;
+    if (!row) return;
+    if (String(row.MODEM_DIV || '') !== '10') return;      // 마스터 전용 (슬래이브 MD=20 제외)
+    if (row.MB_METER_ID && !row.INSTR_NUM) {               // 대표계기 있고 계기번호 빈칸일 때만(수동값 보존)
+      setRow(vm, row, 'INSTR_NUM', row.MB_METER_ID);
+      rec({ stage: 'mb-to-meter', v: row.MB_METER_ID });
+    }
+  }
   // [v63] 시공전(A3) 슬래이브 전파 — awms가 addRow로 모뎀 슬래이브 자동생성 시 param.ATCH_FILE_ID_4만 채우고 A3는 빈값으로 둠.
   // 그 addRow를 가로채 같은 모뎀(MAC_MODEM)의 마스터 시공전을 param.ATCH_FILE_ID_3에 주입 → A4와 동일하게 따라감.
   // 행 생성 시점 주입이라 polling/callback(awms가 덮어씀)보다 확실. 모뎀별 맵(__sigongMap)으로 cross-modem 안전. __awmsHelper 전용.
@@ -1099,7 +1111,8 @@ function parseValue(text) {
       vm.$watch('mainList.currentRow', function () { applyDeptWith(vm); });
       vm.$watch('mainList.currentRow.MAC_MODEM', function () { setTimeout(function () { applyCommBungi(vm); }, 200); });
       vm.$watch('mainList.currentRow.INST_M', function () { setTimeout(function () { applyCommBungi(vm); }, 300); });
-      vm.$watch('mainList.currentRow.MODEM_DIV', function () { setTimeout(function () { applyCommBungi(vm); }, 150); });
+      vm.$watch('mainList.currentRow.MODEM_DIV', function () { setTimeout(function () { applyCommBungi(vm); applyMbToMeter(vm); }, 150); });
+      vm.$watch('mainList.currentRow.MB_METER_ID', function () { applyMbToMeter(vm); });   // [v64] 대표계기 입력 → 계기번호 자동
     } catch (e) {}
     // 헬퍼 모드에서만 저장 리스너 등록
     if (window.__awmsHelper) { installSaveListener(); installAddRowHook(vm); }
