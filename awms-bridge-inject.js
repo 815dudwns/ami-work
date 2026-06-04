@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v49'; // v49: 시공전 기억 localStorage 전환(슬래이브 버튼→페이지 갱신에도 유지) + polling 500ms
+  var VER = 'v50'; // v50: 버전 배지(화면 우측상단 inj vNN) + boot 로그 — 최신 수신 확인용
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -21,6 +21,20 @@
         body: JSON.stringify({ s: o.stage || '', d: o, iso: new Date().toISOString(), ver: VER }) }).catch(function () {});
     } catch (e) {}
   }
+
+  // [v50] 버전 배지 — 화면 우측 상단에 현재 inject 버전 표시 (최신 수신 확인용) + boot 로그
+  function _verBadge() {
+    try {
+      var b = document.getElementById('__injver');
+      if (!b) {
+        b = document.createElement('div'); b.id = '__injver';
+        b.style.cssText = 'position:fixed;right:2px;top:2px;z-index:2147483647;background:#1e3a8a;color:#fff;font:11px monospace;padding:2px 6px;border-radius:4px;opacity:.9;pointer-events:none';
+        (document.body || document.documentElement).appendChild(b);
+      }
+      b.textContent = 'inj ' + VER;
+    } catch (e) {}
+  }
+  try { rec({ stage: 'boot' }); _verBadge(); setTimeout(_verBadge, 1500); setTimeout(_verBadge, 4000); } catch (e) {}
 
   function closeFlmnModal() {
     try {
