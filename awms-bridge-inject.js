@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v57'; // v57: 4번 카피 신호로 3 주입(!A3 && A4) + mousedown/touchstart 저장(클릭 전) — 영준님 통찰
+  var VER = 'v58'; // v58: v57 A4조건 제거(회귀복구) — 근본은 CDP로
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1236,7 +1236,7 @@ function parseValue(text) {
         }
         // [v57] 대상 = 4번이 awms로 카피된 슬래이브(A4 있음 + A3 리셋). 영준님 통찰: 4 따라가는 신호로 3 주입.
         // A4 없는 폼엔 주입 안 함 → 옛 사진 전파/오주입 방지.
-        if (!r.ATCH_FILE_ID_3 && r.ATCH_FILE_ID_4 && mp3) {
+        if (!r.ATCH_FILE_ID_3 && mp3) {  // [v58] A4 조건 제거 — A4 없는 슬래이브도 주입(v57 회귀 복구)
           // awms 정식 사진등록 호출(innorixFileUploadSingleCallback)로 시공전(ATCH_FILE3) 주입 — 미리보기/저장 일관
           if (typeof vm.innorixFileUploadSingleCallback === 'function') {
             vm.innorixFileUploadSingleCallback({ id: 'ATCH_FILE3', status: 'uploadComplete', ATCH_FILE_ID: mp3 });
