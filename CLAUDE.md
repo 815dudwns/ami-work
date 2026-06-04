@@ -51,6 +51,28 @@
 - workStatus 30초 동기화
 - Rules .read/.write가 false면 동기화 안 됨
 
+## awms 시스템 (문서화 — 매번 다시 조사 말 것)
+> awms 정보는 아래 문서에 영구 기록. HANDOFF(휘발성) 말고 여기/research 문서로.
+
+### awms 완료 → 종로 동기화
+- **프로세스 문서**: `research/awms-poc/awms_완료_종로동기화_프로세스.md` (작업 전 반드시 참조)
+- 요약: awms 완료(workStep=28) 수집 → 작업자완료 보호필터 → sync(매칭 WHM_NO↔종로 계기번호) → **ami-jongno** push
+- sync 도구: https://815dudwns.github.io/jongno-combined/tools/sync-meter-from-awms.html / 종로 DB = **ami-jongno** (ami-work 아님)
+- **차수 = 완료 기간** (한전이 날짜별 재배정 → 14차 일부가 20차로 이동). **전 차수(getBusiList) 받아 합쳐야** 누락 없음.
+- **adb(CDP)로 전 차수 직접 수집 가능** = 완료받기 버튼/재빌드 불필요 (cdp_eval.py). awms-bridge PID는 재시작마다 바뀜.
+- **삭제 경고**: replacement_list에 worker≠awms·사진 있으면 작업자 실작업 → 삭제 금지 ([[jongno_delete_protect]], 오삭제 사고 2026-06-04).
+- 동기화큐 자동정리(완료건 큐 제외)는 awms-queue 멀티앱 TODO.
+
+### awms inject 리모컨 (헬퍼)
+- **문서**: `research/awms-poc/awms_inject_helper_기능.md` (시공전·대표계기·버전 v62~67)
+- 리모컨 = `awms-bridge-inject.js` (github pages). awms 새로고침=최신. **로직변경=push만, APK 불필요**. 수정은 `git worktree add /tmp/x main`.
+- 시공전(a3) 슬래이브 전파: addRow param 주입 + late-injection (한버튼/서버랙 대비). 대표계기→계기번호: 마스터 11자리 시(헬퍼 설정 옵션, APK).
+
+### awms 지침(검침값) 구조
+- **문서**: `research/awms-poc/awms_지침_구조_조사.md`
+- 1종/2종 계기 = 지침 4개(주간 WHME_DAY / 야간 WHME_MNGT / 최대전력 DM_MT_DAY / 무효전력 VAR_DAY). 단상은 주간/야간만.
+- 현재 빌더·종로는 1개~2개만 → 1종2종 미지원(TODO). selectCustomerInfo/getDetail로 계기종류 판별 가능.
+
 ## 예정 기능 (우선순위순)
 1. UI 개선 (DaisyUI 또는 Variant 방식)
 2. 리스트 선택 페이지
