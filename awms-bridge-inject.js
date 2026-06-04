@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v54'; // v54: 진단 — 클릭시 currentRow 전체+vm 동일성(유령vm 확인). 사진 실제위치 파악용
+  var VER = 'v55'; // v55: 빈값 저장거부(저장값 보호)+폰ID 읽기차단 제거+만료30분 — 영준님 통찰
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1156,16 +1156,19 @@ function parseValue(text) {
       return p;
     } catch (e) { return 'ph_x'; }
   }
+  // [v55] 빈값은 절대 저장 안 함(영준님 통찰: 새 슬래이브 빈값이 저장값을 덮던 문제).
+  // 폰ID 비교 제거(localStorage 자체가 기기별 — 폰ID 불일치로 읽기 차단되던 게 mp3=- 원인). 만료 30분.
   function _setMP3(v) {
+    if (!v) return;                       // 빈값 거부 — 저장값 보호
     window.__masterPhoto3 = v;
-    try { localStorage.setItem('__mp3', JSON.stringify({ id: _phoneId(), f3: v, ts: Date.now() })); } catch (e) {}
+    try { localStorage.setItem('__mp3', JSON.stringify({ ph: _phoneId(), f3: v, ts: Date.now() })); } catch (e) {}
   }
   function _getMP3() {
     try {
       var raw = localStorage.getItem('__mp3'); if (!raw) return '';
       var o = JSON.parse(raw);
-      if (!o || o.id !== _phoneId()) return '';        // 다른 폰 것 차단
-      if (Date.now() - (o.ts || 0) > 300000) return ''; // 5분 만료 — 이전 작업 잔재 차단
+      if (!o) return '';
+      if (Date.now() - (o.ts || 0) > 1800000) return ''; // 30분 만료 (폰ID 비교는 제거 — 읽기 차단 원인)
       return o.f3 || '';
     } catch (e) { return ''; }
   }
