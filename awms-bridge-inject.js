@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v61'; // v61: firebase 로그 화이트리스트(핵심만) — 진단 폭주 차단
+  var VER = 'v62'; // v62: 로그인 자동입력 __awmsHelper 게이트 제거 — bridge에서도 자동입력(영준님 전용)
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -652,7 +652,8 @@ function parseValue(text) {
   }
 
   function tryLoginAutofill() {
-    if (!window.__awmsHelper) return;
+    // [v62] __awmsHelper 게이트 제거 — bridge/queue(영준님 전용)에서도 자동입력.
+    // 저장된 cred 없으면 어차피 안 채우고 저장 리스너만 등록(안전). 계정은 폰 localStorage에만(공개 노출 X).
 
     // 계정 소스: 네이티브(__helperCred) 우선, 없으면 localStorage
     var cred = (window.__helperCred && window.__helperCred.id)
