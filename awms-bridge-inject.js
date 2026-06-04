@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v56'; // v56: MD구분 제거(작업폼 전부 MD20)+클릭시 A3저장+빈폼 주입+전파차단(재저장방지)
+  var VER = 'v57'; // v57: 4번 카피 신호로 3 주입(!A3 && A4) + mousedown/touchstart 저장(클릭 전) — 영준님 통찰
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1199,6 +1199,22 @@ function parseValue(text) {
       } catch (e) { rec({ stage: 'row-dump-err', e: String(e && e.message || e) }); }
     }, true);
   } catch (e) {}
+  // [v57] 영준님 통찰: 슬래이브 추가 click이 페이지를 넘겨서 click 시점엔 이미 빈 폼.
+  // → click보다 먼저 일어나는 mousedown/touchstart에서 원본 시공전(A3)을 미리 잡는다(페이지 전환 직전).
+  try {
+    ['mousedown', 'touchstart'].forEach(function (ev) {
+      document.addEventListener(ev, function () {
+        try {
+          var vm = getAwmsVM();
+          var r = vm && vm.mainList && vm.mainList.currentRow;
+          if (r && r.ATCH_FILE_ID_3 && _getMP3() !== r.ATCH_FILE_ID_3) {
+            _setMP3(r.ATCH_FILE_ID_3);
+            rec({ stage: 'master-photo-saved', via: ev, md: String(r.MODEM_DIV || ''), f3: r.ATCH_FILE_ID_3 });
+          }
+        } catch (e) {}
+      }, true);
+    });
+  } catch (e) {}
   // 사진 공유 polling — 슬래이브 시공전 칸이 비면 마스터 저장 파일ID로 채움 (미리보기도 파일ID로 표시됨)
   try {
     setInterval(function () {
@@ -1218,8 +1234,9 @@ function parseValue(text) {
         if (r.ATCH_FILE_ID_3) {
           if (_getMP3() !== r.ATCH_FILE_ID_3) { _setMP3(r.ATCH_FILE_ID_3); rec({ stage: 'master-photo-saved', via: 'poll', md: md, f3: r.ATCH_FILE_ID_3 }); }
         }
-        // [v56] 대상(A3 없음): localStorage 값 주입 (MD 무관) + 1회용
-        if (!r.ATCH_FILE_ID_3 && mp3) {
+        // [v57] 대상 = 4번이 awms로 카피된 슬래이브(A4 있음 + A3 리셋). 영준님 통찰: 4 따라가는 신호로 3 주입.
+        // A4 없는 폼엔 주입 안 함 → 옛 사진 전파/오주입 방지.
+        if (!r.ATCH_FILE_ID_3 && r.ATCH_FILE_ID_4 && mp3) {
           // awms 정식 사진등록 호출(innorixFileUploadSingleCallback)로 시공전(ATCH_FILE3) 주입 — 미리보기/저장 일관
           if (typeof vm.innorixFileUploadSingleCallback === 'function') {
             vm.innorixFileUploadSingleCallback({ id: 'ATCH_FILE3', status: 'uploadComplete', ATCH_FILE_ID: mp3 });
