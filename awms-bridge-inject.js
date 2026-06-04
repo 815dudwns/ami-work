@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v59'; // v59: XHR/fetch 후킹 부활(helper 통신팀) — saveAct 응답서 시공전 캡처 + 슬래이브추가 호출 로그
+  var VER = 'v60'; // v60: 폭주 정리 — _setMP3가 실제 저장 성공시에만 로그(중복/거부시 로그 안찍음)
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1097,7 +1097,7 @@ function parseValue(text) {
     try {
       // [v59] saveAct 응답 진단 — 어떤 필드가 오는지 + 시공전(atchFileId3) 있으면 localStorage 저장
       rec({ stage: 'saveact-resp', a3: (j && j.atchFileId3) || '-', a4: (j && j.atchFileId4) || '-', keys: j ? Object.keys(j).filter(function (k) { return /atch|file|photo|seqno/i.test(k); }).join(',') : 'null' });
-      if (j && j.atchFileId3) { _setMP3(j.atchFileId3); rec({ stage: 'master-photo-saved', via: 'saveAct', f3: j.atchFileId3 }); }
+      if (j && j.atchFileId3) { _setMP3(j.atchFileId3, 'saveAct'); }
     } catch (e) {}
   }
   try {
@@ -1162,11 +1162,13 @@ function parseValue(text) {
   }
   // [v55] 빈값은 절대 저장 안 함(영준님 통찰: 새 슬래이브 빈값이 저장값을 덮던 문제).
   // 폰ID 비교 제거(localStorage 자체가 기기별 — 폰ID 불일치로 읽기 차단되던 게 mp3=- 원인). 만료 30분.
-  function _setMP3(v) {
+  function _setMP3(v, via) {
     if (!v) return;                       // 빈값 거부 — 저장값 보호
     if (v === window.__lastInjected) return; // [v56] 방금 주입한 값 재저장 차단 — 옛 사진 무한전파 방지
+    if (_getMP3() === v) return;          // [v60] 이미 같은 값이면 저장/로그 안 함 — 폭주 방지
     window.__masterPhoto3 = v;
     try { localStorage.setItem('__mp3', JSON.stringify({ ph: _phoneId(), f3: v, ts: Date.now() })); } catch (e) {}
+    rec({ stage: 'master-photo-saved', via: via || '?', f3: v }); // [v60] 실제 저장 성공 시에만 로그
   }
   function _getMP3() {
     try {
@@ -1198,7 +1200,7 @@ function parseValue(text) {
         window.__pvm = vm; window.__prow = r;
         // [v56] MD 구분 제거 — 영준님 작업폼은 전부 MD=20(MD=10 없음 확인). 클릭 순간 A3 있으면 저장.
         if (r.ATCH_FILE_ID_3) {
-          if (_getMP3() !== r.ATCH_FILE_ID_3) { _setMP3(r.ATCH_FILE_ID_3); rec({ stage: 'master-photo-saved', via: 'click', md: md, f3: r.ATCH_FILE_ID_3 }); }
+          _setMP3(r.ATCH_FILE_ID_3, 'click'); // [v60] 중복/로그는 _setMP3가 처리
         }
       } catch (e) { rec({ stage: 'row-dump-err', e: String(e && e.message || e) }); }
     }, true);
@@ -1211,10 +1213,7 @@ function parseValue(text) {
         try {
           var vm = getAwmsVM();
           var r = vm && vm.mainList && vm.mainList.currentRow;
-          if (r && r.ATCH_FILE_ID_3 && _getMP3() !== r.ATCH_FILE_ID_3) {
-            _setMP3(r.ATCH_FILE_ID_3);
-            rec({ stage: 'master-photo-saved', via: ev, md: String(r.MODEM_DIV || ''), f3: r.ATCH_FILE_ID_3 });
-          }
+          if (r && r.ATCH_FILE_ID_3) { _setMP3(r.ATCH_FILE_ID_3, ev); } // [v60] 중복/로그는 _setMP3가 처리
         } catch (e) {}
       }, true);
     });
@@ -1236,7 +1235,7 @@ function parseValue(text) {
         _photoDiag('MD=' + md + '|A3=' + (r.ATCH_FILE_ID_3 || '-') + '|A4=' + (r.ATCH_FILE_ID_4 || '-') + '|A5=' + (r.ATCH_FILE_ID_5 || '-') + '|A6=' + (r.ATCH_FILE_ID_6 || '-') + '|mp3=' + (mp3 || '-'));
         // [v56] 원본(A3 있음): localStorage 저장 (MD 무관)
         if (r.ATCH_FILE_ID_3) {
-          if (_getMP3() !== r.ATCH_FILE_ID_3) { _setMP3(r.ATCH_FILE_ID_3); rec({ stage: 'master-photo-saved', via: 'poll', md: md, f3: r.ATCH_FILE_ID_3 }); }
+          _setMP3(r.ATCH_FILE_ID_3, 'poll'); // [v60] 중복/로그는 _setMP3가 처리
         }
         // [v57] 대상 = 4번이 awms로 카피된 슬래이브(A4 있음 + A3 리셋). 영준님 통찰: 4 따라가는 신호로 3 주입.
         // A4 없는 폼엔 주입 안 함 → 옛 사진 전파/오주입 방지.
