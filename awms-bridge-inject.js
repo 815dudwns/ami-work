@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v53'; // v53: 로그에 폰 고유ID(ph) 포함 — 두 작업자 폰 구분
+  var VER = 'v54'; // v54: 진단 — 클릭시 currentRow 전체+vm 동일성(유령vm 확인). 사진 실제위치 파악용
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1177,14 +1177,21 @@ function parseValue(text) {
       try {
         var vm = getAwmsVM();
         var r = vm && vm.mainList && vm.mainList.currentRow;
-        if (!r) return;
+        if (!r) { rec({ stage: 'row-dump', md: 'norow', vmSame: (window.__pvm === vm) }); window.__pvm = vm; return; }
         var md = String(r.MODEM_DIV || '');
-        // 클릭 순간 마스터 시공전 진단(값 유무 확인) + 있으면 즉시 저장
-        rec({ stage: 'click-capture', md: md, a3: r.ATCH_FILE_ID_3 || '-' });
+        // [v54 진단] 클릭 순간 currentRow 전체 + vm/row 동일성(유령 vm 확인). 고치는 게 아니라 사진 실제 위치 파악.
+        rec({
+          stage: 'row-dump', md: md,
+          a3: r.ATCH_FILE_ID_3 || '-',
+          vmSame: (window.__pvm === vm), rowSame: (window.__prow === r),
+          pkeys: Object.keys(r).filter(function (k) { return /atch|file|photo|img/i.test(k); }).join(','),
+          row: JSON.stringify(r).slice(0, 1300)
+        });
+        window.__pvm = vm; window.__prow = r;
         if (md === '10' && r.ATCH_FILE_ID_3) {
           if (_getMP3() !== r.ATCH_FILE_ID_3) { _setMP3(r.ATCH_FILE_ID_3); rec({ stage: 'master-photo-saved', via: 'click', f3: r.ATCH_FILE_ID_3 }); }
         }
-      } catch (e) {}
+      } catch (e) { rec({ stage: 'row-dump-err', e: String(e && e.message || e) }); }
     }, true);
   } catch (e) {}
   // 사진 공유 polling — 슬래이브 시공전 칸이 비면 마스터 저장 파일ID로 채움 (미리보기도 파일ID로 표시됨)
