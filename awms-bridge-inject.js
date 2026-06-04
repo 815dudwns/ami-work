@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v64'; // v64: 대표계기→계기번호 자동복사 옵션(마스터 전용) / v63: 시공전 addRow 후킹
+  var VER = 'v65'; // v65: 시공전 모뎀맵 캡처를 _setMP3로 이동(타이밍 독립) / v64: 대표계기→계기번호
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1208,6 +1208,9 @@ function parseValue(text) {
   // 폰ID 비교 제거(localStorage 자체가 기기별 — 폰ID 불일치로 읽기 차단되던 게 mp3=- 원인). 만료 30분.
   function _setMP3(v, via) {
     if (!v) return;                       // 빈값 거부 — 저장값 보호
+    // [v65] 모뎀별 맵 즉시 저장 — _setMP3는 saveAct/click/mousedown 모두 통과 → polling(0.5s) 타이밍 독립.
+    // (이 시점 currentRow=마스터, MAC_MODEM 있음. polling만 채우던 v63/v64는 빨리 슬래이브 추가 시 놓쳤음)
+    try { var _vm = getAwmsVM(); var _mac = _vm && _vm.mainList && _vm.mainList.currentRow && _vm.mainList.currentRow.MAC_MODEM; if (_mac) { window.__sigongMap = window.__sigongMap || {}; window.__sigongMap[_mac] = v; } } catch (e) {}
     if (v === window.__lastInjected) return; // [v56] 방금 주입한 값 재저장 차단 — 옛 사진 무한전파 방지
     if (_getMP3() === v) return;          // [v60] 이미 같은 값이면 저장/로그 안 함 — 폭주 방지
     window.__masterPhoto3 = v;
