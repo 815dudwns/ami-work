@@ -1,4 +1,22 @@
-# HANDOFF — ami-work / jongno-combined / awms-bridge / awms-queue
+# HANDOFF — ami-work / jongno-combined / awms-bridge / awms-queue / awms-helper
+
+## 현재 상태 (2026-06-04 낮, awms-helper 시공전 사진 공유)
+
+- **마지막 작업: awms-helper 시공전 사진 공유 해결 (inject v47→v61 대장정)**
+  - **원인 규명(영준님 통찰)**: 시공전 파일ID(ATCH_FILE_ID_3)는 **saveAct(저장) 후** 생김. polling은 저장 전 못 봐서 새 사진 실패. + 슬래이브 추가 = saveAct. + awms는 슬래이브에 4번(모뎀맥) 자동카피·3/5/6 리셋.
+  - **해결(v59~61)**: XHR/fetch 후킹 부활(helper는 통신팀이라 계기팀 saveRow 충돌 없음) → **saveAct 응답의 atchFileId3를 캡처** → localStorage 저장 → 빈 슬래이브에 innorixFileUploadSingleCallback로 주입. 전파차단(__lastInjected)+중복차단.
+  - **검증(로그)**: a3 있으면 6/6 따라옴, 매번 최신(옛것 재사용 0), 양쪽 폰(ph_sjz1duk3/ph_eh88ayrn) 다 작동.
+  - **v61**: firebase 로그 화이트리스트(master-photo-saved/slave-photo-copy/boot만) — 진단 폭주(row-dump) 차단. `window.__FBLOG_ALL=true`로 전체 복구.
+  - **촬영 버그(B)**: helper onShowFileChooser에 카메라 분기 없어 촬영→앨범. isCaptureEnabled 분기 추가 → APK 재빌드·배포(`815dudwns.github.io/ami-work/awms-helper.apk`). **네이티브라 각 폰 재설치 필요**.
+
+- **남은 것 (다음 세션)**:
+  - 폰 **v61 새로고침** 확인(폭주 멈춤). 로그상 일부 폰 아직 v60.
+  - **[미해결] 주입 후 다음 슬래이브 추가 안 됨** — 영준님: "사진 직접 넣으면 다음 슬래이브 들어가는데, 자동 주입되면 다음 슬래이브 추가 안 됨". 우리 주입(innorixFileUploadSingleCallback)이 awms 추가 동작 방해 의심. 증상 불명확, **CDP로 awms 추가 로직 봐야** 정확.
+  - **a3=- (시공전 없이 저장/통신불량)**: 따라올 사진 없어 안 됨(정상). 통신 정상+사진 업로드되면 a3 생겨 따라옴.
+  - 다른 폰 awms-helper APK 재설치(촬영 B).
+  - awms 가짜 임시저장(평창 등) resetRows 정리.
+
+- **핵심 교훈**: inject(awms-bridge-inject.js)=GitHub push 리모컨(모든 폰 자동). 네이티브(MainActivity 카메라/파일선택)=APK 재설치. 시공전 핵심 로직(4 카피)은 awms.kdn.com 자체 코드 → 추측 말고 CDP로 봐야 함(v47~58 헤맨 이유).
 
 ## 현재 상태 (2026-06-04 새벽, 오토모드 야간작업)
 
