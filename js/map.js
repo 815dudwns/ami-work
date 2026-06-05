@@ -18,9 +18,16 @@ const GU_TO_JISA = {};
 Object.entries(JISA_TO_GU).forEach(([j, gus]) => gus.forEach(g => { GU_TO_JISA[g] = j; }));
 
 // 주소에서 구 추출 (scripts/stat_by_gu.py:gu_of()와 동일 패턴)
+// 구 미표기 주소용 동->구 보정 (예외 케이스만, 전체 행정동 테이블 아님)
+const DONG_TO_GU = { '면목동': '중랑구' };
 function guOf(addr) {
-    const m = (addr || '').match(/(\S+구)(\s|$)/);
-    return m ? m[1] : null;
+    const a = addr || '';
+    const m = a.match(/(\S+구)(\s|$)/);
+    if (m) return m[1];
+    // 구가 안 적힌 주소: 동명으로 보정
+    const dm = a.match(/([가-힣]+[동읍면])/);
+    if (dm && DONG_TO_GU[dm[1]]) return DONG_TO_GU[dm[1]];
+    return null;
 }
 // 항목의 보정된 지사 (item.지사 대신 이걸로 분류 — 기타 흡수)
 function jisaOf(item) {
