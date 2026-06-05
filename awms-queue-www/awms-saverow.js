@@ -60,6 +60,91 @@ async function _lookupMainList(whmNo) {
     return arr.find(x => String(x.WHM_NO || '').trim() === String(whmNo).trim()) || arr[0] || null;
 }
 
+// ---- 신설 상세 베이스: mobMtr1000/getDetail (301키, 신설 payload 베이스) ----
+async function _lookupGetDetail(consNo, cntrNo, consTgtSeqno) {
+    const url = AWMS_API + '/mobMtr1000/getDetail'
+        + `?FLAG=1&HDQR_CD=${DEFAULT_AWMS.HDQR_CD}`
+        + `&CONS_NO=${encodeURIComponent(consNo)}`
+        + `&CNTR_NO=${encodeURIComponent(cntrNo)}`
+        + `&CONS_TGT_SEQNO=${encodeURIComponent(consTgtSeqno)}`;
+    return _first(await _awmsGet(url));
+}
+// ---- 신설 자재: mobMtl1000/selectMtrlUseYn (mob/mtl 도메인 — mtr 아님) ----
+async function _lookupMtrl(newMeterNo) {
+    try {
+        const url = 'https://awms.kdn.com/ami/mob/mtl/mobMtl1000/selectMtrlUseYn'
+            + `?vBarcdQr=${encodeURIComponent(newMeterNo)}&vGubun=T`;
+        return _first(await _awmsGet(url));
+    } catch (e) { return {}; }
+}
+
+// ---- 단상/삼상 판별 (계기번호 3~4자리) — meter_phase_classification 규칙 ----
+//   삼상: G(45/46/47), Amigo(55) / 단상: E(17),EA(19),G(25/26/27),Amigo(53)
+const _THREE_PHASE_CODES = new Set(['45', '46', '47', '55']);
+const _SINGLE_PHASE_CODES = new Set(['17', '19', '25', '26', '27', '53']);
+function _meterTypeCode(meterNo) {
+    const cleaned = String(meterNo).replace(/-/g, '').padStart(11, '0');
+    const code4 = cleaned.slice(2, 4);
+    if (_THREE_PHASE_CODES.has(code4) || _SINGLE_PHASE_CODES.has(code4)) return code4;
+    if (cleaned[2] === '1') return cleaned.slice(2, 4);
+    return code4;
+}
+function _isThreePhase(meterNo, cntrClasCd) {
+    const code = _meterTypeCode(meterNo);
+    return _THREE_PHASE_CODES.has(code);
+}
+
+// ---- 신설 payload (getDetail 301키 베이스 + 오버라이드, WORK_STEP=25 유지) ----
+//   awms-poster.js _buildNewPayloadFromDetail 이식 — 가지치기 금지
+function _buildNewPayloadFromDetail(newMeterNo, detail, sealVal, consTgtSeqno, mtrlInfo, mfgYm, P) {
+    const three = _isThreePhase(newMeterNo, String(detail.CNTR_CLAS_CD || ''));
+    const sealInt = parseInt(String(sealVal).trim(), 10);
+    const sealNo = String(sealInt);
+    const sealNo2 = three ? String(sealInt + 1) : '';   // 삼상=+1, 단상=빈값
+
+    // getDetail 301키 베이스 복사 (null→'', 정수 float→int str)
+    const payload = {};
+    for (const k in detail) {
+        const v = detail[k];
+        if (v == null) payload[k] = '';
+        else if (typeof v === 'number' && Number.isInteger(v)) payload[k] = String(v);
+        else payload[k] = String(v);
+    }
+    // 사진 필드 초기화 (Blob 첨부 자리)
+    for (const k in payload) { if (k.indexOf('ATCH_FILE_ID') >= 0) payload[k] = ''; }
+
+    mtrlInfo = mtrlInfo || {};
+    // 신설 제조월: jongno mfg_ym 최우선 > 자재 MNFCT_YM > 오늘월
+    const cremoPrdcYm = (mfgYm ? String(mfgYm).replace(/-/g, '') : '') || mtrlInfo.MNFCT_YM || P.ym;
+
+    const overrides = {
+        WHM_NO: newMeterNo,
+        CREMO_WHM_NO: newMeterNo,
+        WORK_STEP: '25',                          // 임시저장 유지 (완료 28 금지 — 영준님 지시)
+        EX_WORK_STEP: '25',                       // 임시저장 불러옴 표시 → 봉인+inc 트리거
+        CSL_METR_TRML_SEAL_NO: sealNo,
+        CSL_METR_TRML_SEAL_NO2: sealNo2,          // 삼상=+1, 단상=빈값
+        CSL_METR_TRML_SEAL_KND_NQNT: '1',
+        CONS_TGT_SEQNO: consTgtSeqno,             // 철거 saveRow 응답 → 1행 연결
+        ACT_DATE: P.act,
+        CMS_LAY_YMD: P.ymd, CTS_LAY_YMD: P.ymd, CREMO_CHRG_APLY_ST_YMD: P.ymd,
+        CTTB_LAY_YMD: P.ymd, CSPD_LAY_YMD: P.ymd,
+        CTS_PRDC_YM: P.ym, CMS_PRDC_YM: P.ym, CSPD_PRDC_YM: P.ym, CTTB_PRDC_YM: P.ym,
+        CPT_PRDC_YM: P.ym, CCTD1_PRDC_YM: P.ym, CCTD2_PRDC_YM: P.ym, CCTD3_PRDC_YM: P.ym,
+        CREMO_PRDC_YM: cremoPrdcYm,               // 신설계기 제조년월
+        CREMO_MATL_NO: mtrlInfo.MTRL_NO || '',
+        CREMO_MATL_STAT_CLCD: '1',
+        CREMO_EFEC_YM: P.ym,
+        LAY_METR_DTLS_CL_CD: '10',
+        DEPT2: String(detail.OFFICE_CD || DEFAULT_AWMS.OFFICE_CD),
+        CGD_WHME_NDL_MNGT_QTT: '0',
+    };
+    Object.assign(payload, overrides);
+    const out = {};
+    for (const k in payload) out[k] = payload[k] == null ? '' : String(payload[k]);
+    return out;
+}
+
 // =====================================================================
 const TMPL_5000 = {
     "WHM_SEQNO": "9999",
@@ -424,70 +509,131 @@ function _buildDemolitionPayload(meterNo, removalValue, removalValues, ndDigits,
     return out;
 }
 
-// ---- saveRow POST (awmsEval FormData, 사진 없음) ----
-function _saveRowExpr(entries, url) {
+// ---- saveRow POST (awmsEval FormData, 사진 선택 첨부) ----
+//   photo = {url, field, filename} 있으면 awms 웹뷰 내부에서 fetch→blob→append
+//   사진은 photo-uploader.js가 awms통과형(큰해상도+ICC제거)으로 저장한 jongno Storage URL
+function _saveRowExpr(entries, url, photo) {
     return `(async()=>{
         const fd=new FormData();
         const E=${JSON.stringify(entries)};
         for(const [k,v] of E) fd.append(k,v);
+        const P=${JSON.stringify(photo || null)};
+        let photoNote='무첨부';
+        if(P && P.url){
+            try{
+                const pr=await fetch(P.url);
+                if(pr.ok){ const b=await pr.blob(); fd.append(P.field,b,P.filename); photoNote='첨부 '+Math.round(b.size/1024)+'KB'; }
+                else photoNote='사진HTTP'+pr.status;
+            }catch(e){ photoNote='사진오류:'+(e&&e.message||e); }
+        }
         const r=await fetch(${JSON.stringify(url)},{method:'POST',credentials:'include',body:fd});
         const t=await r.text();
         let j;try{j=JSON.parse(t);}catch(e){j=null;}
-        return {status:r.status,body:t,result:j&&j.result,consTgtSeqno:j&&j.consTgtSeqno};
+        return {status:r.status,body:t,result:j&&j.result,consTgtSeqno:j&&j.consTgtSeqno,photoNote};
     })()`;
+}
+
+// ---- 봉인설정 +1 (mobMtr8000/saveRow JSON) — 단상+1 / 삼상+2 ----
+//   recording_seal2.jsonl 원본 검증. 신설 저장 직후 호출 → 설정 METR_SEAL_VAL 갱신(다음 계기 유니크)
+async function _sealPlusOne(consNo, sealVal, three) {
+    const inc = three ? 2 : 1;
+    const newSeal = String(parseInt(String(sealVal).trim(), 10) + inc);
+    const body = {
+        BATT_SEAL_KND_CD: '', MTBX_SEAL_CNT_VAL: '', LV_CONS_NO: consNo, HV_CONS_NO: '',
+        ETC_SEAL_VAL: '', BATT_SEAL_CNT_VAL: '', TRML_SEAL_KND_CD: 'A', OTSD_SEAL_VAL: '',
+        ENCL_SEAL_VAL: '', MTBX_SEAL_KND_CD: '', SIMPLE_YN: 'N', TRML_SEAL_CNT_VAL: '1',
+        METR_SEAL_VAL: newSeal,
+    };
+    const url = AWMS_API + '/mobMtr8000/saveRow';
+    const expr = `(async()=>{const r=await fetch(${JSON.stringify(url)},{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(${JSON.stringify(body)})});const t=await r.text();return {status:r.status,body:t.slice(0,150)};})()`;
+    const res = await awmsEval(expr);
+    return { newSeal, inc, res };
 }
 
 // =====================================================================
 // registerReplacement — app.js runOne/runAll 단일 진입점
-//   임시저장 전용 (WORK_STEP=25). 신설(mobMtr4000) 없음. 사진 없음.
+//   풀플로우: 철거5000(+철거전사진) → 신설4000(+철거후사진) → 봉인설정+1
+//   최종 임시저장(WORK_STEP=25) 유지 → awms에서 수동완료 (영준님 지시)
 // =====================================================================
 async function registerReplacement({ addr, meter, rep }) {
     if (!(window.AwmsQ && window.AwmsQ.callAwms)) {
         throw new Error('AwmsQ 브릿지 없음 — 실기기에서만 동작');
     }
-    if (typeof log === 'function') log(`[saverow] 시작: ${meter} (${addr})`);
+    const L = (m, c) => { if (typeof log === 'function') log(m, c); };
+    L(`[saverow] 시작: ${meter} (${addr})`);
 
+    const newMeter      = String(rep.new_meter_id || '').trim();
+    if (!newMeter) throw new Error('신설계기(new_meter_id) 없음');
     const removalValue  = rep.removal_value != null ? String(rep.removal_value) : '0';
     const removalValues = rep.removal_values || null;   // 1종2종 4칸
     const ndDigits      = rep.nd_digits != null ? String(rep.nd_digits) : '6';
+    const mfgYm         = rep.new_meter_mfg_ym || '';   // 신설계기 제조년월
+    const oldPhoto      = rep.old_meter_photo || '';    // 철거전 사진
+    const newPhoto      = rep.new_meter_photo || '';    // 철거후 사진
     const P             = _kstParts();
 
-    // 1) 조회 3종 (검증본과 동일 순서)
+    // 1) 조회 3종
     const sealInfo = await _lookupSeal();
-    if (typeof log === 'function') log(`[saverow] seal LV_CONS_NO=${sealInfo.LV_CONS_NO || '(없음)'} sealVal=${sealInfo.METR_SEAL_VAL || '(없음)'}`);
+    const sealVal  = sealInfo.METR_SEAL_VAL;
+    L(`[saverow] 봉인조회 LV_CONS_NO=${sealInfo.LV_CONS_NO || '(없음)'} 계기봉인번호=${sealVal || '(없음)'}`);
+    if (!sealVal) throw new Error('계기봉인번호(METR_SEAL_VAL) 없음 — awms 로그인 확인');
 
     const customerInfo = await _lookupCustomerInfo(meter);
-    if (typeof log === 'function') log(`[saverow] cust CUST_NO=${customerInfo.CUST_NO || '(없음)'} 계약종별=${customerInfo.CNTR_CLAS_CD || '(없음)'} 제조월=${customerInfo.PRDC_YM || '-'}`);
+    L(`[saverow] 고객조회 CUST_NO=${customerInfo.CUST_NO || '(없음)'} 계약종별=${customerInfo.CNTR_CLAS_CD || '(없음)'} 제조월=${customerInfo.PRDC_YM || '-'}`);
 
     const mainInfo = (await _lookupMainList(meter)) || {};
-    if (typeof log === 'function') log(`[saverow] main CONS_NO=${mainInfo.CONS_NO || '(없음)'} CNTR_NO=${mainInfo.CNTR_NO || '(없음)'}`);
+    L(`[saverow] 작업목록 CONS_NO=${mainInfo.CONS_NO || '(없음)'} CNTR_NO=${mainInfo.CNTR_NO || '(없음)'}`);
 
-    // 2) CONS_NO/CNTR_NO 폴백 검증 (build와 동일 규칙)
+    // 2) CONS_NO/CNTR_NO 폴백 검증
     const consNo = mainInfo.CONS_NO || sealInfo.LV_CONS_NO || customerInfo.CONS_NO || '';
     const cntrNo = mainInfo.CNTR_NO || customerInfo.CUST_NO || '';
-    if (!consNo) throw new Error(`CONS_NO 확보 실패 — awms 로그인/차수 확인 (seal.LV_CONS_NO 없음)`);
-    if (!cntrNo) throw new Error(`CNTR_NO 확보 실패 — 고객조회 CUST_NO 없음: ${meter}`);
+    if (!consNo) throw new Error('CONS_NO(공사번호) 확보 실패 — awms 로그인/차수 확인');
+    if (!cntrNo) throw new Error(`CNTR_NO(계약번호) 확보 실패 — 고객조회 CUST_NO 없음: ${meter}`);
 
-    // 3) 지침 칸수 더블체크 로그 (계약종별+계약전력 → 칸)
+    const three = _isThreePhase(newMeter, customerInfo.CNTR_CLAS_CD);
     const _fields = readingFieldsFor(customerInfo.CNTR_CLAS_CD, customerInfo.CNTR_PWR);
-    if (typeof log === 'function') log(`[saverow] 지침칸수=${_fields.length}칸 [${_fields.join(',')}] (계약종별 ${customerInfo.CNTR_CLAS_CD || '?'} / 계약전력 ${customerInfo.CNTR_PWR || '?'})`);
+    L(`[saverow] 지침칸수=${_fields.length}칸 [${_fields.join(',')}] / ${three ? '삼상' : '단상'} (계약종별 ${customerInfo.CNTR_CLAS_CD || '?'} / 계약전력 ${customerInfo.CNTR_PWR || '?'})`);
 
-    // 4) 철거 payload (295키 템플릿 + 오버라이드)
-    const payload = _buildDemolitionPayload(meter, removalValue, removalValues, ndDigits, customerInfo, sealInfo, P, mainInfo);
-    payload.WORK_STEP   = '25';   // 임시저장
-    payload.CREMO_WHM_NO = '';    // 임시저장 단계 (본저장 시 채움)
+    // 3) 철거 saveRow (mobMtr5000) + 철거전 사진
+    const demoPayload = _buildDemolitionPayload(meter, removalValue, removalValues, ndDigits, customerInfo, sealInfo, P, mainInfo);
+    demoPayload.WORK_STEP = '25';      // 임시저장
+    demoPayload.CREMO_WHM_NO = '';     // 신설단계에서 채움
+    const demoEntries = Object.entries(demoPayload).map(([k, v]) => [k, v == null ? '' : String(v)]);
+    L(`[saverow] 철거5000 POST 철거계기=${meter} CONS_NO=${consNo} CNTR_NO=${cntrNo}`);
+    const res5 = await awmsEval(_saveRowExpr(demoEntries, AWMS_API + '/mobMtr5000/saveRow',
+        oldPhoto ? { url: oldPhoto, field: 'DREMO_ATCH_FILE_ID_3_SRC', filename: 'DREMO_ATCH_FILE_ID_3.jpg' } : null));
+    L(`[saverow] 철거5000 응답: result=${res5.result} consTgtSeqno=${res5.consTgtSeqno} 사진=${res5.photoNote} body=${String(res5.body || '').slice(0, 100)}`);
+    if (res5.result !== 1) throw new Error('철거 saveRow 비정상(result!=1): ' + String(res5.body || '').slice(0, 200));
 
-    const entries = Object.entries(payload).map(([k, v]) => [k, v == null ? '' : String(v)]);
-    if (typeof log === 'function') log(`[saverow] 5000 POST WHM_NO=${meter} CONS_NO=${consNo} CNTR_NO=${cntrNo} 905야간=${String(customerInfo.CNTR_CLAS_CD || '') === '905'}`);
+    const consTgtSeqno = String(res5.consTgtSeqno || '');
+    if (!consTgtSeqno) throw new Error('철거 응답에 consTgtSeqno 없음');
 
-    // 4) saveRow
-    const res = await awmsEval(_saveRowExpr(entries, AWMS_API + '/mobMtr5000/saveRow'));
-    if (typeof log === 'function') log(`[saverow] 5000 응답: status=${res.status} result=${res.result} consTgtSeqno=${res.consTgtSeqno} body=${String(res.body || '').slice(0, 150)}`);
+    // 4) getDetail(신설 베이스 301키) + 자재조회
+    const detail = await _lookupGetDetail(consNo, cntrNo, consTgtSeqno);
+    const mtrlInfo = await _lookupMtrl(newMeter);
+    L(`[saverow] getDetail 키수=${Object.keys(detail).length} / 자재 MTRL_NO=${mtrlInfo.MTRL_NO || '-'} MNFCT_YM=${mtrlInfo.MNFCT_YM || '-'}`);
 
-    if (res.result !== 1) {
-        throw new Error('saveRow 응답 비정상(result!=1): ' + String(res.body || '').slice(0, 200));
+    // 5) 신설 saveRow (mobMtr4000) + 철거후 사진 (WORK_STEP=25 유지)
+    const newPayload = _buildNewPayloadFromDetail(newMeter, detail, sealVal, consTgtSeqno, mtrlInfo, mfgYm, P);
+    const newEntries = Object.entries(newPayload).map(([k, v]) => [k, v == null ? '' : String(v)]);
+    L(`[saverow] 신설4000 POST 신설계기=${newMeter} 제조월=${newPayload.CREMO_PRDC_YM} 봉인번호=${newPayload.CSL_METR_TRML_SEAL_NO}${newPayload.CSL_METR_TRML_SEAL_NO2 ? '/' + newPayload.CSL_METR_TRML_SEAL_NO2 : ''}`);
+    const res4 = await awmsEval(_saveRowExpr(newEntries, AWMS_API + '/mobMtr4000/saveRow',
+        newPhoto ? { url: newPhoto, field: 'CREMO_ATCH_FILE_ID_3_SRC', filename: 'CREMO_ATCH_FILE_ID_3.jpg' } : null));
+    L(`[saverow] 신설4000 응답: result=${res4.result} 사진=${res4.photoNote} body=${String(res4.body || '').slice(0, 100)}`);
+    if (res4.result !== 1) throw new Error('신설 saveRow 비정상(result!=1): ' + String(res4.body || '').slice(0, 200));
+
+    // 6) 봉인설정 +1 (다음 계기 유니크)
+    try {
+        const s = await _sealPlusOne(consNo, sealVal, three);
+        L(`[saverow] 봉인설정 +${s.inc} (${sealVal} → ${s.newSeal}) status=${s.res.status}`, 'ok');
+    } catch (e) {
+        L(`[saverow] 봉인설정 +1 실패(무시): ${e.message}`, 'warn');
     }
-    return { mode: 'temp', consTgtSeqno: String(res.consTgtSeqno || ''), status: 'ok' };
+
+    return {
+        mode: 'full', consTgtSeqno, newMeter,
+        seal: newPayload.CSL_METR_TRML_SEAL_NO, status: 'ok',
+    };
 }
 
 window.registerReplacement = registerReplacement;
