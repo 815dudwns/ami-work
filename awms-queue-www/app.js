@@ -126,7 +126,7 @@ async function runOne(addr, meter) {
         _setBanner(`등록 실패  ${meter}  —  ${e.message}`, 'err');  // 실패는 유지(닫기로 끔)
         await markError(addr, meter, e.message);
     }
-    await loadQueue();
+    await refreshQueue();   // 이벤트 후 전체 새로고침(awms 완료상태 반영)
 }
 
 async function runAll() {
@@ -175,7 +175,7 @@ async function runAll() {
     }
     log(`일괄 완료: 성공 ${ok} / 실패 ${err}`, 'warn');
     if (btnRefresh) btnRefresh.disabled = false;
-    await loadQueue();
+    await refreshQueue();   // 이벤트 후 전체 새로고침
 }
 
 // 등록 사이 랜덤 대기 (봇 감지 회피)
@@ -200,10 +200,8 @@ window.refreshQueue = refreshQueue;
     if (typeof loadSiteMap === 'function') await loadSiteMap();  // 도로명/계약정보 캐시(1회)
     await checkSession();
     await refreshQueue();
-    // 5분마다 세션 체크
+    // 5분마다 세션 체크 (큐 자동 새로고침은 안 함 — 수동/등록이벤트 후에만 갱신)
     setInterval(checkSession, 5 * 60 * 1000);
-    // 3분마다 큐 자동 새로고침 (awms 완료상태 반영 — 외부 변경/타기기 포함)
-    setInterval(() => { if (isSessionOK()) refreshQueue(); }, 3 * 60 * 1000);
     // 세션 없을 때 8초마다 로그인 아이디/비번 자동입력 시도 (awms 열면 바로 채워지게)
     setInterval(() => {
         if (typeof isSessionOK === 'function' && !isSessionOK() && typeof ensureLoginAutofill === 'function') {
