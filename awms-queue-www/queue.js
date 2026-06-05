@@ -6,7 +6,7 @@ let _completedNewMeters = new Set();  // syncCompleted에서 채움
 function initFb() {
     const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
     _db = firebase.database(app);
-    log('Firebase 연결: ' + firebaseConfig.databaseURL.split('/').pop(), 'ok');
+    log('Firebase 연결 [JS:remote-r4 찾기진단] ' + firebaseConfig.databaseURL.split('/').pop(), 'ok');
 }
 
 // ─────────────────────────────────────────────
