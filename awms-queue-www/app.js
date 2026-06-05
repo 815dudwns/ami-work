@@ -1,9 +1,72 @@
 // 메인 앱 — 세션 모니터, 큐 등록 실행
 
 // ─────────────────────────────────────────────
-// 로그 헬퍼 (null-safe)
+// 화면 처리상황 패널 (index.html에 #log 없음 → 동적 생성, 리모컨으로 추가)
+// ─────────────────────────────────────────────
+function _statusPanel() {
+    let el = document.getElementById('qstatus');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'qstatus';
+        el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:46vh;overflow-y:auto;'
+            + 'background:rgba(17,24,39,.97);color:#d1d5db;font:12px/1.5 ui-monospace,monospace;'
+            + 'padding:6px 10px 16px;z-index:99999;white-space:pre-wrap;border-top:3px solid #2563eb;display:none';
+        const hd = document.createElement('div');
+        hd.style.cssText = 'display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;'
+            + 'background:rgba(17,24,39,.99);padding:4px 0;margin-bottom:4px;border-bottom:1px solid #374151';
+        hd.innerHTML = '<b style="color:#93c5fd">처리상황</b>';
+        const x = document.createElement('button');
+        x.textContent = '닫기';
+        x.style.cssText = 'padding:4px 10px;font-size:11px;background:#374151;color:#fff;border:none;border-radius:6px';
+        x.onclick = () => { el.style.display = 'none'; };
+        hd.appendChild(x);
+        el.appendChild(hd);
+        const body = document.createElement('div');
+        body.id = 'qstatus-body';
+        el.appendChild(body);
+        document.body.appendChild(el);
+    }
+    return el;
+}
+
+// 상단 큰 배너 (등록 중 / 성공 / 실패)
+function _setBanner(text, kind) {
+    let b = document.getElementById('qbanner');
+    if (!b) {
+        b = document.createElement('div');
+        b.id = 'qbanner';
+        b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:100000;padding:14px 12px;'
+            + 'font:700 15px/1.4 -apple-system,sans-serif;text-align:center;color:#fff;display:none';
+        document.body.appendChild(b);
+    }
+    if (!text) { b.style.display = 'none'; return; }
+    const bg = kind === 'ok' ? '#059669' : kind === 'err' ? '#dc2626' : '#2563eb';
+    b.style.background = bg;
+    b.textContent = text;
+    b.style.display = 'block';
+}
+
+// ─────────────────────────────────────────────
+// 로그 헬퍼 (null-safe) — 화면 패널 + firebase 동시
 // ─────────────────────────────────────────────
 function log(msg, cls) {
+    // 화면 패널에 출력 (처리상황 실시간 표시)
+    try {
+        const panel = _statusPanel();
+        const body = document.getElementById('qstatus-body');
+        if (body) {
+            const d = document.createElement('div');
+            const color = cls === 'err' ? '#f87171' : cls === 'ok' ? '#34d399' : cls === 'warn' ? '#fbbf24' : '#d1d5db';
+            d.style.color = color;
+            d.textContent = `${new Date().toLocaleTimeString('ko-KR', { hour12: false })} ${msg}`;
+            body.appendChild(d);
+            // 최근 40줄만 유지
+            while (body.childNodes.length > 40) body.removeChild(body.firstChild);
+            panel.style.display = 'block';
+            panel.scrollTop = panel.scrollHeight;
+        }
+    } catch (e) {}
+
     const el = document.getElementById('log');
     if (el) {
         const d = document.createElement('div');
@@ -46,16 +109,20 @@ async function runOne(addr, meter) {
         alert('awms 세션이 없습니다. [awms 열기]에서 로그인 후 시도하세요.');
         return;
     }
+    _setBanner(`등록 중... ${meter} → ${item.rep.new_meter_id}`, 'busy');
     log(`등록 시도: ${addr} / ${meter} → ${item.rep.new_meter_id}`);
     try {
         if (typeof registerReplacement !== 'function') {
             throw new Error('saverow 모듈 준비중 (awms-saverow.js 미로드)');
         }
         const resp = await registerReplacement({ addr, meter, rep: item.rep });
-        log(`등록 성공: ${meter} (${JSON.stringify(resp).slice(0, 80)})`, 'ok');
+        log(`등록 성공: ${meter} (등록번호 ${resp.consTgtSeqno || '?'})`, 'ok');
+        _setBanner(`등록 성공  ${meter}  (임시저장, 등록번호 ${resp.consTgtSeqno || '?'})`, 'ok');
         await markSynced(addr, meter, resp);
+        setTimeout(() => _setBanner('', ''), 5000);  // 성공 배너 5초 후 자동 숨김
     } catch (e) {
         log(`등록 실패 ${meter}: ${e.message}`, 'err');
+        _setBanner(`등록 실패  ${meter}  —  ${e.message}`, 'err');  // 실패는 유지(닫기로 끔)
         await markError(addr, meter, e.message);
     }
     await loadQueue();
