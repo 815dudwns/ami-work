@@ -241,8 +241,10 @@ function renderQueue() {
     if (elErr) elErr.textContent = cnt('err');
     if (elDone) elDone.textContent = cnt('done');
     if (btnAll) {
+        // 선택 날짜 표시 — 어느 날짜를 일괄등록하는지 명확히 (전체↔날짜 카운트 같아도 라벨로 구분)
+        const dLabel = _dateFilter === 'all' ? '전체' : _dateFilter.replace(/\s+/g, '').replace(/\.$/, '');
         btnAll.disabled = cnt('pending') === 0 || !isSessionOK();
-        btnAll.textContent = `일괄 등록 (대기 ${cnt('pending')}건)`;
+        btnAll.textContent = `[${dLabel}] 일괄 등록 (대기 ${cnt('pending')}건)`;
     }
 
     const list = document.getElementById('queue-list');
