@@ -35,7 +35,32 @@ async function _findInAwms(whmNo) {
         : (data && Array.isArray(data.data)) ? data.data
         : (data && Array.isArray(data.list)) ? data.list
         : [];
-    return arr.find(x => String(x.WHM_NO || '').trim() === String(whmNo).trim()) || null;
+
+    // 진단 로그(리모컨) — 왜 못 찾는지 규명용
+    if (typeof log === 'function') {
+        const want = String(whmNo).trim();
+        const sample = arr.slice(0, 5).map(x => String(x.WHM_NO || '').trim()).join(',');
+        // 모든 행의 모든 필드에서 구계기번호가 어디 있는지 탐색
+        let hitField = '';
+        for (const x of arr) {
+            for (const [k, v] of Object.entries(x)) {
+                if (String(v || '').trim() === want) { hitField = k; break; }
+            }
+            if (hitField) break;
+        }
+        log(`[찾기] '${want}' 검색결과 ${arr.length}건 / WHM_NO샘플=[${sample}] / 일치필드=${hitField || '없음'}`);
+        if (arr.length > 0 && !hitField) {
+            log(`[찾기] 첫행 키: ${Object.keys(arr[0]).join(',').slice(0, 200)}`, 'warn');
+        }
+    }
+
+    // 1차: WHM_NO 정확일치 / 2차 폴백: 다른 필드(CREMO_WHM_NO 등)에 있어도 그 행 채택
+    const want = String(whmNo).trim();
+    let row = arr.find(x => String(x.WHM_NO || '').trim() === want);
+    if (!row) {
+        row = arr.find(x => Object.values(x).some(v => String(v || '').trim() === want));
+    }
+    return row || null;
 }
 
 // ---- saveRow POST (awmsEval FormData, 사진 없음) ----
