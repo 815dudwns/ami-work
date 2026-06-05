@@ -452,9 +452,9 @@ const TMPL_5000 = {
 
 function _buildDemolitionPayload(meterNo, removalValue, removalValues, ndDigits, customerInfo, sealInfo, P, mainInfo) {
     sealInfo = sealInfo || {}; mainInfo = mainInfo || {};
-    // CONS_NO/CNTR_NO: 계기별 getMainList 우선(차수 정확) → 봉인조회/고객조회 폴백
-    // (봉인조회 LV_CONS_NO는 현재 폰 차수 고정 → 다른 차수 계기 불일치 500. getMainList로 계기별 정확)
-    const consNo = mainInfo.CONS_NO || sealInfo.LV_CONS_NO || customerInfo.CONS_NO || '';
+    // CONS_NO(차수) = 활성차수(봉인조회 LV_CONS_NO) 우선 — 수동 등록과 동일(2026-06-05 검증: 수동=20차).
+    //   getMainList CONS_NO는 한전 옛 배정차수(재배정 전, 예 8차)라 수동과 불일치 → 활성차수 우선으로 수정
+    const consNo = sealInfo.LV_CONS_NO || mainInfo.CONS_NO || customerInfo.CONS_NO || '';
     const cntrNo = mainInfo.CNTR_NO || customerInfo.CUST_NO || '';
 
     // 지침 칸수 = 계약종별(CNTR_CLAS_CD) + 계약전력(CNTR_PWR) — 고객조회(selectCustomerInfo) 값으로 결정
@@ -609,8 +609,8 @@ async function registerReplacement({ addr, meter, rep }) {
     const mainInfo = (await _lookupMainList(meter)) || {};
     L(`[saverow] 작업목록 CONS_NO=${mainInfo.CONS_NO || '(없음)'} CNTR_NO=${mainInfo.CNTR_NO || '(없음)'}`);
 
-    // 2) CONS_NO/CNTR_NO 폴백 검증
-    const consNo = mainInfo.CONS_NO || sealInfo.LV_CONS_NO || customerInfo.CONS_NO || '';
+    // 2) CONS_NO(차수) = 활성차수(LV_CONS_NO) 우선 — 수동등록과 동일(20차). CNTR_NO=계약번호(계기별)
+    const consNo = sealInfo.LV_CONS_NO || mainInfo.CONS_NO || customerInfo.CONS_NO || '';
     const cntrNo = mainInfo.CNTR_NO || customerInfo.CUST_NO || '';
     if (!consNo) throw new Error('CONS_NO(공사번호) 확보 실패 — awms 로그인/차수 확인');
     if (!cntrNo) throw new Error(`CNTR_NO(계약번호) 확보 실패 — 고객조회 CUST_NO 없음: ${meter}`);
