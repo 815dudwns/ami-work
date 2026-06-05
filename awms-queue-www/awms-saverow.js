@@ -25,6 +25,20 @@ async function _awmsGet(url) {
 }
 function _first(d) { return Array.isArray(d) ? (d[0] || {}) : (d || {}); }
 
+// ---- 지침 칸수 규칙 (jongno utils.js readingFieldsFor와 동일 — 어제 분석 확정) ----
+//   계약전력(pwr)>=20 & 계약종별(clas) {211,218,311,410,430} → 4칸
+//   계약전력>=20 & {213,610} → 2칸 / {905,910,915} → 야간1칸 / 그외 → 주간1칸
+function readingFieldsFor(clas, pwr) {
+    const code = parseInt(String(clas == null ? '' : clas), 10);
+    const pwrNum = parseInt(pwr, 10) || 0;
+    if (!isNaN(code)) {
+        if (pwrNum >= 20 && [211, 218, 311, 410, 430].includes(code)) return ['whme_day', 'whme_mngt', 'dm_mt_day', 'var_day'];
+        if (pwrNum >= 20 && [213, 610].includes(code)) return ['whme_day', 'dm_mt_day'];
+        if ([905, 910, 915].includes(code)) return ['whme_mngt'];
+    }
+    return ['whme_day'];
+}
+
 // ---- 봉인/공사번호: mobMtr8000/getMainList (무파라미터, 현재 차수) ----
 async function _lookupSeal() {
     return _first(await _awmsGet(AWMS_API + '/mobMtr8000/getMainList'));
@@ -352,23 +366,26 @@ function _buildDemolitionPayload(meterNo, removalValue, removalValues, ndDigits,
     const consNo = mainInfo.CONS_NO || sealInfo.LV_CONS_NO || customerInfo.CONS_NO || '';
     const cntrNo = mainInfo.CNTR_NO || customerInfo.CUST_NO || '';
 
-    // 지침: 905(심야전력)=야간 MNGT / 그외=주간 DAY
-    // 해당 안 되는 칸 명시적 '' (템플릿 잡값 잔재 방지 — 2026-06-04 버그)
-    const isNight = String(customerInfo.CNTR_CLAS_CD || '') === '905';
+    // 지침 칸수 = 계약종별(CNTR_CLAS_CD) + 계약전력(CNTR_PWR) — 고객조회(selectCustomerInfo) 값으로 결정
+    //   jongno readingFieldsFor와 동일 규칙 (어제 분석 확정). 작업자 입력칸과 awms 칸 일치 보장 + 더블체크.
+    //   해당 안 되는 칸 명시적 '' (템플릿 잡값 잔재 방지 — 2026-06-04 버그)
+    const fields = readingFieldsFor(customerInfo.CNTR_CLAS_CD, customerInfo.CNTR_PWR);  // ['whme_day'] 등
 
     let dgdWhmeDay = '', dgdWhmeMngt = '', dgdDmMtDay = '', dgdVarDay = '';
 
-    if (removalValues && (removalValues.whme_day != null || removalValues.whme_mngt != null)) {
-        // 1종2종 4칸 매핑 (removal_values 있을 때)
-        // TODO: 실계기 미검증 — 영준님 확인 필요
-        dgdWhmeDay  = removalValues.whme_day  != null ? String(removalValues.whme_day)  : '';
-        dgdWhmeMngt = removalValues.whme_mngt != null ? String(removalValues.whme_mngt) : '';
-        dgdDmMtDay  = removalValues.dm_mt_day != null ? String(removalValues.dm_mt_day) : '';
-        dgdVarDay   = removalValues.var_day   != null ? String(removalValues.var_day)   : '';
+    if (fields.length > 1) {
+        // 2칸(213/610)·4칸(211/218/311/410/430, PWR>=20) → 작업자 칸별 입력값(removal_values) 사용
+        const rv = removalValues || {};
+        if (fields.includes('whme_day'))  dgdWhmeDay  = rv.whme_day  != null ? String(rv.whme_day)  : '';
+        if (fields.includes('whme_mngt')) dgdWhmeMngt = rv.whme_mngt != null ? String(rv.whme_mngt) : '';
+        if (fields.includes('dm_mt_day')) dgdDmMtDay  = rv.dm_mt_day != null ? String(rv.dm_mt_day) : '';
+        if (fields.includes('var_day'))   dgdVarDay   = rv.var_day   != null ? String(rv.var_day)   : '';
     } else {
-        // 단일값 (대부분)
-        dgdWhmeDay  = isNight ? '' : removalValue;
-        dgdWhmeMngt = isNight ? removalValue : '';
+        // 단일칸(대부분): 규칙이 정한 칸(주간 whme_day / 야간 whme_mngt)에 단일값
+        const single = (removalValues && removalValues[fields[0]] != null)
+            ? String(removalValues[fields[0]]) : removalValue;
+        if (fields[0] === 'whme_mngt') dgdWhmeMngt = single;
+        else dgdWhmeDay = single;
     }
 
     const overrides = {
@@ -451,7 +468,11 @@ async function registerReplacement({ addr, meter, rep }) {
     if (!consNo) throw new Error(`CONS_NO 확보 실패 — awms 로그인/차수 확인 (seal.LV_CONS_NO 없음)`);
     if (!cntrNo) throw new Error(`CNTR_NO 확보 실패 — 고객조회 CUST_NO 없음: ${meter}`);
 
-    // 3) 철거 payload (295키 템플릿 + 오버라이드)
+    // 3) 지침 칸수 더블체크 로그 (계약종별+계약전력 → 칸)
+    const _fields = readingFieldsFor(customerInfo.CNTR_CLAS_CD, customerInfo.CNTR_PWR);
+    if (typeof log === 'function') log(`[saverow] 지침칸수=${_fields.length}칸 [${_fields.join(',')}] (계약종별 ${customerInfo.CNTR_CLAS_CD || '?'} / 계약전력 ${customerInfo.CNTR_PWR || '?'})`);
+
+    // 4) 철거 payload (295키 템플릿 + 오버라이드)
     const payload = _buildDemolitionPayload(meter, removalValue, removalValues, ndDigits, customerInfo, sealInfo, P, mainInfo);
     payload.WORK_STEP   = '25';   // 임시저장
     payload.CREMO_WHM_NO = '';    // 임시저장 단계 (본저장 시 채움)
