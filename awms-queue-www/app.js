@@ -119,6 +119,7 @@ async function runOne(addr, meter) {
         log(`등록 성공: ${meter} (등록번호 ${resp.consTgtSeqno || '?'})`, 'ok');
         _setBanner(`등록 성공  ${meter}  (임시저장, 등록번호 ${resp.consTgtSeqno || '?'})`, 'ok');
         await markSynced(addr, meter, resp);
+        markDoneLocal(meter, item.rep.new_meter_id);  // 즉시 완료 반영 (다음 refresh 전까지)
         setTimeout(() => _setBanner('', ''), 5000);  // 성공 배너 5초 후 자동 숨김
     } catch (e) {
         log(`등록 실패 ${meter}: ${e.message}`, 'err');
@@ -158,6 +159,7 @@ async function runAll() {
             log(`[${ok + err + 1}/${pending.length}] ${item.meter} 등록 중...`);
             const resp = await registerReplacement({ addr: item.addr, meter: item.meter, rep: item.rep });
             await markSynced(item.addr, item.meter, resp);
+            markDoneLocal(item.meter, item.rep.new_meter_id);  // 즉시 완료 반영
             ok++;
             log(`  성공`, 'ok');
         } catch (e) {
@@ -193,13 +195,15 @@ window.refreshQueue = refreshQueue;
 // 초기화
 // ─────────────────────────────────────────────
 (async () => {
-    log('AWMS Queue 시작 [JS:remote-r6 UI개편]', 'ok');
+    log('AWMS Queue 시작 [JS:remote-r7 완료즉시반영]', 'ok');
     initFb();
     if (typeof loadSiteMap === 'function') await loadSiteMap();  // 도로명/계약정보 캐시(1회)
     await checkSession();
     await refreshQueue();
     // 5분마다 세션 체크
     setInterval(checkSession, 5 * 60 * 1000);
+    // 3분마다 큐 자동 새로고침 (awms 완료상태 반영 — 외부 변경/타기기 포함)
+    setInterval(() => { if (isSessionOK()) refreshQueue(); }, 3 * 60 * 1000);
     // 세션 없을 때 8초마다 로그인 아이디/비번 자동입력 시도 (awms 열면 바로 채워지게)
     setInterval(() => {
         if (typeof isSessionOK === 'function' && !isSessionOK() && typeof ensureLoginAutofill === 'function') {

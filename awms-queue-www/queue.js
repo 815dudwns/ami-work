@@ -342,6 +342,12 @@ async function loadDoneToday() {
     }
 }
 
+// 등록 성공 즉시 완료 반영 — _completedNewMeters에 추가(다음 syncCompleted 전까지 '완료' 표시)
+function markDoneLocal(meter, newMeter) {
+    if (meter) _completedNewMeters.add(String(meter).trim());
+    if (newMeter) _completedNewMeters.add(String(newMeter).trim());
+}
+
 async function markSynced(addr, meter, awmsResp) {
     const upd = {
         awms_synced: true,
