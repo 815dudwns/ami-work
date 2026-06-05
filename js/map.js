@@ -4,6 +4,30 @@ let map;
 let markers = [];
 let sampleData = [];
 
+// 지사 -> 구 매핑 (단일 소스 오브 트루스, 하드코딩 — 데이터의 지사필드는 '기타' 오염으로 신뢰 불가)
+const JISA_TO_GU = {
+    '강북성북지사': ['강북구', '성북구'],
+    '광진성동지사': ['광진구', '성동구'],
+    '노원도봉지사': ['노원구', '도봉구'],
+    '동대문중랑지사': ['동대문구', '중랑구'],
+    '마포용산지사': ['마포구', '용산구'],
+    '서대문은평지사': ['서대문구', '은평구'],
+    '서울본부직할': ['종로구', '중구'],
+};
+const GU_TO_JISA = {};
+Object.entries(JISA_TO_GU).forEach(([j, gus]) => gus.forEach(g => { GU_TO_JISA[g] = j; }));
+
+// 주소에서 구 추출 (scripts/stat_by_gu.py:gu_of()와 동일 패턴)
+function guOf(addr) {
+    const m = (addr || '').match(/(\S+구)(\s|$)/);
+    return m ? m[1] : null;
+}
+// 항목의 보정된 지사 (item.지사 대신 이걸로 분류 — 기타 흡수)
+function jisaOf(item) {
+    const j = GU_TO_JISA[guOf(item.주소)];
+    return j || '미분류';
+}
+
 // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
 // (label: 마커에 표시할 글자, null이면 계기 개수 숫자 / uiLabel: 카테고리 패널 표시명)
 const DATASETS = [
@@ -57,27 +81,74 @@ async function initMap() {
     markers.forEach(m => updateMarkerColor(m.address));
 }
 
-// 지사 드롭다운 옵션 채우기 (데이터의 unique 지사 + localStorage 복원)
+// 지사 드롭다운 옵션 채우기 (JISA_TO_GU 7개 키 기준 + localStorage 복원)
 function populateJisaOptions() {
     const select = document.getElementById('jisa-select');
     if (!select) return;
-    const jisaSet = new Set();
-    sampleData.forEach(item => { if (item.지사) jisaSet.add(item.지사); });
-    const sorted = [...jisaSet].sort((a, b) => a.localeCompare(b, 'ko'));
-    sorted.forEach(j => {
+
+    // 옵션은 JISA_TO_GU 키 7개 (데이터 raw 지사 아님 — 기타 오염 무시)
+    const jisaList = Object.keys(JISA_TO_GU);
+
+    // 실제 데이터에 미분류 항목이 있으면 옵션 끝에 추가 + 경고
+    const hasMibunryu = sampleData.some(item => jisaOf(item) === '미분류');
+    if (hasMibunryu) {
+        console.warn('[populateJisaOptions] 미분류 항목 존재 — 주소에서 구 추출 실패 건 있음');
+        jisaList.push('미분류');
+    }
+
+    jisaList.forEach(j => {
         const opt = document.createElement('option');
         opt.value = j;
         opt.textContent = j;
         select.appendChild(opt);
     });
+
     const saved = localStorage.getItem('ami_selected_jisa') || '';
-    if (saved && sorted.includes(saved)) {
+    if (saved && jisaList.includes(saved)) {
+        // 저장된 지사가 유효한 옵션에 있으면 복원
         select.value = saved;
-    } else if (sorted.length) {
-        // 저장값 없으면 첫 지사로 (전체 지사 옵션 제거됨 — 항상 단일 지사 표시)
-        select.value = sorted[0];
-        localStorage.setItem('ami_selected_jisa', sorted[0]);
+    } else {
+        // 저장값 없거나 구버전 "기타" 등 — 첫 지사로 폴백
+        select.value = jisaList[0];
+        localStorage.setItem('ami_selected_jisa', jisaList[0]);
     }
+
+    // 구 체크박스 초기 렌더
+    renderGuCheckboxes(select.value);
+}
+
+// 구 체크박스 렌더 (지사 변경 시 + 초기 진입 시 호출)
+function renderGuCheckboxes(jisa) {
+    const container = document.getElementById('gu-checkboxes');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const gus = JISA_TO_GU[jisa] || (jisa === '미분류' ? ['미분류'] : []);
+    if (gus.length === 0) return;
+
+    // localStorage 복원: ami_selected_gu 없으면 전체 ON (마이그레이션 안전)
+    let savedRaw = localStorage.getItem('ami_selected_gu');
+    let savedSet = null;
+    if (savedRaw) {
+        try {
+            const arr = JSON.parse(savedRaw);
+            // 현재 지사 구들과 교집합이 0이면 전체 ON으로 리셋
+            const inter = arr.filter(g => gus.includes(g));
+            savedSet = inter.length > 0 ? new Set(arr) : null;
+        } catch { savedSet = null; }
+    }
+
+    gus.forEach(g => {
+        const label = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = g;
+        cb.checked = savedSet ? savedSet.has(g) : true; // null이면 전체 ON
+        cb.addEventListener('change', onGuChange);
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(g));
+        container.appendChild(label);
+    });
 }
 
 // 지사 선택 변경 시 마커 재생성
@@ -85,6 +156,20 @@ function onJisaChange() {
     const select = document.getElementById('jisa-select');
     const value = select ? select.value : '';
     localStorage.setItem('ami_selected_jisa', value);
+    // 지사 바뀌면 구 선택 초기화 (해당 지사 전체 구 ON) + 체크박스 재렌더
+    localStorage.removeItem('ami_selected_gu');
+    renderGuCheckboxes(value);
+    markers.forEach(m => m.overlay.setMap(null));
+    markers = [];
+    loadMarkers();
+    refreshAllMarkers();
+}
+
+// 구 체크박스 변경 시 마커 재생성
+function onGuChange() {
+    const checked = [];
+    document.querySelectorAll('#gu-checkboxes input[type="checkbox"]:checked').forEach(cb => checked.push(cb.value));
+    localStorage.setItem('ami_selected_gu', JSON.stringify(checked));
     markers.forEach(m => m.overlay.setMap(null));
     markers = [];
     loadMarkers();
@@ -172,14 +257,20 @@ function setSelectedCategories(setObj) {
     localStorage.setItem('ami_selected_categories', JSON.stringify([...setObj]));
 }
 
-// 전체 마커 생성 (카테고리||주소 기준 그룹핑) — 지사·카테고리 필터링
+// 전체 마커 생성 (카테고리||주소 기준 그룹핑) — 지사·구·카테고리 필터링
 function loadMarkers() {
     const selectedJisa = localStorage.getItem('ami_selected_jisa') || '';
+    const selectedGuRaw = localStorage.getItem('ami_selected_gu');
+    // ami_selected_gu 없으면(null) 선택 지사 전체 구 표시, 있으면 배열로 파싱
+    const selectedGu = selectedGuRaw ? new Set(JSON.parse(selectedGuRaw)) : null;
     const selectedCats = getSelectedCategories();
 
     const grouped = {};
     sampleData.forEach(item => {
-        if (selectedJisa && item.지사 !== selectedJisa) return;
+        const g = guOf(item.주소);
+        if (selectedJisa && jisaOf(item) !== selectedJisa) return;
+        // selectedGu가 null이면(미설정) 전체 구 표시, Set이면 체크된 구만 (빈 Set=전부 해제=아무것도 안 보임)
+        if (selectedGu && !selectedGu.has(g === null ? '미분류' : g)) return;
         if (item.lat == null || item.lng == null) return;
         if (!selectedCats.has(item.category)) return;
         // 같은 주소라도 카테고리 다르면 별도 마커
@@ -434,7 +525,7 @@ function runSearch() {
     const shown = results.slice(0, MAX);
     const rows = shown.map((r, i) => {
         const it = r.item;
-        const jisa = it.지사 || '';
+        const jisa = jisaOf(it);
         const cat = it.category === 'skt' ? 'SKT' : '실효';
         const catClass = it.category === 'skt' ? 'cat-skt' : 'cat-real';
         const sec = r.secondary ? `<div class="sr-secondary">${escapeSearchHtml(r.secondary)}</div>` : '';
