@@ -188,8 +188,9 @@ window.refreshQueue = refreshQueue;
 // 초기화
 // ─────────────────────────────────────────────
 (async () => {
-    log('AWMS Queue 시작 [JS:remote-r5 로그인자동입력]', 'ok');
+    log('AWMS Queue 시작 [JS:remote-r6 UI개편]', 'ok');
     initFb();
+    if (typeof loadSiteMap === 'function') await loadSiteMap();  // 도로명/계약정보 캐시(1회)
     await checkSession();
     await refreshQueue();
     // 5분마다 세션 체크

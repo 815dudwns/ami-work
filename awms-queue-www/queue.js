@@ -1,7 +1,48 @@
 // 종로 Firebase 큐 + awms 완료 동기화
 let _db = null;
-let _queue = [];  // {addr, meter, rep, status:'pending'|'err', err?}
+let _queue = [];  // {addr, meter, rep, status:'pending'|'err'|'done', err?, site}
 let _completedNewMeters = new Set();  // syncCompleted에서 채움
+let _siteMap = {};         // 계기번호 → site-data(도로명주소/계약종별/계약전력 등)
+let _dateFilter = 'all';   // 날짜별 보기 필터
+
+// 지침 칸 라벨
+const FIELD_LABEL = { whme_day: '주간', whme_mngt: '야간', dm_mt_day: '최대전력', var_day: '무효' };
+
+// ─────────────────────────────────────────────
+// site-data 로더 — 계기번호→도로명주소/계약종별/계약전력 (앱 시작 1회, 메모리 캐시)
+//   jongno-site-data.json (9651건) github pages fetch. 실패해도 큐 정상(도로명만 생략).
+// ─────────────────────────────────────────────
+async function loadSiteMap() {
+    try {
+        const r = await fetch('https://815dudwns.github.io/jongno-combined/data/jongno-site-data.json', { cache: 'force-cache' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const arr = await r.json();
+        _siteMap = {};
+        for (const s of (Array.isArray(arr) ? arr : [])) {
+            if (s && s.계기번호) _siteMap[String(s.계기번호).trim()] = s;
+        }
+        log(`site-data 로드: ${Object.keys(_siteMap).length}건`, 'ok');
+    } catch (e) {
+        log('site-data 로드 실패(도로명 생략): ' + e.message, 'warn');
+    }
+}
+
+// KST 날짜키
+function _dateKey(ms) {
+    return ms ? new Date(ms).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' }) : '-';
+}
+// 지침값 표기 — 주간/야간/최대전력/무효 라벨
+function _fmtReadings(rep) {
+    const rvs = rep.removal_values;
+    if (rvs && typeof rvs === 'object') {
+        const parts = [];
+        for (const k of ['whme_day', 'whme_mngt', 'dm_mt_day', 'var_day']) {
+            if (rvs[k] != null && rvs[k] !== '') parts.push(`${FIELD_LABEL[k]} <b>${escapeHtml(rvs[k])}</b>`);
+        }
+        if (parts.length) return parts.join(' · ');
+    }
+    return rep.removal_value != null ? `주간 <b>${escapeHtml(rep.removal_value)}</b>` : '-';
+}
 
 function initFb() {
     const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
@@ -131,75 +172,119 @@ async function loadQueue() {
         const reps = v.replacement_list || {};
         for (const [meter, rep] of Object.entries(reps)) {
             if (rep.source === 'awms') continue;       // awms에서 가져온 건 제외
-            if (!rep.new_meter_id) continue;           // 신계기 없으면 미완성
-            // awms 라이브 대조 — _completedNewMeters(workStep 25/28)에 있으면 진짜 등록됨 → skip.
-            // 없으면(=임시저장 삭제/미등록) awms_synced 플래그와 무관하게 큐에 다시 표시.
+            if (!rep.new_meter_id) continue;           // 신계기 없으면 미완성(실작업 아님)
+            // 상태 = awms 라이브 대조. 등록돼도 안 사라지고 '등록완료'로 표시(영준님 지시).
             const inAwms = _completedNewMeters.has(String(meter).trim()) || _completedNewMeters.has(String(rep.new_meter_id).trim());
-            if (inAwms) continue;
+            const status = rep.awms_error ? 'err' : (inAwms ? 'done' : 'pending');
             items.push({
-                addr,
-                meter,
-                rep,
-                status: rep.awms_error ? 'err' : 'pending',
+                addr, meter, rep,
+                status,
                 err: rep.awms_error || null,
+                site: _siteMap[String(meter).trim()] || {},
             });
         }
     }
-    items.sort((a, b) => (b.rep.replaced_at || 0) - (a.rep.replaced_at || 0));
+    // 정렬: 실패(0) → 대기(1) → 완료(2), 그 안에서 daily_seq 오름차순
+    const rank = s => (s === 'err' ? 0 : s === 'pending' ? 1 : 2);
+    items.sort((a, b) => rank(a.status) - rank(b.status) || (a.rep.daily_seq || 0) - (b.rep.daily_seq || 0));
     _queue = items;
     renderQueue();
-    log(`큐 조회 완료: 대기 ${items.filter(i => i.status === 'pending').length}건, 실패 ${items.filter(i => i.status === 'err').length}건`, 'ok');
+    const c = s => items.filter(i => i.status === s).length;
+    log(`큐 조회 완료: 대기 ${c('pending')} / 실패 ${c('err')} / 완료 ${c('done')}`, 'ok');
 }
 
 // ─────────────────────────────────────────────
 // renderQueue — 큐 카드 렌더링 + 요약 업데이트
 // ─────────────────────────────────────────────
-function renderQueue() {
-    const pending = _queue.filter(i => i.status === 'pending');
-    const errs = _queue.filter(i => i.status === 'err');
+// 날짜 드롭다운(동적 생성) — index.html 못 고쳐 JS로 삽입
+function _ensureDateBar() {
+    let bar = document.getElementById('date-bar');
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'date-bar';
+        bar.style.cssText = 'padding:8px 12px;display:flex;gap:8px;align-items:center;font-size:13px';
+        bar.innerHTML = '<span style="color:#6b7280">날짜</span>';
+        const sel = document.createElement('select');
+        sel.id = 'date-select';
+        sel.style.cssText = 'flex:1;padding:8px;border-radius:8px;border:1px solid #d1d5db;font-size:13px';
+        sel.onchange = function () { _dateFilter = this.value; renderQueue(); };
+        bar.appendChild(sel);
+        const list = document.getElementById('queue-list');
+        if (list && list.parentNode) list.parentNode.insertBefore(bar, list);
+    }
+    // 날짜 목록 갱신 (현재 선택 유지)
+    const sel = document.getElementById('date-select');
+    if (sel) {
+        const dates = Array.from(new Set(_queue.map(i => _dateKey(i.rep.replaced_at)))).sort().reverse();
+        const opts = ['<option value="all">전체 (' + _queue.length + ')</option>']
+            .concat(dates.map(d => {
+                const n = _queue.filter(i => _dateKey(i.rep.replaced_at) === d).length;
+                return `<option value="${escapeAttr(d)}"${_dateFilter === d ? ' selected' : ''}>${escapeHtml(d)} (${n})</option>`;
+            }));
+        sel.innerHTML = opts.join('');
+        sel.value = _dateFilter;
+    }
+}
 
+function renderQueue() {
+    _ensureDateBar();
+
+    // 날짜 필터 적용
+    const shown = _dateFilter === 'all' ? _queue : _queue.filter(i => _dateKey(i.rep.replaced_at) === _dateFilter);
+
+    const cnt = s => shown.filter(i => i.status === s).length;
     const elPending = document.getElementById('stat-pending');
     const elErr = document.getElementById('stat-err');
+    const elDone = document.getElementById('stat-done');
     const btnAll = document.getElementById('btn-run-all');
-
-    if (elPending) elPending.textContent = pending.length;
-    if (elErr) elErr.textContent = errs.length;
+    if (elPending) elPending.textContent = cnt('pending');
+    if (elErr) elErr.textContent = cnt('err');
+    if (elDone) elDone.textContent = cnt('done');
     if (btnAll) {
-        btnAll.disabled = pending.length === 0 || !isSessionOK();
-        btnAll.textContent = `일괄 등록 (대기 ${pending.length}건)`;
+        btnAll.disabled = cnt('pending') === 0 || !isSessionOK();
+        btnAll.textContent = `일괄 등록 (대기 ${cnt('pending')}건)`;
     }
-
-    loadDoneToday();
 
     const list = document.getElementById('queue-list');
     if (!list) return;
-
-    if (!_queue.length) {
-        list.innerHTML = '<div class="card" style="text-align:center;color:#9ca3af;padding:30px">동기화 대기 항목 없음</div>';
+    if (!shown.length) {
+        list.innerHTML = '<div class="card" style="text-align:center;color:#9ca3af;padding:30px">표시할 항목 없음</div>';
         return;
     }
-    list.innerHTML = _queue.slice(0, 100).map(i => {
+
+    // 상태별 색상
+    const STY = {
+        err:     { bd: '#dc2626', bg: 'rgba(220,38,38,.06)',  bdg: 'badge-err',     txt: '실패' },
+        pending: { bd: '#d97706', bg: 'rgba(217,119,6,.06)',  bdg: 'badge-pending', txt: '대기' },
+        done:    { bd: '#059669', bg: 'rgba(5,150,105,.08)',  bdg: '',              txt: '등록완료' },
+    };
+
+    list.innerHTML = shown.slice(0, 200).map(i => {
+        const s = STY[i.status] || STY.pending;
         const ts = i.rep.replaced_at
             ? new Date(i.rep.replaced_at).toLocaleString('ko-KR', { hour12: false, timeZone: 'Asia/Seoul' })
             : '-';
-        const badge = i.status === 'err'
-            ? '<span class="badge badge-err">실패</span>'
-            : '<span class="badge badge-pending">대기</span>';
-        const errMsg = i.err
-            ? `<div class="meta" style="color:#dc2626">에러: ${escapeHtml(i.err)}</div>`
-            : '';
+        const road = i.site && i.site.도로명주소 ? escapeHtml(i.site.도로명주소) : '';
+        const jibun = escapeHtml(i.addr);
+        const badgeCls = s.bdg || '';
+        const badge = `<span class="badge ${badgeCls}" style="${i.status === 'done' ? 'background:#059669;color:#fff' : ''}">${s.txt}</span>`;
+        const seq = i.rep.daily_seq != null ? `<span style="color:#1d4ed8;font-weight:700">#${escapeHtml(i.rep.daily_seq)}</span> ` : '';
+        const errMsg = i.err ? `<div class="meta" style="color:#dc2626">에러: ${escapeHtml(i.err)}</div>` : '';
+        // 등록 버튼: 완료면 숨김, 대기/실패면 등록
+        const action = i.status === 'done'
+            ? `<span style="color:#059669;font-weight:700;font-size:12px">✓ awms 등록됨</span>`
+            : `<button class="btn-primary" style="padding:6px 12px;width:auto"
+                 onclick="runOne('${escapeAttr(i.addr)}', '${escapeAttr(i.meter)}')">${i.status === 'err' ? '재등록' : '등록'}</button>`;
         return `
-            <div class="queue-item">
-                <div class="addr">${escapeHtml(i.addr)} ${badge}</div>
+            <div class="queue-item" style="border-left:4px solid ${s.bd};background:${s.bg}">
+                <div class="addr" style="font-size:15px">${seq}${escapeHtml(i.meter)} <span style="color:#9ca3af">→</span> ${escapeHtml(i.rep.new_meter_id)} ${badge}</div>
                 <div class="meta">
-                    구계기 <b>${escapeHtml(i.meter)}</b> → 신계기 <b>${escapeHtml(i.rep.new_meter_id)}</b><br>
-                    사용량 ${escapeHtml(i.rep.removal_value ?? '?')} | 작업자 ${escapeHtml(i.rep.worker || '-')} | ${ts}
+                    지침 ${_fmtReadings(i.rep)}<br>
+                    ${road ? road + '<br><span style="color:#9ca3af">' + jibun + '</span>' : jibun}<br>
+                    작업자 ${escapeHtml(i.rep.worker || '-')} · ${ts}
                 </div>
                 ${errMsg}
-                <div class="actions">
-                    <button class="btn-primary" style="padding:6px 10px;width:auto"
-                        onclick="runOne('${escapeAttr(i.addr)}', '${escapeAttr(i.meter)}')">한 건 등록</button>
-                </div>
+                <div class="actions">${action}</div>
             </div>`;
     }).join('');
 }
