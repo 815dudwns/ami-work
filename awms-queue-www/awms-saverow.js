@@ -529,7 +529,10 @@ function _saveRowExpr(entries, url, photo) {
         const r=await fetch(${JSON.stringify(url)},{method:'POST',credentials:'include',body:fd});
         const t=await r.text();
         let j;try{j=JSON.parse(t);}catch(e){j=null;}
-        return {status:r.status,body:t,result:j&&j.result,consTgtSeqno:j&&j.consTgtSeqno,photoNote};
+        // 성공판정: 5000=객체{result:1}, 4000=평문 '1' 둘 다 허용
+        const ok = (j&&j.result===1) || (typeof j==='number'&&j===1) || (t&&t.trim()==='1');
+        const consTgtSeqno = (j&&j.consTgtSeqno!=null)?j.consTgtSeqno:'';
+        return {status:r.status,body:t,result:j&&j.result,ok,consTgtSeqno,photoNote};
     })()`;
 }
 
@@ -602,8 +605,8 @@ async function registerReplacement({ addr, meter, rep }) {
     L(`[saverow] 철거5000 POST 철거계기=${meter} CONS_NO=${consNo} CNTR_NO=${cntrNo}`);
     const res5 = await awmsEval(_saveRowExpr(demoEntries, AWMS_API + '/mobMtr5000/saveRow',
         oldPhoto ? { url: oldPhoto, field: 'DREMO_ATCH_FILE_ID_3_SRC', filename: 'DREMO_ATCH_FILE_ID_3.jpg' } : null));
-    L(`[saverow] 철거5000 응답: result=${res5.result} consTgtSeqno=${res5.consTgtSeqno} 사진=${res5.photoNote} body=${String(res5.body || '').slice(0, 100)}`);
-    if (res5.result !== 1) throw new Error('철거 saveRow 비정상(result!=1): ' + String(res5.body || '').slice(0, 200));
+    L(`[saverow] 철거5000 응답: ok=${res5.ok} consTgtSeqno=${res5.consTgtSeqno} 사진=${res5.photoNote} body=${String(res5.body || '').slice(0, 100)}`);
+    if (!res5.ok) throw new Error('철거 saveRow 실패: ' + String(res5.body || '').slice(0, 200));
 
     const consTgtSeqno = String(res5.consTgtSeqno || '');
     if (!consTgtSeqno) throw new Error('철거 응답에 consTgtSeqno 없음');
@@ -619,8 +622,8 @@ async function registerReplacement({ addr, meter, rep }) {
     L(`[saverow] 신설4000 POST 신설계기=${newMeter} 제조월=${newPayload.CREMO_PRDC_YM} 봉인번호=${newPayload.CSL_METR_TRML_SEAL_NO}${newPayload.CSL_METR_TRML_SEAL_NO2 ? '/' + newPayload.CSL_METR_TRML_SEAL_NO2 : ''}`);
     const res4 = await awmsEval(_saveRowExpr(newEntries, AWMS_API + '/mobMtr4000/saveRow',
         newPhoto ? { url: newPhoto, field: 'CREMO_ATCH_FILE_ID_3_SRC', filename: 'CREMO_ATCH_FILE_ID_3.jpg' } : null));
-    L(`[saverow] 신설4000 응답: result=${res4.result} 사진=${res4.photoNote} body=${String(res4.body || '').slice(0, 100)}`);
-    if (res4.result !== 1) throw new Error('신설 saveRow 비정상(result!=1): ' + String(res4.body || '').slice(0, 200));
+    L(`[saverow] 신설4000 응답: ok=${res4.ok} 사진=${res4.photoNote} body=${String(res4.body || '').slice(0, 100)}`);
+    if (!res4.ok) throw new Error('신설 saveRow 실패: ' + String(res4.body || '').slice(0, 200));
 
     // 6) 봉인설정 +1 (다음 계기 유니크)
     try {
