@@ -100,7 +100,7 @@ function _isThreePhase(meterNo, cntrClasCd) {
 
 // ---- 신설 payload (getDetail 301키 베이스 + 오버라이드, WORK_STEP=25 유지) ----
 //   awms-poster.js _buildNewPayloadFromDetail 이식 — 가지치기 금지
-function _buildNewPayloadFromDetail(newMeterNo, detail, sealVal, consTgtSeqno, mtrlInfo, mfgYm, P, sealKnd, three) {
+function _buildNewPayloadFromDetail(newMeterNo, detail, sealVal, consTgtSeqno, mtrlInfo, mfgYm, P, sealKnd, three, fields, ndDigits) {
     if (three == null) three = _isThreePhase(newMeterNo, String(detail.CNTR_CLAS_CD || ''));
     const sealInt = parseInt(String(sealVal).trim(), 10);
     // 봉인번호 = 봉인조회값(마지막 사용) +1 (awms 화면 기준 3966854). 봉인번호2 미사용 — 모든 계기 1개 (영준님 지시)
@@ -143,8 +143,14 @@ function _buildNewPayloadFromDetail(newMeterNo, detail, sealVal, consTgtSeqno, m
         CREMO_EFEC_YM: P.ym,
         LAY_METR_DTLS_CL_CD: '10',
         DEPT2: String(detail.OFFICE_CD || DEFAULT_AWMS.OFFICE_CD),
-        CGD_WHME_NDL_MNGT_QTT: '0',
     };
+    // 신설 지침(CGD) = 신설계기 초기검침값 0 — 철거와 같은 칸(readingFieldsFor)에만.
+    //   기존: CGD_WHME_NDL_MNGT_QTT(야간)에 무조건 0 → 주간계기인데 야간에 0 박히던 버그(2026-06-05).
+    //   정상 완료레코드 = 주간계기는 CGD_WHME_NDL_DAY_QTT(주간)=0, 야간칸 빈칸.
+    var _cgdMap = { whme_day: 'CGD_WHME_NDL_DAY_QTT', whme_mngt: 'CGD_WHME_NDL_MNGT_QTT', dm_mt_day: 'CGD_DM_MT_NDL_DAY_QTT', var_day: 'CGD_VAR_NDL_DAY_QTT' };
+    ['CGD_WHME_NDL_DAY_QTT', 'CGD_WHME_NDL_MNGT_QTT', 'CGD_DM_MT_NDL_DAY_QTT', 'CGD_VAR_NDL_DAY_QTT'].forEach(function (k) { overrides[k] = ''; });
+    (fields || ['whme_day']).forEach(function (f) { if (_cgdMap[f]) overrides[_cgdMap[f]] = '0'; });
+    overrides.CGD_WHME_NDL_DGTS = ndDigits || '6';   // 신설 자릿수
     Object.assign(payload, overrides);
     const out = {};
     for (const k in payload) out[k] = payload[k] == null ? '' : String(payload[k]);
@@ -645,7 +651,7 @@ async function registerReplacement({ addr, meter, rep }) {
 
     // 5) 신설 saveRow (mobMtr4000) + 철거후 사진 (WORK_STEP=25 유지)
     const sealKnd = sealInfo.TRML_SEAL_KND_CD || 'A';
-    const newPayload = _buildNewPayloadFromDetail(newMeter, detail, sealVal, consTgtSeqno, mtrlInfo, mfgYm, P, sealKnd, three);
+    const newPayload = _buildNewPayloadFromDetail(newMeter, detail, sealVal, consTgtSeqno, mtrlInfo, mfgYm, P, sealKnd, three, _fields, ndDigits);
     const newEntries = Object.entries(newPayload).map(([k, v]) => [k, v == null ? '' : String(v)]);
     L(`[saverow] 신설4000 POST 신설계기=${newMeter} 제조월=${newPayload.CREMO_PRDC_YM} 봉인번호=${newPayload.CSL_METR_TRML_SEAL_NO}${newPayload.CSL_METR_TRML_SEAL_NO2 ? '/' + newPayload.CSL_METR_TRML_SEAL_NO2 : ''}`);
     const res4 = await awmsEval(_saveRowExpr(newEntries, AWMS_API + '/mobMtr4000/saveRow',
