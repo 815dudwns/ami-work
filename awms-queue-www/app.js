@@ -121,7 +121,7 @@ window.refreshQueue = refreshQueue;
 // 초기화
 // ─────────────────────────────────────────────
 (async () => {
-    log('AWMS Queue 시작', 'ok');
+    log('AWMS Queue 시작 [JS:remote-r3 찾기진단]', 'ok');
     initFb();
     await checkSession();
     await refreshQueue();
