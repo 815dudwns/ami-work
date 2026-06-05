@@ -52,8 +52,43 @@ async function checkSession() {
         _sessionInfo = null;
         const isBridgeMissing = e.message && e.message.includes('AwmsQ 브릿지 없음');
         updateSessionBar(isBridgeMissing ? '웹 미리보기 모드' : '체크 실패: ' + e.message);
+        // 세션 없음 = 로그인 화면일 가능성 → 아이디/비번 자동입력 시도 (인증번호는 수동)
+        if (!isBridgeMissing) ensureLoginAutofill();
         return false;
     }
+}
+
+// ─────────────────────────────────────────────
+// 로그인 아이디/비번 자동입력 + 저장 (awms-helper inject 방식, 리모컨)
+//   인증번호(OTP)는 수동. 수동로그인 1회 시 id/pw 저장 → 이후 자동입력.
+//   삼성패스 등 사용 불가 → awms 웹뷰에 직접 주입.
+// ─────────────────────────────────────────────
+function _loginAutofillExpr() {
+    return `(()=>{try{
+        var pw=document.getElementById('pw'), id=document.getElementById('id');
+        if(!pw||!id){ return 'no-form'; }
+        // 1) 저장 리스너 1회 등록 — 수동 로그인 시 id/pw를 localStorage에 저장
+        if(!window.__qLoginSave){
+            window.__qLoginSave=true;
+            var save=function(){try{if(id.value)localStorage.setItem('helper_cred_id',id.value);if(pw.value)localStorage.setItem('helper_cred_pw',pw.value);}catch(e){}};
+            var btn=document.getElementById('btnLogin');
+            if(btn) btn.addEventListener('click',save,true);
+            document.addEventListener('keydown',function(e){if(e.key==='Enter')save();},true);
+        }
+        // 2) 저장값 자동입력 (빈칸일 때만, Vue 반영 위해 input/change 디스패치)
+        var sid=localStorage.getItem('helper_cred_id')||'', spw=localStorage.getItem('helper_cred_pw')||'';
+        var filled='';
+        if(sid && !id.value){ id.value=sid; id.dispatchEvent(new Event('input',{bubbles:true})); id.dispatchEvent(new Event('change',{bubbles:true})); filled+='id'; }
+        if(spw && !pw.value){ pw.value=spw; pw.dispatchEvent(new Event('input',{bubbles:true})); pw.dispatchEvent(new Event('change',{bubbles:true})); filled+=(filled?'+':'')+'pw'; }
+        return 'form saved='+(sid?'Y':'N')+' filled='+(filled||'none');
+    }catch(e){return 'err:'+(e&&e.message||e);}})()`;
+}
+async function ensureLoginAutofill() {
+    try {
+        const r = await awmsEval(_loginAutofillExpr());
+        if (typeof log === 'function' && r !== 'no-form') log('[login] 자동입력: ' + r);
+        return r;
+    } catch (e) { return null; }
 }
 
 function updateSessionBar(extra) {

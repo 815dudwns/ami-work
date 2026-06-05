@@ -188,10 +188,16 @@ window.refreshQueue = refreshQueue;
 // 초기화
 // ─────────────────────────────────────────────
 (async () => {
-    log('AWMS Queue 시작 [JS:remote-r3 찾기진단]', 'ok');
+    log('AWMS Queue 시작 [JS:remote-r5 로그인자동입력]', 'ok');
     initFb();
     await checkSession();
     await refreshQueue();
     // 5분마다 세션 체크
     setInterval(checkSession, 5 * 60 * 1000);
+    // 세션 없을 때 8초마다 로그인 아이디/비번 자동입력 시도 (awms 열면 바로 채워지게)
+    setInterval(() => {
+        if (typeof isSessionOK === 'function' && !isSessionOK() && typeof ensureLoginAutofill === 'function') {
+            ensureLoginAutofill();
+        }
+    }, 8000);
 })();
