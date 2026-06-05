@@ -129,15 +129,20 @@ async function runOne(addr, meter) {
 }
 
 async function runAll() {
-    const pending = _queue.filter(i => i.status === 'pending');
-    if (!pending.length) return;
+    // 현재 선택한 날짜 필터의 대기건만 일괄 등록 (전체 선택 시 전부)
+    const inView = (typeof _dateFilter !== 'undefined' && _dateFilter !== 'all' && typeof _dateKey === 'function')
+        ? _queue.filter(i => _dateKey(i.rep.replaced_at) === _dateFilter)
+        : _queue;
+    const pending = inView.filter(i => i.status === 'pending');
+    const dateLabel = (typeof _dateFilter !== 'undefined' && _dateFilter !== 'all') ? _dateFilter : '전체';
+    if (!pending.length) { alert(`[${dateLabel}] 대기 건이 없습니다.`); return; }
     if (!isSessionOK()) { alert('awms 세션 없음. 로그인 먼저'); return; }
     if (typeof registerReplacement !== 'function') {
         alert('saverow 모듈 준비중 (awms-saverow.js 미로드). 일괄 등록 불가.');
         return;
     }
     if (!confirm(
-        `${pending.length}건 일괄 등록할까요?\n` +
+        `[${dateLabel}] ${pending.length}건 일괄 등록할까요?\n` +
         `건당 ${Math.round(POST_DELAY_MIN / 1000)}~${Math.round(POST_DELAY_MAX / 1000)}초 텀, ` +
         `약 ${Math.round(pending.length * (POST_DELAY_MIN + POST_DELAY_MAX) / 2 / 60000)}분 소요`
     )) return;
