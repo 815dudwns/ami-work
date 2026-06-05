@@ -526,6 +526,14 @@ function _buildDemolitionPayload(meterNo, removalValue, removalValues, ndDigits,
 async function _fetchPhotoB64(url) {
     if (!url) return null;
     try {
+        // 가상 테스트 사진: vqphoto:<key> → firebase vqueue_photos/<key>(data URL) (workStatus 경량 유지)
+        if (String(url).indexOf('vqphoto:') === 0) {
+            const key = String(url).slice(8);
+            const snap = await firebase.database().ref('vqueue_photos/' + key).once('value');
+            const durl = snap.val() || '';
+            const i = durl.indexOf('base64,');
+            return i >= 0 ? durl.slice(i + 7) : null;
+        }
         const r = await fetch(url);
         if (!r.ok) return null;
         const buf = await r.arrayBuffer();
@@ -537,22 +545,23 @@ async function _fetchPhotoB64(url) {
     } catch (e) { return null; }
 }
 
-// ---- saveRow POST (awmsEval FormData, 사진 base64 임베드 첨부) ----
-//   photo = {b64, field, filename} — awms 웹뷰에서 atob→Blob→append (CORS 우회)
-function _saveRowExpr(entries, url, photo) {
+// ---- saveRow POST (awmsEval FormData, 사진 배열 base64 임베드 첨부) ----
+//   photos = [{b64, field, filename}, ...] — 칸별 지침 계기판 사진을 각 슬롯(_3~_6)에 첨부 (CORS 우회)
+function _saveRowExpr(entries, url, photos) {
     return `(async()=>{
         const fd=new FormData();
         const E=${JSON.stringify(entries)};
         for(const [k,v] of E) fd.append(k,v);
-        const P=${JSON.stringify(photo || null)};
-        let photoNote='무첨부';
-        if(P && P.b64){
+        const PS=${JSON.stringify(photos || [])};
+        const notes=[];
+        for(const P of PS){
+            if(!(P && P.b64)) continue;
             try{
                 const bin=atob(P.b64); const arr=new Uint8Array(bin.length);
                 for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
                 const b=new Blob([arr],{type:'image/jpeg'});
-                fd.append(P.field,b,P.filename); photoNote='첨부 '+Math.round(b.size/1024)+'KB';
-            }catch(e){ photoNote='사진디코드오류:'+(e&&e.message||e); }
+                fd.append(P.field,b,P.filename); notes.push(P.field.replace('_SRC','')+' '+Math.round(b.size/1024)+'KB');
+            }catch(e){ notes.push((P.field||'?')+':err'); }
         }
         const r=await fetch(${JSON.stringify(url)},{method:'POST',credentials:'include',body:fd});
         const t=await r.text();
@@ -560,9 +569,12 @@ function _saveRowExpr(entries, url, photo) {
         // 성공판정: 5000=객체{result:1}, 4000=평문 '1' 둘 다 허용
         const ok = (j&&j.result===1) || (typeof j==='number'&&j===1) || (t&&t.trim()==='1');
         const consTgtSeqno = (j&&j.consTgtSeqno!=null)?j.consTgtSeqno:'';
-        return {status:r.status,body:t,result:j&&j.result,ok,consTgtSeqno,photoNote};
+        return {status:r.status,body:t,result:j&&j.result,ok,consTgtSeqno,photoNote:notes.join(' / ')||'무첨부'};
     })()`;
 }
+
+// ---- 지침 칸 → 철거 사진 슬롯 매핑 (2026-06-05 awms 4칸 레코드 검증: 주간=_3/야간=_4/최대=_5/무효=_6) ----
+const DREMO_PHOTO_SLOT = { whme_day: '3', whme_mngt: '4', dm_mt_day: '5', var_day: '6' };
 
 // ---- 봉인설정 +1 (mobMtr8000/saveRow JSON) — 항상 +1 (봉인 1개 고정) ----
 //   recording_seal2.jsonl 원본 검증. 신설 저장 직후 호출 → 설정 METR_SEAL_VAL 갱신(다음 계기 유니크)
@@ -625,19 +637,27 @@ async function registerReplacement({ addr, meter, rep }) {
     const _fields = readingFieldsFor(customerInfo.CNTR_CLAS_CD, customerInfo.CNTR_PWR);
     L(`[saverow] 지침칸수=${_fields.length}칸 [${_fields.join(',')}] / ${three ? '삼상' : '단상'} (계약종별 ${customerInfo.CNTR_CLAS_CD || '?'} / 계약전력 ${customerInfo.CNTR_PWR || '?'})`);
 
-    // 사진 base64 (큐 웹뷰에서 fetch — awms는 CORS 막힘)
-    const oldB64 = await _fetchPhotoB64(oldPhoto);
+    // 사진 로드: 철거 = 지침칸별 계기판 사진(removal_photos[field]) → 칸별 슬롯. 없으면 old_meter_photo를 주간(_3)에.
+    //   1칸이면 old_meter_photo 1장(_3) = 기존 동작 호환. 4칸이면 4장(_3~_6).
+    const remPhotos = rep.removal_photos || null;
+    const demoPhotos = [];
+    for (const f of _fields) {
+        const ref = (remPhotos && remPhotos[f]) || (f === 'whme_day' ? oldPhoto : '');
+        if (!ref) continue;
+        const b64 = await _fetchPhotoB64(ref);
+        if (b64) demoPhotos.push({ b64, field: `DREMO_ATCH_FILE_ID_${DREMO_PHOTO_SLOT[f]}_SRC`, filename: `DREMO_ATCH_FILE_ID_${DREMO_PHOTO_SLOT[f]}.jpg` });
+    }
     const newB64 = await _fetchPhotoB64(newPhoto);
-    L(`[saverow] 사진 로드: 철거전=${oldB64 ? Math.round(oldB64.length / 1365) + 'KB' : '없음'} 철거후=${newB64 ? Math.round(newB64.length / 1365) + 'KB' : '없음'}`);
+    const newPhotos = newB64 ? [{ b64: newB64, field: 'CREMO_ATCH_FILE_ID_3_SRC', filename: 'CREMO_ATCH_FILE_ID_3.jpg' }] : [];
+    L(`[saverow] 사진 로드: 철거 ${demoPhotos.length}장(${demoPhotos.map(p => p.field.match(/_(\d+)_SRC/)[1]).join(',')}) / 신설 ${newPhotos.length}장`);
 
-    // 3) 철거 saveRow (mobMtr5000) + 철거전 사진
+    // 3) 철거 saveRow (mobMtr5000) + 철거 지침별 사진
     const demoPayload = _buildDemolitionPayload(meter, removalValue, removalValues, ndDigits, customerInfo, sealInfo, P, mainInfo);
     demoPayload.WORK_STEP = '25';      // 임시저장
     demoPayload.CREMO_WHM_NO = '';     // 신설단계에서 채움
     const demoEntries = Object.entries(demoPayload).map(([k, v]) => [k, v == null ? '' : String(v)]);
     L(`[saverow] 철거5000 POST 철거계기=${meter} CONS_NO=${consNo} CNTR_NO=${cntrNo}`);
-    const res5 = await awmsEval(_saveRowExpr(demoEntries, AWMS_API + '/mobMtr5000/saveRow',
-        oldB64 ? { b64: oldB64, field: 'DREMO_ATCH_FILE_ID_3_SRC', filename: 'DREMO_ATCH_FILE_ID_3.jpg' } : null));
+    const res5 = await awmsEval(_saveRowExpr(demoEntries, AWMS_API + '/mobMtr5000/saveRow', demoPhotos));
     L(`[saverow] 철거5000 응답: ok=${res5.ok} consTgtSeqno=${res5.consTgtSeqno} 사진=${res5.photoNote} body=${String(res5.body || '').slice(0, 100)}`);
     if (!res5.ok) throw new Error('철거 saveRow 실패: ' + String(res5.body || '').slice(0, 200));
 
@@ -654,8 +674,7 @@ async function registerReplacement({ addr, meter, rep }) {
     const newPayload = _buildNewPayloadFromDetail(newMeter, detail, sealVal, consTgtSeqno, mtrlInfo, mfgYm, P, sealKnd, three, _fields, ndDigits);
     const newEntries = Object.entries(newPayload).map(([k, v]) => [k, v == null ? '' : String(v)]);
     L(`[saverow] 신설4000 POST 신설계기=${newMeter} 제조월=${newPayload.CREMO_PRDC_YM} 봉인번호=${newPayload.CSL_METR_TRML_SEAL_NO}${newPayload.CSL_METR_TRML_SEAL_NO2 ? '/' + newPayload.CSL_METR_TRML_SEAL_NO2 : ''}`);
-    const res4 = await awmsEval(_saveRowExpr(newEntries, AWMS_API + '/mobMtr4000/saveRow',
-        newB64 ? { b64: newB64, field: 'CREMO_ATCH_FILE_ID_3_SRC', filename: 'CREMO_ATCH_FILE_ID_3.jpg' } : null));
+    const res4 = await awmsEval(_saveRowExpr(newEntries, AWMS_API + '/mobMtr4000/saveRow', newPhotos));
     L(`[saverow] 신설4000 응답: ok=${res4.ok} 사진=${res4.photoNote} body=${String(res4.body || '').slice(0, 100)}`);
     if (!res4.ok) throw new Error('신설 saveRow 실패: ' + String(res4.body || '').slice(0, 200));
 

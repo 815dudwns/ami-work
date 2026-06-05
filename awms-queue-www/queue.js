@@ -131,10 +131,11 @@ async function loadQueue() {
         const reps = v.replacement_list || {};
         for (const [meter, rep] of Object.entries(reps)) {
             if (rep.source === 'awms') continue;       // awms에서 가져온 건 제외
-            if (rep.awms_synced === true) continue;    // 이미 등록됨
             if (!rep.new_meter_id) continue;           // 신계기 없으면 미완성
-            // syncCompleted에서 이미 awms 등록(완료28/임시저장25)된 건 제외 — 철거(meter)·신설(new_meter_id) 둘 다 대조
-            if (_completedNewMeters.has(String(meter).trim()) || _completedNewMeters.has(String(rep.new_meter_id).trim())) continue;
+            // awms 라이브 대조 — _completedNewMeters(workStep 25/28)에 있으면 진짜 등록됨 → skip.
+            // 없으면(=임시저장 삭제/미등록) awms_synced 플래그와 무관하게 큐에 다시 표시.
+            const inAwms = _completedNewMeters.has(String(meter).trim()) || _completedNewMeters.has(String(rep.new_meter_id).trim());
+            if (inAwms) continue;
             items.push({
                 addr,
                 meter,
