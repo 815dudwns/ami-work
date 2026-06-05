@@ -196,34 +196,65 @@ async function loadQueue() {
 // ─────────────────────────────────────────────
 // renderQueue — 큐 카드 렌더링 + 요약 업데이트
 // ─────────────────────────────────────────────
-// 날짜 드롭다운(동적 생성) — index.html 못 고쳐 JS로 삽입
+// KST 월키 (예: "2026년 6월")
+function _monthKey(ms) {
+    return ms ? new Date(ms).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: 'long' }) : '-';
+}
+// 가용 날짜(오름차순) / 날짜→월
+function _qDates() { return Array.from(new Set(_queue.map(i => _dateKey(i.rep.replaced_at)))).sort(); }
+function _qMonthOf(dk) { const it = _queue.find(i => _dateKey(i.rep.replaced_at) === dk); return it ? _monthKey(it.rep.replaced_at) : ''; }
+
+// ◀ 날짜 ▶ 이동
+function _navDate(dir) {
+    const dates = _qDates();
+    if (!dates.length) return;
+    if (_dateFilter === 'all') { _dateFilter = dates[dates.length - 1]; renderQueue(); return; }  // 전체→최신부터
+    let idx = dates.indexOf(_dateFilter);
+    if (idx < 0) idx = dates.length - 1;
+    idx = Math.max(0, Math.min(dates.length - 1, idx + dir));
+    _dateFilter = dates[idx];
+    renderQueue();
+}
+
+// 날짜바 (동적 생성) — 월 드롭다운 + ◀ 날짜 ▶
 function _ensureDateBar() {
     let bar = document.getElementById('date-bar');
     if (!bar) {
         bar = document.createElement('div');
         bar.id = 'date-bar';
-        bar.style.cssText = 'padding:8px 12px;display:flex;gap:8px;align-items:center;font-size:13px';
-        bar.innerHTML = '<span style="color:#6b7280">날짜</span>';
-        const sel = document.createElement('select');
-        sel.id = 'date-select';
-        sel.style.cssText = 'flex:1;padding:8px;border-radius:8px;border:1px solid #d1d5db;font-size:13px';
-        sel.onchange = function () { _dateFilter = this.value; renderQueue(); };
-        bar.appendChild(sel);
+        bar.style.cssText = 'padding:8px 12px;display:flex;gap:6px;align-items:center';
+        bar.innerHTML =
+            '<select id="month-select" style="padding:8px;border-radius:8px;border:1px solid #d1d5db;font-size:13px"></select>'
+            + '<button id="date-prev" style="padding:6px 14px;border:none;border-radius:8px;background:#e5e7eb;font-size:16px;font-weight:700">◀</button>'
+            + '<div id="date-label" style="flex:1;text-align:center;font-size:14px;font-weight:700;color:#1f2937"></div>'
+            + '<button id="date-next" style="padding:6px 14px;border:none;border-radius:8px;background:#e5e7eb;font-size:16px;font-weight:700">▶</button>';
         const list = document.getElementById('queue-list');
         if (list && list.parentNode) list.parentNode.insertBefore(bar, list);
+        document.getElementById('date-prev').onclick = function () { _navDate(-1); };
+        document.getElementById('date-next').onclick = function () { _navDate(1); };
+        document.getElementById('month-select').onchange = function () {
+            const v = this.value;
+            if (v === 'all') { _dateFilter = 'all'; }
+            else { const inM = _qDates().filter(d => _qMonthOf(d) === v); _dateFilter = inM.length ? inM[inM.length - 1] : 'all'; }
+            renderQueue();
+        };
     }
-    // 날짜 목록 갱신 (현재 선택 유지)
-    const sel = document.getElementById('date-select');
-    if (sel) {
-        const dates = Array.from(new Set(_queue.map(i => _dateKey(i.rep.replaced_at)))).sort().reverse();
-        const opts = ['<option value="all">전체 (' + _queue.length + ')</option>']
-            .concat(dates.map(d => {
-                const n = _queue.filter(i => _dateKey(i.rep.replaced_at) === d).length;
-                return `<option value="${escapeAttr(d)}"${_dateFilter === d ? ' selected' : ''}>${escapeHtml(d)} (${n})</option>`;
-            }));
-        sel.innerHTML = opts.join('');
-        sel.value = _dateFilter;
+    const dates = _qDates();
+    const months = Array.from(new Set(dates.map(d => _qMonthOf(d))));
+    // 월 select
+    const msel = document.getElementById('month-select');
+    if (msel) {
+        msel.innerHTML = '<option value="all">전체</option>' + months.map(m => `<option value="${escapeAttr(m)}">${escapeHtml(m)}</option>`).join('');
+        msel.value = (_dateFilter !== 'all' && _qMonthOf(_dateFilter)) ? _qMonthOf(_dateFilter) : 'all';
     }
+    // 날짜 라벨 + 버튼 활성
+    const cnt = _dateFilter === 'all' ? _queue.length : _queue.filter(i => _dateKey(i.rep.replaced_at) === _dateFilter).length;
+    const lbl = document.getElementById('date-label');
+    if (lbl) lbl.textContent = (_dateFilter === 'all' ? '전체' : _dateFilter) + ' (' + cnt + ')';
+    const idx = dates.indexOf(_dateFilter);
+    const prev = document.getElementById('date-prev'), next = document.getElementById('date-next');
+    if (prev) { prev.disabled = (_dateFilter !== 'all' && idx <= 0) || !dates.length; prev.style.opacity = prev.disabled ? '0.35' : '1'; }
+    if (next) { next.disabled = (_dateFilter === 'all') || (idx >= dates.length - 1); next.style.opacity = next.disabled ? '0.35' : '1'; }
 }
 
 function renderQueue() {
