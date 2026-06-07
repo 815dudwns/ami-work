@@ -105,3 +105,126 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothi
     cursor: pointer;
 }
 @media (max-width: 640px) { .category-filter { top: 50px; left: 8px; } .category-toggle { font-size: 14px; padding: 8px 14px; } }
+
+/* ===== 좌상단 메뉴 트리거 버튼 ===== */
+.menu-trigger {
+    position: fixed; top: 10px; left: 10px; z-index: 600;
+    width: 40px; height: 40px;
+    background: rgba(17,24,39,0.85); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    border: none; border-radius: 10px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+.menu-trigger svg { width: 22px; height: 22px; }
+@media (max-width: 640px) { .menu-trigger { top: 8px; left: 8px; } }
+
+/* ===== 앱 메뉴 오버레이 + 패널 ===== */
+.app-menu-overlay {
+    position: fixed; inset: 0; z-index: 1400;
+    background: rgba(0,0,0,0.35);
+    display: none;
+}
+.app-menu-overlay.open { display: block; }
+
+.app-menu {
+    position: fixed; top: 0; left: 0; z-index: 1500;
+    width: 300px; max-width: 88vw; height: 100%;
+    background: #fff;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.18);
+    padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+    display: none; flex-direction: column; gap: 4px;
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+}
+.app-menu.open { display: flex; }
+
+/* 헤더: 이름 + 닫기 */
+.am-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 14px;
+}
+.am-name { font-size: 16px; font-weight: 800; color: #111827; }
+.am-x {
+    background: none; border: none; font-size: 24px; color: #6b7280;
+    cursor: pointer; line-height: 1; padding: 0 2px;
+}
+
+/* 구분선 */
+.am-sep { height: 1px; background: #e5e7eb; margin: 6px 0; }
+
+/* 섹션 라벨 */
+.am-section-label {
+    font-size: 11px; font-weight: 800; color: #6b7280;
+    letter-spacing: .04em; text-transform: uppercase;
+    padding: 10px 8px 4px;
+}
+
+/* 공통 행: 아이콘 + 텍스트 */
+.am-row {
+    display: flex; align-items: center; gap: 12px; width: 100%;
+    padding: 11px 8px; background: none; border: none;
+    border-radius: 10px; font-family: inherit;
+    font-size: 14px; font-weight: 700; color: #111827;
+    cursor: pointer; text-decoration: none; text-align: left;
+}
+.am-row:active { background: #f3f4f6; }
+.am-ico { width: 20px; height: 20px; flex-shrink: 0; color: #1d4ed8; display: flex; align-items: center; justify-content: center; }
+.am-ico svg { width: 20px; height: 20px; }
+.am-txt { flex: 1; }
+.am-go { width: 16px; height: 16px; color: #9ca3af; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.am-go svg { width: 16px; height: 16px; }
+
+/* 로그아웃 행 */
+.am-logout { color: #dc2626; }
+.am-logout .am-ico { color: #dc2626; }
+
+/* 링크 행 */
+a.am-row { color: #111827; }
+
+/* 메뉴 안에서 jisa-filter, category-filter, user-bar의 fixed 포지셔닝 해제 */
+.app-menu .jisa-filter {
+    position: static;
+    top: auto; left: auto;
+    padding: 4px 0;
+}
+.app-menu .jisa-filter select {
+    width: 100%;
+    background: rgba(17,24,39,0.85); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    color: #fff; border: none;
+    padding: 9px 28px 9px 12px; border-radius: 8px;
+    font-size: 14px; font-family: inherit; cursor: pointer;
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='white' d='M0 0l5 6 5-6z'/></svg>");
+    background-repeat: no-repeat; background-position: right 10px center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+
+.app-menu .gu-filter {
+    margin-top: 6px;
+    background: rgba(17,24,39,0.82); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    border-radius: 10px; padding: 8px 12px;
+    display: flex; flex-direction: column; gap: 2px;
+}
+.app-menu .gu-filter label {
+    color: #fff; font-size: 14px; cursor: pointer; padding: 3px 0;
+    display: flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+
+.app-menu .category-filter {
+    position: static;
+    top: auto; left: auto;
+    padding: 4px 0;
+}
+/* 메뉴 안에서 카테고리 토글버튼: 전체 너비 */
+.app-menu .category-filter .category-toggle {
+    width: 100%;
+    text-align: left;
+    border-radius: 8px;
+}
+/* 메뉴 안에서 카테고리 패널: 인셋 스타일 */
+.app-menu .category-filter .category-panel {
+    margin-top: 4px;
+    border-radius: 8px;
+}
+
+/* user-bar를 메뉴 안에 배치할 때 fixed 해제 (display:none으로 원본 숨기고 메뉴 안에는 별도 구성) */
+.app-menu .am-hidden-links { display: none; }
