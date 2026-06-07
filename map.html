@@ -12,7 +12,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-    <link rel="stylesheet" href="css/common.css?v=20260608menu">
+    <link rel="stylesheet" href="css/common.css?v=20260608menu2">
     <link rel="stylesheet" href="css/marker.css?v=20260529k">
     <link rel="stylesheet" href="css/panel.css?v=20260529k">
 </head>
@@ -28,6 +28,14 @@
             <line x1="3" y1="6" x2="21" y2="6"/>
             <line x1="3" y1="12" x2="21" y2="12"/>
             <line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+    </button>
+
+    <!-- 우상단 검색 버튼 (메뉴 밖 독립) -->
+    <button class="search-trigger" id="search-trigger" aria-label="검색" onclick="openSearch()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"/>
+            <line x1="16.5" y1="16.5" x2="22" y2="22"/>
         </svg>
     </button>
 
@@ -62,20 +70,6 @@
         </div>
 
         <div class="am-sep"></div>
-
-        <!-- 검색 -->
-        <button class="am-row" onclick="closeAppMenu();openSearch();" type="button">
-            <span class="am-ico">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="11" cy="11" r="7"/>
-                    <line x1="16.5" y1="16.5" x2="22" y2="22"/>
-                </svg>
-            </span>
-            <span class="am-txt">검색</span>
-            <span class="am-go">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-            </span>
-        </button>
 
         <!-- 통계 (권한 있을 때만 표시) -->
         <a class="am-row" id="stats-btn" href="stats.html" style="display:none;">
