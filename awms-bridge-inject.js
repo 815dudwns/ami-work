@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v68'; // v68: 숫자 입력칸 inputmode=numeric (helper 숫자키보드 + OTP)
+  var VER = 'v69'; // v69: OTP 6칸(maxlength=1) 숫자키보드 추가
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1145,6 +1145,8 @@ function parseValue(text) {
         if (type !== 'text' && type !== 'tel' && type !== 'search' && type !== '') continue;
         var key = (inp.name || '') + ' ' + (inp.placeholder || '') + ' ' + (inp.id || '');
         if (/모뎀|MAC|MODEM|맥|DCU|설비\s*ID|설비ID|사업/i.test(key)) continue;   // 영문/hex 가능 → 건들지 않음
+        // 로그인 OTP 6칸: 한 자리씩 입력하는 칸(maxlength=1) → 숫자키보드 (라벨 없어 키워드론 못 잡음)
+        if (inp.maxLength === 1) { inp.setAttribute('inputmode', 'numeric'); inp.__nkb = 1; continue; }
         if (/계기|봉인|함내|계기수|수량|개수|매수|자리|INSTR|METER|MB_CNT|SEAL|인증|OTP|otp/i.test(key)) {
           inp.setAttribute('inputmode', 'numeric');
           inp.__nkb = 1;
