@@ -1,0 +1,95 @@
+# AMI Queue — ami-work 설비등록 전송 큐앱 설계
+
+> DataPush(수집, ami-work 모달)가 만든 `datapush_queue`를 읽어 **awms 설비등록(saveAct)으로 예약·전송**하는 폰 앱.
+> 수집(1단계)=datapush-design.md / 전송(2단계)=이 문서. 이름 **AMI Queue**.
+> 기존 `awms-queue`(종로 계기팀, saveRow/ami-jongno)와 **별개 앱** — 같은 인프라 패턴 재활용.
+
+## 1. 정체 / 책임
+- 입력: ami-work Firebase `datapush_queue/{id}` (DataPush 수집물).
+- 출력: 한전 awms `POST /ami/mob/cst/mobCst1000/saveAct` (설비등록, 마스터·슬래이브 각 1행).
+- 책임: 목록 표시 → **예약 시각 지정 또는 즉시** → 전송 시 **사진 EXIF를 전송시각에 맞춤** → saveAct push → 상태 갱신.
+- 업로드 권한은 영준님 독점(게이트키핑). 작업자는 DataPush 수집까지, 전송은 AMI Queue(영준님 폰).
+
+## 2. 아키텍처 (awms-queue 패턴 재활용)
+- **2탭 멀티웹뷰**: 큐탭(localhost www) ↔ awms탭(awms.kdn.com). awms 세션(OTP, 4시간)은 폰 WebView에만 있음 → 큐탭이 awms탭에 `evaluateJavascript`로 fetch 위임해 same-origin+쿠키 우회. (PC/맥 크론은 세션 없어 불가 = FLAG2 회피)
+- **세션 자동체크** + 로그인 id/pw 자동입력(OTP만 수동). 아이디 mdp2504381.
+- **예약 스케줄러 = 폰 자체 타이머** (세션이 폰에만 있으므로). 앱이 백그라운드에서 예약시각 도달 시 전송.
+- Firebase: 읽기/상태쓰기 = ami-work DB(`datapush_queue`). 통합 로그 = `awmslog/amiqueue`.
+
+## 3. 데이터 소스 — datapush_queue 구조
+```
+datapush_queue/{id}: {
+  addr, createdAt, createdBy, createdByName, status: 'pending'|'scheduled'|'sent'|'error',
+  scheduledAt?,            // 예약 시각(ISO KST). 없으면 수동/즉시
+  boxes: [{
+    hamType: '단독'|'집합',
+    masters: [{
+      meterNo, meterType,        // 계기번호, 계기유형(E/AE/G/AMIGO)
+      mac, comm,                 // 모뎀맥, 통신방식(ks-plc/hpgp/lte_IV/k-dcu/smgw-c)
+      fcltyDiv, fcltyLabel,      // 시설유형 코드(10/20/30/40)
+      mbCnt, mbMeterId,          // 함내계기수, 대표계기(단독형은 '')
+      slaves: [{meterNo, meterType}],
+      photos: {pre, mac, post1, post2}   // dataURL (2단계서 Storage 전환 검토)
+    }]
+  }]
+}
+```
+
+## 4. 화면
+- **목록**: 카드별 [주소 / 함체·마스터·슬래이브 수 요약 / 시설유형 / 상태배지(대기·예약·완료·실패) / 예약시각]. 날짜 필터.
+- **카드 상세/액션**: [지금 전송] [예약…](시각 picker) [내용 보기] [삭제].
+- **처리상황 패널**(하단): 전송 진행 로그 실시간(awms-queue 방식).
+- **상단 배너**: 전송중/성공/실패.
+- awms 세션 없으면 [awms 열기] 유도(로그인).
+
+## 5. 전송 플로우
+공통: 전송 직전 **사진 EXIF 시각을 "전송시각 T"에 맞춤**(admin.html 로직 흡수). 서버 등록시각은 awms가 T로 박으므로 사진시각=T로 정합. **위치(GPS)는 awms가 수집 안 함 → 무시. 사진 EXIF GPS는 현장 촬영이라 그대로 둠.**
+
+- **즉시 전송(개별/일괄)**: T=now. awms-queue처럼 건당 랜덤 8~18초 텀(봇감지 회피), 5건마다 세션 재확인.
+- **예약 전송**: 카드에 scheduledAt 저장 → 폰 타이머가 그 시각 도달 시 자동 전송(T=scheduledAt). 여러 건 예약 시 텀 두고 순차.
+- 1건 = 함체들의 모든 마스터·슬래이브 행을 saveAct로 순차 등록(한 주소 묶음). 성공 시 status='sent', 실패 시 'error'+사유.
+
+## 6. saveAct 빌더 (수집물 → 설비등록 행)
+한 마스터 = 1행(MODEM_DIV=10), 그 슬래이브들 = 각 1행(MODEM_DIV=20). 필드(saveAct_test.js 99필드 기준):
+
+| saveAct 필드 | 값 출처 |
+|---|---|
+| DEPT1 | 3970 고정 |
+| DEPT2 | site-data 지사 → DEPT2 코드표(datapush-design §지사) |
+| WORK_DIV / FLAG / WORK_STEP | M1010(신설) / M10 / 28 |
+| MTR_WITH_YN | N (ami=단독시공) |
+| FCLTY_DIV | 마스터 fcltyDiv (10/20/30/40) |
+| MODEM_DIV | 마스터 10 / 슬래이브 20 |
+| INSTR_NUM | 계기번호 |
+| INST_M | 계기유형→HW코드 (E=4020·AE=4040·G=4030·AMIGO=4050·표준=4010) |
+| INST_S | INST_M + 통신방식 suffix (ks-plc10·hpgp20·lte_IV70·k-dcu90·smgw-c92·lte40) |
+| MAC_MODEM | 모뎀맥 |
+| MB_METER_ID | 대표계기 (단독형 10은 '') |
+| MB_CNT | 함내계기수 (단독형 10은 '') |
+| BUNGI | 슬래이브 분기기 (smgw-c=무선 / 그외 0.5) |
+| EXT_CONN_DEV | AE타입(HW4040)일 때만 Y/N (외장 연결장치) |
+| ATCH_FILE_ID_3/4/5_SRC | 사진(EXIF 시각조정 후 Blob) |
+
+- 슬래이브 통신방식 = 마스터 INST_S suffix 따라감(helper applyCommBungi 규칙).
+- 사진은 awms 통과조건(고해상도·700KB+·ICC없음) 충족 필요(awms_API_레퍼런스 §6). 큐탭에서 fetch→Blob→FormData.
+
+## 7. 미해결 (실제 saveAct 로그 1건으로 확정 — 영준님 "로그 보면 안다")
+- **사진 슬롯 매핑**: 수집 4종(시공전/모뎀맥/시공후1·2) ↔ saveAct 3슬롯(ATCH_3/4/5) 대응. + 슬래이브 사진("5번 사진") 구조 미확정.
+- **단독형의 "나머지 3개"**: 단독형이 대표계기·함내계기수 빼고 채우는 3필드 정체.
+- **BUSI_NUM**(사업번호), **WORKER1/2_SEQ**(작업자), **etype/변대주**(EXT_CONN_DEV·EXT_DCU_*) 코드.
+- → 영준님이 awms에 실제 1건 등록 시 recorder로 saveAct 요청바디 캡처해 확정.
+
+## 8. 기존 awms-queue와 관계
+| | awms-queue (종로) | AMI Queue (ami-work) |
+|---|---|---|
+| 입력 | ami-jongno replacement_list | ami-work datapush_queue |
+| 출력 | mobMtr saveRow (계기 철거/신설) | mobCst1000 saveAct (설비등록) |
+| 사진 | 철거전/철거후 | 시공전/모뎀맥/시공후 |
+| 동행 | Y | N |
+- **재활용**: 2탭 웹뷰·세션·fetch위임·랜덤텀·로그패널·로그인자동입력. **신규**: saveAct 빌더, 예약 스케줄러, EXIF 시각조정.
+
+## 9. 단계
+1. saveAct 빌더 (필드 매핑) — 실제 로그로 미해결 7 확정 후
+2. 목록·상태 화면 + 즉시 전송(EXIF 포함)
+3. 예약 스케줄러(폰 타이머)
+4. 가상 1건 테스트 → 실등록 검증 (awms 라이브 write 리스크 = 영준님 판단)

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>AMI Queue</title>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; color: #1f2937; padding-bottom: 60px; }
+  .header { background: #4338ca; color: white; padding: 14px 16px; position: sticky; top: 0; z-index: 100; }
+  .header h1 { font-size: 16px; font-weight: 700; }
+  .header .sub { font-size: 11px; opacity: 0.85; margin-top: 2px; }
+  .session-bar { background: #fbbf24; color: #1f2937; padding: 8px 16px; font-size: 12px; font-weight: 600; position: sticky; top: 47px; z-index: 99; }
+  .session-bar.ok { background: #10b981; color: white; }
+  .session-bar.err { background: #dc2626; color: white; }
+  .summary-bar { background: white; border-bottom: 1px solid #e5e7eb; padding: 8px 16px; font-size: 12px; color: #374151; display: flex; gap: 12px; align-items: center; position: sticky; top: 79px; z-index: 98; }
+  .summary-bar b { color: #4338ca; font-variant-numeric: tabular-nums; }
+  .summary-bar .err-cnt { color: #dc2626; }
+  .summary-bar .done-cnt { color: #059669; }
+  .container { padding: 12px; }
+  .card { background: white; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  button { padding: 12px 16px; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  button:active { opacity: 0.8; }
+  .btn-primary { background: #4338ca; color: white; width: 100%; }
+  .btn-secondary { background: #e5e7eb; color: #374151; }
+  .queue-item { padding: 10px; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 8px; background: #fff; }
+  .queue-item .addr { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .queue-item .meta { font-size: 11px; color: #6b7280; line-height: 1.5; }
+  .queue-item .actions { display: flex; gap: 6px; margin-top: 8px; }
+  .queue-item button { padding: 6px 10px; font-size: 12px; width: auto; }
+  .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; margin-left: 4px; background: #fef3c7; color: #92400e; }
+  .badge-pending { background: #fef3c7; color: #92400e; }
+  .badge-err { background: #fee2e2; color: #991b1b; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0f172a; color: #e5e7eb; }
+    .header { background: #312e81; }
+    .card, .queue-item { background: #1e293b; border-color: #334155; color: #e5e7eb; }
+    .queue-item .meta { color: #94a3b8; }
+    .btn-secondary { background: #475569; color: #e5e7eb; }
+    .summary-bar { background: #1e293b; border-bottom-color: #334155; color: #e5e7eb; }
+    .summary-bar b { color: #818cf8; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>AMI Queue</h1>
+  <div class="sub" id="header-sub">ami-work 설비등록 큐 (Phase A: 목록·삭제)</div>
+</div>
+
+<div class="session-bar" id="session-bar">awms 세션: 확인 중...</div>
+
+<div class="summary-bar">
+  대기 <b id="stat-pending">-</b>건
+  &nbsp;|&nbsp;
+  실패 <b id="stat-err" class="err-cnt">-</b>건
+  &nbsp;|&nbsp;
+  저장/전송 <b id="stat-done" class="done-cnt">-</b>건
+</div>
+
+<div class="container">
+  <div style="display:flex;gap:8px;margin-bottom:12px">
+    <button class="btn-primary" onclick="openAwms()" style="flex:1">awms 열기</button>
+    <button class="btn-secondary" style="flex:0 0 80px;width:80px" onclick="window.refreshQueue && refreshQueue()">새로고침</button>
+  </div>
+  <div id="queue-list">
+    <div class="card" style="text-align:center;color:#9ca3af;padding:30px">불러오는 중...</div>
+  </div>
+</div>
+
+<!-- 검증용: 같은 폴더 JS를 상대경로로 로드 (폰 앱은 원격 base 로드 — Projects/ami-queue/www/index.html) -->
+<script>
+(function () {
+    var t = Date.now();
+    var files = ['config', 'session', 'queue', 'amiqueue-saveact', 'app'];
+    function loadNext(i) {
+        if (i >= files.length) return;
+        var s = document.createElement('script');
+        s.src = './' + files[i] + '.js?t=' + t;
+        s.onload = function () { loadNext(i + 1); };
+        s.onerror = function () { document.getElementById('queue-list').innerHTML = '<div class="card">로드 실패: ' + files[i] + '</div>'; };
+        document.head.appendChild(s);
+    }
+    loadNext(0);
+})();
+</script>
+</body>
+</html>
