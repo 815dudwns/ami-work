@@ -6,13 +6,13 @@
 
 (function () {
   'use strict';
-  var VER = 'v72'; // v72: [진단] numkb/focus-input 로그 필터 통과
+  var VER = 'v73'; // v73: OTP otp-box 칸 포함 type=tel(자동 3x4), 진단 제거
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
   var _FBLOG = 'https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/awmslog/helper.json';
   // [v61] firebase 로그 화이트리스트 — 핵심만 보냄(진단 폭주 차단). 디버깅 필요시 window.__FBLOG_ALL=true 로 전체.
-  var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1, 'numkb-installed': 1, 'focus-input': 1 };
+  var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1, 'numkb-installed': 1 };
   function rec(o) {
     try {
       o.kind = 'cam'; o.ts = Date.now(); o.url = 'https://awms.kdn.com/__cam__/' + (o.stage || '');
@@ -1151,8 +1151,8 @@ function parseValue(text) {
         if (type !== 'text' && type !== 'tel' && type !== 'search' && type !== '') continue;
         var key = (inp.name || '') + ' ' + (inp.placeholder || '') + ' ' + (inp.id || '');
         if (/모뎀|MAC|MODEM|맥|DCU|설비\s*ID|설비ID|사업/i.test(key)) continue;   // 영문/hex 가능 → 건들지 않음
-        // 로그인 OTP 6칸: 한 자리씩 입력하는 칸(maxlength=1) → 숫자키보드 (라벨 없어 키워드론 못 잡음)
-        if (inp.maxLength === 1) { applyNumKB(inp); continue; }
+        // 로그인 OTP 6칸: 한 자리씩 입력하는 칸(maxlength=1) 또는 otp-box 클래스 → 숫자키보드 (라벨 없어 키워드론 못 잡음)
+        if (inp.maxLength === 1 || /otp|pin|verif|auth/i.test(inp.className || '')) { applyNumKB(inp); continue; }
         if (/계기|봉인|함내|계기수|수량|개수|매수|자리|INSTR|METER|MB_CNT|SEAL|인증|OTP|otp/i.test(key)) {
           applyNumKB(inp);
         }
@@ -1168,17 +1168,6 @@ function parseValue(text) {
     });
     __nkbObs.observe(document.documentElement, { childList: true, subtree: true });
     rec({ stage: 'numkb-installed', ver: VER });
-    // [임시진단 v71] 칸 탭 시 그 input 실제 상태 → 키보드 안 바뀌는 원인 추적 (확인 후 제거)
-    document.addEventListener('focusin', function (e) {
-      try {
-        var inp = e.target;
-        if (!inp || inp.tagName !== 'INPUT') return;
-        rec({ stage: 'focus-input', name: inp.name || '', id: inp.id || '',
-          type: inp.type, im: inp.getAttribute('inputmode') || '', ml: inp.maxLength,
-          ro: inp.readOnly, nkb: !!inp.__nkb,
-          cls: (inp.className || '').slice(0, 40) });
-      } catch (ex) {}
-    }, true);
   } catch (e) {}
 
   try {
