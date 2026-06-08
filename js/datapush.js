@@ -63,6 +63,34 @@
     const m = dp.meters.find(x => x.no === no);
     return m ? m.commHint : '';
   }
+  function commLabel(v) { const o = COMM_OPTS.find(x => x[0] === v); return o ? o[1] : v; }
+
+  // ── 통신방식 자동판별 (helper inject macToSuffix와 동일 규칙) ──
+  // 맥 prefix로 판별, 실패 시 site-data 통신방식 폴백. helper와 일치 — 둘 다 자동.
+  function macToComm(mac, meterType) {
+    const raw = String(mac || '');
+    if (/^012\d{8}$/.test(raw.replace(/\D/g, ''))) return meterType === 'AMIGO' ? 'smgw-c' : 'lte_IV';
+    const m = raw.toUpperCase().replace(/[^0-9A-F]/g, '');
+    if (/^847207/.test(m)) { const c = m.charAt(6); if (c === '0' || c === 'E') return 'k-dcu'; if (c === 'B' || c === 'C' || c === 'D') return 'ks-plc'; }
+    if (/^E0AEED/.test(m)) return 'ks-plc';
+    if (/^44B433/.test(m) || /^0014B0/.test(m)) return 'hpgp';
+    return '';   // AC5E8C 등 혼재/미상 → 직접 선택
+  }
+  function commHintToComm(hint) {   // site-data 통신방식 → comm (맥 미판별 시 폴백)
+    const s = String(hint || '').toUpperCase().replace(/[\s_-]/g, '');
+    if (/SMGWC|SMGW/.test(s)) return 'smgw-c';
+    if (/LTEIV/.test(s)) return 'lte_IV';
+    if (s === 'LTE') return 'lte_IV';
+    if (/HPGP/.test(s)) return 'hpgp';
+    if (/KDCU|IOTPLC/.test(s)) return 'k-dcu';
+    if (/KSPLC|^PLC$/.test(s)) return 'ks-plc';
+    return '';
+  }
+  function autoComm(mac, meterNo) {
+    let c = macToComm(mac, typeOf(meterNo));
+    if (!c) c = commHintToComm(commHintOf(meterNo));
+    return c;
+  }
 
   // ── 시설유형 산출 ─────────────────────────────────────
   // 단독함체: 슬래이브0=단독형(10) / 슬래이브1+=집합형단독(40)
@@ -143,19 +171,22 @@
     // 시설유형/함내계기수 자동
     h += `<div style="font-size:12px;color:#475569;margin-bottom:6px;">
       시설유형 <b>${label}(${code})</b>${mbc ? ` · 함내계기수 <b>${mbc}</b>` : ' · 대표계기·함내계기수 없음'}</div>`;
-    // 모뎀맥 + QR + 통신방식
+    // 모뎀맥 + QR (입력/스캔 시 통신방식 자동판별 — helper와 동일)
     h += `<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
-      <input value="${esc(m.mac || '')}" oninput="__dp.setMac(${bi},${mi},this.value)" placeholder="모뎀맥"
+      <input value="${esc(m.mac || '')}" oninput="__dp.setMac(${bi},${mi},this.value)" onchange="__dp.autoCommFor(${bi},${mi})" placeholder="모뎀맥 (입력/QR → 통신방식 자동)"
         style="flex:1;min-width:0;padding:7px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;">
       <button onclick="__dp.scanMac(${bi},${mi})" style="background:#0ea5e9;color:#fff;border:none;border-radius:6px;padding:7px 10px;font-size:12px;font-weight:700;">QR</button>
     </div>`;
+    // 통신방식: 맥으로 자동, 안 되면 직접 선택
+    const autoState = m.comm
+      ? `<span style="color:#16a34a;">자동: ${esc(commLabel(m.comm))}</span>`
+      : (m.mac ? `<span style="color:#d97706;">맥 판별 안 됨 — 직접 선택</span>` : `<span style="color:#9ca3af;">맥 입력 시 자동</span>`);
+    h += `<div style="font-size:11px;margin-bottom:3px;">통신방식 ${autoState}</div>`;
     h += `<select onchange="__dp.setComm(${bi},${mi},this.value)" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;margin-bottom:6px;">`;
     COMM_OPTS.forEach(([v, t]) => {
       h += `<option value="${v}" ${m.comm === v ? 'selected' : ''}>${t}</option>`;
     });
     h += `</select>`;
-    const hint = commHintOf(m.meterNo);
-    if (hint && !m.comm) h += `<div style="font-size:11px;color:#9ca3af;margin-bottom:6px;">참고(site-data): ${esc(hint)}</div>`;
 
     // 슬래이브 묶기 (미배치 계기 체크)
     const cand = up.filter(x => x.no !== m.meterNo);
@@ -230,8 +261,14 @@
       render();
     },
     unMaster(bi, mi) { dp.boxes[bi].masters.splice(mi, 1); render(); },
-    setMac(bi, mi, v) { dp.boxes[bi].masters[mi].mac = v.trim(); },
-    setComm(bi, mi, v) { dp.boxes[bi].masters[mi].comm = v; },
+    setMac(bi, mi, v) { dp.boxes[bi].masters[mi].mac = v.trim(); },   // 값만 (타이핑 중 render 안 함)
+    autoCommFor(bi, mi) {   // 맥 입력 완료(blur) 시 통신방식 자동
+      const m = dp.boxes[bi].masters[mi];
+      const c = autoComm(m.mac, m.meterNo);
+      if (c) m.comm = c;
+      render();
+    },
+    setComm(bi, mi, v) { dp.boxes[bi].masters[mi].comm = v; },   // 직접 선택 (자동 실패 시)
     toggleSlave(bi, mi, no) {
       const sl = dp.boxes[bi].masters[mi].slaves;
       const i = sl.indexOf(no);
@@ -243,7 +280,10 @@
       QrScanner.show((text) => {
         const raw = String(text || '').replace(/\*/g, '');
         const parsed = (typeof parseValue === 'function') ? parseValue(raw) : { value: raw };
-        dp.boxes[bi].masters[mi].mac = String(parsed.value || raw);
+        const m = dp.boxes[bi].masters[mi];
+        m.mac = String(parsed.value || raw);
+        const c = autoComm(m.mac, m.meterNo);   // 스캔 즉시 통신방식 자동
+        if (c) m.comm = c;
         render();
       });
     },

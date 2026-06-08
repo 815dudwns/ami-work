@@ -7,7 +7,11 @@ const QrScanner = (() => {
   let _stream = null;
   let _video = null;
   let _detector = null;
-  let _scanLoop = null;
+  let _scanLoop = null;     // 폴백(html5-qrcode) 경로 전용
+  let _frameHandle = null;  // requestVideoFrameCallback / rAF 핸들
+  let _roiCanvas = null;
+  let _roiCtx = null;
+  let _torchOn = false;
   let _detected = false;
   let _onSuccess = null;
   let _cameras = [];     // {id, label, groupId, facingMode}
@@ -44,6 +48,24 @@ const QrScanner = (() => {
 
   // ─── BarcodeDetector 가능 여부 ─────────────────────────
   function hasBarcodeDetector() {
+    return typeof window.BarcodeDetector === 'function';
+  }
+
+  // iOS Safari 등 BarcodeDetector 미지원 환경: barcode-detector(ZXing wasm) 폴리필을 주입해
+  // iOS/안드로이드 모두 동일하게 getUserMedia + BarcodeDetector 경로로 처리한다.
+  let _polyfillTried = false;
+  async function ensureBarcodeDetector() {
+    if (typeof window.BarcodeDetector === 'function') {
+      try { await window.BarcodeDetector.getSupportedFormats(); return true; } catch (e) {}
+    }
+    if (_polyfillTried) return typeof window.BarcodeDetector === 'function';
+    _polyfillTried = true;
+    try {
+      await import('https://cdn.jsdelivr.net/npm/barcode-detector@2/dist/es/side-effects.min.js');
+      debugLog('barcode-detector 폴리필 로드 OK');
+    } catch (e) {
+      debugLog('폴리필 로드 실패: ' + (e?.message || e));
+    }
     return typeof window.BarcodeDetector === 'function';
   }
 
@@ -138,9 +160,10 @@ const QrScanner = (() => {
       return showError('이 브라우저는 카메라 미지원 (HTTPS 필요)');
     }
 
-    // BarcodeDetector 가능 여부 확인
-    if (!hasBarcodeDetector()) {
-      debugLog('BarcodeDetector 미지원 → html5-qrcode 폴백');
+    // BarcodeDetector 확보 (iOS는 폴리필 주입). 실패 시에만 html5-qrcode 폴백
+    const hasBD = await ensureBarcodeDetector();
+    if (!hasBD) {
+      debugLog('BarcodeDetector 미지원(폴리필도 실패) → html5-qrcode 폴백');
       _useFallback = true;
       return startFallback();
     }
@@ -151,17 +174,9 @@ const QrScanner = (() => {
       return startFallback();
     }
 
-    // 권한 부여를 위해 우선 environment로 임시 stream 받기 (enumerateDevices 라벨 노출 위해)
-    if (!loadCameraLabel() && _cameras.length === 0) {
-      try {
-        debugLog('초기 권한 요청 (facingMode environment)...');
-        const tmp = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        tmp.getTracks().forEach(t => t.stop());
-        debugLog('초기 권한 OK');
-      } catch (e) {
-        debugLog('초기 권한 실패: ' + (e?.message||e));
-      }
-    }
+    // 임시 권한 스트림은 받지 않는다 — iOS Safari에서 두 번째 getUserMedia가
+    // 첫 스트림을 muted/검은 화면으로 만드는 WebKit 버그(#179363) 회피.
+    // 카메라 라벨은 실제 스트림을 잡은 뒤 채워진다.
 
     await enumerateCameras();
 
@@ -198,28 +213,46 @@ const QrScanner = (() => {
     // 기존 stream 정리
     await stopStream();
 
-    debugLog(`getUserMedia({deviceId: ${deviceId.slice(-8)}})...`);
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     try {
-      _stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          deviceId: { exact: deviceId },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        }
-      });
+      if (isIOS || !deviceId) {
+        // iOS Safari는 deviceId:{exact}가 OverconstrainedError 빈발 + 세션마다 deviceId 바뀜
+        // → facingMode:{ideal:environment}로 후면 카메라 요청
+        debugLog('getUserMedia(facingMode environment)...');
+        _stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+        });
+      } else {
+        debugLog(`getUserMedia({deviceId: ${deviceId.slice(-8)}})...`);
+        _stream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+        });
+      }
     } catch (e) {
       debugLog('getUserMedia 실패: ' + (e?.message||e));
-      // 폴백: deviceId 없이 environment
+      // 폴백: 제약 최소화 facingMode
       try {
         debugLog('폴백: facingMode environment 시도');
-        _stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        _stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
       } catch (e2) {
         return showError('카메라 접근 실패: ' + (e2?.message||e2));
       }
     }
 
     _video.srcObject = _stream;
-    try { await _video.play(); } catch {}
+    try { await _video.play(); } catch (e) { debugLog('video.play 실패(무시): ' + (e?.message||e)); }
+
+    // 연속 자동초점 적용 — 미지원 기기는 조용히 무시
+    try {
+      const focusTrack = _stream.getVideoTracks()[0];
+      const cap = focusTrack?.getCapabilities?.() || {};
+      if (cap.focusMode && Array.isArray(cap.focusMode) && cap.focusMode.includes('continuous')) {
+        await focusTrack.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+        debugLog('focusMode:continuous 적용');
+      }
+    } catch (e) {
+      debugLog('focusMode 적용 실패(무시): ' + (e?.message||e));
+    }
 
     // 실제 잡힌 deviceId 저장
     const track = _stream.getVideoTracks()[0];
@@ -243,29 +276,71 @@ const QrScanner = (() => {
     // zoom 적용
     await applyZoom(loadZoom() ?? 2.0);
 
+    // torch 버튼 표시 여부 갱신 (새 스트림은 torch 꺼진 상태)
+    _torchOn = false;
+    updateTorchBtn();
+
     // detect loop 시작
     startDetectLoop();
   }
 
-  function startDetectLoop() {
-    if (_scanLoop) clearInterval(_scanLoop);
-    _scanLoop = setInterval(async () => {
-      if (_detected) return;
-      if (!_video || _video.readyState < 2) return;
-      try {
-        const codes = await _detector.detect(_video);
-        if (codes && codes.length) {
-          _detected = true;
-          const text = codes[0].rawValue || '';
-          finish(text);
-        }
-      } catch (e) {
-        // ignore — detection 매 프레임 실패 가능
+  // ─── ROI 중앙크롭 (구글 스캐너식: 중앙 70% 정사각만 detect → CPU 절감·인식↑) ───
+  function getRoiCanvas() {
+    if (!_roiCanvas) {
+      _roiCanvas = document.createElement('canvas');
+      _roiCtx = _roiCanvas.getContext('2d');
+    }
+    return _roiCanvas;
+  }
+  function captureRoi() {
+    const vw = _video.videoWidth, vh = _video.videoHeight;
+    if (!vw || !vh) return null;
+    const roi = Math.floor(Math.min(vw, vh) * 0.7);   // 중앙 70% 정사각
+    const sx = Math.floor((vw - roi) / 2);
+    const sy = Math.floor((vh - roi) / 2);
+    const out = Math.min(roi, 640);                    // 다운스케일 ≤640 (QR 인식엔 충분)
+    const c = getRoiCanvas();
+    if (c.width !== out) { c.width = out; c.height = out; }
+    _roiCtx.drawImage(_video, sx, sy, roi, roi, 0, 0, out, out);
+    return c;
+  }
+
+  let _detecting = false;
+  async function detectOnce() {
+    if (_detected || _detecting || !_video || _video.readyState < 2) return;
+    _detecting = true;
+    try {
+      // ROI 중앙크롭(640px)만 detect — 전체 1080p보다 가벼움. QR은 중앙에 대고 스캔.
+      const roi = captureRoi();
+      if (!roi) return;
+      let codes = null;
+      try { codes = await _detector.detect(roi); } catch {}
+      if (codes && codes.length && !_detected) {
+        _detected = true;
+        finish(codes[0].rawValue || '');
       }
-    }, 200);
+    } finally {
+      _detecting = false;
+    }
+  }
+
+  // 프레임 루프: setInterval 5fps (안드로이드 BarcodeDetector엔 rVFC 60fps가 과부하 → 렉)
+  function startDetectLoop() {
+    stopDetectLoop();
+    _scanLoop = setInterval(() => { if (!_detected) detectOnce(); }, 200);
+  }
+
+  function stopDetectLoop() {
+    if (_scanLoop) { clearInterval(_scanLoop); _scanLoop = null; }
+    if (_frameHandle != null) {
+      try { if (_video && 'cancelVideoFrameCallback' in HTMLVideoElement.prototype) _video.cancelVideoFrameCallback(_frameHandle); } catch {}
+      try { cancelAnimationFrame(_frameHandle); } catch {}
+      _frameHandle = null;
+    }
   }
 
   function finish(text) {
+    try { if (navigator.vibrate) navigator.vibrate(80); } catch {}  // 인식 성공 햅틱(안드로이드)
     capturePhoto(async (blob) => {
       await stop();   // overlay까지 닫음
       _onSuccess && _onSuccess(text, blob);
@@ -287,7 +362,8 @@ const QrScanner = (() => {
   }
 
   async function stopStream() {
-    if (_scanLoop) { clearInterval(_scanLoop); _scanLoop = null; }
+    stopDetectLoop();
+    if (_torchOn) { try { await setTorch(false); } catch {} }
     if (_stream) {
       _stream.getTracks().forEach(t => { try { t.stop(); } catch {} });
       _stream = null;
@@ -307,6 +383,37 @@ const QrScanner = (() => {
   async function stop() {
     await stopAll();
     document.getElementById('qr-scan-overlay').style.display = 'none';
+  }
+
+  // ─── torch (손전등) ─────────────────────────
+  function trackHasTorch() {
+    try {
+      const cap = _stream?.getVideoTracks?.()[0]?.getCapabilities?.() || {};
+      return !!cap.torch;
+    } catch { return false; }
+  }
+  async function setTorch(on) {
+    try {
+      const t = _stream?.getVideoTracks?.()[0];
+      const cap = t?.getCapabilities?.() || {};
+      if (!t || !cap.torch) return;
+      await t.applyConstraints({ advanced: [{ torch: !!on }] });
+      _torchOn = !!on;
+      paintTorchBtn();
+    } catch {}
+  }
+  async function toggleTorch() { await setTorch(!_torchOn); }
+  function paintTorchBtn() {
+    const btn = document.getElementById('qr-torch-btn');
+    if (!btn) return;
+    btn.style.background = _torchOn ? '#f59e0b' : '#374151';
+    btn.style.color = _torchOn ? '#1f2937' : 'white';
+  }
+  function updateTorchBtn() {
+    const btn = document.getElementById('qr-torch-btn');
+    if (!btn) return;
+    btn.style.display = trackHasTorch() ? '' : 'none';   // 미지원 기기는 숨김
+    paintTorchBtn();
   }
 
   // ─── zoom ─────────────────────────
@@ -383,11 +490,16 @@ const QrScanner = (() => {
 
   // ─── init ─────────────────────────
   function init() {
-    document.getElementById('qr-close-btn').onclick = stop;
+    // QR 스캐너 DOM이 없는 페이지(stats.html 등 공통 로드)에서는 초기화 스킵
+    const closeBtn = document.getElementById('qr-close-btn');
+    if (!closeBtn) return;
+    closeBtn.onclick = stop;
     const sw = document.getElementById('qr-switch-btn');
     if (sw) sw.onclick = switchCamera;
     document.getElementById('qr-zoom-in').onclick = () => adjustZoom(+0.5);
     document.getElementById('qr-zoom-out').onclick = () => adjustZoom(-0.5);
+    const torchBtn = document.getElementById('qr-torch-btn');
+    if (torchBtn) torchBtn.onclick = toggleTorch;
     const sel = document.getElementById('qr-cam-select');
     if (sel) {
       sel.onchange = async () => {
