@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v67'; // v67: 대표→계기번호는 11자리 완성 시만(수기 한글자씩 부분복사 버그수정)
+  var VER = 'v68'; // v68: 숫자 입력칸 inputmode=numeric (helper 숫자키보드 + OTP)
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1130,6 +1130,37 @@ function parseValue(text) {
         .then(function (j) { window.__commMap = j; rec({ stage: 'commmap-loaded', n: Object.keys(j).length }); })
         .catch(function (e) { rec({ stage: 'commmap-fail', msg: String(e) }); });
     }
+  } catch (e) {}
+
+  // ── 숫자 입력칸에 모바일 숫자 키보드 (inputmode만 — 값/검증/Vue바인딩 영향 없음) ──
+  // 영준님: helper에서 숫자 치는 칸이 불편 → 순수 숫자칸만 numeric 키보드.
+  // 모뎀맥·DCU·사업번호는 영문(hex/코드) 섞임 → 제외(모뎀맥은 QR스캔이 기본). debuggable=0이라 폰 실측 검증.
+  function setupNumericKB(root) {
+    try {
+      var ins = (root && root.querySelectorAll) ? root.querySelectorAll('input') : document.querySelectorAll('input');
+      for (var i = 0; i < ins.length; i++) {
+        var inp = ins[i];
+        if (inp.__nkb) continue;
+        var type = (inp.type || 'text').toLowerCase();
+        if (type !== 'text' && type !== 'tel' && type !== 'search' && type !== '') continue;
+        var key = (inp.name || '') + ' ' + (inp.placeholder || '') + ' ' + (inp.id || '');
+        if (/모뎀|MAC|MODEM|맥|DCU|설비\s*ID|설비ID|사업/i.test(key)) continue;   // 영문/hex 가능 → 건들지 않음
+        if (/계기|봉인|함내|계기수|수량|개수|매수|자리|INSTR|METER|MB_CNT|SEAL|인증|OTP|otp/i.test(key)) {
+          inp.setAttribute('inputmode', 'numeric');
+          inp.__nkb = 1;
+        }
+      }
+    } catch (e) {}
+  }
+  try {
+    setupNumericKB();
+    var __nkbObs = new MutationObserver(function (muts) {
+      for (var i = 0; i < muts.length; i++) {
+        if (muts[i].addedNodes && muts[i].addedNodes.length) { setupNumericKB(); break; }
+      }
+    });
+    __nkbObs.observe(document.documentElement, { childList: true, subtree: true });
+    rec({ stage: 'numkb-installed', ver: VER });
   } catch (e) {}
 
   try {
