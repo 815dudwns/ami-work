@@ -172,6 +172,7 @@ async function loadQueue() {
         const reps = v.replacement_list || {};
         for (const [meter, rep] of Object.entries(reps)) {
             if (rep.source) continue;                  // import류(source 태그: awms/kepco_jungong 등)는 큐 제외 — 우리 실작업(source 없음)만 등록 대상
+            if (rep.draft) continue;                   // 이어서(draft=임시저장)는 미완료 → 동기화 큐 제외 (영준님 2026-06-09)
             if (!rep.new_meter_id) continue;           // 신계기 없으면 미완성(실작업 아님)
             // 상태 = awms 라이브 대조. 등록돼도 안 사라지고 '등록완료'로 표시(영준님 지시).
             const inAwms = _completedNewMeters.has(String(meter).trim()) || _completedNewMeters.has(String(rep.new_meter_id).trim());
