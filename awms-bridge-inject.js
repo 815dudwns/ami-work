@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v70'; // v70: 숫자칸 type=tel (WebView inputmode 무시 대응)
+  var VER = 'v71'; // v71: [임시진단] focusin input 상태 로그
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1168,6 +1168,17 @@ function parseValue(text) {
     });
     __nkbObs.observe(document.documentElement, { childList: true, subtree: true });
     rec({ stage: 'numkb-installed', ver: VER });
+    // [임시진단 v71] 칸 탭 시 그 input 실제 상태 → 키보드 안 바뀌는 원인 추적 (확인 후 제거)
+    document.addEventListener('focusin', function (e) {
+      try {
+        var inp = e.target;
+        if (!inp || inp.tagName !== 'INPUT') return;
+        rec({ stage: 'focus-input', name: inp.name || '', id: inp.id || '',
+          type: inp.type, im: inp.getAttribute('inputmode') || '', ml: inp.maxLength,
+          ro: inp.readOnly, nkb: !!inp.__nkb,
+          cls: (inp.className || '').slice(0, 40) });
+      } catch (ex) {}
+    }, true);
   } catch (e) {}
 
   try {
