@@ -254,6 +254,8 @@ async function saveAddedMeter(address, meterId, extra) {
     }
     if (!workStatus[address].added_meters) workStatus[address].added_meters = {};
     workStatus[address].added_meters[meterId] = data;
+    // localStorage 즉시 반영 — 재진입/앱 재시작 시 사라지지 않게 (Firebase set 직후 바로 미러)
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus)); } catch (e) {}
     return data;
 }
 
@@ -264,6 +266,7 @@ async function removeAddedMeter(address, meterId) {
     if (workStatus[address] && workStatus[address].added_meters) {
         delete workStatus[address].added_meters[meterId];
     }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus)); } catch (e) {}
 }
 
 // Firebase 데이터와 로컬 데이터를 updatedAt 기준으로 병합 (더 최신 쪽 유지)
@@ -284,6 +287,11 @@ function mergeFirebaseData(firebaseData) {
         if (fbTime > localTime) {
             // Firebase가 더 최신 — 단, 로컬 전용 필드(failedMeters)는 유지
             workStatus[addr] = { ...fb, failedMeters: local.failedMeters || {} };
+        } else {
+            // 로컬 유지하더라도 added_meters(추가계기)는 Firebase 권위로 합집합 반영.
+            // 계기추가는 updatedAt을 안 바꿔 timestamp 게이트에 안 걸리므로, 여기서 안 합치면
+            // 재진입 시 Firebase에 저장된 추가계기가 로컬에 묻혀 사라짐.
+            local.added_meters = { ...(fb.added_meters || {}), ...(local.added_meters || {}) };
         }
     });
 
