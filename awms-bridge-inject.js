@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v69'; // v69: OTP 6칸(maxlength=1) 숫자키보드 추가
+  var VER = 'v70'; // v70: 숫자칸 type=tel (WebView inputmode 무시 대응)
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1132,9 +1132,15 @@ function parseValue(text) {
     }
   } catch (e) {}
 
-  // ── 숫자 입력칸에 모바일 숫자 키보드 (inputmode만 — 값/검증/Vue바인딩 영향 없음) ──
-  // 영준님: helper에서 숫자 치는 칸이 불편 → 순수 숫자칸만 numeric 키보드.
+  // ── 숫자 입력칸에 모바일 숫자 키보드 ──
+  // 이 WebView는 inputmode 속성을 무시 → type='tel'로 네이티브 InputType(전화 키패드) 강제.
+  // tel은 text 계열이라 v-model 값(string) 영향 없음. number는 maxlength 무시/스피너라 제외.
   // 모뎀맥·DCU·사업번호는 영문(hex/코드) 섞임 → 제외(모뎀맥은 QR스캔이 기본). debuggable=0이라 폰 실측 검증.
+  function applyNumKB(inp) {
+    try { inp.type = 'tel'; } catch (e) {}          // WebView 키패드 결정 핵심
+    try { inp.setAttribute('inputmode', 'numeric'); } catch (e) {}  // 표준 WebView 보조
+    inp.__nkb = 1;
+  }
   function setupNumericKB(root) {
     try {
       var ins = (root && root.querySelectorAll) ? root.querySelectorAll('input') : document.querySelectorAll('input');
@@ -1146,10 +1152,9 @@ function parseValue(text) {
         var key = (inp.name || '') + ' ' + (inp.placeholder || '') + ' ' + (inp.id || '');
         if (/모뎀|MAC|MODEM|맥|DCU|설비\s*ID|설비ID|사업/i.test(key)) continue;   // 영문/hex 가능 → 건들지 않음
         // 로그인 OTP 6칸: 한 자리씩 입력하는 칸(maxlength=1) → 숫자키보드 (라벨 없어 키워드론 못 잡음)
-        if (inp.maxLength === 1) { inp.setAttribute('inputmode', 'numeric'); inp.__nkb = 1; continue; }
+        if (inp.maxLength === 1) { applyNumKB(inp); continue; }
         if (/계기|봉인|함내|계기수|수량|개수|매수|자리|INSTR|METER|MB_CNT|SEAL|인증|OTP|otp/i.test(key)) {
-          inp.setAttribute('inputmode', 'numeric');
-          inp.__nkb = 1;
+          applyNumKB(inp);
         }
       }
     } catch (e) {}
