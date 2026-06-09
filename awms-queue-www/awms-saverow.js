@@ -686,8 +686,23 @@ async function registerReplacement({ addr, meter, rep }) {
         L(`[saverow] 봉인설정 +1 실패(무시): ${e.message}`, 'warn');
     }
 
+    // 7) [2026-06-09] 완료(28): 25 신설 레코드를 28로 재전송.
+    //   awms는 기존 25(임시저장) 레코드에만 28(완료)을 수락 — fresh 28 saveRow는 HTTP 500.
+    //   EX_WORK_STEP=25(임시저장 불러옴) 유지, 사진은 25에 이미 올라가 재전송 안 함.
+    let doneStep = '25';
+    try {
+        const donePayload = Object.assign({}, newPayload, { WORK_STEP: '28' });
+        const doneEntries = Object.entries(donePayload).map(([k, v]) => [k, v == null ? '' : String(v)]);
+        const resDone = await awmsEval(_saveRowExpr(doneEntries, AWMS_API + '/mobMtr4000/saveRow', []));
+        L(`[saverow] 완료28 재전송: ok=${resDone.ok} body=${String(resDone.body || '').slice(0, 120)}`, resDone.ok ? 'ok' : 'warn');
+        if (resDone.ok) doneStep = '28';
+        else L('완료(28) 실패 — 25는 저장됨(awms서 수동완료 가능)', 'warn');
+    } catch (e) {
+        L(`[saverow] 완료28 재전송 오류(무시): ${e.message}`, 'warn');
+    }
+
     return {
-        mode: 'full', consTgtSeqno, newMeter,
+        mode: 'full', consTgtSeqno, newMeter, workStep: doneStep,
         seal: newPayload.CSL_METR_TRML_SEAL_NO, status: 'ok',
     };
 }
