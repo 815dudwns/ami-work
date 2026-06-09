@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v67e'; // v67e: [임시진단] 모든 /ami/ 요청 추적(req-trace, GET 완료 포함). 캡처 후 v67 원복.
+  var VER = 'v67f'; // v67f: [임시진단,마지막] prototype.send 래핑(인스턴스 우회 대응)+fullurl. 캡처 후 v67 원복.
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1158,7 +1158,7 @@ function parseValue(text) {
         var oOpen = x.open;
         x.open = function (m, u) { x.__u = u; x.__m = String(m || '').toUpperCase(); if (String(u).indexOf('saveAct') > -1) rec({ stage: 'xhr-open' });
           // [v67e 2026-06-09] 모든 /ami/ 요청 추적 (GET 완료 포함, 조회 get*/select*/search 제외) — '완료 API'가 GET일 경우 잡기
-          try { var _uo = String(u); if (_uo.indexOf('/ami/') > -1 && !/\/(get|select|search|retrieve)[A-Za-z]*/i.test(_uo)) { rec({ stage: 'req-trace', ep: _uo.split('?')[0].split('/').slice(-2).join('/'), m: x.__m, url: _uo.slice(0, 400) }); } } catch (e) {}
+          try { var _uo = String(u); if (_uo.indexOf('/ami/') > -1 && !/\/(get|select|search|retrieve)[A-Za-z]*/i.test(_uo)) { rec({ stage: 'req-trace', ep: _uo.split('?')[0].split('/').slice(-2).join('/'), m: x.__m, fullurl: _uo.slice(0, 1500) }); } } catch (e) {}
           return oOpen.apply(x, arguments); };
         var oSend = x.send;
         x.send = function (_body) {
@@ -1185,6 +1185,26 @@ function parseValue(text) {
         };
         return x;
       }
+      // [v67f] recorder/awms가 prototype.send.call(xhr,..)로 인스턴스 send 래퍼를 우회 → prototype.send도 래핑.
+      //   this.__u/__m은 인스턴스 open 래퍼가 설정하므로 prototype에서 필터·캡처 가능. (구 'prototype 빗나감' 주석은 무시 — 새 증거)
+      try {
+        if (PrevXHR.prototype && !PrevXHR.prototype.__pSendHooked) {
+          PrevXHR.prototype.__pSendHooked = true;
+          var _pSend = PrevXHR.prototype.send;
+          PrevXHR.prototype.send = function (_pb) {
+            try {
+              var _pu = String(this.__u || ''); var _pm = String(this.__m || '');
+              if (_pm === 'POST' && _pu.indexOf('/ami/') > -1 && !/\/(get|select|search|retrieve)[A-Za-z]*/i.test(_pu)) {
+                var _po = {};
+                if (_pb instanceof FormData) { _pb.forEach(function (v, k) { _po[k] = (typeof v === 'string') ? v : '[file]'; }); }
+                else if (typeof _pb === 'string') { try { _po = JSON.parse(_pb); } catch (e) { _po = { _raw: String(_pb).slice(0, 2500) }; } }
+                rec({ stage: 'saverow-capture', ep: _pu.split('?')[0].split('/').slice(-2).join('/'), fullurl: _pu.slice(0, 1500), ws: _po.WORK_STEP, exws: _po.EX_WORK_STEP, n: Object.keys(_po).length, body: _po, via: 'proto' });
+              }
+            } catch (e) { try { rec({ stage: 'saverow-capture-err', msg: String(e).slice(0, 100), via: 'proto' }); } catch (_e) {} }
+            return _pSend.apply(this, arguments);
+          };
+        }
+      } catch (e) {}
       try { for (var k in PrevXHR) { try { HookedXHR[k] = PrevXHR[k]; } catch (e) {} } } catch (e) {}
       try { HookedXHR.prototype = PrevXHR.prototype; } catch (e) {}
       window.XMLHttpRequest = HookedXHR;
