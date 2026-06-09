@@ -6,13 +6,13 @@
 
 (function () {
   'use strict';
-  var VER = 'v67'; // v67: 대표→계기번호는 11자리 완성 시만(수기 한글자씩 부분복사 버그수정)
+  var VER = 'v67c'; // v67c: [임시진단] 수동 saveRow/saveAct payload firebase 기록 (WORK_STEP 28 필드 분석용). 캡처 후 v67 원복.
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
   var _FBLOG = 'https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/awmslog/helper.json';
   // [v61] firebase 로그 화이트리스트 — 핵심만 보냄(진단 폭주 차단). 디버깅 필요시 window.__FBLOG_ALL=true 로 전체.
-  var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1 };
+  var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1, 'saverow-capture': 1, 'saverow-capture-err': 1 };
   function rec(o) {
     try {
       o.kind = 'cam'; o.ts = Date.now(); o.url = 'https://awms.kdn.com/__cam__/' + (o.stage || '');
@@ -1158,14 +1158,24 @@ function parseValue(text) {
         var oOpen = x.open;
         x.open = function (m, u) { x.__u = u; if (String(u).indexOf('saveAct') > -1) rec({ stage: 'xhr-open' }); return oOpen.apply(x, arguments); };
         var oSend = x.send;
-        x.send = function () {
-          if (String(x.__u || '').indexOf('saveAct') > -1) {
+        x.send = function (_body) {
+          var _u2 = String(x.__u || '');
+          if (_u2.indexOf('saveAct') > -1) {
             rec({ stage: 'xhr-saveact' });
             x.addEventListener('loadend', function () {
               var txt = ''; try { txt = x.responseText; } catch (e) {}
               rec({ stage: 'xhr-load', len: (txt || '').length });
               try { captureMasterPhoto(JSON.parse(txt)); } catch (e) { rec({ stage: 'xhr-parse-fail', msg: String(e) }); }
             });
+          }
+          // [임시진단 2026-06-09] 수동 saveRow/saveAct payload 캡처 → WORK_STEP 28 필드 분석
+          if (_u2.indexOf('saveRow') > -1 || _u2.indexOf('saveAct') > -1) {
+            try {
+              var _o = {};
+              if (_body instanceof FormData) { _body.forEach(function (v, k) { _o[k] = (typeof v === 'string') ? v : '[file]'; }); }
+              else if (typeof _body === 'string') { try { _o = JSON.parse(_body); } catch (e) { _o = { _raw: String(_body).slice(0, 3000) }; } }
+              rec({ stage: 'saverow-capture', url: _u2, ws: _o.WORK_STEP, exws: _o.EX_WORK_STEP, body: _o });
+            } catch (e) { rec({ stage: 'saverow-capture-err', msg: String(e) }); }
           }
           return oSend.apply(x, arguments);
         };
@@ -1185,6 +1195,17 @@ function parseValue(text) {
         if (url.indexOf('saveAct') > -1) {
           rec({ stage: 'fetch-saveact' });
           p.then(function (r) { return r.clone().json(); }).then(captureMasterPhoto).catch(function (e) { rec({ stage: 'fetch-parse-fail', msg: String(e) }); });
+        }
+        // [임시진단 2026-06-09] fetch saveRow/saveAct payload 캡처
+        if (url.indexOf('saveRow') > -1 || url.indexOf('saveAct') > -1) {
+          try {
+            var _init = arguments[1] || ((u && u.body) ? u : null);
+            var _b = _init && _init.body;
+            var _o = {};
+            if (_b instanceof FormData) { _b.forEach(function (v, k) { _o[k] = (typeof v === 'string') ? v : '[file]'; }); }
+            else if (typeof _b === 'string') { try { _o = JSON.parse(_b); } catch (e) { _o = { _raw: String(_b).slice(0, 3000) }; } }
+            rec({ stage: 'saverow-capture', url: url, ws: _o.WORK_STEP, exws: _o.EX_WORK_STEP, body: _o });
+          } catch (e) {}
         }
         return p;
       };
