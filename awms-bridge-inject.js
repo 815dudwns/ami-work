@@ -6,13 +6,13 @@
 
 (function () {
   'use strict';
-  var VER = 'v67f'; // v67f: [임시진단,마지막] prototype.send 래핑(인스턴스 우회 대응)+fullurl. 캡처 후 v67 원복.
+  var VER = 'v67'; // v67: 대표→계기번호는 11자리 완성 시만(수기 한글자씩 부분복사 버그수정)
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
   var _FBLOG = 'https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/awmslog/helper.json';
   // [v61] firebase 로그 화이트리스트 — 핵심만 보냄(진단 폭주 차단). 디버깅 필요시 window.__FBLOG_ALL=true 로 전체.
-  var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1, 'saverow-capture': 1, 'saverow-capture-err': 1, 'req-trace': 1 };
+  var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1 };
   function rec(o) {
     try {
       o.kind = 'cam'; o.ts = Date.now(); o.url = 'https://awms.kdn.com/__cam__/' + (o.stage || '');
@@ -1156,14 +1156,10 @@ function parseValue(text) {
       function HookedXHR() {
         var x = new PrevXHR();
         var oOpen = x.open;
-        x.open = function (m, u) { x.__u = u; x.__m = String(m || '').toUpperCase(); if (String(u).indexOf('saveAct') > -1) rec({ stage: 'xhr-open' });
-          // [v67e 2026-06-09] 모든 /ami/ 요청 추적 (GET 완료 포함, 조회 get*/select*/search 제외) — '완료 API'가 GET일 경우 잡기
-          try { var _uo = String(u); if (_uo.indexOf('/ami/') > -1 && !/\/(get|select|search|retrieve)[A-Za-z]*/i.test(_uo)) { rec({ stage: 'req-trace', ep: _uo.split('?')[0].split('/').slice(-2).join('/'), m: x.__m, fullurl: _uo.slice(0, 1500) }); } } catch (e) {}
-          return oOpen.apply(x, arguments); };
+        x.open = function (m, u) { x.__u = u; if (String(u).indexOf('saveAct') > -1) rec({ stage: 'xhr-open' }); return oOpen.apply(x, arguments); };
         var oSend = x.send;
-        x.send = function (_body) {
-          var _u2 = String(x.__u || '');
-          if (_u2.indexOf('saveAct') > -1) {
+        x.send = function () {
+          if (String(x.__u || '').indexOf('saveAct') > -1) {
             rec({ stage: 'xhr-saveact' });
             x.addEventListener('loadend', function () {
               var txt = ''; try { txt = x.responseText; } catch (e) {}
@@ -1171,40 +1167,10 @@ function parseValue(text) {
               try { captureMasterPhoto(JSON.parse(txt)); } catch (e) { rec({ stage: 'xhr-parse-fail', msg: String(e) }); }
             });
           }
-          // [v67d 2026-06-09] awms POST 전부 캡처 (완료 API 추적) — 조회(get*/select*/search) 제외
-          if (x.__m === 'POST' && _u2.indexOf('/ami/') > -1 && !/\/(get|select|search|retrieve)[A-Za-z]*/i.test(_u2)) {
-            try {
-              var _o = {};
-              if (_body instanceof FormData) { _body.forEach(function (v, k) { _o[k] = (typeof v === 'string') ? v : '[file]'; }); }
-              else if (typeof _body === 'string') { try { _o = JSON.parse(_body); } catch (e) { _o = { _raw: String(_body).slice(0, 2500) }; } }
-              var _ep = _u2.split('?')[0].split('/').slice(-2).join('/');
-              rec({ stage: 'saverow-capture', url: _u2, ep: _ep, ws: _o.WORK_STEP, exws: _o.EX_WORK_STEP, n: Object.keys(_o).length, body: _o });
-            } catch (e) { rec({ stage: 'saverow-capture-err', msg: String(e) }); }
-          }
           return oSend.apply(x, arguments);
         };
         return x;
       }
-      // [v67f] recorder/awms가 prototype.send.call(xhr,..)로 인스턴스 send 래퍼를 우회 → prototype.send도 래핑.
-      //   this.__u/__m은 인스턴스 open 래퍼가 설정하므로 prototype에서 필터·캡처 가능. (구 'prototype 빗나감' 주석은 무시 — 새 증거)
-      try {
-        if (PrevXHR.prototype && !PrevXHR.prototype.__pSendHooked) {
-          PrevXHR.prototype.__pSendHooked = true;
-          var _pSend = PrevXHR.prototype.send;
-          PrevXHR.prototype.send = function (_pb) {
-            try {
-              var _pu = String(this.__u || ''); var _pm = String(this.__m || '');
-              if (_pm === 'POST' && _pu.indexOf('/ami/') > -1 && !/\/(get|select|search|retrieve)[A-Za-z]*/i.test(_pu)) {
-                var _po = {};
-                if (_pb instanceof FormData) { _pb.forEach(function (v, k) { _po[k] = (typeof v === 'string') ? v : '[file]'; }); }
-                else if (typeof _pb === 'string') { try { _po = JSON.parse(_pb); } catch (e) { _po = { _raw: String(_pb).slice(0, 2500) }; } }
-                rec({ stage: 'saverow-capture', ep: _pu.split('?')[0].split('/').slice(-2).join('/'), fullurl: _pu.slice(0, 1500), ws: _po.WORK_STEP, exws: _po.EX_WORK_STEP, n: Object.keys(_po).length, body: _po, via: 'proto' });
-              }
-            } catch (e) { try { rec({ stage: 'saverow-capture-err', msg: String(e).slice(0, 100), via: 'proto' }); } catch (_e) {} }
-            return _pSend.apply(this, arguments);
-          };
-        }
-      } catch (e) {}
       try { for (var k in PrevXHR) { try { HookedXHR[k] = PrevXHR[k]; } catch (e) {} } } catch (e) {}
       try { HookedXHR.prototype = PrevXHR.prototype; } catch (e) {}
       window.XMLHttpRequest = HookedXHR;
@@ -1219,19 +1185,6 @@ function parseValue(text) {
         if (url.indexOf('saveAct') > -1) {
           rec({ stage: 'fetch-saveact' });
           p.then(function (r) { return r.clone().json(); }).then(captureMasterPhoto).catch(function (e) { rec({ stage: 'fetch-parse-fail', msg: String(e) }); });
-        }
-        // [v67d 2026-06-09] fetch awms POST 전부 캡처 (완료 API 추적) — 조회 제외
-        var _fm = (arguments[1] && arguments[1].method) || (u && u.method) || 'GET';
-        if (String(_fm).toUpperCase() === 'POST' && url.indexOf('/ami/') > -1 && !/\/(get|select|search|retrieve)[A-Za-z]*/i.test(url)) {
-          try {
-            var _init = arguments[1] || ((u && u.body) ? u : null);
-            var _b = _init && _init.body;
-            var _o = {};
-            if (_b instanceof FormData) { _b.forEach(function (v, k) { _o[k] = (typeof v === 'string') ? v : '[file]'; }); }
-            else if (typeof _b === 'string') { try { _o = JSON.parse(_b); } catch (e) { _o = { _raw: String(_b).slice(0, 2500) }; } }
-            var _ep = url.split('?')[0].split('/').slice(-2).join('/');
-            rec({ stage: 'saverow-capture', url: url, ep: _ep, ws: _o.WORK_STEP, exws: _o.EX_WORK_STEP, n: Object.keys(_o).length, body: _o });
-          } catch (e) {}
         }
         return p;
       };
