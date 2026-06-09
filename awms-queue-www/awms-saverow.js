@@ -717,15 +717,19 @@ async function registerReplacement({ addr, meter, rep }) {
         L(`[saverow] 봉인설정 +1 실패(무시): ${e.message}`, 'warn');
     }
 
-    // 7) [2026-06-09] 완료(28): 25 신설 레코드를 28로 재전송.
-    //   awms는 기존 25(임시저장) 레코드에만 28(완료)을 수락 — fresh 28 saveRow는 HTTP 500.
-    //   EX_WORK_STEP=25(임시저장 불러옴) 유지, 사진은 25에 이미 올라가 재전송 안 함.
+    // 7) [2026-06-09] 완료(28): 신설 25 레코드를 28로 재전송. (CDP로 UI 완료흐름 실측 — 정답 확정)
+    //   awms UI 완료 = mobMtr4000/saveRow WORK_STEP=28. 우리가 빠뜨려 500나던 2가지:
+    //   (a) RE_SAVE_YN='' 키 필요 (getDetail엔 없는 키 — UI는 빈값으로 전송)
+    //   (b) 신설사진(CREMO_ATCH_FILE_ID_3_SRC) 재전송 필수 (UI는 selectPhotos로 파일ID→base64 재첨부.
+    //       28에 사진 빠지면 500. ※ 기존 가정 "사진 재전송 안 함"은 오류였음)
+    //   17개 시공정보(CMS/CTS/CSPD/CTTB/CCTD_PRDC_YM·LAY_YMD, DEPT2, LAY_METR_DTLS_CL_CD 등)는
+    //   _buildNewPayloadFromDetail overrides에 이미 포함됨.
     let doneStep = '25';
     try {
-        const donePayload = Object.assign({}, newPayload, { WORK_STEP: '28' });
+        const donePayload = Object.assign({}, newPayload, { WORK_STEP: '28', RE_SAVE_YN: '' });
         const doneEntries = Object.entries(donePayload).map(([k, v]) => [k, v == null ? '' : String(v)]);
-        const resDone = await awmsEval(_saveRowExpr(doneEntries, AWMS_API + '/mobMtr4000/saveRow', []));
-        L(`[saverow] 완료28 재전송: ok=${resDone.ok} body=${String(resDone.body || '').slice(0, 120)}`, resDone.ok ? 'ok' : 'warn');
+        const resDone = await awmsEval(_saveRowExpr(doneEntries, AWMS_API + '/mobMtr4000/saveRow', newPhotos));
+        L(`[saverow] 완료28 재전송: ok=${resDone.ok} 사진=${resDone.photoNote} body=${String(resDone.body || '').slice(0, 120)}`, resDone.ok ? 'ok' : 'warn');
         if (resDone.ok) doneStep = '28';
         else L('완료(28) 실패 — 25는 저장됨(awms서 수동완료 가능)', 'warn');
     } catch (e) {
