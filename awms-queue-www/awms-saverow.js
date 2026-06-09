@@ -726,8 +726,21 @@ async function registerReplacement({ addr, meter, rep }) {
     //   _buildNewPayloadFromDetail overrides에 이미 포함됨.
     let doneStep = '25';
     try {
-        const donePayload = Object.assign({}, newPayload, { WORK_STEP: '28', RE_SAVE_YN: '' });
+        // (핵심) 신설 25 저장 후 getDetail로 그 레코드를 다시 읽는다 — awms가 저장하며 채운 값 반영.
+        //   우리가 만든 newPayload 재사용은 500. CDP 실측: 저장본 재조회 + 시공정보 보강 + 사진 = 200.
+        const d2 = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
+        const donePayload = {};
+        for (const k in d2) donePayload[k] = d2[k] == null ? '' : String(d2[k]);
+        // 완료 플래그 + 시공정보 17키 보강 (getDetail엔 빈값 → 채워야 NOT NULL 통과)
+        Object.assign(donePayload, {
+            WORK_STEP: '28', EX_WORK_STEP: '25', RE_SAVE_YN: '',
+            LAY_METR_DTLS_CL_CD: '10', DEPT2: d2.OFFICE_CD || DEFAULT_AWMS.OFFICE_CD,
+            CMS_LAY_YMD: P.ymd, CTS_LAY_YMD: P.ymd, CSPD_LAY_YMD: P.ymd, CTTB_LAY_YMD: P.ymd, CREMO_CHRG_APLY_ST_YMD: P.ymd,
+            CMS_PRDC_YM: P.ym, CTS_PRDC_YM: P.ym, CSPD_PRDC_YM: P.ym, CTTB_PRDC_YM: P.ym, CPT_PRDC_YM: P.ym, CREMO_EFEC_YM: P.ym,
+            CCTD1_PRDC_YM: P.ym, CCTD2_PRDC_YM: P.ym, CCTD3_PRDC_YM: P.ym,
+        });
         const doneEntries = Object.entries(donePayload).map(([k, v]) => [k, v == null ? '' : String(v)]);
+        // 신설사진(CREMO_ATCH_FILE_ID_3_SRC) 재전송 — 28에 사진 빠지면 500
         const resDone = await awmsEval(_saveRowExpr(doneEntries, AWMS_API + '/mobMtr4000/saveRow', newPhotos));
         L(`[saverow] 완료28 재전송: ok=${resDone.ok} 사진=${resDone.photoNote} body=${String(resDone.body || '').slice(0, 120)}`, resDone.ok ? 'ok' : 'warn');
         if (resDone.ok) doneStep = '28';
