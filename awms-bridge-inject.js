@@ -6,11 +6,16 @@
 
 (function () {
   'use strict';
-  var VER = 'v67'; // v67: 대표→계기번호는 11자리 완성 시만(수기 한글자씩 부분복사 버그수정)
+  var VER = 'v74'; // v74: inject 로그분리 — awms-queue(AwmsResult)→awmslog/queue, helper→awmslog/helper (혼선차단). v68~73(숫자키보드)은 폐기
 
-  // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
+  // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
-  var _FBLOG = 'https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/awmslog/helper.json';
+  // [로그분리] 같은 inject를 helper(통신팀)·awms-queue(계기팀)가 둘 다 로드 → 로그 겹쳐 혼선.
+  //   awms-queue 앱 awms웹뷰엔 window.AwmsResult 브릿지 주입됨(helper엔 없음) → 그걸로 노드 분기.
+  //   awms-queue → awmslog/queue (app.js 로그와 동일 노드) / helper → awmslog/helper.
+  var _FB_BASE = 'https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/awmslog/';
+  function _logNode() { return (window.AwmsResult || window.AwmsQ) ? 'queue' : 'helper'; }
+  var _FBLOG = _FB_BASE + _logNode() + '.json';
   // [v61] firebase 로그 화이트리스트 — 핵심만 보냄(진단 폭주 차단). 디버깅 필요시 window.__FBLOG_ALL=true 로 전체.
   var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1 };
   function rec(o) {
@@ -20,7 +25,7 @@
     } catch (e) {}
     try {
       if (!window.__FBLOG_ALL && !_FBLOG_KEEP[o.stage]) return; // 진단 stage는 firebase 안 보냄(폭주 차단)
-      fetch(_FBLOG, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      fetch(_FB_BASE + _logNode() + '.json', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ s: o.stage || '', d: o, iso: new Date().toISOString(), ver: VER, ph: (function(){try{return _phoneId();}catch(e){return '';}})() }) }).catch(function () {});
     } catch (e) {}
   }
