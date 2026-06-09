@@ -60,6 +60,26 @@ async function _lookupMainList(whmNo) {
     return arr.find(x => String(x.WHM_NO || '').trim() === String(whmNo).trim()) || arr[0] || null;
 }
 
+// ---- 철거 응답 consTgtSeqno로 방금 생성된 레코드 역조회 (전차수 순회) ----
+//   작업목록(_lookupMainList)에 없던 계기는 CONS_NO/CNTR_NO를 LV_CONS_NO/CUST_NO로 폴백하는데,
+//   그 값은 getDetail에 안 맞아 detail이 빈 응답(→ 신설 38필드 → 28 HTTP 500)이 된다.
+//   철거 saveRow 후 consTgtSeqno로 정확 CONS_NO/CNTR_NO를 역조회해 getDetail 301키를 받는다.
+async function _findRecBySeqno(consTgtSeqno) {
+    try {
+        const bl = await _awmsGet(AWMS_API + '/mobMtr1000/getBusiList?DEPT1=' + DEFAULT_AWMS.HDQR_CD);
+        const conss = (Array.isArray(bl) ? bl : []).map(b => b.CONS_NO).filter(Boolean);
+        for (const c of conss) {
+            const url = AWMS_API + '/mobMtr1000/getMainList'
+                + `?FLAG=1&DEPT1=${DEFAULT_AWMS.HDQR_CD}&busiKey=${c}&searchVal=&sortKey=&workStep=25,28&pPageNo=1&pRowCount=300`;
+            const d = await _awmsGet(url);
+            const arr = Array.isArray(d) ? d : ((d && (d.data || d.list)) || []);
+            const hit = arr.find(x => String(x.CONS_TGT_SEQNO) === String(consTgtSeqno));
+            if (hit) return hit;
+        }
+    } catch (e) { /* 역조회 실패 시 폴백값 사용 */ }
+    return null;
+}
+
 // ---- 신설 상세 베이스: mobMtr1000/getDetail (301키, 신설 payload 베이스) ----
 async function _lookupGetDetail(consNo, cntrNo, consTgtSeqno) {
     const url = AWMS_API + '/mobMtr1000/getDetail'
@@ -665,9 +685,20 @@ async function registerReplacement({ addr, meter, rep }) {
     if (!consTgtSeqno) throw new Error('철거 응답에 consTgtSeqno 없음');
 
     // 4) getDetail(신설 베이스 301키) + 자재조회
-    const detail = await _lookupGetDetail(consNo, cntrNo, consTgtSeqno);
+    //   정확 CONS_NO/CNTR_NO 필요 — 작업목록 못 찾은 계기는 철거 응답 consTgtSeqno로 역조회.
+    //   (LV_CONS_NO/CUST_NO 폴백은 getDetail에 안 맞아 detail 빈 → 28 HTTP 500. 정답 28 CONS_NO=getMainList값)
+    let gdConsNo = mainInfo.CONS_NO || '', gdCntrNo = mainInfo.CNTR_NO || '';
+    if (!gdConsNo) {
+        const rec = await _findRecBySeqno(consTgtSeqno);
+        if (rec && rec.CONS_NO) {
+            gdConsNo = rec.CONS_NO; gdCntrNo = rec.CNTR_NO || gdCntrNo;
+            L(`[saverow] 역조회 정확 CONS_NO=${gdConsNo} CNTR_NO=${gdCntrNo} (작업목록 미등록 계기)`);
+        }
+    }
+    const detail = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
     const mtrlInfo = await _lookupMtrl(newMeter);
     L(`[saverow] getDetail 키수=${Object.keys(detail).length} / 자재 MTRL_NO=${mtrlInfo.MTRL_NO || '-'} MNFCT_YM=${mtrlInfo.MNFCT_YM || '-'}`);
+    if (Object.keys(detail).length < 100) L(`[saverow] ⚠ getDetail 키수 부족(${Object.keys(detail).length}) — 28 완료 실패 위험`, 'warn');
 
     // 5) 신설 saveRow (mobMtr4000) + 철거후 사진 (WORK_STEP=25 유지)
     const sealKnd = sealInfo.TRML_SEAL_KND_CD || 'A';
