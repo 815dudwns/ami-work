@@ -162,7 +162,6 @@
                 <button class="action-btn hold" id="btn-hold">⏸️ 보류</button>
                 <button class="action-btn fail" id="btn-fail">❌ 불가</button>
                 <a id="admin-upload-btn" href="admin.html" style="display:none;padding:10px 12px;background:#1e3a8a;color:white;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none;white-space:nowrap;">사진등록</a>
-                <button id="datapush-btn" onclick="openDataPush()" style="display:none;padding:10px 12px;background:#4f46e5;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;white-space:nowrap;">DataPush</button>
             </div>
             <div class="fail-reason-row">
                 <input type="text" class="fail-reason" id="fail-reason" placeholder="불가 사유">
@@ -217,20 +216,6 @@
         </div>
     </div>
 
-    <!-- DataPush 수집 모달 (admin 전용) -->
-    <div id="datapush-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:2600;align-items:flex-start;justify-content:center;">
-        <div style="background:#fff;width:100%;max-width:520px;height:100%;display:flex;flex-direction:column;">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e5e7eb;">
-                <h3 style="font-size:16px;font-weight:700;color:#111827;">DataPush 수집</h3>
-                <button onclick="closeDataPush()" style="width:32px;height:32px;border:none;background:#e5e7eb;border-radius:6px;cursor:pointer;font-size:20px;font-weight:600;color:#374151;">×</button>
-            </div>
-            <div id="datapush-body" style="flex:1;overflow-y:auto;padding:14px 16px;"></div>
-            <div style="padding:12px 16px;border-top:1px solid #e5e7eb;display:flex;gap:8px;">
-                <button onclick="closeDataPush()" style="flex:1;padding:12px;border:2px solid #e5e7eb;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;background:#fff;color:#6b7280;">닫기</button>
-                <button id="dp-save-btn" onclick="__dp.save()" style="flex:2;padding:12px;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;background:#4f46e5;color:#fff;">큐에 담기</button>
-            </div>
-        </div>
-    </div>
 
     <!-- QR 라이브 스캔 오버레이 -->
     <div id="qr-scan-overlay" style="display:none;position:fixed;inset:0;background:black;z-index:3000;flex-direction:column;">
@@ -267,7 +252,6 @@
                     document.getElementById('admin-btn').style.display = '';
                     document.getElementById('admin-divider').style.display = '';
                     document.getElementById('admin-upload-btn').style.display = '';
-                    document.getElementById('datapush-btn').style.display = '';
                     document.getElementById('add-meter-btn').style.display = '';
                 }
                 // 통계 = 관리자 + 윤용운(user09, 작업자 총괄)
@@ -284,7 +268,6 @@
     <script src="js/awms-parseValue.js?v=20260602a"></script>
     <script src="js/qr-scanner.js?v=20260608ios"></script>
     <script src="js/detail.js?v=20260602a"></script>
-    <script src="js/datapush.js?v=20260608b"></script>
     <script src="js/map.js?v=20260601b"></script>
     <script>
         // 앱 메뉴 토글
