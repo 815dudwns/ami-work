@@ -6,13 +6,13 @@
 
 (function () {
   'use strict';
-  var VER = 'v67d'; // v67d: [임시진단] awms POST 전부 캡처(조회 제외) → '완료(28) API' 추적. 캡처 후 v67 원복.
+  var VER = 'v67e'; // v67e: [임시진단] 모든 /ami/ 요청 추적(req-trace, GET 완료 포함). 캡처 후 v67 원복.
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
   var _FBLOG = 'https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/awmslog/helper.json';
   // [v61] firebase 로그 화이트리스트 — 핵심만 보냄(진단 폭주 차단). 디버깅 필요시 window.__FBLOG_ALL=true 로 전체.
-  var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1, 'saverow-capture': 1, 'saverow-capture-err': 1 };
+  var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1, 'saverow-capture': 1, 'saverow-capture-err': 1, 'req-trace': 1 };
   function rec(o) {
     try {
       o.kind = 'cam'; o.ts = Date.now(); o.url = 'https://awms.kdn.com/__cam__/' + (o.stage || '');
@@ -1156,7 +1156,10 @@ function parseValue(text) {
       function HookedXHR() {
         var x = new PrevXHR();
         var oOpen = x.open;
-        x.open = function (m, u) { x.__u = u; x.__m = String(m || '').toUpperCase(); if (String(u).indexOf('saveAct') > -1) rec({ stage: 'xhr-open' }); return oOpen.apply(x, arguments); };
+        x.open = function (m, u) { x.__u = u; x.__m = String(m || '').toUpperCase(); if (String(u).indexOf('saveAct') > -1) rec({ stage: 'xhr-open' });
+          // [v67e 2026-06-09] 모든 /ami/ 요청 추적 (GET 완료 포함, 조회 get*/select*/search 제외) — '완료 API'가 GET일 경우 잡기
+          try { var _uo = String(u); if (_uo.indexOf('/ami/') > -1 && !/\/(get|select|search|retrieve)[A-Za-z]*/i.test(_uo)) { rec({ stage: 'req-trace', ep: _uo.split('?')[0].split('/').slice(-2).join('/'), m: x.__m, url: _uo.slice(0, 400) }); } } catch (e) {}
+          return oOpen.apply(x, arguments); };
         var oSend = x.send;
         x.send = function (_body) {
           var _u2 = String(x.__u || '');
