@@ -125,7 +125,7 @@ function _buildNewPayloadFromDetail(newMeterNo, detail, sealVal, consTgtSeqno, m
     const overrides = {
         WHM_NO: newMeterNo,
         CREMO_WHM_NO: newMeterNo,
-        WORK_STEP: '28',                          // 저장(완료) — 테스트 완료 후 신설만 28 전환 (영준님 2026-06-09). 철거는 25 유지
+        WORK_STEP: '25',                          // 임시저장 유지 (완료 28 금지 — 영준님 지시)
         EX_WORK_STEP: '25',                       // 임시저장 불러옴 표시 → 봉인+inc 트리거
         CSL_METR_TRML_SEAL_KND_CD: sealKnd || 'A',   // 봉인종류(단자) = 스틱II녹색(A)
         CSL_METR_TRML_SEAL_NO: sealNo,
