@@ -169,6 +169,8 @@ async function _runBatch(pending, label) {
     if (btnAll) btnAll.disabled = true;
     if (btnSel) btnSel.disabled = true;
     if (btnRefresh) btnRefresh.disabled = true;
+    _batchRunning = true;
+    await _acquireWake();   // 등록 내내 화면 꺼짐 방지
 
     let ok = 0, err = 0;
     for (const item of pending) {
@@ -191,10 +193,34 @@ async function _runBatch(pending, label) {
         }
     }
     log(`일괄 완료: 성공 ${ok} / 실패 ${err}`, 'warn');
+    _batchRunning = false;
+    await _releaseWake();
     if (btnSel) btnSel.disabled = false;
     if (btnRefresh) btnRefresh.disabled = false;
     await refreshQueue();   // 이벤트 후 전체 새로고침
 }
+
+// ─────────────────────────────────────────────
+// WakeLock — 일괄 등록 중 화면 꺼짐 방지 (화면 꺼지면 WebView 타이머 정지 → 루프 멈춤)
+//   ※ 완전 백그라운드(다른 앱 전환)는 APK 포그라운드 서비스 필요. 이건 화면 켜진 동안만 보장.
+// ─────────────────────────────────────────────
+let _wakeLock = null;
+let _batchRunning = false;
+async function _acquireWake() {
+    try {
+        if ('wakeLock' in navigator) {
+            _wakeLock = await navigator.wakeLock.request('screen');
+            _wakeLock.addEventListener('release', () => { _wakeLock = null; });
+        }
+    } catch (e) { log('WakeLock 실패(무시): ' + e.message, 'warn'); }
+}
+async function _releaseWake() {
+    try { if (_wakeLock) { await _wakeLock.release(); _wakeLock = null; } } catch (e) {}
+}
+// 화면 복귀 시 등록 중이면 WakeLock 재획득 (visibility 전환으로 풀린 경우)
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && _batchRunning && !_wakeLock) _acquireWake();
+});
 
 // 등록 사이 랜덤 대기 (봇 감지 회피)
 function randomDelay() {
