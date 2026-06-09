@@ -136,21 +136,38 @@ async function runAll() {
         : _queue;
     const pending = inView.filter(i => i.status === 'pending');
     const dateLabel = (typeof _dateFilter !== 'undefined' && _dateFilter !== 'all') ? _dateFilter : '전체';
-    if (!pending.length) { alert(`[${dateLabel}] 대기 건이 없습니다.`); return; }
+    await _runBatch(pending, dateLabel);
+}
+
+// 선택 등록 — 체크박스로 고른 대기건만 전송
+async function runSelected() {
+    const checks = Array.from(document.querySelectorAll('.q-check:checked'));
+    if (!checks.length) { alert('선택된 항목이 없습니다. (시퀀스 앞 체크박스로 선택)'); return; }
+    const keySet = new Set(checks.map(c => `${c.dataset.addr}${c.dataset.meter}`));
+    const pending = _queue.filter(i => i.status === 'pending' && keySet.has(`${i.addr}${i.meter}`));
+    await _runBatch(pending, '선택');
+}
+window.runSelected = runSelected;
+
+// 공통 일괄 등록 루프 (runAll/runSelected 공유)
+async function _runBatch(pending, label) {
+    if (!pending.length) { alert(`[${label}] 등록할 대기 건이 없습니다.`); return; }
     if (!isSessionOK()) { alert('awms 세션 없음. 로그인 먼저'); return; }
     if (typeof registerReplacement !== 'function') {
         alert('saverow 모듈 준비중 (awms-saverow.js 미로드). 일괄 등록 불가.');
         return;
     }
     if (!confirm(
-        `[${dateLabel}] ${pending.length}건 일괄 등록할까요?\n` +
+        `[${label}] ${pending.length}건 일괄 등록할까요?\n` +
         `건당 ${Math.round(POST_DELAY_MIN / 1000)}~${Math.round(POST_DELAY_MAX / 1000)}초 텀, ` +
         `약 ${Math.round(pending.length * (POST_DELAY_MIN + POST_DELAY_MAX) / 2 / 60000)}분 소요`
     )) return;
 
     const btnAll = document.getElementById('btn-run-all');
+    const btnSel = document.getElementById('btn-run-selected');
     const btnRefresh = document.getElementById('btn-refresh');
     if (btnAll) btnAll.disabled = true;
+    if (btnSel) btnSel.disabled = true;
     if (btnRefresh) btnRefresh.disabled = true;
 
     let ok = 0, err = 0;
@@ -174,6 +191,7 @@ async function runAll() {
         }
     }
     log(`일괄 완료: 성공 ${ok} / 실패 ${err}`, 'warn');
+    if (btnSel) btnSel.disabled = false;
     if (btnRefresh) btnRefresh.disabled = false;
     await refreshQueue();   // 이벤트 후 전체 새로고침
 }

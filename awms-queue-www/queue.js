@@ -258,8 +258,36 @@ function _ensureDateBar() {
     if (next) { next.disabled = (_dateFilter === 'all') || (idx >= dates.length - 1); next.style.opacity = next.disabled ? '0.35' : '1'; }
 }
 
+// 선택 등록 컨트롤 (전체선택 + 선택 등록 버튼) — 시퀀스 앞 체크박스로 고른 것만 전송
+function _ensureSelectControls() {
+    let bar = document.getElementById('select-bar');
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'select-bar';
+        bar.style.cssText = 'display:flex;gap:8px;align-items:center;padding:0 12px 8px';
+        bar.innerHTML =
+            '<label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:#374151">'
+            + '<input type="checkbox" id="q-check-all" checked style="width:18px;height:18px"> 전체</label>'
+            + '<button id="btn-run-selected" class="btn-green" style="flex:1;padding:10px;font-weight:700">선택 등록</button>';
+        const btnAll = document.getElementById('btn-run-all');
+        if (btnAll && btnAll.parentNode) {
+            btnAll.parentNode.insertBefore(bar, btnAll);
+        } else {
+            const list = document.getElementById('queue-list');
+            if (list && list.parentNode) list.parentNode.insertBefore(bar, list);
+        }
+        document.getElementById('q-check-all').onchange = function () {
+            document.querySelectorAll('.q-check').forEach(c => { c.checked = this.checked; });
+        };
+        document.getElementById('btn-run-selected').onclick = function () {
+            if (typeof runSelected === 'function') runSelected();
+        };
+    }
+}
+
 function renderQueue() {
     _ensureDateBar();
+    _ensureSelectControls();
 
     // 날짜 필터 적용
     const shown = _dateFilter === 'all' ? _queue : _queue.filter(i => _dateKey(i.rep.replaced_at) === _dateFilter);
@@ -295,6 +323,9 @@ function renderQueue() {
 
     list.innerHTML = shown.slice(0, 200).map(i => {
         const s = STY[i.status] || STY.pending;
+        // 선택 등록용 체크박스 — 완료건 제외(대기/실패만 등록 대상)
+        const chk = i.status === 'done' ? ''
+            : `<input type="checkbox" class="q-check" data-addr="${escapeAttr(i.addr)}" data-meter="${escapeAttr(i.meter)}" checked style="width:20px;height:20px;flex-shrink:0">`;
         const ts = i.rep.replaced_at
             ? new Date(i.rep.replaced_at).toLocaleString('ko-KR', { hour12: false, timeZone: 'Asia/Seoul' })
             : '-';
@@ -311,7 +342,7 @@ function renderQueue() {
                  onclick="runOne('${escapeAttr(i.addr)}', '${escapeAttr(i.meter)}')">${i.status === 'err' ? '재등록' : '등록'}</button>`;
         return `
             <div class="queue-item" style="border-left:4px solid ${s.bd};background:${s.bg}">
-                <div class="addr" style="font-size:15px">${seq}${escapeHtml(i.meter)} <span style="color:#9ca3af">→</span> ${escapeHtml(i.rep.new_meter_id)} ${badge}</div>
+                <div class="addr" style="font-size:15px;display:flex;align-items:center;gap:7px">${chk}<span style="flex:1">${seq}${escapeHtml(i.meter)} <span style="color:#9ca3af">→</span> ${escapeHtml(i.rep.new_meter_id)} ${badge}</span></div>
                 <div class="meta">
                     지침 ${_fmtReadings(i.rep)}<br>
                     ${road ? road + '<br><span style="color:#9ca3af">' + jibun + '</span>' : jibun}<br>
