@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v67c'; // v67c: [임시진단] 수동 saveRow/saveAct payload firebase 기록 (WORK_STEP 28 필드 분석용). 캡처 후 v67 원복.
+  var VER = 'v67d'; // v67d: [임시진단] awms POST 전부 캡처(조회 제외) → '완료(28) API' 추적. 캡처 후 v67 원복.
 
   // firebase RTDB(awmslog/helper) — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1156,7 +1156,7 @@ function parseValue(text) {
       function HookedXHR() {
         var x = new PrevXHR();
         var oOpen = x.open;
-        x.open = function (m, u) { x.__u = u; if (String(u).indexOf('saveAct') > -1) rec({ stage: 'xhr-open' }); return oOpen.apply(x, arguments); };
+        x.open = function (m, u) { x.__u = u; x.__m = String(m || '').toUpperCase(); if (String(u).indexOf('saveAct') > -1) rec({ stage: 'xhr-open' }); return oOpen.apply(x, arguments); };
         var oSend = x.send;
         x.send = function (_body) {
           var _u2 = String(x.__u || '');
@@ -1168,13 +1168,14 @@ function parseValue(text) {
               try { captureMasterPhoto(JSON.parse(txt)); } catch (e) { rec({ stage: 'xhr-parse-fail', msg: String(e) }); }
             });
           }
-          // [임시진단 2026-06-09] 수동 saveRow/saveAct payload 캡처 → WORK_STEP 28 필드 분석
-          if (_u2.indexOf('saveRow') > -1 || _u2.indexOf('saveAct') > -1) {
+          // [v67d 2026-06-09] awms POST 전부 캡처 (완료 API 추적) — 조회(get*/select*/search) 제외
+          if (x.__m === 'POST' && _u2.indexOf('/ami/') > -1 && !/\/(get|select|search|retrieve)[A-Za-z]*/i.test(_u2)) {
             try {
               var _o = {};
               if (_body instanceof FormData) { _body.forEach(function (v, k) { _o[k] = (typeof v === 'string') ? v : '[file]'; }); }
-              else if (typeof _body === 'string') { try { _o = JSON.parse(_body); } catch (e) { _o = { _raw: String(_body).slice(0, 3000) }; } }
-              rec({ stage: 'saverow-capture', url: _u2, ws: _o.WORK_STEP, exws: _o.EX_WORK_STEP, body: _o });
+              else if (typeof _body === 'string') { try { _o = JSON.parse(_body); } catch (e) { _o = { _raw: String(_body).slice(0, 2500) }; } }
+              var _ep = _u2.split('?')[0].split('/').slice(-2).join('/');
+              rec({ stage: 'saverow-capture', url: _u2, ep: _ep, ws: _o.WORK_STEP, exws: _o.EX_WORK_STEP, n: Object.keys(_o).length, body: _o });
             } catch (e) { rec({ stage: 'saverow-capture-err', msg: String(e) }); }
           }
           return oSend.apply(x, arguments);
@@ -1196,15 +1197,17 @@ function parseValue(text) {
           rec({ stage: 'fetch-saveact' });
           p.then(function (r) { return r.clone().json(); }).then(captureMasterPhoto).catch(function (e) { rec({ stage: 'fetch-parse-fail', msg: String(e) }); });
         }
-        // [임시진단 2026-06-09] fetch saveRow/saveAct payload 캡처
-        if (url.indexOf('saveRow') > -1 || url.indexOf('saveAct') > -1) {
+        // [v67d 2026-06-09] fetch awms POST 전부 캡처 (완료 API 추적) — 조회 제외
+        var _fm = (arguments[1] && arguments[1].method) || (u && u.method) || 'GET';
+        if (String(_fm).toUpperCase() === 'POST' && url.indexOf('/ami/') > -1 && !/\/(get|select|search|retrieve)[A-Za-z]*/i.test(url)) {
           try {
             var _init = arguments[1] || ((u && u.body) ? u : null);
             var _b = _init && _init.body;
             var _o = {};
             if (_b instanceof FormData) { _b.forEach(function (v, k) { _o[k] = (typeof v === 'string') ? v : '[file]'; }); }
-            else if (typeof _b === 'string') { try { _o = JSON.parse(_b); } catch (e) { _o = { _raw: String(_b).slice(0, 3000) }; } }
-            rec({ stage: 'saverow-capture', url: url, ws: _o.WORK_STEP, exws: _o.EX_WORK_STEP, body: _o });
+            else if (typeof _b === 'string') { try { _o = JSON.parse(_b); } catch (e) { _o = { _raw: String(_b).slice(0, 2500) }; } }
+            var _ep = url.split('?')[0].split('/').slice(-2).join('/');
+            rec({ stage: 'saverow-capture', url: url, ep: _ep, ws: _o.WORK_STEP, exws: _o.EX_WORK_STEP, n: Object.keys(_o).length, body: _o });
           } catch (e) {}
         }
         return p;
