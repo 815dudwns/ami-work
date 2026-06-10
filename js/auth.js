@@ -17,6 +17,14 @@ const ACCOUNTS = [
     { id: 'user12', pw: '1111', name: '우희근', role: 'user' },  // 강북 조장
     { id: 'user13', pw: '1111', name: '양선왕', role: 'user' },  // 성북 조장 (신규)
     { id: 'user14', pw: '1111', name: '이용택', role: 'user' },  // 노원 조장 (신규)
+    { id: 'user15', pw: '1111', name: '정수화', role: 'user' },  // 강북 부조장 (우희근 짝)
+    { id: 'user16', pw: '1111', name: '안지홍', role: 'user' },  // 성북 부조장 (양선왕 짝)
+    { id: 'user17', pw: '1111', name: '박성준', role: 'user' },  // 중랑 부조장 (최창호 짝)
+    { id: 'user18', pw: '1111', name: '정재윤', role: 'user' },  // 마포 부조장 (이종우 짝)
+    { id: 'user19', pw: '1111', name: '마삼환', role: 'user' },  // 중구 부조장 (조은규 짝)
+    { id: 'user20', pw: '1111', name: '김영진', role: 'user' },  // 은평 부조장 (이규재 짝)
+    { id: 'user21', pw: '1111', name: '이기순', role: 'user' },  // 노원 부조장 (이용택 짝)
+    { id: 'user22', pw: '1111', name: '우영준', role: 'user' },  // 종로 부조장 (장진교 짝)
 ];
 
 const AUTH_KEY = 'ami_auth';
