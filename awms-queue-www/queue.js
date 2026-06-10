@@ -172,7 +172,6 @@ async function loadQueue() {
         const reps = v.replacement_list || {};
         for (const [meter, rep] of Object.entries(reps)) {
             if (rep.source) continue;                  // import류(source 태그: awms/kepco_jungong 등)는 큐 제외 — 우리 실작업(source 없음)만 등록 대상
-            if (rep.draft) continue;                   // 이어서(draft=임시저장)는 미완료 → 동기화 큐 제외 (영준님 2026-06-09)
             if (!rep.new_meter_id) continue;           // 신계기 없으면 미완성(실작업 아님)
             // 상태 = awms 라이브 대조. 등록돼도 안 사라지고 '등록완료'로 표시(영준님 지시).
             const inAwms = _completedNewMeters.has(String(meter).trim()) || _completedNewMeters.has(String(rep.new_meter_id).trim());
@@ -202,7 +201,17 @@ function _monthKey(ms) {
     return ms ? new Date(ms).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: 'long' }) : '-';
 }
 // 가용 날짜(오름차순) / 날짜→월
-function _qDates() { return Array.from(new Set(_queue.map(i => _dateKey(i.rep.replaced_at)))).sort(); }
+function _qDates() {
+    // dateKey("2026. 6. 10.") → 대표 ms 매핑 후 시간순 정렬.
+    // (문자열 sort는 일 자릿수 때문에 "6. 10."이 "6. 8."보다 앞서는 버그 → 오늘이 최신자리에서 밀림)
+    const m = new Map();
+    _queue.forEach(i => {
+        const ms = (i && i.rep && i.rep.replaced_at) || 0;
+        const k = _dateKey(ms);
+        if (!m.has(k) || ms < m.get(k)) m.set(k, ms);
+    });
+    return Array.from(m.keys()).sort((a, b) => m.get(a) - m.get(b));
+}
 function _qMonthOf(dk) { const it = _queue.find(i => _dateKey(i.rep.replaced_at) === dk); return it ? _monthKey(it.rep.replaced_at) : ''; }
 
 // ◀ 날짜 ▶ 이동
@@ -303,8 +312,9 @@ function renderQueue() {
     if (btnAll) {
         // 선택 날짜 표시 — 어느 날짜를 일괄등록하는지 명확히 (전체↔날짜 카운트 같아도 라벨로 구분)
         const dLabel = _dateFilter === 'all' ? '전체' : _dateFilter.replace(/\s+/g, '').replace(/\.$/, '');
-        btnAll.disabled = cnt('pending') === 0 || !isSessionOK();
-        btnAll.textContent = `[${dLabel}] 일괄 등록 (대기 ${cnt('pending')}건)`;
+        const activeCnt = cnt('pending') + cnt('err');
+        btnAll.disabled = activeCnt === 0 || !isSessionOK();
+        btnAll.textContent = `[${dLabel}] 일괄 등록 (대기 ${cnt('pending')} + 실패 ${cnt('err')}건)`;
     }
 
     const list = document.getElementById('queue-list');
@@ -337,12 +347,12 @@ function renderQueue() {
         const errMsg = i.err ? `<div class="meta" style="color:#dc2626">에러: ${escapeHtml(i.err)}</div>` : '';
         // 등록 버튼: 완료면 숨김, 대기/실패면 등록
         const action = i.status === 'done'
-            ? `<span style="color:#059669;font-weight:700;font-size:12px">✓ awms 등록됨</span>`
+            ? `<span style="color:#059669;font-weight:700;font-size:12px">완료</span>`
             : `<button class="btn-primary" style="padding:6px 12px;width:auto"
                  onclick="runOne('${escapeAttr(i.addr)}', '${escapeAttr(i.meter)}')">${i.status === 'err' ? '재등록' : '등록'}</button>`;
         return `
             <div class="queue-item" style="border-left:4px solid ${s.bd};background:${s.bg}">
-                <div class="addr" style="font-size:15px;display:flex;align-items:center;gap:7px">${chk}<span style="flex:1">${seq}${escapeHtml(i.meter)} <span style="color:#9ca3af">→</span> ${escapeHtml(i.rep.new_meter_id)} ${badge}</span></div>
+                <div class="addr" style="font-size:15px;display:flex;align-items:center;gap:6px">${chk}${seq}${escapeHtml(i.meter)} <span style="color:#9ca3af">→</span> ${escapeHtml(i.rep.new_meter_id)} ${badge}</div>
                 <div class="meta">
                     지침 ${_fmtReadings(i.rep)}<br>
                     ${road ? road + '<br><span style="color:#9ca3af">' + jibun + '</span>' : jibun}<br>

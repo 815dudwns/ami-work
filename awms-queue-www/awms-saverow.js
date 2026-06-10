@@ -60,26 +60,6 @@ async function _lookupMainList(whmNo) {
     return arr.find(x => String(x.WHM_NO || '').trim() === String(whmNo).trim()) || arr[0] || null;
 }
 
-// ---- 철거 응답 consTgtSeqno로 방금 생성된 레코드 역조회 (전차수 순회) ----
-//   작업목록(_lookupMainList)에 없던 계기는 CONS_NO/CNTR_NO를 LV_CONS_NO/CUST_NO로 폴백하는데,
-//   그 값은 getDetail에 안 맞아 detail이 빈 응답(→ 신설 38필드 → 28 HTTP 500)이 된다.
-//   철거 saveRow 후 consTgtSeqno로 정확 CONS_NO/CNTR_NO를 역조회해 getDetail 301키를 받는다.
-async function _findRecBySeqno(consTgtSeqno) {
-    try {
-        const bl = await _awmsGet(AWMS_API + '/mobMtr1000/getBusiList?DEPT1=' + DEFAULT_AWMS.HDQR_CD);
-        const conss = (Array.isArray(bl) ? bl : []).map(b => b.CONS_NO).filter(Boolean);
-        for (const c of conss) {
-            const url = AWMS_API + '/mobMtr1000/getMainList'
-                + `?FLAG=1&DEPT1=${DEFAULT_AWMS.HDQR_CD}&busiKey=${c}&searchVal=&sortKey=&workStep=25,28&pPageNo=1&pRowCount=300`;
-            const d = await _awmsGet(url);
-            const arr = Array.isArray(d) ? d : ((d && (d.data || d.list)) || []);
-            const hit = arr.find(x => String(x.CONS_TGT_SEQNO) === String(consTgtSeqno));
-            if (hit) return hit;
-        }
-    } catch (e) { /* 역조회 실패 시 폴백값 사용 */ }
-    return null;
-}
-
 // ---- 신설 상세 베이스: mobMtr1000/getDetail (301키, 신설 payload 베이스) ----
 async function _lookupGetDetail(consNo, cntrNo, consTgtSeqno) {
     const url = AWMS_API + '/mobMtr1000/getDetail'
@@ -685,20 +665,22 @@ async function registerReplacement({ addr, meter, rep }) {
     if (!consTgtSeqno) throw new Error('철거 응답에 consTgtSeqno 없음');
 
     // 4) getDetail(신설 베이스 301키) + 자재조회
-    //   정확 CONS_NO/CNTR_NO 필요 — 작업목록 못 찾은 계기는 철거 응답 consTgtSeqno로 역조회.
-    //   (LV_CONS_NO/CUST_NO 폴백은 getDetail에 안 맞아 detail 빈 → 28 HTTP 500. 정답 28 CONS_NO=getMainList값)
-    let gdConsNo = mainInfo.CONS_NO || '', gdCntrNo = mainInfo.CNTR_NO || '';
-    if (!gdConsNo) {
-        const rec = await _findRecBySeqno(consTgtSeqno);
-        if (rec && rec.CONS_NO) {
-            gdConsNo = rec.CONS_NO; gdCntrNo = rec.CNTR_NO || gdCntrNo;
-            L(`[saverow] 역조회 정확 CONS_NO=${gdConsNo} CNTR_NO=${gdCntrNo} (작업목록 미등록 계기)`);
-        }
+    //   근본원인: _lookupMainList에서 재배정 계기는 옛차수(WS20) 레코드가 먼저 매칭되면
+    //   mainInfo.CONS_NO가 옛차수가 되고, LV_CONS_NO가 없을 때 consNo가 옛차수로 평가됨.
+    //   폴백: getDetail 빈 응답이면 sealInfo.LV_CONS_NO(활성차수)로 재시도.
+    let detail = await _lookupGetDetail(consNo, cntrNo, consTgtSeqno);
+    // 철거 saveRow 직후 awms 서버 반영 지연으로 getDetail이 빈 응답(키0)을 주는 경우가 있다(2026-06-11 직관검증:
+    //   같은 seqno를 시간 지나 호출하면 301키 정상). 빈이면 점점 길게 대기하며 재시도(차수 무관, 활성차수 LV_CONS_NO 우선).
+    const _gdCons = sealInfo.LV_CONS_NO || consNo;
+    const _waits = [700, 1500, 2500, 3500];
+    for (let _t = 0; Object.keys(detail).length === 0 && _t < _waits.length; _t++) {
+        L(`[saverow] getDetail 빈(키0) → ${_waits[_t]}ms 대기 후 재시도 #${_t + 1} (CONS_NO=${_gdCons})`);
+        await new Promise(r => setTimeout(r, _waits[_t]));
+        detail = await _lookupGetDetail(_gdCons, cntrNo, consTgtSeqno);
+        L(`[saverow] getDetail 재시도 #${_t + 1} 키수=${Object.keys(detail).length}`);
     }
-    const detail = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
     const mtrlInfo = await _lookupMtrl(newMeter);
     L(`[saverow] getDetail 키수=${Object.keys(detail).length} / 자재 MTRL_NO=${mtrlInfo.MTRL_NO || '-'} MNFCT_YM=${mtrlInfo.MNFCT_YM || '-'}`);
-    if (Object.keys(detail).length < 100) L(`[saverow] ⚠ getDetail 키수 부족(${Object.keys(detail).length}) — 28 완료 실패 위험`, 'warn');
 
     // 5) 신설 saveRow (mobMtr4000) + 철거후 사진 (WORK_STEP=25 유지)
     const sealKnd = sealInfo.TRML_SEAL_KND_CD || 'A';
@@ -717,40 +699,8 @@ async function registerReplacement({ addr, meter, rep }) {
         L(`[saverow] 봉인설정 +1 실패(무시): ${e.message}`, 'warn');
     }
 
-    // 7) [2026-06-09] 완료(28): 신설 25 레코드를 28로 재전송. (CDP로 UI 완료흐름 실측 — 정답 확정)
-    //   awms UI 완료 = mobMtr4000/saveRow WORK_STEP=28. 우리가 빠뜨려 500나던 2가지:
-    //   (a) RE_SAVE_YN='' 키 필요 (getDetail엔 없는 키 — UI는 빈값으로 전송)
-    //   (b) 신설사진(CREMO_ATCH_FILE_ID_3_SRC) 재전송 필수 (UI는 selectPhotos로 파일ID→base64 재첨부.
-    //       28에 사진 빠지면 500. ※ 기존 가정 "사진 재전송 안 함"은 오류였음)
-    //   17개 시공정보(CMS/CTS/CSPD/CTTB/CCTD_PRDC_YM·LAY_YMD, DEPT2, LAY_METR_DTLS_CL_CD 등)는
-    //   _buildNewPayloadFromDetail overrides에 이미 포함됨.
-    let doneStep = '25';
-    try {
-        // (핵심) 신설 25 저장 후 getDetail로 그 레코드를 다시 읽는다 — awms가 저장하며 채운 값 반영.
-        //   우리가 만든 newPayload 재사용은 500. CDP 실측: 저장본 재조회 + 시공정보 보강 + 사진 = 200.
-        const d2 = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
-        const donePayload = {};
-        for (const k in d2) donePayload[k] = d2[k] == null ? '' : String(d2[k]);
-        // 완료 플래그 + 시공정보 17키 보강 (getDetail엔 빈값 → 채워야 NOT NULL 통과)
-        Object.assign(donePayload, {
-            WORK_STEP: '28', EX_WORK_STEP: '25', RE_SAVE_YN: '',
-            LAY_METR_DTLS_CL_CD: '10', DEPT2: d2.OFFICE_CD || DEFAULT_AWMS.OFFICE_CD,
-            CMS_LAY_YMD: P.ymd, CTS_LAY_YMD: P.ymd, CSPD_LAY_YMD: P.ymd, CTTB_LAY_YMD: P.ymd, CREMO_CHRG_APLY_ST_YMD: P.ymd,
-            CMS_PRDC_YM: P.ym, CTS_PRDC_YM: P.ym, CSPD_PRDC_YM: P.ym, CTTB_PRDC_YM: P.ym, CPT_PRDC_YM: P.ym, CREMO_EFEC_YM: P.ym,
-            CCTD1_PRDC_YM: P.ym, CCTD2_PRDC_YM: P.ym, CCTD3_PRDC_YM: P.ym,
-        });
-        const doneEntries = Object.entries(donePayload).map(([k, v]) => [k, v == null ? '' : String(v)]);
-        // 신설사진(CREMO_ATCH_FILE_ID_3_SRC) 재전송 — 28에 사진 빠지면 500
-        const resDone = await awmsEval(_saveRowExpr(doneEntries, AWMS_API + '/mobMtr4000/saveRow', newPhotos));
-        L(`[saverow] 완료28 재전송: ok=${resDone.ok} 사진=${resDone.photoNote} body=${String(resDone.body || '').slice(0, 120)}`, resDone.ok ? 'ok' : 'warn');
-        if (resDone.ok) doneStep = '28';
-        else L('완료(28) 실패 — 25는 저장됨(awms서 수동완료 가능)', 'warn');
-    } catch (e) {
-        L(`[saverow] 완료28 재전송 오류(무시): ${e.message}`, 'warn');
-    }
-
     return {
-        mode: 'full', consTgtSeqno, newMeter, workStep: doneStep,
+        mode: 'full', consTgtSeqno, newMeter,
         seal: newPayload.CSL_METR_TRML_SEAL_NO, status: 'ok',
     };
 }

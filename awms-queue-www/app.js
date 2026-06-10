@@ -123,35 +123,36 @@ async function runOne(addr, meter) {
         setTimeout(() => _setBanner('', ''), 5000);  // 성공 배너 5초 후 자동 숨김
     } catch (e) {
         log(`등록 실패 ${meter}: ${e.message}`, 'err');
-        _setBanner(`등록 실패  ${meter}  —  ${e.message}`, 'err');  // 실패는 유지(닫기로 끔)
+        _setBanner(`등록 실패  ${meter}  —  ${e.message}`, 'err');
+        setTimeout(() => _setBanner('', ''), 8000);  // 실패 배너도 8초 후 자동 숨김 (계속 안 없어지던 문제)
         await markError(addr, meter, e.message);
     }
     await refreshQueue();   // 이벤트 후 전체 새로고침(awms 완료상태 반영)
 }
 
 async function runAll() {
-    // 현재 선택한 날짜 필터의 대기건만 일괄 등록 (전체 선택 시 전부)
+    // 현재 선택한 날짜 필터의 대기+실패건 일괄 등록 (전체 선택 시 전부)
     const inView = (typeof _dateFilter !== 'undefined' && _dateFilter !== 'all' && typeof _dateKey === 'function')
         ? _queue.filter(i => _dateKey(i.rep.replaced_at) === _dateFilter)
         : _queue;
-    const pending = inView.filter(i => i.status === 'pending');
+    const pending = inView.filter(i => i.status === 'pending' || i.status === 'err');
     const dateLabel = (typeof _dateFilter !== 'undefined' && _dateFilter !== 'all') ? _dateFilter : '전체';
     await _runBatch(pending, dateLabel);
 }
 
-// 선택 등록 — 체크박스로 고른 대기건만 전송
+// 선택 등록 — 체크박스로 고른 항목 전송 (상태 무관, done 제외)
 async function runSelected() {
     const checks = Array.from(document.querySelectorAll('.q-check:checked'));
     if (!checks.length) { alert('선택된 항목이 없습니다. (시퀀스 앞 체크박스로 선택)'); return; }
-    const keySet = new Set(checks.map(c => `${c.dataset.addr}${c.dataset.meter}`));
-    const pending = _queue.filter(i => i.status === 'pending' && keySet.has(`${i.addr}${i.meter}`));
+    const keySet = new Set(checks.map(c => `${c.dataset.addr}${c.dataset.meter}`));
+    const pending = _queue.filter(i => i.status !== 'done' && keySet.has(`${i.addr}${i.meter}`));
     await _runBatch(pending, '선택');
 }
 window.runSelected = runSelected;
 
 // 공통 일괄 등록 루프 (runAll/runSelected 공유)
 async function _runBatch(pending, label) {
-    if (!pending.length) { alert(`[${label}] 등록할 대기 건이 없습니다.`); return; }
+    if (!pending.length) { alert(`[${label}] 등록할 대기/실패 건이 없습니다.`); return; }
     if (!isSessionOK()) { alert('awms 세션 없음. 로그인 먼저'); return; }
     if (typeof registerReplacement !== 'function') {
         alert('saverow 모듈 준비중 (awms-saverow.js 미로드). 일괄 등록 불가.');
@@ -169,58 +170,41 @@ async function _runBatch(pending, label) {
     if (btnAll) btnAll.disabled = true;
     if (btnSel) btnSel.disabled = true;
     if (btnRefresh) btnRefresh.disabled = true;
-    _batchRunning = true;
-    await _acquireWake();   // 등록 내내 화면 꺼짐 방지
+
+    // 백그라운드 서비스 시작 — 화면 꺼져도 루프 유지
+    if (window.AwmsQ && AwmsQ.startBgTask) { try { AwmsQ.startBgTask(); } catch(e){} }
 
     let ok = 0, err = 0;
-    for (const item of pending) {
-        try {
-            log(`[${ok + err + 1}/${pending.length}] ${item.meter} 등록 중...`);
-            const resp = await registerReplacement({ addr: item.addr, meter: item.meter, rep: item.rep });
-            await markSynced(item.addr, item.meter, resp);
-            markDoneLocal(item.meter, item.rep.new_meter_id);  // 즉시 완료 반영
-            ok++;
-            log(`  성공`, 'ok');
-        } catch (e) {
-            err++;
-            log(`  ${e.message}`, 'err');
-            await markError(item.addr, item.meter, e.message);
-        }
-        if ((ok + err) < pending.length) {
-            log(`  ... 다음까지 대기`);
-            await randomDelay();
-            if ((ok + err) % 5 === 0) await checkSession();
-        }
-    }
-    log(`일괄 완료: 성공 ${ok} / 실패 ${err}`, 'warn');
-    _batchRunning = false;
-    await _releaseWake();
-    if (btnSel) btnSel.disabled = false;
-    if (btnRefresh) btnRefresh.disabled = false;
-    await refreshQueue();   // 이벤트 후 전체 새로고침
-}
-
-// ─────────────────────────────────────────────
-// WakeLock — 일괄 등록 중 화면 꺼짐 방지 (화면 꺼지면 WebView 타이머 정지 → 루프 멈춤)
-//   ※ 완전 백그라운드(다른 앱 전환)는 APK 포그라운드 서비스 필요. 이건 화면 켜진 동안만 보장.
-// ─────────────────────────────────────────────
-let _wakeLock = null;
-let _batchRunning = false;
-async function _acquireWake() {
     try {
-        if ('wakeLock' in navigator) {
-            _wakeLock = await navigator.wakeLock.request('screen');
-            _wakeLock.addEventListener('release', () => { _wakeLock = null; });
+        for (const item of pending) {
+            try {
+                log(`[${ok + err + 1}/${pending.length}] ${item.meter} 등록 중...`);
+                const resp = await registerReplacement({ addr: item.addr, meter: item.meter, rep: item.rep });
+                await markSynced(item.addr, item.meter, resp);
+                markDoneLocal(item.meter, item.rep.new_meter_id);  // 즉시 완료 반영
+                ok++;
+                log(`  성공`, 'ok');
+            } catch (e) {
+                err++;
+                log(`  ${e.message}`, 'err');
+                await markError(item.addr, item.meter, e.message);
+            }
+            if ((ok + err) < pending.length) {
+                log(`  ... 다음까지 대기`);
+                await randomDelay();
+                if ((ok + err) % 5 === 0) await checkSession();
+            }
         }
-    } catch (e) { log('WakeLock 실패(무시): ' + e.message, 'warn'); }
+        log(`일괄 완료: 성공 ${ok} / 실패 ${err}`, 'warn');
+        await refreshQueue();   // 이벤트 후 전체 새로고침
+    } finally {
+        // 정상 완료 / 에러 / 중단 어느 경우에도 서비스 종료 + 버튼 복구
+        if (window.AwmsQ && AwmsQ.stopBgTask) { try { AwmsQ.stopBgTask(); } catch(e){} }
+        if (btnAll) btnAll.disabled = false;
+        if (btnSel) btnSel.disabled = false;
+        if (btnRefresh) btnRefresh.disabled = false;
+    }
 }
-async function _releaseWake() {
-    try { if (_wakeLock) { await _wakeLock.release(); _wakeLock = null; } } catch (e) {}
-}
-// 화면 복귀 시 등록 중이면 WakeLock 재획득 (visibility 전환으로 풀린 경우)
-document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && _batchRunning && !_wakeLock) _acquireWake();
-});
 
 // 등록 사이 랜덤 대기 (봇 감지 회피)
 function randomDelay() {
@@ -252,4 +236,19 @@ window.refreshQueue = refreshQueue;
             ensureLoginAutofill();
         }
     }, 8000);
+})();
+
+// 우상단 버전 표시 (새 배포 반영 확인용) — push마다 갱신
+(function () {
+    var APP_VER = 'v0611-1';
+    function show() {
+        if (!document.body) { setTimeout(show, 300); return; }
+        if (document.getElementById('app-ver')) return;
+        var v = document.createElement('div');
+        v.id = 'app-ver';
+        v.textContent = APP_VER;
+        v.style.cssText = 'position:fixed;top:6px;right:10px;z-index:99999;font-size:11px;font-weight:800;color:#9ca3af;background:rgba(0,0,0,0.35);padding:2px 8px;border-radius:6px;pointer-events:none;';
+        document.body.appendChild(v);
+    }
+    show();
 })();
