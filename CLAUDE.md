@@ -68,6 +68,16 @@
 - 리모컨 = `awms-bridge-inject.js` (github pages). awms 새로고침=최신. **로직변경=push만, APK 불필요**. 수정은 `git worktree add /tmp/x main`.
 - 시공전(a3) 슬래이브 전파: addRow param 주입 + late-injection (한버튼/서버랙 대비). 대표계기→계기번호: 마스터 11자리 시(헬퍼 설정 옵션, APK).
 
+### LCD YOLO 자동 검출 (종로맵 계기교체 모달)
+- **모델**: YOLOv8n, 학습 데이터 yolo4(487장)/yolo5(508장), mAP50=0.85, 64/64 검출
+- **모델 파일**: `jongno-combined/models/lcd_detector.onnx` (11.7MB)
+- **추론 코드**: `jongno-combined/js/lcd-yolo.js` (onnxruntime-web, wasm 백엔드)
+- **연동 위치**: `replacement-modal.js` `onPhotoSelect()` — openLcdEditor 전에 YOLO 추론 → `removalPhotoRegions[field]` 자동 세팅
+- **흐름**: 사진 선택 → LcdYolo.detect() → bbox → 편집기 열릴 때 박스 자동 위치 → 유저 확인/수정
+- **서버 불필요**: 폰 안에서 완전 온디바이스. 첫 로드 시 모델 프리로드(백그라운드).
+- **학습 데이터**: `research/ocr_poc/검침_yolo4/`, `검침_yolo5/` — train/val 라벨 있음
+- **버전 표시**: 앱 메뉴 하단 `lcd-yolo 20260610`
+
 ### awms 지침(검침값) 구조
 - **문서**: `research/awms-poc/awms_지침_구조_조사.md`
 - 1종/2종 계기 = 지침 4개(주간 WHME_DAY / 야간 WHME_MNGT / 최대전력 DM_MT_DAY / 무효전력 VAR_DAY). 단상은 주간/야간만.
