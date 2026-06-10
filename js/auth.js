@@ -24,7 +24,7 @@ const ACCOUNTS = [
     { id: 'user19', pw: '1111', name: '마삼환', role: 'user' },  // 중구 부조장 (조은규 짝)
     { id: 'user20', pw: '1111', name: '김영진', role: 'user' },  // 은평 부조장 (이규재 짝)
     { id: 'user21', pw: '1111', name: '이기순', role: 'user' },  // 노원 부조장 (이용택 짝)
-    { id: 'user22', pw: '1111', name: '우영준', role: 'user' },  // 종로 부조장 (장진교 짝)
+    // 종로 부조장 = 우영준(영준님 본인) = admin 계정으로 겸임 (별도 user 발급 안 함)
 ];
 
 const AUTH_KEY = 'ami_auth';
