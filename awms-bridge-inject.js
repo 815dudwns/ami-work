@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v74'; // v74: inject 로그분리 — awms-queue(AwmsResult)→awmslog/queue, helper→awmslog/helper (혼선차단). v68~73(숫자키보드)은 폐기
+  var VER = 'v75'; // v75: 스캔값 형태검증(isValidScan) — 바코드 오인식 거름+자동재스캔(모뎀맥 LTE012/PLC12hex, 계기11자, 실측1735건 역도출). v74: 로그분리
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -564,6 +564,24 @@ function parseValue(text) {
 }
   // ===== /parseValue =====
 
+  // ── 스캔값 형태 검증 (바코드 오인식 거름) ──
+  //   모뎀맥: LTE=11자리 숫자(012시작) / PLC=12자리 hex. 계기번호=11자(012아님). DCU=8~10자 or 12hex.
+  //   실측 1,735건 역도출(cst-worklist) + 라이브로그 오인식값(E072499953181 13자) 거름 검증 (2026-06-11).
+  function isValidScan(field, raw) {
+    var s = String(raw || '').trim();
+    if (!s) return true;                                  // 빈값(취소)은 통과
+    var f = field || '';
+    var dig = s.replace(/\D/g, '');
+    var RE_LTE = /^012\d{8}$/;                            // LTE 계열 모뎀맥
+    var RE_HEX12 = /^[0-9A-Fa-f]{12}$/;                   // PLC/무선 모뎀맥(새 OUI도 허용)
+    var RE_METER = /^(?!012)[0-9A][0-9A-Za-z]{10}$/;      // 계기번호 11자(012로 시작 안 함)
+    var RE_DCU = /^[0-9A-Za-z]{8,10}$/;
+    if (/MAC|MODEM|모뎀/i.test(f)) return RE_LTE.test(dig) || RE_HEX12.test(s);
+    if (/INSTR_NUM|METER|계기/i.test(f)) return RE_METER.test(s);
+    if (/DCU/i.test(f)) return RE_DCU.test(s) || RE_HEX12.test(s);
+    return RE_LTE.test(dig) || RE_HEX12.test(s) || RE_METER.test(s) || RE_DCU.test(s);  // 필드 불명
+  }
+
   function convertForField(field, raw) {
     var p = (typeof parseValue === 'function') ? (parseValue(raw) || {}) : {};
     var value = (p.value != null && p.value !== '') ? p.value : raw;
@@ -776,6 +794,13 @@ function parseValue(text) {
     var vm = window.__pendingVM || getAwmsVM();
     rec({ stage: 'scan', raw: raw, field: field });
     if (!raw) return;
+    // [오인식 거름] 스캔값 형태가 안 맞으면 등록 막고 자동 재스캔 (바코드 오타 방지)
+    if (!isValidScan(field, raw)) {
+      rec({ stage: 'scan-reject', raw: raw, field: field });
+      try { alert('스캔 오류 의심: ' + raw + '\n형식이 안 맞습니다 — 다시 스캔하세요.'); } catch (e) {}
+      try { if (window.AndroidScanner && window.AndroidScanner.scan) setTimeout(function () { window.AndroidScanner.scan(); }, 300); } catch (e) {}
+      return;
+    }
     var val = convertForField(field, raw);
     rec({ stage: 'convert', val: val, field: field });
 
