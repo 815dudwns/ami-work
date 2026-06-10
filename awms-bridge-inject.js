@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v76'; // v76: PLC 모뎀맥 OUI 5종 화이트리스트 검증(앞자리 오독 거름). v75: 스캔 형태검증 도입
+  var VER = 'v75'; // v75: 스캔값 형태검증(isValidScan) — 바코드 오인식 거름+자동재스캔(모뎀맥 LTE012/PLC12hex, 계기11자, 실측1735건 역도출). v74: 로그분리
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -572,16 +572,14 @@ function parseValue(text) {
     if (!s) return true;                                  // 빈값(취소)은 통과
     var f = field || '';
     var dig = s.replace(/\D/g, '');
-    var RE_LTE = /^012\d{8}$/;                            // LTE 계열 모뎀맥(거의 QR — 정확)
-    // PLC/무선 모뎀맥 = 1D 바코드라 오독 잦음. 알려진 OUI 5종(앞6자) 고정 → 앞자리 오독 거름.
-    var RE_MAC_HEX = /^(E0AEED|847207|44B433|0014B0|AC5E8C)[0-9A-Fa-f]{6}$/i;
-    var RE_HEX12 = /^[0-9A-Fa-f]{12}$/;                   // DCU자재 등 일반 12hex
+    var RE_LTE = /^012\d{8}$/;                            // LTE 계열 모뎀맥
+    var RE_HEX12 = /^[0-9A-Fa-f]{12}$/;                   // PLC/무선 모뎀맥(새 OUI도 허용)
     var RE_METER = /^(?!012)[0-9A][0-9A-Za-z]{10}$/;      // 계기번호 11자(012로 시작 안 함)
     var RE_DCU = /^[0-9A-Za-z]{8,10}$/;
-    if (/MAC|MODEM|모뎀/i.test(f)) return RE_LTE.test(dig) || RE_MAC_HEX.test(s);  // PLC=OUI 화이트리스트
+    if (/MAC|MODEM|모뎀/i.test(f)) return RE_LTE.test(dig) || RE_HEX12.test(s);
     if (/INSTR_NUM|METER|계기/i.test(f)) return RE_METER.test(s);
     if (/DCU/i.test(f)) return RE_DCU.test(s) || RE_HEX12.test(s);
-    return RE_LTE.test(dig) || RE_MAC_HEX.test(s) || RE_HEX12.test(s) || RE_METER.test(s) || RE_DCU.test(s);  // 필드 불명
+    return RE_LTE.test(dig) || RE_HEX12.test(s) || RE_METER.test(s) || RE_DCU.test(s);  // 필드 불명
   }
 
   function convertForField(field, raw) {
