@@ -53,6 +53,8 @@
 
 ## awms 시스템 (문서화 — 매번 다시 조사 말 것)
 > awms 정보는 아래 문서에 영구 기록. HANDOFF(휘발성) 말고 여기/research 문서로.
+> **awms API 호출·필드·페이로드 모를 때 = `research/awms-poc/awms_API_레퍼런스.md` (전수 기록, 매번 다시 캡처 말 것).**
+> **★ 통신팀(MOBCST `mob/cst`)과 계기팀(MOBMTR `mob/mtr`)은 별개 시스템 — 항상 구별. 계정·엔드포인트·권한 분리(교차 호출 405). 모뎀맥·마스터/슬레이브는 통신팀 전용. 맥 변경=모뎀 재결합(saveAct 아님, 마스터 먼저). 섹션 8.5.**
 
 ### awms 완료 → 종로 동기화
 - **프로세스 문서**: `research/awms-poc/awms_완료_종로동기화_프로세스.md` (작업 전 반드시 참조)
@@ -77,6 +79,7 @@
 - **서버 불필요**: 폰 안에서 완전 온디바이스. 첫 로드 시 모델 프리로드(백그라운드).
 - **학습 데이터**: `research/ocr_poc/검침_yolo4/`, `검침_yolo5/` — train/val 라벨 있음
 - **버전 표시**: 앱 메뉴 하단 `lcd-yolo 20260610`
+- **분리 안내**: OCR 판독·검출·모델학습(검침값 PARSeq, 계기번호 Apple Vision, YOLO 학습)은 **ocr-meter 프로젝트(`~/Projects/ocr-meter`)로 독립** ([[ocr_project_split]], 2026-06-11). 여기 LCD YOLO 항목은 **종로맵 replacement-modal 통합 부분만** 유지. OCR 작업은 ocr-meter PM에서.
 
 ### awms 지침(검침값) 구조
 - **문서**: `research/awms-poc/awms_지침_구조_조사.md`
