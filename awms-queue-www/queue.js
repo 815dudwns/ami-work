@@ -107,6 +107,13 @@ async function syncCompleted() {
             if (r.CREMO_WHM_NO) _completedNewMeters.add(String(r.CREMO_WHM_NO).trim());
         });
         log(`완료 Set 갱신: ${_completedNewMeters.size}건`);
+        // (c) 종로 통계용 가벼운 노드 — 계기번호만 배열로 PUT (awmscomplete 940KB 대신 ~40KB)
+        try {
+            await fetch(`${AWMS_WORK_DB}/awmsDoneMeters.json`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify([..._completedNewMeters])
+            });
+        } catch (e) { /* 통계용 보조 — 실패해도 큐 동작 무관 */ }
         // 조회 성공 = awms 세션 살아있음 → 세션바/isSessionOK 갱신 (앱시작 시 false 고정 해소)
         _sessionOK = true;
         if (!_sessionInfo) _sessionInfo = { userName: 'awms 연결됨' };
