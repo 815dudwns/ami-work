@@ -475,11 +475,24 @@ function renderMetersList() {
         if (meter.category === 'tou') {
             if (meter.재 || meter.tou_type === 'rework')
                 subParts.push('<span style="color:#dc2626;font-weight:700;">재</span>');
+            // 6/9 엑셀 디테일
+            if (meter.통신방식)         subParts.push(`${meter.통신방식}`);
+            if (meter.제조사 && meter.제조사 !== '제조사정보 없음') subParts.push(`${meter.제조사}`);
+            if (meter.통신사)           subParts.push(`${meter.통신사}`);
+            if (meter.차수)             subParts.push(`${meter.차수}`);
+            if (meter.AMI등록일자)      subParts.push(`등록 ${meter.AMI등록일자}`);
+            if (meter.LP수신)           subParts.push(`LP수신 ${meter.LP수신}`);
+            if (meter.조치구분)         subParts.push(`${meter.조치구분}`);
+            if (meter.수행주체)         subParts.push(`${meter.수행주체}`);
+            if (meter.보강순위)         subParts.push(`${meter.보강순위}`);
+            if (meter.모뎀MAC)          subParts.push(`MAC ${meter.모뎀MAC}`);
+            // 기존 TOU 필드(구버전 호환)
             if (meter.tou_source)       subParts.push(`${meter.tou_source}`);
             if (meter.LP != null && meter.LP !== '' && meter.LP !== '#N/A')
                 subParts.push(`LP ${meter.LP}`);
             if (meter.시공일 && meter.시공일 !== '#N/A')
                 subParts.push(`시공일 ${meter.시공일}`);
+            // 한전 개통불가 / 앱 작업이력(박제)
             if (meter.kepco_개통불가)
                 subParts.push(`<span style="color:#dc2626;">한전불가 ${meter.kepco_개통불가}</span>`);
             if (meter.app_작업)
