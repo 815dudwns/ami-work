@@ -341,16 +341,13 @@ function createMarker(position, address, meters, category) {
     const isTou = category === 'tou';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
-    // 이번 6/9 배치(신규47 + 재9)만 미완 유지 — 기존 TOU/실효는 workStatus 따름
-    const isThisBatch = isTou && meters.some(m => m.tou_source === '일일점검_260609' || m.재 === true);
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
     if (isTou) color = 'tou';
-    if (!isThisBatch) {
-        if (status.state === 'complete') color = 'gray';
-        else if (status.state === 'hold') color = 'blue';
-        else if (status.state === 'fail') color = 'red';
-    }
+    // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
+    if (status.state === 'complete') color = 'gray';
+    else if (status.state === 'hold') color = 'blue';
+    else if (status.state === 'fail') color = 'red';
     // SKT는 라벨 'SK', TOU는 'TOU', 일반은 개수 (approximate+pending이면 '?')
     let markerLabel;
     if (isSkt) markerLabel = 'SK';
@@ -401,16 +398,13 @@ function updateMarkerColor(address) {
     const isSkt = marker.category === 'skt';
     const isTou = marker.category === 'tou';
 
-    // 이번 6/9 배치(신규47 + 재9)만 미완 유지 — 기존 TOU/실효는 workStatus 따름
-    const isThisBatch = isTou && marker.meters.some(m => m.tou_source === '일일점검_260609' || m.재 === true);
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
     if (isTou) color = 'tou';
-    if (!isThisBatch) {
-        if (status.state === 'complete') color = 'gray';
-        else if (status.state === 'hold') color = 'blue';
-        else if (status.state === 'fail') color = 'red';
-    }
+    // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
+    if (status.state === 'complete') color = 'gray';
+    else if (status.state === 'hold') color = 'blue';
+    else if (status.state === 'fail') color = 'red';
 
     const el = marker.element.querySelector('.custom-marker');
     if (el) el.className = `custom-marker ${color}`;
