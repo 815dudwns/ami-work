@@ -473,11 +473,19 @@ function renderMetersList() {
         }
         // 7) TOU 전용 필드 (category=tou일 때)
         if (meter.category === 'tou') {
+            if (meter.재 || meter.tou_type === 'rework')
+                subParts.push('<span style="color:#dc2626;font-weight:700;">재</span>');
             if (meter.tou_source)       subParts.push(`${meter.tou_source}`);
             if (meter.LP != null && meter.LP !== '' && meter.LP !== '#N/A')
                 subParts.push(`LP ${meter.LP}`);
             if (meter.시공일 && meter.시공일 !== '#N/A')
                 subParts.push(`시공일 ${meter.시공일}`);
+            if (meter.kepco_개통불가)
+                subParts.push(`<span style="color:#dc2626;">한전불가 ${meter.kepco_개통불가}</span>`);
+            if (meter.app_작업)
+                subParts.push(`앱작업 ${meter.app_작업}`);
+            if (meter.app_작업자)
+                subParts.push(`작업자 ${meter.app_작업자}`);
         }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
         const details = detailParts.join(', ');

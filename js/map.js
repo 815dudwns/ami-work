@@ -344,9 +344,12 @@ function createMarker(position, address, meters, category) {
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
     if (isTou) color = 'tou';
-    if (status.state === 'complete') color = 'gray';
-    else if (status.state === 'hold') color = 'blue';
-    else if (status.state === 'fail') color = 'red';
+    // TOU는 실효 workStatus(charger4eleccar) 상태를 따르지 않음 — 항상 미완(tou색) 유지
+    if (!isTou) {
+        if (status.state === 'complete') color = 'gray';
+        else if (status.state === 'hold') color = 'blue';
+        else if (status.state === 'fail') color = 'red';
+    }
     // SKT는 라벨 'SK', TOU는 'TOU', 일반은 개수 (approximate+pending이면 '?')
     let markerLabel;
     if (isSkt) markerLabel = 'SK';
@@ -400,9 +403,12 @@ function updateMarkerColor(address) {
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
     if (isTou) color = 'tou';
-    if (status.state === 'complete') color = 'gray';
-    else if (status.state === 'hold') color = 'blue';
-    else if (status.state === 'fail') color = 'red';
+    // TOU는 실효 workStatus(charger4eleccar) 상태를 따르지 않음 — 항상 미완(tou색) 유지
+    if (!isTou) {
+        if (status.state === 'complete') color = 'gray';
+        else if (status.state === 'hold') color = 'blue';
+        else if (status.state === 'fail') color = 'red';
+    }
 
     const el = marker.element.querySelector('.custom-marker');
     if (el) el.className = `custom-marker ${color}`;
