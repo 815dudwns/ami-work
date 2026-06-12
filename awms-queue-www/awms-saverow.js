@@ -695,7 +695,15 @@ async function registerReplacement({ addr, meter, rep }) {
             L(`[saverow] 역조회 정확 CONS_NO=${gdConsNo} CNTR_NO=${gdCntrNo} (작업목록 미등록 계기)`);
         }
     }
-    const detail = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
+    // 철거 saveRow 직후 awms 서버 반영 지연으로 getDetail이 빈/부족 응답을 주는 경우가 있다.
+    //   빈이면 점점 길게 대기하며 재시도(2026-06-12 키부족 재발 → 대기재시도 복원).
+    let detail = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
+    const _gdWaits = [700, 1500, 2500, 3500, 5000];
+    for (let _t = 0; Object.keys(detail).length < 100 && _t < _gdWaits.length; _t++) {
+        L(`[saverow] getDetail 키부족(${Object.keys(detail).length}) → ${_gdWaits[_t]}ms 대기 후 재시도 #${_t + 1}`, 'warn');
+        await new Promise(r => setTimeout(r, _gdWaits[_t]));
+        detail = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
+    }
     const mtrlInfo = await _lookupMtrl(newMeter);
     L(`[saverow] getDetail 키수=${Object.keys(detail).length} / 자재 MTRL_NO=${mtrlInfo.MTRL_NO || '-'} MNFCT_YM=${mtrlInfo.MNFCT_YM || '-'}`);
     if (Object.keys(detail).length < 100) L(`[saverow] ⚠ getDetail 키수 부족(${Object.keys(detail).length}) — 28 완료 실패 위험`, 'warn');
@@ -728,7 +736,12 @@ async function registerReplacement({ addr, meter, rep }) {
     try {
         // (핵심) 신설 25 저장 후 getDetail로 그 레코드를 다시 읽는다 — awms가 저장하며 채운 값 반영.
         //   우리가 만든 newPayload 재사용은 500. CDP 실측: 저장본 재조회 + 시공정보 보강 + 사진 = 200.
-        const d2 = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
+        let d2 = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
+        for (let _t = 0; Object.keys(d2).length < 100 && _t < _gdWaits.length; _t++) {
+            L(`[saverow] 28용 getDetail 키부족(${Object.keys(d2).length}) → ${_gdWaits[_t]}ms 재시도 #${_t + 1}`, 'warn');
+            await new Promise(r => setTimeout(r, _gdWaits[_t]));
+            d2 = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
+        }
         const donePayload = {};
         for (const k in d2) donePayload[k] = d2[k] == null ? '' : String(d2[k]);
         // 완료 플래그 + 시공정보 17키 보강 (getDetail엔 빈값 → 채워야 NOT NULL 통과)
