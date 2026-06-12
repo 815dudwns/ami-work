@@ -95,6 +95,12 @@
 
 <div class="container">
 
+    <div class="tabs" id="tabBar">
+        <button class="tab-btn active" data-tab="worker" onclick="setTab('worker')">작업자별</button>
+        <button class="tab-btn" data-tab="gu" onclick="setTab('gu')">구별</button>
+        <button class="tab-btn" data-tab="all" onclick="setTab('all')">전체</button>
+    </div>
+
     <div class="date-bar">
         <input type="date" id="dateInput">
         <button onclick="setToday()">오늘</button>
@@ -349,13 +355,11 @@ function render(fbSiteData, workStatus, dateStr) {
         ? `<div class="card"><div class="empty">${escHtml(dateStr)} 작업 기록 없음</div></div>`
         : null;
 
+    // 탭 버튼은 정적(container)이라 활성 상태만 동기화
+    document.querySelectorAll('#tabBar .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === _activeTab));
+
     const content = document.getElementById('content');
     content.innerHTML = `
-        <div class="tabs">
-            <button class="tab-btn ${_activeTab === 'worker' ? 'active' : ''}" data-tab="worker" onclick="setTab('worker')">작업자별</button>
-            <button class="tab-btn ${_activeTab === 'gu' ? 'active' : ''}" data-tab="gu" onclick="setTab('gu')">구별</button>
-            <button class="tab-btn ${_activeTab === 'all' ? 'active' : ''}" data-tab="all" onclick="setTab('all')">전체</button>
-        </div>
         <div class="tab-panel ${_activeTab === 'worker' ? 'active' : ''}" id="tab-worker">
             ${dayBody || (renderSummary(dayTotal) + renderTable('작업자', workerRows, dayTotal))}
         </div>
