@@ -44,6 +44,10 @@
 - user04 / 1111 / 김지호
 - user05 / 1111 / 장성훈
 
+## 통계 페이지 (stats.html — 관리자 + user09 윤용운 전용)
+> 구조·집계·분모 규칙: `research/통계페이지_구조.md` (매번 다시 분석 말 것)
+> ★ 전체(지사별) 탭 분모 = **Firebase siteData 19,613** (실제 작업대상). 로컬 site-data.json 26,588은 겹침분 포함 raw라 분모 아님.
+
 ## Firebase
 - DB: https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app
 - siteData/charger4eleccar — 현장 데이터 저장

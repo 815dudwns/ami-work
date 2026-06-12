@@ -63,6 +63,7 @@
 
         .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 560px; }
+        #tab-all table { min-width: 640px; }
         th, td { padding: 9px 6px; text-align: center; border-bottom: 1px solid #e5e7eb; }
         th { background: #f9fafb; color: #374151; font-weight: 700; font-size: 12px; position: sticky; top: 0; }
         td.name { text-align: left; font-weight: 600; padding-left: 10px; white-space: nowrap; }
@@ -136,7 +137,8 @@ setToday();
 let _firebaseInited = false;
 let _db = null;
 let _metersByAddr = null;  // site-data.json 캐시: { address: [meter, ...] }
-let _activeTab = 'gu';     // 'gu' | 'worker'
+let _fbSiteData = null;    // Firebase siteData(실제 작업대상 19,613) 캐시 — 전체(지사별) 탭 분모
+let _activeTab = 'worker'; // 'worker'(작업자별·날짜) | 'gu'(구별·날짜) | 'all'(지사별 누적)
 
 function initFB() {
     if (_firebaseInited) return true;
@@ -170,6 +172,16 @@ async function loadSiteData() {
     }
     _metersByAddr = map;
     return map;
+}
+
+// Firebase siteData = 실제 앱에 배포된 작업대상(19,613). 전체(지사별) 탭의 분모.
+// 로컬 site-data.json(26,588)은 보강현황 겹침분 포함 raw라 분모로 쓰지 않음.
+async function loadFbSiteData() {
+    if (_fbSiteData) return _fbSiteData;
+    const snap = await _db.ref('siteData/charger4eleccar').once('value');
+    const val = snap.val();
+    _fbSiteData = Array.isArray(val) ? val.filter(Boolean) : (val ? Object.values(val) : []);
+    return _fbSiteData;
 }
 
 document.getElementById('dateInput').addEventListener('change', loadAndRender);
@@ -217,12 +229,13 @@ async function loadAndRender() {
     content.innerHTML = '<div class="loading">불러오는 중...</div>';
 
     try {
-        const [workStatusSnap, _] = await Promise.all([
+        const [workStatusSnap, _, fbSiteData] = await Promise.all([
             _db.ref('workStatus/charger4eleccar').once('value'),
-            loadSiteData()
+            loadSiteData(),
+            loadFbSiteData()
         ]);
         const workStatus = workStatusSnap.val() || {};
-        render(workStatus, dateStr);
+        render(fbSiteData, workStatus, dateStr);
     } catch (e) {
         console.error(e);
         showErr('데이터 로드 실패: ' + e.message);
@@ -250,8 +263,60 @@ function addAgg(agg, state, meters) {
 function sumSites(s) { return s.complete + s.hold + s.fail; }
 function sumMeters(m) { return m.complete + m.hold + m.fail; }
 
+// ── 지사별 누적 집계 (전체 탭) ─────────────────────────
+// Firebase siteData(19,613) 분모 + workStatus(주소단위 진척). 날짜 무관 전체 누적.
+function emptyBranch() {
+    return {
+        sites:  { complete: 0, hold: 0, fail: 0, pending: 0 },
+        meters: { complete: 0, hold: 0, fail: 0, pending: 0 }
+    };
+}
+function allSites(s)  { return s.complete + s.hold + s.fail + s.pending; }
+function allMeters(m) { return m.complete + m.hold + m.fail + m.pending; }
+
+function aggByBranch(fbSiteData, workStatus) {
+    const norm = s => String(s || '').replace(/\s+/g, ' ').trim();
+    // workStatus 키 정규화 (workStatus는 지번주소 기준)
+    const wsNorm = {};
+    for (const k in workStatus) { wsNorm[norm(k)] = workStatus[k]; }
+
+    // 주소(지번)별로 묶어 그 주소의 계기 수 집계 — 한 주소 = 한 진척상태
+    const addrMap = {};   // "지사|주소" -> { gu, addr, count }
+    for (const it of fbSiteData) {
+        const gu = it['지사'] || '미상';
+        const addr = norm(it['주소']);
+        const key = gu + '|' + addr;
+        if (!addrMap[key]) addrMap[key] = { gu, addr, count: 0 };
+        addrMap[key].count += 1;
+    }
+
+    const byGu = {};
+    for (const key in addrMap) {
+        const { gu, addr, count } = addrMap[key];
+        const ws = wsNorm[addr];
+        let st = (ws && ws.state) ? ws.state : 'pending';
+        if (st !== 'complete' && st !== 'hold' && st !== 'fail') st = 'pending';
+        if (!byGu[gu]) byGu[gu] = emptyBranch();
+        byGu[gu].sites[st]  += 1;
+        byGu[gu].meters[st] += count;
+    }
+    return byGu;
+}
+
 // ── 렌더 ───────────────────────────────────────────────
-function render(workStatus, dateStr) {
+function render(fbSiteData, workStatus, dateStr) {
+    // ── 전체(지사별) 탭: 날짜 무관 누적 ──
+    const byBranch = aggByBranch(fbSiteData, workStatus);
+    const branchRows = Object.entries(byBranch).sort((a, b) => allMeters(b[1].meters) - allMeters(a[1].meters));
+    const branchTotal = emptyBranch();
+    for (const [, agg] of branchRows) {
+        for (const st of ['complete', 'hold', 'fail', 'pending']) {
+            branchTotal.sites[st]  += agg.sites[st];
+            branchTotal.meters[st] += agg.meters[st];
+        }
+    }
+
+    // ── 구별 / 작업자별 탭: 선택 날짜 하루치 ──
     const items = [];
     for (const addr in workStatus) {
         const ws = workStatus[addr];
@@ -267,41 +332,39 @@ function render(workStatus, dateStr) {
         });
     }
 
-    const content = document.getElementById('content');
-
-    if (items.length === 0) {
-        content.innerHTML = `<div class="card"><div class="empty">${escHtml(dateStr)} 작업 기록 없음</div></div>`;
-        return;
-    }
-
-    // 전체 합계
-    const total = emptyAgg();
-    for (const it of items) addAgg(total, it.state, it.meters);
-
-    // 구별 / 작업자별 집계
+    const dayTotal = emptyAgg();
     const byGu = {};
     const byWorker = {};
     for (const it of items) {
+        addAgg(dayTotal, it.state, it.meters);
         if (!byGu[it.gu]) byGu[it.gu] = emptyAgg();
         addAgg(byGu[it.gu], it.state, it.meters);
         if (!byWorker[it.worker]) byWorker[it.worker] = emptyAgg();
         addAgg(byWorker[it.worker], it.state, it.meters);
     }
-
     const guRows = Object.entries(byGu).sort((a, b) => sumMeters(b[1].meters) - sumMeters(a[1].meters));
     const workerRows = Object.entries(byWorker).sort((a, b) => sumMeters(b[1].meters) - sumMeters(a[1].meters));
 
+    const dayBody = items.length === 0
+        ? `<div class="card"><div class="empty">${escHtml(dateStr)} 작업 기록 없음</div></div>`
+        : null;
+
+    const content = document.getElementById('content');
     content.innerHTML = `
-        ${renderSummary(total)}
         <div class="tabs">
-            <button class="tab-btn ${_activeTab === 'gu' ? 'active' : ''}" data-tab="gu" onclick="setTab('gu')">📍 구별</button>
-            <button class="tab-btn ${_activeTab === 'worker' ? 'active' : ''}" data-tab="worker" onclick="setTab('worker')">👤 작업자별</button>
-        </div>
-        <div class="tab-panel ${_activeTab === 'gu' ? 'active' : ''}" id="tab-gu">
-            ${renderTable('구', guRows, total)}
+            <button class="tab-btn ${_activeTab === 'worker' ? 'active' : ''}" data-tab="worker" onclick="setTab('worker')">작업자별</button>
+            <button class="tab-btn ${_activeTab === 'gu' ? 'active' : ''}" data-tab="gu" onclick="setTab('gu')">구별</button>
+            <button class="tab-btn ${_activeTab === 'all' ? 'active' : ''}" data-tab="all" onclick="setTab('all')">전체</button>
         </div>
         <div class="tab-panel ${_activeTab === 'worker' ? 'active' : ''}" id="tab-worker">
-            ${renderTable('작업자', workerRows, total)}
+            ${dayBody || (renderSummary(dayTotal) + renderTable('작업자', workerRows, dayTotal))}
+        </div>
+        <div class="tab-panel ${_activeTab === 'gu' ? 'active' : ''}" id="tab-gu">
+            ${dayBody || (renderSummary(dayTotal) + renderTable('구', guRows, dayTotal))}
+        </div>
+        <div class="tab-panel ${_activeTab === 'all' ? 'active' : ''}" id="tab-all">
+            ${renderBranchSummary(branchTotal)}
+            ${renderBranchTable(branchRows, branchTotal)}
         </div>
     `;
 }
@@ -312,6 +375,96 @@ function setTab(t) {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     const panel = document.getElementById('tab-' + t);
     if (panel) panel.classList.add('active');
+}
+
+function renderBranchSummary(t) {
+    const totalSites  = allSites(t.sites);
+    const totalMeters = allMeters(t.meters);
+    const rate = totalMeters ? (t.meters.complete / totalMeters * 100).toFixed(1) : '0.0';
+    return `
+        <div class="summary">
+            <div class="summary-row">
+                <div class="summary-item si-sites">
+                    <div class="label">전체 개소</div>
+                    <div class="value">${totalSites.toLocaleString()}</div>
+                    <div class="sub">곳</div>
+                </div>
+                <div class="summary-item si-meters">
+                    <div class="label">전체 계기</div>
+                    <div class="value">${totalMeters.toLocaleString()}</div>
+                    <div class="sub">개</div>
+                </div>
+                <div class="summary-item si-complete">
+                    <div class="label">완료</div>
+                    <div class="value">${t.meters.complete.toLocaleString()}</div>
+                    <div class="sub">계기 · ${rate}%</div>
+                </div>
+                <div class="summary-item si-fail">
+                    <div class="label">불가</div>
+                    <div class="value">${t.meters.fail.toLocaleString()}</div>
+                    <div class="sub">계기</div>
+                </div>
+                <div class="summary-item" style="background:#f3f4f6;">
+                    <div class="label">미작업</div>
+                    <div class="value" style="color:#6b7280;">${t.meters.pending.toLocaleString()}</div>
+                    <div class="sub">계기</div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderBranchTable(rows, total) {
+    if (rows.length === 0) {
+        return `<div class="card"><div class="empty">지사 데이터 없음</div></div>`;
+    }
+    const rateOf = m => { const a = allMeters(m); return a ? (m.complete / a * 100).toFixed(1) : '0.0'; };
+    const cell = (s, m) => `${s ? s.toLocaleString() : '<span style="color:#d1d5db">-</span>'}${s ? `<div style="font-size:10px;color:#9ca3af;font-weight:500;">${m.toLocaleString()}</div>` : ''}`;
+    const bodyRow = (name, agg) => `
+        <tr>
+            <td class="name">${escHtml(name)}</td>
+            <td class="num sites">${allSites(agg.sites).toLocaleString()}</td>
+            <td class="num meters">${allMeters(agg.meters).toLocaleString()}</td>
+            <td class="num complete">${cell(agg.sites.complete, agg.meters.complete)}</td>
+            <td class="num hold">${cell(agg.sites.hold, agg.meters.hold)}</td>
+            <td class="num fail">${cell(agg.sites.fail, agg.meters.fail)}</td>
+            <td class="num" style="color:#6b7280;">${cell(agg.sites.pending, agg.meters.pending)}</td>
+            <td class="num"><b style="color:#1d4ed8;">${rateOf(agg.meters)}%</b></td>
+        </tr>`;
+    return `
+        <div class="card">
+            <div class="card-title">지사별 작업 현황 <span class="count">(${rows.length}개 지사 · 누적)</span></div>
+            <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>지사</th>
+                        <th>개소</th>
+                        <th>계기</th>
+                        <th>완료<br><span style="font-weight:500;color:#9ca3af;">개소/계기</span></th>
+                        <th>보류<br><span style="font-weight:500;color:#9ca3af;">개소/계기</span></th>
+                        <th>불가<br><span style="font-weight:500;color:#9ca3af;">개소/계기</span></th>
+                        <th>미작업<br><span style="font-weight:500;color:#9ca3af;">개소/계기</span></th>
+                        <th>완료율</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows.map(([name, agg]) => bodyRow(name, agg)).join('')}
+                    <tr class="total-row">
+                        <td class="name">합계</td>
+                        <td class="num sites">${allSites(total.sites).toLocaleString()}</td>
+                        <td class="num meters">${allMeters(total.meters).toLocaleString()}</td>
+                        <td class="num complete">${total.sites.complete.toLocaleString()}<div style="font-size:10px;color:#9ca3af;font-weight:500;">${total.meters.complete.toLocaleString()}</div></td>
+                        <td class="num hold">${total.sites.hold.toLocaleString()}<div style="font-size:10px;color:#9ca3af;font-weight:500;">${total.meters.hold.toLocaleString()}</div></td>
+                        <td class="num fail">${total.sites.fail.toLocaleString()}<div style="font-size:10px;color:#9ca3af;font-weight:500;">${total.meters.fail.toLocaleString()}</div></td>
+                        <td class="num" style="color:#6b7280;">${total.sites.pending.toLocaleString()}<div style="font-size:10px;color:#9ca3af;font-weight:500;">${total.meters.pending.toLocaleString()}</div></td>
+                        <td class="num"><b style="color:#1d4ed8;">${rateOf(total.meters)}%</b></td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+        </div>
+    `;
 }
 
 function renderSummary(total) {
