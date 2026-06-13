@@ -81,6 +81,9 @@ function initFb() {
 // refreshQueue — 큐 탭 진입/새로고침 시 호출
 // ─────────────────────────────────────────────
 async function refreshQueue() {
+    // ★ 새로고침마다 세션 재확인 — awms 로그인 직후 즉시 반영 (영준님 지적: 새로고침=세션 재확인).
+    //   _sessionOK·세션바 UI는 checkSession에서만 갱신되므로, 이게 없으면 로그인해도 5분 주기까지 "세션 없음" 잔존.
+    if (typeof checkSession === 'function') await checkSession();
     const ok = await syncCompleted();   // 1. awms 완료 수신 (세션+완료대조)
     if (!ok) {
         // [구현 3] 캐시 깜빡임 수정:

@@ -515,8 +515,7 @@ window.refreshQueue = refreshQueue;
         log('캐시 즉시 렌더 스킵(파싱 오류): ' + e.message, 'warn');
     }
 
-    await checkSession();
-    await refreshQueue();
+    await refreshQueue();   // refreshQueue 내부에서 checkSession 먼저 호출 (중복 제거)
     // 5분마다 세션 체크 (큐 자동 새로고침은 안 함 — 수동/등록이벤트 후에만 갱신)
     setInterval(checkSession, 5 * 60 * 1000);
     // 세션 없을 때 8초마다 로그인 아이디/비번 자동입력 시도 (awms 열면 바로 채워지게)
@@ -529,7 +528,7 @@ window.refreshQueue = refreshQueue;
 
 // 우상단 버전 표시 (새 배포 반영 확인용) — push마다 갱신
 (function () {
-    var APP_VER = 'v0613-등록후로컬갱신';
+    var APP_VER = 'v0613-새로고침세션재확인';
     function show() {
         if (!document.body) { setTimeout(show, 300); return; }
         if (document.getElementById('app-ver')) return;
