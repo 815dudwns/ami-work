@@ -41,10 +41,11 @@
 3. 좌표 추출: 좌표추출.py (도로명 → 좌표, 3단계 폴백)
    - 출력: ami_data_coords.json
 4. site-data.json에 합치기 (계기번호 중복 체크)
-5. Firebase 업로드: upload_sitedata.py → siteData/charger4eleccar
-6. 작업상태 업로드: scripts/upload_work_status.py → workStatus/charger4eleccar
-7. git commit & push
-8. 브라우저 확인
+5. **★ `python3 scripts/gen_site_version.py` — site-data.version.json 재생성** (안 하면 작업자 폰이 옛 IndexedDB 캐시 계속 사용. site-data.json 바꾸면 무조건 실행)
+6. Firebase 업로드: upload_sitedata.py → siteData/charger4eleccar
+7. 작업상태 업로드: scripts/upload_work_status.py → workStatus/charger4eleccar
+8. git commit & push
+9. 브라우저 확인
 
 ## 운영 도구
 - scripts/reset_work_status.py — 작업상태 초기화 (롤백용)
