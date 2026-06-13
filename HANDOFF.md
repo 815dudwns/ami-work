@@ -12,7 +12,7 @@
 
 | 트랙 | 내용 | 상태 |
 |---|---|---|
-| **A. ami-work** | 로딩 경량화(Part1·3) + 개별불가동기화 + UI상태리셋 | **완료**(Part2 보류) |
+| **A. ami-work** | 로딩 경량화(Part1·3·**Part2 siteData캐시-우선**) + 개별불가동기화 + UI상태리셋 + **마커 좌표기준 합치기** | **완료** → [[amimap_part2_sitedata_cache]] [[amimap_marker_coord_merge]] |
 | **C. 계기큐**(awms-queue) | 경량화(캐시즉시렌더+dedup) + UI(진행비주얼·로그버튼·실패번역) + 깜빡임수정 | **완료** → [[awms_queue_lightweight_done]] |
 | **B. 종로앱** | APP_VERSION통일+siteData force-cache+초기화2배다운로드제거 | **완료** → [[jongno_lightweight_done]] |
 | **D. ami-queue**(통신큐) | OTP내장+자체awms로그인+겹침방지+saveAct빌더(500해결·마스터슬레이브·사진) 완료 / 앱통합(수집폼·예약전송·EXIF시프트·QR) 남음 | **진행중**(2026-06-13) → [[awms_saveact_500_fix]] [[awms_otp_amiqueue_embed]] |
@@ -44,6 +44,8 @@
 - **계기큐 백그라운드 일괄등록 = awms fetch 오버레이로 해결**(2026-06-13, APK). 다른앱(아미큐/헬퍼/지도) 쓰며 등록 OK. ★단 배치 중 계기큐를 최근앱서 스와이프 종료 금지(Activity 죽으면 오버레이도 죽음), 화면OFF 주머니(Doze)는 미검증. → [[awms_queue_webview_visibility_freeze]].
 - **종로맵 배포 시 APP_VERSION 갱신**(map.html/stats.html 통일) — 안 하면 옛화면 잔존.
 - **TOU = 정적파일(data/tou-data.json), Firebase 아님 — push로 반영.** 마커 미완은 해당 배치만.
+- **★site-data.json 변경 시 `python3 scripts/gen_site_version.py` 필수**(Part2 캐시-우선 로더 — 안 하면 작업자 폰 옛 IDB캐시 유지). → [[amimap_part2_sitedata_cache]].
+- **아미맵 마커 = 좌표 기준 그룹핑**(같은 좌표 여러 지번 1마커, 재건축 한건물 통합). 완료 시 구성 지번 전부 기록. → [[amimap_marker_coord_merge]].
 - **28(완료) 되돌리기 불가**(계기팀). 통신팀은 전송 전이면 삭제·수정 자유.
 - **주소상태(workStatus)는 무조건 Firebase.** 종로DB=ami-jongno.
 - **ami-work/jongno 코드는 PM 직접 수정**(에이전트 권한거부). 계기큐 APK는 빌드 가능.
