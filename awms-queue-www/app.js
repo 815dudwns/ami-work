@@ -240,7 +240,7 @@ window.refreshQueue = refreshQueue;
 
 // 우상단 버전 표시 (새 배포 반영 확인용) — push마다 갱신
 (function () {
-    var APP_VER = 'v0612-키부족재시도';
+    var APP_VER = 'v0613-awmscomplete고정키';
     function show() {
         if (!document.body) { setTimeout(show, 300); return; }
         if (document.getElementById('app-ver')) return;

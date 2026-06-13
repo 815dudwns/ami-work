@@ -84,7 +84,9 @@ async function syncCompleted() {
             total: (rows[0] && rows[0].CNT) || rows.length,  // 서버 보고 총건수
             rows,
         };
-        const putUrl = `${AWMS_WORK_DB}/awmscomplete/c${Date.now()}.json`;
+        // 고정키 latest로 덮어쓰기 — 매번 c{타임스탬프} 새 키 생성하던 940KB 누적 종료.
+        // 종로 sync-meter-from-awms.html은 shallow로 최신 키 1개만 읽으므로 호환 유지(키 1개=항상 latest).
+        const putUrl = `${AWMS_WORK_DB}/awmscomplete/latest.json`;
         try {
             const pr = await fetch(putUrl, {
                 method: 'PUT',
