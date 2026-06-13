@@ -28,9 +28,11 @@ const ACCOUNTS = [
 ];
 
 const AUTH_KEY = 'ami_auth';
-// 강제 재로그인 버전 — 이 값을 바꾸면 모든 사용자가 자동 로그아웃됨
-const AUTH_VERSION = '20260612a';
-const AUTH_VERSION_KEY = 'ami_auth_version';
+// 강제 로그아웃 버전 — ★긴급(보안/중대버그)시에만 값을 올린다. 평소 배포에는 절대 건드리지 않는다.
+// 값을 올리면, 이전 값을 저장해둔 사용자만 1회 로그아웃된다.
+// 저장값이 없으면(신규 설치 / WebView 저장소 휘발) 로그아웃하지 않는다 — 불필요한 재로그인 방지.
+const FORCE_LOGOUT_VERSION = '20260613a';
+const FORCE_LOGOUT_VERSION_KEY = 'ami_force_logout_version';
 
 /**
  * 로그인 시도
@@ -45,7 +47,7 @@ function authLogin(id, pw) {
     }
     const session = { id: account.id, name: account.name, role: account.role };
     localStorage.setItem(AUTH_KEY, JSON.stringify(session));
-    localStorage.setItem(AUTH_VERSION_KEY, AUTH_VERSION);
+    localStorage.setItem(FORCE_LOGOUT_VERSION_KEY, FORCE_LOGOUT_VERSION);
     return { ok: true };
 }
 
@@ -72,19 +74,28 @@ function authLogout() {
 
 /**
  * 로그인 여부 확인 — 미인증이면 login.html로 리다이렉트
- * AUTH_VERSION 다르면 새 배포로 간주 — localStorage 비우고 강제 재로그인
+ *
+ * 강제 로그아웃은 FORCE_LOGOUT_VERSION이 바뀌고 + 사용자가 이전 값을 저장해뒀을 때만 1회 발생.
+ * 저장값이 없으면(신규 / WebView 저장소 휘발) 로그아웃하지 않는다 — "배포 안 했는데 자꾸 초기화" 방지.
+ * 평소 배포는 이 버전을 건드리지 않으므로 세션·캐시·이벤트큐가 모두 보존된다.
  */
 function authRequire() {
-    const localVer = localStorage.getItem(AUTH_VERSION_KEY);
-    if (localVer !== AUTH_VERSION) {
-        // 새 버전 배포 — 캐시·세션 다 비우고 로그인 페이지로
-        localStorage.clear();
+    const localVer = localStorage.getItem(FORCE_LOGOUT_VERSION_KEY);
+    if (localVer && localVer !== FORCE_LOGOUT_VERSION) {
+        // 긴급 강제 로그아웃 — 세션만 제거. 이벤트큐(EVENTS_KEY)·데이터캐시는 보존(미전송 작업 유실 방지, 다음 로그인 후 flush)
+        localStorage.removeItem(AUTH_KEY);
+        localStorage.removeItem(FORCE_LOGOUT_VERSION_KEY);
         sessionStorage.clear();
-        localStorage.setItem(AUTH_VERSION_KEY, AUTH_VERSION);
         window.location.replace('login.html');
         return;
     }
     if (!authGetSession()) {
         window.location.href = 'login.html';
+        return;
+    }
+    // 기존 로그인 사용자(옛 버전키만 가진 사람) 백필 — 버전키 없으면 현재값 기록.
+    // 안 하면 향후 긴급 FORCE_LOGOUT_VERSION 변경이 이 사용자에게 안 먹는다.
+    if (!localVer) {
+        localStorage.setItem(FORCE_LOGOUT_VERSION_KEY, FORCE_LOGOUT_VERSION);
     }
 }

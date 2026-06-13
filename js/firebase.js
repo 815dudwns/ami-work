@@ -87,13 +87,29 @@ async function flushEventQueue() {
         updates[`${p}/meterChecks/${m}`] = { checked: ev.type === 'check', ts: ev.ts };
     });
 
+    // 전송 전 큐 id 스냅샷 — await 중 추가된 이벤트를 삭제하지 않기 위한 race condition 방지
+    const sentIds = new Set(queue.map(e => e.id));
+
     try {
         await statusRef.update(updates);
-        saveEventQueue([]);
+        // 전송한 id만 제거 (await 중 enqueue된 새 이벤트 보존)
+        saveEventQueue(loadEventQueue().filter(e => !sentIds.has(e.id)));
         console.log('[Queue] 이벤트 전송 완료, 건수:', queue.length);
     } catch (e) {
         console.warn('[Queue] 이벤트 전송 실패, 큐 유지:', e.message);
     }
+}
+
+// 디바운스 전송 — 연속 작업(체크 여러 개·완료)을 모아서 마지막 작업 후 2.5초 뒤 1회 전송.
+// 고정 주기가 아니라 "작업 멈추면" 보냄. 이벤트는 즉시 localStorage 큐에 보존되므로 유실 없음.
+let _flushTimer = null;
+function flushEventQueueDebounced(ms = 2500) {
+    if (_flushTimer) clearTimeout(_flushTimer);
+    _flushTimer = setTimeout(() => { _flushTimer = null; flushEventQueue(); }, ms);
+}
+function flushEventQueueNow() {
+    if (_flushTimer) { clearTimeout(_flushTimer); _flushTimer = null; }
+    return flushEventQueue();
 }
 
 // ── Firebase 초기화 및 DB 연결 ─────────────────────────────────
@@ -170,6 +186,9 @@ function saveStateEvent(address, state, reason, updatedBy, updatedByName) {
         rework: state !== 'pending' ? false : undefined,
         ts: Date.now(),
     });
+
+    // 작업 즉시 전송 (fire-and-forget — 실패 시 큐 유지되어 다음 기회에 재시도)
+    if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
 }
 
 // 체크 토글
@@ -197,39 +216,47 @@ function saveCheckEvent(address, meter, checked) {
         if (workStatus[addr]?.checkedMeters?.length) allChecked[addr] = workStatus[addr].checkedMeters;
     });
     saveCheckedLocal(allChecked);
+
+    // 작업 즉시 전송 (fire-and-forget)
+    if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
 }
 
 // ── Firebase 데이터 → 내부 형식 변환 ─────────────────────────
 
+// 단일 Firebase 값(val) → 내부 형식 객체 변환 (주소 키 불필요, 값 객체만 처리)
+function buildOneFromFirebase(val) {
+    const meterChecks = val.meterChecks || {};
+    let checkedMeters;
+
+    // 기존 배열 형태도 지원 (하위호환)
+    if (Array.isArray(val.checkedMeters)) {
+        checkedMeters = val.checkedMeters;
+    } else {
+        checkedMeters = Object.entries(meterChecks)
+            .filter(([, v]) => v.checked)
+            .map(([encodedMeter]) => decodeKey(encodedMeter));
+    }
+
+    return {
+        state:         val.state         || 'pending',
+        reason:        val.reason        || '',
+        updatedAt:     val.updatedAt     || '',
+        updatedBy:     val.updatedBy     || '',
+        updatedByName: val.updatedByName || '',
+        rework:        val.rework === true,
+        previousCompleteAt: val.previousCompleteAt || '',
+        previousCompleteBy: val.previousCompleteBy || '',
+        checkedMeters,
+        meterChecks,  // 원본 보관 (ts 비교용)
+        added_meters: val.added_meters || {},   // 사용자 추가 계기 (admin 등)
+    };
+}
+
+// buildWorkStatusFromFirebase — 전체 객체 변환 (기존 호출처 호환 유지)
 function buildWorkStatusFromFirebase(data) {
     const result = {};
     Object.entries(data).forEach(([encodedAddr, val]) => {
-        const addr = decodeKey(encodedAddr);
-        const meterChecks = val.meterChecks || {};
-        let checkedMeters;
-
-        // 기존 배열 형태도 지원 (하위호환)
-        if (Array.isArray(val.checkedMeters)) {
-            checkedMeters = val.checkedMeters;
-        } else {
-            checkedMeters = Object.entries(meterChecks)
-                .filter(([, v]) => v.checked)
-                .map(([encodedMeter]) => decodeKey(encodedMeter));
-        }
-
-        result[addr] = {
-            state:         val.state         || 'pending',
-            reason:        val.reason        || '',
-            updatedAt:     val.updatedAt     || '',
-            updatedBy:     val.updatedBy     || '',
-            updatedByName: val.updatedByName || '',
-            rework:        val.rework === true,
-            previousCompleteAt: val.previousCompleteAt || '',
-            previousCompleteBy: val.previousCompleteBy || '',
-            checkedMeters,
-            meterChecks,  // 원본 보관 (ts 비교용)
-            added_meters: val.added_meters || {},   // 사용자 추가 계기 (admin 등)
-        };
+        result[decodeKey(encodedAddr)] = buildOneFromFirebase(val);
     });
     return result;
 }
@@ -269,37 +296,41 @@ async function removeAddedMeter(address, meterId) {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus)); } catch (e) {}
 }
 
-// Firebase 데이터와 로컬 데이터를 updatedAt 기준으로 병합 (더 최신 쪽 유지)
-function mergeFirebaseData(firebaseData) {
-    const converted = buildWorkStatusFromFirebase(firebaseData);
+// ── 증분 리스너용 단일 주소 머지 ─────────────────────────────
+// addr: 디코딩된 주소 키, rawVal: Firebase snap.val() 원본
+function mergeOneAddress(addr, rawVal) {
+    const fb    = buildOneFromFirebase(rawVal);
+    const local = workStatus[addr];
 
-    Object.keys(converted).forEach(addr => {
-        const fb    = converted[addr];
-        const local = workStatus[addr];
-        if (!local) {
-            workStatus[addr] = fb;
-            return;
-        }
-        // new Date(isoString).getTime()은 timezone 무관하게 동일 ms로 환산됨.
-        // 신규 저장은 isoKst() 사용 — 옛 레코드(timezone 미표기)는 UTC 해석 주의.
-        const fbTime    = fb.updatedAt    ? new Date(fb.updatedAt).getTime()    : 0;
-        const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
-        if (fbTime > localTime) {
-            // Firebase가 더 최신 — 단, 로컬 전용 필드(failedMeters)는 유지
-            workStatus[addr] = { ...fb, failedMeters: local.failedMeters || {} };
-        } else {
-            // 로컬 유지하더라도 added_meters(추가계기)는 Firebase 권위로 합집합 반영.
-            // 계기추가는 updatedAt을 안 바꿔 timestamp 게이트에 안 걸리므로, 여기서 안 합치면
-            // 재진입 시 Firebase에 저장된 추가계기가 로컬에 묻혀 사라짐.
-            local.added_meters = { ...(fb.added_meters || {}), ...(local.added_meters || {}) };
-        }
+    if (!local) {
+        workStatus[addr] = fb;
+        return;
+    }
+
+    const fbTime    = fb.updatedAt    ? new Date(fb.updatedAt).getTime()    : 0;
+    const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
+
+    if (fbTime > localTime) {
+        // Firebase가 더 최신 — 단, 로컬 전용 필드(failedMeters)는 유지
+        workStatus[addr] = { ...fb, failedMeters: local.failedMeters || {} };
+    } else {
+        // 로컬 유지하되 added_meters(추가계기)는 Firebase 권위로 합집합 반영
+        local.added_meters = { ...(fb.added_meters || {}), ...(local.added_meters || {}) };
+    }
+}
+
+// Firebase 데이터와 로컬 데이터를 updatedAt 기준으로 병합 (더 최신 쪽 유지)
+// mergeOneAddress를 루프 호출하여 중복 없이 처리
+function mergeFirebaseData(firebaseData) {
+    Object.entries(firebaseData).forEach(([encodedAddr, val]) => {
+        mergeOneAddress(decodeKey(encodedAddr), val);
     });
 
     applyLocalChecked();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
 }
 
-// Firebase에서 workStatus 읽기
+// Firebase에서 workStatus 읽기 (레거시 — 더 이상 initFirebase에서 호출 안 함, 외부 호환용 유지)
 async function syncFromFirebase() {
     if (!statusRef) return;
     try {
@@ -316,7 +347,70 @@ async function syncFromFirebase() {
     }
 }
 
-// ── 초기 로드 + 주기 동기화 ───────────────────────────────────
+// ── 증분 리스너 ───────────────────────────────────────────────
+
+// localStorage 디바운스 저장 (burst 시 다수 child_changed가 몰려도 1회만 저장)
+let _persistTimer = null;
+function persistAll() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus)); } catch (e) {}
+}
+function persistAllDebounced() {
+    if (_persistTimer) clearTimeout(_persistTimer);
+    _persistTimer = setTimeout(persistAll, 300);
+}
+
+// child_changed 1건: 마커 즉시 갱신 + localStorage 디바운스 저장
+function persistAndPaint(addr) {
+    if (typeof updateMarkerColor === 'function') updateMarkerColor(addr);
+    persistAllDebounced();
+}
+
+// 초기 전체 수신 완료 플래그
+let _initialLoadDone = false;
+
+// 증분 리스너 부착 — syncFromFirebase 대체 (풀다운로드 없음)
+// child_added / child_changed / child_removed + once('value') 를 같은 동기 블록에서 부착
+// → Firebase SDK가 1개 서버 구독을 공유해 초기 다운로드가 1회로 처리됨.
+// ★ 주의: 이 함수 밖에서 statusRef.get() 등 추가 읽기 금지 (2배 다운로드 방지)
+function attachStatusListeners() {
+    _initialLoadDone = false;
+
+    statusRef.on('child_added', snap => {
+        mergeOneAddress(decodeKey(snap.key), snap.val());
+        if (_initialLoadDone) {
+            persistAndPaint(decodeKey(snap.key));
+        }
+        // 초기 burst 중에는 once('value') 후 일괄 처리 → CPU/렌더 폭발 방지
+    });
+
+    statusRef.on('child_changed', snap => {
+        mergeOneAddress(decodeKey(snap.key), snap.val());
+        if (_initialLoadDone) {
+            persistAndPaint(decodeKey(snap.key));
+        }
+    });
+
+    statusRef.on('child_removed', snap => {
+        const addr = decodeKey(snap.key);
+        delete workStatus[addr];
+        if (_initialLoadDone) {
+            persistAll();
+            if (typeof refreshAllMarkers === 'function') refreshAllMarkers();
+        }
+    });
+
+    // 초기 전체 수신 완료 신호 — child_added와 다운로드를 공유하므로 별도 get() 없음.
+    // payload(snapshot)는 버리고 "완료 신호"로만 사용.
+    statusRef.once('value', () => {
+        _initialLoadDone = true;
+        applyLocalChecked();
+        persistAll();
+        if (typeof refreshAllMarkers === 'function') refreshAllMarkers();
+        console.log('[Firebase] 증분 리스너 초기 로드 완료, 주소수:', Object.keys(workStatus).length);
+    });
+}
+
+// ── 초기 로드 + 리스너 부착 ───────────────────────────────────
 async function initFirebase() {
     console.log('[Firebase] initFirebase 시작');
 
@@ -346,28 +440,22 @@ async function initFirebase() {
         // 미전송 이벤트 큐 먼저 전송
         await flushEventQueue();
 
-        await syncFromFirebase();
-        applyLocalChecked();
+        // 풀다운로드 폴링 대신 증분 리스너 부착
+        // ★ attachStatusListeners 안에서 child_* + once('value') 를 같은 동기 블록 부착
+        //   → 초기 다운로드 1회 공유. 추가 get()/syncFromFirebase 호출 금지.
+        attachStatusListeners();
 
-        // 30초 간격으로 Firebase 동기화 + 큐 재시도
-        setInterval(async () => {
-            await flushEventQueue();
-            await syncFromFirebase();
-            if (typeof refreshAllMarkers === 'function') {
-                refreshAllMarkers();
-            }
-        }, 30000);
-
-        // 창/탭이 다시 활성화될 때 즉시 동기화
-        document.addEventListener('visibilitychange', async () => {
+        // visibilitychange: flush만 (리스너가 항상 연결 유지하므로 sync 불필요)
+        document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
-                console.log('[Sync] 창 활성화 — Firebase 동기화 시작');
-                await flushEventQueue();
-                await syncFromFirebase();
-                if (typeof refreshAllMarkers === 'function') {
-                    refreshAllMarkers();
-                }
+                console.log('[Sync] 창 활성화 — 미전송 큐 재시도');
+                flushEventQueueNow();
+            } else {
+                // 백그라운드 전환 — 디바운스 대기 중인 미전송분 즉시 전송 (앱 종료 대비)
+                flushEventQueueNow();
             }
         });
+        // 탭/앱 완전 종료 직전에도 미전송분 시도 (best-effort)
+        window.addEventListener('pagehide', () => { flushEventQueueNow(); });
     }
 }
