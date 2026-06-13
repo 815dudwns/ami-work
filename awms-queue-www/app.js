@@ -456,6 +456,7 @@ async function _runBatch(pending, label) {
                 await markError(item.addr, item.meter, e.message);
                 item.status = 'err'; item.err = e.message;
             }
+            renderQueue();   // ★ 매 건 직후 리스트 즉시 갱신 (영준님: 등록됐는데 리스트 변화 없음 — 끝까지 기다리지 말고 건별 반영)
             if ((ok + err) < pending.length) {
                 log(`  ... 다음까지 대기`);
                 await randomDelay();
@@ -537,7 +538,7 @@ window.refreshQueue = refreshQueue;
 
 // 우상단 버전 표시 (새 배포 반영 확인용) — push마다 갱신
 (function () {
-    var APP_VER = 'v0613-비활성버튼비주얼';
+    var APP_VER = 'v0613-백그라운드유지+리스트건별';
     function show() {
         if (!document.body) { setTimeout(show, 300); return; }
         if (document.getElementById('app-ver')) return;
