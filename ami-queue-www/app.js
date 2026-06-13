@@ -82,16 +82,20 @@ function _loadCollect() {
     const s = document.createElement('script');
     s.id = 'collect-js';
     s.src = 'https://815dudwns.github.io/ami-work/ami-queue-www/collect.js?t=' + Date.now();
-    // 로드 완료 후 네이티브가 보관한 딥링크 key 회수(콜드스타트 — 딥링크로 앱 켤 때)
-    s.onload = function () {
-        try {
-            if (window.AwmsQ && AwmsQ.getPendingCollectKey) {
-                const k = AwmsQ.getPendingCollectKey();
-                if (k && window.__collectHandoff) window.__collectHandoff(k);
-            }
-        } catch (e) {}
-    };
     document.head.appendChild(s);
+}
+
+// 콜드스타트 딥링크 회수 — collect.js 로드/AwmsQ 준비 타이밍에 무관하게 폴링(1회성 key).
+function _pollPendingCollect(tries) {
+    if (tries <= 0) return;
+    let k = '';
+    try { if (window.AwmsQ && AwmsQ.getPendingCollectKey) k = AwmsQ.getPendingCollectKey() || ''; } catch (e) {}
+    if (k) { _fireCollect(k, 8); return; }
+    setTimeout(function () { _pollPendingCollect(tries - 1); }, 500);
+}
+function _fireCollect(k, tries) {
+    if (window.__collectHandoff) { window.__collectHandoff(k); return; }
+    if (tries > 0) setTimeout(function () { _fireCollect(k, tries - 1); }, 400);
 }
 function _injectCollectBtn() {
     if (document.getElementById('btn-collect')) return;
@@ -126,6 +130,7 @@ function _injectCollectBtn() {
     initFb();
     _loadCollect();
     _injectCollectBtn();
+    _pollPendingCollect(12);   // 콜드스타트 딥링크 회수
     await checkSession();
     await refreshQueue();
     setInterval(checkSession, 5 * 60 * 1000);
