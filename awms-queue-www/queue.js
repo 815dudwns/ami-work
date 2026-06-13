@@ -8,8 +8,13 @@
 function _friendlyError(rawMsg) {
     if (!rawMsg) return { label: '미분류 오류', hint: '로그 확인' };
     const s = String(rawMsg).toLowerCase();
-    if (s.includes('500') || s.includes('키부족') || s.includes('getdetail')) {
-        return { label: '신설 저장 실패 — 서버 500 (getDetail 키부족)', hint: '재등록 시 대부분 해결' };
+    // 타이밍성 키부족(철거직후 awms 신설베이스 미반영) — 강행금지로 명확히 throw됨. 재등록하면 해결.
+    if (s.includes('키부족') || s.includes('미반영') || s.includes('getdetail')) {
+        return { label: 'awms 신설베이스 미반영(타이밍)', hint: '철거는 저장됨 — 30초 후 재등록' };
+    }
+    // 키부족이 아닌 순수 500 — 다른 원인이므로 뭉뚱그리지 말 것(raw 확인 유도).
+    if (s.includes('500')) {
+        return { label: '신설 저장 실패 — 서버 500(원인 미상)', hint: 'raw 로그 확인' };
     }
     if (s.includes('계기 없음') || s.includes('해당 계기')) {
         return { label: 'awms에 계기 미등록', hint: '계기번호 확인' };

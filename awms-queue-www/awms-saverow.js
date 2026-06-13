@@ -698,15 +698,21 @@ async function registerReplacement({ addr, meter, rep }) {
     // 철거 saveRow 직후 awms 서버 반영 지연으로 getDetail이 빈/부족 응답을 주는 경우가 있다.
     //   빈이면 점점 길게 대기하며 재시도(2026-06-12 키부족 재발 → 대기재시도 복원).
     let detail = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
-    const _gdWaits = [700, 1500, 2500, 3500, 5000];
+    // 대기 연장(2026-06-13): 기존 13.2초로 부족한 케이스 확인(getDetail 직접호출은 301키=키해소 정상,
+    //   철거직후 그 순간만 빈 응답=타이밍). 누적 약 31초로 연장.
+    const _gdWaits = [1000, 2000, 3000, 5000, 8000, 12000];
     for (let _t = 0; Object.keys(detail).length < 100 && _t < _gdWaits.length; _t++) {
         L(`[saverow] getDetail 키부족(${Object.keys(detail).length}) → ${_gdWaits[_t]}ms 대기 후 재시도 #${_t + 1}`, 'warn');
         await new Promise(r => setTimeout(r, _gdWaits[_t]));
         detail = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
     }
+    // ★ 강행 금지(2026-06-13): 재시도 소진 후에도 키 부족이면 신설 saveRow 중단.
+    //   빈/부족 payload로 4000 쏘면 500 + cremo 빈 25 찌꺼기(이번 14건의 정체). 명확히 실패시켜 재등록 유도.
+    if (Object.keys(detail).length < 100) {
+        throw new Error(`getDetail 키부족(${Object.keys(detail).length}/301) — awms 신설베이스 미반영(타이밍). 잠시 후 재등록`);
+    }
     const mtrlInfo = await _lookupMtrl(newMeter);
     L(`[saverow] getDetail 키수=${Object.keys(detail).length} / 자재 MTRL_NO=${mtrlInfo.MTRL_NO || '-'} MNFCT_YM=${mtrlInfo.MNFCT_YM || '-'}`);
-    if (Object.keys(detail).length < 100) L(`[saverow] ⚠ getDetail 키수 부족(${Object.keys(detail).length}) — 28 완료 실패 위험`, 'warn');
 
     // 5) 신설 saveRow (mobMtr4000) + 철거후 사진 (WORK_STEP=25 유지)
     const sealKnd = sealInfo.TRML_SEAL_KND_CD || 'A';
