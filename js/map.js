@@ -48,6 +48,55 @@ let locationOverlay = null;
 let locationWatchId = null;
 let locationActive = false;
 
+// 데이터셋 1개 로드 — 실효(16MB)는 캐시-우선(IndexedDB), skt/tou(작음)는 직접 fetch.
+async function loadDataset(d) {
+    try {
+        let rows;
+        if (d.category === '실효') {
+            rows = await loadSiteDataCached(d.file);
+        } else {
+            const r = await fetch(d.file, { cache: 'no-cache' });
+            rows = r.ok ? await r.json() : [];
+        }
+        return rows.map(r => ({ ...r, category: d.category }));
+    } catch (e) {
+        console.warn(`[load ${d.category}] 실패:`, e);
+        return [];
+    }
+}
+
+// 실효 site-data 캐시-우선(stale-while-revalidate 단순화):
+//   버전 fetch(작음) → IDB 캐시와 비교 → 같으면 IDB raw 재사용(16MB 재다운로드 0),
+//   다르면(또는 캐시 없음/IDB 불가) 풀 fetch + IDB 갱신. 어떤 실패도 풀 fetch로 폴백(누락 금지).
+//   ★버전은 IDB 안에 데이터와 함께 저장 — localStorage에 두면 휘발 시 desync.
+async function loadSiteDataCached(file) {
+    let ver = null;
+    try {
+        const vr = await fetch('./data/site-data.version.json', { cache: 'no-cache' });
+        if (vr.ok) ver = (await vr.json()).version;
+    } catch (e) { /* 버전 못 받으면 캐시 못 쓰고 풀 fetch */ }
+
+    if (ver) {
+        try {
+            const cached = await idbGet('site-data');
+            if (cached && cached.version === ver && typeof cached.text === 'string') {
+                console.log('[siteData] 캐시 히트(IDB) — 재다운로드 0, ver', ver);
+                return JSON.parse(cached.text);
+            }
+        } catch (e) { /* IDB 실패 → 풀 fetch */ }
+    }
+
+    const r = await fetch(file, { cache: 'no-cache' });
+    const text = r.ok ? await r.text() : '[]';
+    if (ver) {
+        try {
+            await idbSet('site-data', { version: ver, text });
+            console.log('[siteData] 풀 fetch + IDB 캐시 갱신, ver', ver);
+        } catch (e) { console.warn('[siteData] IDB 저장 실패(무시, 동작엔 영향 없음):', e); }
+    }
+    return JSON.parse(text);
+}
+
 // 지도 초기화 (카카오맵 생성 + 마커 로드)
 async function initMap() {
     workStatus = loadStatusLocal();
@@ -68,11 +117,7 @@ async function initMap() {
     });
 
     try {
-        const loaded = await Promise.all(DATASETS.map(d =>
-            fetch(d.file, { cache: 'no-cache' }).then(r => r.ok ? r.json() : [])
-                .then(rows => rows.map(r => ({ ...r, category: d.category })))
-                .catch(e => { console.warn(`[load ${d.category}] 실패:`, e); return []; })
-        ));
+        const loaded = await Promise.all(DATASETS.map(loadDataset));
         sampleData = loaded.flat();
     } catch (e) {
         console.error('[siteData] 로드 실패:', e);
