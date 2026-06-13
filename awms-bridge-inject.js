@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v76'; // v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정. v75: OTP Firebase 폴링+MutationObserver
+  var VER = 'v77'; // v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -758,7 +758,16 @@ function parseValue(text) {
         if (isSubmitEl || hasLoginTxt) {
           // password input 있는 폼과 연관된 경우만
           var f = detectLoginFields();
-          if (f) saveCurrentCred();
+          if (f) {
+            saveCurrentCred();
+            // ── OTP 겹침방지: OTP 발송 트리거 버튼이면 "내가 요청자" 로컬 표시 ──
+            // 같은 폰(A33) 헬퍼+아미큐 둘 다 NLS 감지 시, 요청한 앱만 카톡 캡쳐.
+            // __markOtpReq = 네이티브가 주입(자기앱 SharedPreferences otp_req_ts=now). 없으면 무동작(구버전 앱).
+            var elId2 = el.id || '';
+            if (/^(btnAuthor|btnLogin|btnRetry)$/.test(elId2) || /인증번호|로그인|login/i.test(txt)) {
+              if (window.__markOtpReq) { try { window.__markOtpReq(); rec({ stage: 'otp-req-mark', btn: elId2 || txt.slice(0, 8) }); } catch (e) {} }
+            }
+          }
         }
       } catch (e) {}
     }, true); // 캡처 단계
