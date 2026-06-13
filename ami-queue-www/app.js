@@ -1,5 +1,8 @@
 // AMI Queue — 메인 (로그 패널 / 세션 / 초기화). Phase A: 목록 표시·삭제만.
 
+// 앱 버전 (원격로드 반영 확인용 — 화면 헤더에 표시). 갱신 시 CLAUDE.md 버전표도 갱신.
+const APP_VER = 'v0613a-수집폼';
+
 // ── 화면 처리상황 패널 ──────────────────────────
 function _statusPanel() {
     let el = document.getElementById('qstatus');
@@ -98,7 +101,8 @@ function _injectCollectBtn() {
 
 // ── 초기화 ──────────────────────────────────────
 (async () => {
-    log('AMI Queue 시작 [Phase A: 목록·삭제만, awms write 없음]', 'ok');
+    log('AMI Queue ' + APP_VER + ' 시작', 'ok');
+    try { const sub = document.getElementById('header-sub'); if (sub) sub.textContent = APP_VER + ' · awms 세션 연결 필요'; } catch (e) {}
     initFb();
     _loadCollect();
     _injectCollectBtn();
