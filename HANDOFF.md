@@ -14,12 +14,16 @@
 |---|---|---|
 | **A. ami-work** | 로딩 경량화(Part1·3) + 개별불가동기화 + UI상태리셋 | **완료**(Part2 보류) |
 | **C. 계기큐**(awms-queue) | 경량화(캐시즉시렌더+dedup) + UI(진행비주얼·로그버튼·실패번역) + 깜빡임수정 | **완료** → [[awms_queue_lightweight_done]] |
-| **B. 종로앱** | 로딩 경량화 = A/C 공통패턴 이식 + map↔stats APP_VERSION 불일치 1줄 버그 | 대기(다음) |
+| **B. 종로앱** | APP_VERSION통일+siteData force-cache+초기화2배다운로드제거 | **완료** → [[jongno_lightweight_done]] |
 | **D. ami-queue**(통신큐) | 완성 = C 이식 + awms 호출 확인 + C 구조 반영 | 대기(C 연동) |
 
-순서: A✓ → C✓ → **B → D**. 종로 머지로직은 ami-work와 상이(comm/replacement) 주의.
+순서: A✓ → C✓ → B✓ → **D**. 종로 머지로직은 ami-work와 상이(comm/replacement) — child_*증분 보류(폴링없어 이득작음).
+※종로 캐시버스트/APP_VERSION 분리 정착: 코드변경=map.html `?v=`만, APP_VERSION은 전원 재로드 필요시만.
 
 ## 대기 액션 (영준님 결정/확인 필요)
+- **★ 7/1 ami-work Blaze→Spark 복귀** — 무료체험 크레딧(7/2 종료) 전 되돌려야 DB 차단 방지. `gcloud billing projects unlink ami-work-1c49a`. 7월이면 무료한도 리셋+경량화로 Spark 충분. 맥 미리알림 등록됨.
+- **헬퍼 카톡 OTP 자동로그인 실사용 확인** — adb 무손 완주 입증 완료(2026-06-13). 영준님 복귀 후 폰 설정에서 알림접근·접근성(AWMS Helper) 한번 켜고 정상 로그인 1회 확인. 디테일 [[awms_otp_amiqueue_embed]].
+- **아미큐 재빌드 시 OTP 감지 내장** / **계기큐 A31 무인 화면깨움 검증**(별도수집기 트랙) — [[awms_otp_amiqueue_embed]].
 - **awms 통신팀 0553 6건 전송(sendSelections) 여부** — 맥변경 완료, 전송 전 상태. 영준님 결정 대기.
 - **계기큐 옛 awmscomplete c키 2개 청소** — `latest` 고정키가 한 번 생성된(다음 awms 새로고침) 뒤 안전.
 - **계기큐 site-data 재다운로드 측정** — 폰 풀리면(awms 로그인 무관). force-cache 유지 여부 → loadSiteMap 캐시 필요성 결정.
@@ -29,9 +33,14 @@
 ## 블로커
 없음. (제주 완료0 / 종로 미연계 = 영준님 지시로 제외)
 
-## 사용량/요금제 결론 (2026-06-13, 영구)
-- **ami-work = Spark 무료, billingEnabled=false → 돈 0원.** "10GB 다 씀"은 무료 한도(차단 위험)지 과금 아님.
-- 범인 = workStatus 30초 폴링(≈9.6GB/일) → **Part3 증분 리스너로 해결됨.** DB 이전·유료전환 불필요.
+## Firebase 요금제/사용량 (2026-06-13 갱신)
+- **ami-work RTDB 다운로드 무료 한도 100% 소진 → 차단 위험. Blaze 전환으로 해제.**
+  - billing 계정 = **무료체험 크레딧 `01214A-10A39B-960378` "내 결제 계정"**(₩453,008, 7/2 종료). gcloud로 link → `billingEnabled=true` 확인. ★"Firebase 결제"(01CCFF)는 실제 청구 계정이라 안 씀.
+  - 과금은 무료 크레딧 차감(경량화로 거의 0). 예산 알림 ₩10,000 설정(알림용, 차단 아님).
+  - **DB 이전(B안)은 안 함** — 일시적(이번달) 문제에 영구·광범위 변경(작업자 폰 재배포·awmscomplete 등 허브 참조 전부 수정)이라 리스크 과다. 경량화로 다음달 현 DB도 무료 내.
+- 100% 범인 = workStatus 30초 폴링(≈9.6GB/일) → **Part3 증분 리스너로 해결**(경량화 전부 push). 다음달부터 무료 한도 내 예상.
+- **ami-work Storage = 안 씀(버킷 404, 미생성)** — 한도 걱정 0. 사진 Storage는 ami-jongno만. config.js storageBucket은 기본값일 뿐 실파일 0.
+- **★ 7/1 Spark 복귀 필수**(대기 액션 참조) — 무료체험 7/2 종료 전.
 - ocr-meter는 ami-jongno만 읽음(ami-work 무관). 분리위반: 종로 sync-meter-from-awms.html이 ami-work DB awmscomplete 사용 → ami-jongno 이전 검토(별건).
 
 ## 핵심 규칙 (사고 방지 — 영구)
@@ -44,3 +53,4 @@
 - **ami-work/jongno 코드는 PM 직접 수정**(에이전트 권한거부). 계기큐 APK는 빌드 가능.
 - 종로 import: 실작업(source없음) 보호. 추가계기·추가데이터는 awms 안 감.
 - **AUTH/FORCE_LOGOUT_VERSION 평소 배포에 건드리지 말 것** — 잦은 범프가 "앱 초기화" 원인 [[ami_work_init_logout_fix]].
+- **awms 로그인 OTP 자동입력** = 카톡 OTP(인증번호)를 **네이티브 접근성 서비스**가 읽어(웹뷰 JS로는 타앱 화면 불가) webview otpWrap에 입력. 헬퍼=자기앱 내장(완료, 개인폰 전용·외부빌드X) / 아미큐=재빌드 시 내장 / 계기큐=A31 별도수집기→Firebase→inject 폴링. 로그태그 `AWMS_OTP`(수집기는 `OTPCOL`). 헬퍼 재시작 시 접근성 INSTANCE 재바인드 필요(설정 토글). 전부 [[awms_otp_amiqueue_embed]].
