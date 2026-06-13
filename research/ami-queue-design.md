@@ -4,6 +4,30 @@
 > 수집(1단계)=datapush-design.md / 전송(2단계)=이 문서. 이름 **AMI Queue**.
 > 기존 `awms-queue`(종로 계기팀, saveRow/ami-jongno)와 **별개 앱** — 같은 인프라 패턴 재활용.
 
+## 0. 작업방식 2종 + 수집 데이터소스 (영준님 확정 2026-06-13)
+
+통신팀 아미큐는 **두 작업방식**을 함 → 수집 데이터소스가 갈린다. 수집은 **아미큐 앱 자체 수집폼**(collect.js)이 담당(폐기된 ami-work DataPush 모달 대체). 입력(모뎀맥·사진·통신방식)은 전부 아미큐에서.
+
+| | **일반시공** (혼자) | **동행시공** (계기팀과, 종로/중구) |
+|---|---|---|
+| 데이터 소스 | ami-work `siteData/charger4eleccar` (숫자키→계기 dict) | ami-jongno `workStatus/jongno/{주소}/replacement_list/{old_meter_id}` |
+| 신계기번호 | `계기번호` 필드 | `new_meter_id` 필드 (계기팀이 종로앱에 완료/임시저장) |
+| 자동필드 | 계기유형(번호파싱)·지사→DEPT2 | 계기유형·칸수(`cntr_clas`계약종별+`cntr_pwr`계약전력)·봉인(`seal_no`)·차수(`cha`)·고객(`cust_no`) |
+| MTR_WITH_YN | N | **Y** |
+| 계기팀 미완료분 | — | **수기 보완** (replacement에 없으면 직접 입력) |
+
+**공통 진입 규칙(영준님 핵심):** 계기번호 **하나만** 입력(현장 QR/수기)해도 → **그 주소의 전체 계기를 자동으로 끌어온다.** 현장에서 하나씩 안 넣게.
+- 일반: 계기번호 → ami-work siteData 역조회(`.indexOn` 계기번호) → 주소(도로명주소) → 그 주소 전체 계기(`.indexOn` 주소).
+- 동행: new_meter_id → ami-jongno에서 그 주소 찾기 → 그 주소 replacement_list 전체 new_meter_id. (workStatus/jongno는 주소키 구조라 new_meter_id 역조회는 종로 규모상 전체순회/캐시 검토 — 종로구+중구만이라 가벼움.)
+
+**진입 경로 2개(공존):**
+1. **아미맵 현장버튼**(A, 구현됨): 주소 통째 handoff → 아미큐. (일반시공)
+2. **계기번호 직접입력**(QR/수기): 아미큐가 위 규칙으로 주소 전체 자동확장. 작업방식(동행/일반) 토글로 소스 선택.
+
+**ami-jongno replacement_list 항목 필드**(실측 2026-06-13): `old_meter_id`(키)·`new_meter_id`·`cntr_clas`·`cntr_pwr`·`cust_no`·`gum_day`(검침일)·`seal_no`·`removal_value(s)`·`new_meter_mfg_ym`·`cha`·`replaced_at`·`source`·`worker`. 주소노드에 `comm_state`/`comm_completed_list`(통신팀 작업상태 이미 통합) + `meter_*`(계기팀 상태).
+
+> 아래 1~9는 **전송(saveAct) 단계** 설계. 수집 소스가 동행이면 datapush_queue에 `workMode:'동행'`+MTR_WITH_YN=Y로 적재.
+
 ## 1. 정체 / 책임
 - 입력: ami-work Firebase `datapush_queue/{id}` (DataPush 수집물).
 - 출력: 한전 awms `POST /ami/mob/cst/mobCst1000/saveAct` (설비등록, 마스터·슬래이브 각 1행).

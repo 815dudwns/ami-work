@@ -15,6 +15,11 @@ function showDetail(address, meters) {
     const adminBtn = document.getElementById('admin-upload-btn');
     if (adminBtn) adminBtn.href = `admin.html?addr=${encodeURIComponent(address)}`;
 
+    // awms수집 버튼 — 이 주소 계기풀을 아미큐 앱으로 연동(handoff write + 딥링크)
+    // 노출은 관리자만 (map.html 초기 isAdmin 블록에서 display 제어). 여기선 동작만 연결.
+    const collectBtn = document.getElementById('awms-collect-btn');
+    if (collectBtn) collectBtn.onclick = () => collectToAmiqueue(address, meters);
+
     const status = workStatus[address] || { state: 'pending', checkedMeters: [], reason: '' };
     status.checkedMeters = status.checkedMeters || [];
 
@@ -778,4 +783,42 @@ async function saveNewMeter() {
     } catch (e) {
         showAddMeterToast('저장 실패: ' + e.message);
     }
+}
+
+// ── awms수집 연동: 이 주소 계기풀을 collect_handoff에 write → 아미큐 앱 딥링크 ──
+async function collectToAmiqueue(address, meters) {
+    if (!Array.isArray(meters) || !meters.length) { alert('이 주소에 계기가 없습니다.'); return; }
+    if (typeof db === 'undefined' || !db) { alert('Firebase 미연결'); return; }
+    // 아미큐 수집에 필요한 필드만 추려 가볍게 전달
+    const slim = meters.map(m => ({
+        계기번호: String(m.계기번호 || ''),
+        계기타입: m.계기타입 || '',
+        통신방식: m.통신방식 || '',
+        지사: m.지사 || '',
+        변대주: m.변대주 || '',
+        DCUID: m.DCUID || '',
+        주소: m.주소 || address,
+        도로명주소: m.도로명주소 || '',
+    })).filter(m => m.계기번호);
+    if (!slim.length) { alert('계기번호 있는 계기가 없습니다.'); return; }
+    const key = 'h' + Date.now().toString(36);
+    try {
+        await db.ref('collect_handoff/' + key).set({
+            addr: address,
+            jisa: slim[0].지사 || '',
+            meters: slim,
+            ts: Date.now(),
+            by: (typeof currentUser !== 'undefined' && currentUser) ? currentUser : '',
+        });
+    } catch (e) { alert('연동 데이터 저장 실패: ' + e.message); return; }
+    // 아미큐 앱 딥링크 (폰에서만 동작; 미설치/데스크톱이면 안내)
+    const intentUrl = 'intent://collect?key=' + key
+        + '#Intent;scheme=amiqueue;package=com.youngjun.amiqueue;S.key=' + key + ';end';
+    const t0 = Date.now();
+    try { window.location.href = intentUrl; } catch (e) {}
+    setTimeout(() => {
+        if (Date.now() - t0 < 2500) {
+            alert('아미큐 앱이 열리지 않았습니다.\n폰에서 아미큐 설치 후 다시 시도하거나,\n아미큐 [수집] 버튼에 key를 입력하세요:\n\n' + key);
+        }
+    }, 1500);
 }

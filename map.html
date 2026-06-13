@@ -163,6 +163,7 @@
                 <button class="action-btn hold" id="btn-hold">⏸️ 보류</button>
                 <button class="action-btn fail" id="btn-fail">❌ 불가</button>
                 <a id="admin-upload-btn" href="admin.html" style="display:none;padding:10px 12px;background:#1e3a8a;color:white;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none;white-space:nowrap;">사진등록</a>
+                <button id="awms-collect-btn" style="display:none;padding:10px 12px;background:#7c3aed;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;white-space:nowrap;">awms수집</button>
             </div>
             <div class="fail-reason-row">
                 <input type="text" class="fail-reason" id="fail-reason" placeholder="불가 사유">
@@ -253,6 +254,7 @@
                     document.getElementById('admin-btn').style.display = '';
                     document.getElementById('admin-divider').style.display = '';
                     document.getElementById('admin-upload-btn').style.display = '';
+                    document.getElementById('awms-collect-btn').style.display = '';
                     document.getElementById('add-meter-btn').style.display = '';
                 }
                 // 통계 = 관리자 + 윤용운(user09, 작업자 총괄)
@@ -268,7 +270,7 @@
     <script src="js/firebase.js?v=20260613b"></script>
     <script src="js/awms-parseValue.js?v=20260602a"></script>
     <script src="js/qr-scanner.js?v=20260608ios"></script>
-    <script src="js/detail.js?v=20260613b"></script>
+    <script src="js/detail.js?v=20260613c"></script>
     <script src="js/map.js?v=20260612tou3"></script>
     <script>
         // 앱 메뉴 토글

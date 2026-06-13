@@ -82,6 +82,15 @@ function _loadCollect() {
     const s = document.createElement('script');
     s.id = 'collect-js';
     s.src = 'https://815dudwns.github.io/ami-work/ami-queue-www/collect.js?t=' + Date.now();
+    // 로드 완료 후 네이티브가 보관한 딥링크 key 회수(콜드스타트 — 딥링크로 앱 켤 때)
+    s.onload = function () {
+        try {
+            if (window.AwmsQ && AwmsQ.getPendingCollectKey) {
+                const k = AwmsQ.getPendingCollectKey();
+                if (k && window.__collectHandoff) window.__collectHandoff(k);
+            }
+        } catch (e) {}
+    };
     document.head.appendChild(s);
 }
 function _injectCollectBtn() {
