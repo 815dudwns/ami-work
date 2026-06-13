@@ -86,6 +86,11 @@ function initFb() {
 // refreshQueue — 큐 탭 진입/새로고침 시 호출
 // ─────────────────────────────────────────────
 async function refreshQueue() {
+  // 새로고침 버튼 시각 피드백 (영준님: "새로고침에 액션이 없노") — 누르면 '조회 중' + 비활성, 끝나면 복원.
+  const _btnR = document.getElementById('btn-refresh');
+  const _btnRTxt = _btnR ? _btnR.textContent : '';
+  if (_btnR) { _btnR.disabled = true; _btnR.textContent = '조회 중…'; }
+  try {
     // ★ 새로고침마다 세션 재확인 — awms 로그인 직후 즉시 반영 (영준님 지적: 새로고침=세션 재확인).
     //   _sessionOK·세션바 UI는 checkSession에서만 갱신되므로, 이게 없으면 로그인해도 5분 주기까지 "세션 없음" 잔존.
     if (typeof checkSession === 'function') await checkSession();
@@ -112,6 +117,9 @@ async function refreshQueue() {
         return;
     }
     await loadQueue();       // 2. 큐 갱신 (완료대조 통과 = 안 올라간 것만)
+  } finally {
+    if (_btnR) { _btnR.disabled = false; _btnR.textContent = _btnRTxt || '새로고침'; }
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -455,10 +463,11 @@ function renderQueue() {
             errMsg = `<div class="meta" style="color:#dc2626;font-weight:700">${escapeHtml(fe.label)}</div>`
                    + `<div class="meta" style="color:#9ca3af;font-size:12px">${escapeHtml(fe.hint)}</div>`;
         }
-        // 등록 버튼: 완료면 숨김, 대기/실패면 등록
+        // 등록 버튼: 완료면 숨김, 대기/실패면 등록. 세션 없으면 비활성(영준님: 세션없을때 모든 등록 비활성).
+        const _noSess = (typeof isSessionOK === 'function') && !isSessionOK();
         const action = i.status === 'done'
             ? `<span style="color:#059669;font-weight:700;font-size:12px">완료</span>`
-            : `<button class="btn-primary" style="padding:6px 12px;width:auto"
+            : `<button class="btn-primary" style="padding:6px 12px;width:auto" ${_noSess ? 'disabled' : ''}
                  onclick="runOne('${escapeAttr(i.addr)}', '${escapeAttr(i.meter)}')">${i.status === 'err' ? '재등록' : '등록'}</button>`;
         return `
             <div class="queue-item" style="border-left:4px solid ${s.bd};background:${s.bg}">

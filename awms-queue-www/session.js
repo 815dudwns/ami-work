@@ -109,6 +109,16 @@ function updateSessionBar(extra) {
         bar.className = 'session-bar err';
         if (sub) sub.textContent = '작업자 awms 세션 연결 필요';
     }
+    // 세션 없으면 등록 버튼 전부 비활성화 (영준님: 세션없을때 모든 게 비활성화).
+    //   세션 있으면 여기서 강제 enable 안 함 — renderQueue가 대기 수에 따라 관리(대기0이면 일괄등록 비활성 유지).
+    if (!_sessionOK) {
+        ['btn-run-all', 'btn-run-selected'].forEach(id => {
+            const b = document.getElementById(id);
+            if (b) b.disabled = true;
+        });
+        // 개별 카드 등록 버튼(onclick=runOne)도 비활성화 — awms열기(btn-primary)와 구분
+        document.querySelectorAll('button[onclick^="runOne"]').forEach(b => { b.disabled = true; });
+    }
 }
 
 function setSessionBarMsg(msg) {
