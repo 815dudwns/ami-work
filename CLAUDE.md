@@ -11,7 +11,7 @@
 
 | 앱(호칭) | 버전 위치 | 현재 버전 | 갱신일 |
 |---|---|---|---|
-| **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` | `v0613-비활성버튼비주얼` | 2026-06-13 |
+| **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` / APK | `v0613-네이티브대기(백그라운드진행)` / APK 오버레이fetch | 2026-06-13 |
 | **아미큐**(통신큐·통신팀) | `ami-queue` `versionName` | `1.0` | - |
 | **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260612phasecount2` / `v20260613.2` | 2026-06-13 |
 | **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260613a` | 2026-06-13 |
