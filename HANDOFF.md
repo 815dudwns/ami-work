@@ -15,7 +15,7 @@
 | **A. ami-work** | 로딩 경량화(Part1·3) + 개별불가동기화 + UI상태리셋 | **완료**(Part2 보류) |
 | **C. 계기큐**(awms-queue) | 경량화(캐시즉시렌더+dedup) + UI(진행비주얼·로그버튼·실패번역) + 깜빡임수정 | **완료** → [[awms_queue_lightweight_done]] |
 | **B. 종로앱** | APP_VERSION통일+siteData force-cache+초기화2배다운로드제거 | **완료** → [[jongno_lightweight_done]] |
-| **D. ami-queue**(통신큐) | 완성 = C 이식 + awms 호출 확인 + C 구조 반영 | 대기(C 연동) |
+| **D. ami-queue**(통신큐) | OTP내장+자체awms로그인+겹침방지+saveAct빌더(500해결·마스터슬레이브·사진) 완료 / 앱통합(수집폼·예약전송·EXIF시프트·QR) 남음 | **진행중**(2026-06-13) → [[awms_saveact_500_fix]] [[awms_otp_amiqueue_embed]] |
 
 순서: A✓ → C✓ → B✓ → **D**. 종로 머지로직은 ami-work와 상이(comm/replacement) — child_*증분 보류(폴링없어 이득작음).
 ※종로 캐시버스트/APP_VERSION 분리 정착: 코드변경=map.html `?v=`만, APP_VERSION은 전원 재로드 필요시만.
@@ -23,8 +23,9 @@
 ## 대기 액션 (영준님 결정/확인 필요)
 - **★ 7/1 ami-work Blaze→Spark 복귀** — 무료체험 크레딧(7/2 종료) 전 되돌려야 DB 차단 방지. `gcloud billing projects unlink ami-work-1c49a`. 7월이면 무료한도 리셋+경량화로 Spark 충분. 맥 미리알림 등록됨.
 - **헬퍼 카톡 OTP 자동로그인 실사용 확인** — adb 무손 완주 입증 완료(2026-06-13). 영준님 복귀 후 폰 설정에서 알림접근·접근성(AWMS Helper) 한번 켜고 정상 로그인 1회 확인. 디테일 [[awms_otp_amiqueue_embed]].
-- **아미큐 재빌드 시 OTP 감지 내장** / **계기큐 A31 무인 화면깨움 검증**(별도수집기 트랙) — [[awms_otp_amiqueue_embed]].
+- **아미큐 OTP 감지 내장 = 완료**(2026-06-13 A33 E2E·겹침방지 양방향 검증) / **계기큐 A31 무인 화면깨움 검증**(별도수집기 트랙) — [[awms_otp_amiqueue_embed]].
 - **awms 통신팀 0553 6건 전송(sendSelections) 여부** — 맥변경 완료, 전송 전 상태. 영준님 결정 대기.
+- **계기큐 백그라운드 등록 실배치 최종확인** — 신규 등록가능 건으로 실배치 1회(다른앱 전환하며) 완주 보면 끝. 메커니즘은 A33 검증완료(봉인실패2건 done전환), 신규건 직접관찰만 남음. 화면OFF Doze 보장은 별도 검증 필요.
 - **계기큐 옛 awmscomplete c키 2개 청소** — `latest` 고정키가 한 번 생성된(다음 awms 새로고침) 뒤 안전.
 - **계기큐 site-data 재다운로드 측정** — 폰 풀리면(awms 로그인 무관). force-cache 유지 여부 → loadSiteMap 캐시 필요성 결정.
 - **TOU 작업자 폰 새로고침 반영 확인** — 정적파일이라 자동 reload 아님.
@@ -46,6 +47,7 @@
 ## 핵심 규칙 (사고 방지 — 영구)
 - **awms 맥변경 = 모뎀 재결합(saveAct 아님), 마스터 먼저.** 통신팀(mob/cst)/계기팀(mob/mtr) 별개·교차호출 405. 모뎀맥·마스터/슬레이브는 통신팀 전용. → `awms_API_레퍼런스.md` 8.5.
 - **계기큐 코드수정 = ami-work/awms-queue-www push**(APK빌드 아님, USB 불필요). 네이티브(카메라/파일선택)만 빌드.
+- **계기큐 백그라운드 일괄등록 = awms fetch 오버레이로 해결**(2026-06-13, APK). 다른앱(아미큐/헬퍼/지도) 쓰며 등록 OK. ★단 배치 중 계기큐를 최근앱서 스와이프 종료 금지(Activity 죽으면 오버레이도 죽음), 화면OFF 주머니(Doze)는 미검증. → [[awms_queue_webview_visibility_freeze]].
 - **종로맵 배포 시 APP_VERSION 갱신**(map.html/stats.html 통일) — 안 하면 옛화면 잔존.
 - **TOU = 정적파일(data/tou-data.json), Firebase 아님 — push로 반영.** 마커 미완은 해당 배치만.
 - **28(완료) 되돌리기 불가**(계기팀). 통신팀은 전송 전이면 삭제·수정 자유.
