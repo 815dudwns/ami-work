@@ -6,6 +6,21 @@
 - GitHub: github.com/815dudwns/ami-work
 - 기술: HTML + 바닐라 JS + Kakao Maps + Firebase Realtime DB
 
+## 앱 버전 현황 (★ 배포·코드변경 시 반드시 여기 갱신 — 영준님 지시 2026-06-13)
+> 어느 앱이 어느 버전인지 **단일 출처**. 버전 문자열 바꿀 때마다 이 표도 같이 갱신할 것. 앱 호칭은 [[app_naming_convention]].
+
+| 앱(호칭) | 버전 위치 | 현재 버전 | 갱신일 |
+|---|---|---|---|
+| **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` | `v0613-비활성버튼비주얼` | 2026-06-13 |
+| **아미큐**(통신큐·통신팀) | `ami-queue` `versionName` | `1.0` | - |
+| **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260612phasecount2` / `v20260613.2` | 2026-06-13 |
+| **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260613a` | 2026-06-13 |
+| **헬퍼**(awms-helper) | `versionName` / inject | `1.0.76` / inject `v77` | 2026-06-13 |
+| **OTP수집기**(awms-otp-collector) | `versionName` | `1.0.0` | 2026-06-13 |
+| **awms-bridge-inject**(리모컨·헬퍼/아미큐/계기큐 공용) | `awms-bridge-inject.js` `VER` | `v77` | 2026-06-13 |
+
+규칙: 계기큐·아미큐 JS는 github 원격로드라 `APP_VER` 갱신+push만으로 반영(APK 빌드는 네이티브 변경 시만). 종로맵은 `APP_VERSION`+`?v=`+메뉴라벨 함께([[jongno_app_version_deploy]]). 아미맵 `FORCE_LOGOUT_VERSION`은 긴급 시만 범프([[ami_work_init_logout_fix]]).
+
 ## 사업 구조
 - **단독 시공** = ami-work (각 지사·구별 실효계기 교체팀 작업, 작업자만 등록)
 - **동행 시공** = jongno-combined (계기팀 + 통신팀 합동, 현재 종로·중구 진행)
