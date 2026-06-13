@@ -102,7 +102,18 @@ function _injectCollectBtn() {
 // ── 초기화 ──────────────────────────────────────
 (async () => {
     log('AMI Queue ' + APP_VER + ' 시작', 'ok');
-    try { const sub = document.getElementById('header-sub'); if (sub) sub.textContent = APP_VER + ' · awms 세션 연결 필요'; } catch (e) {}
+    // 버전 배지 — 헤더 우상단 고정(session.js가 덮어쓰는 header-sub와 분리)
+    try {
+        const hd = document.querySelector('.header');
+        if (hd && !document.getElementById('app-ver-badge')) {
+            hd.style.position = hd.style.position || 'sticky';
+            const b = document.createElement('div');
+            b.id = 'app-ver-badge';
+            b.textContent = APP_VER;
+            b.style.cssText = 'position:absolute;top:10px;right:12px;font-size:10px;font-weight:700;opacity:.7;color:#fff';
+            hd.appendChild(b);
+        }
+    } catch (e) {}
     initFb();
     _loadCollect();
     _injectCollectBtn();
