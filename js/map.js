@@ -280,8 +280,10 @@ function loadMarkers() {
         if (selectedGu && !selectedGu.has(g === null ? '미분류' : g)) return;
         if (item.lat == null || item.lng == null) return;
         if (!selectedCats.has(item.category)) return;
-        // 같은 주소라도 카테고리 다르면 별도 마커
-        const key = `${item.category}||${item.주소}`;
+        // 좌표 기준 그룹핑 — 같은 좌표(=같은 지점)면 한 마커로 합침.
+        //   도로명으로 좌표 뽑아 인접 다른 지번이 같은 좌표에 박힌 케이스(재건축 한 건물 등) 통합.
+        //   카테고리(실효/skt/tou) 다르면 다른 사업이라 별도 마커 유지.
+        const key = `${item.category}||${item.lat}||${item.lng}`;
         if (!grouped[key]) {
             grouped[key] = {
                 meters: [],
@@ -289,10 +291,14 @@ function loadMarkers() {
                 lng: item.lng,
                 roadAddress: item.도로명주소,
                 category: item.category,
-                address: item.주소,
+                address: item.주소,   // 대표 지번(첫 레코드) — 하위호환 키
+                addresses: [],        // 합쳐진 구성 지번 전체(중복 좌표)
             };
         }
         grouped[key].meters.push(item);
+        if (item.주소 && !grouped[key].addresses.includes(item.주소)) {
+            grouped[key].addresses.push(item.주소);
+        }
     });
 
     // 같은 좌표에 겹친 approximate 마커들 — 작은 원형으로 분산
@@ -300,8 +306,31 @@ function loadMarkers() {
 
     Object.values(grouped).forEach(data => {
         const coords = new kakao.maps.LatLng(data.lat, data.lng);
-        createMarker(coords, data.address, data.meters, data.category);
+        createMarker(coords, data.address, data.meters, data.category, data.addresses);
     });
+}
+
+// 합친 마커의 구성 지번 상태 집계 — 보수적(하나라도 미완이면 미완색).
+//   우선순위: fail > hold > (전부 complete면) complete > pending
+function aggregateState(addresses) {
+    if (!addresses || !addresses.length) return 'pending';
+    const states = addresses.map(a => (workStatus[a] && workStatus[a].state) || 'pending');
+    if (states.some(s => s === 'fail')) return 'fail';
+    if (states.some(s => s === 'hold')) return 'hold';
+    if (states.every(s => s === 'complete')) return 'complete';
+    return 'pending';
+}
+// 합친 마커의 added_meters 총합(구성 지번 전부)
+function aggregateAddedCount(addresses) {
+    if (!addresses || !addresses.length) return 0;
+    return addresses.reduce((sum, a) => {
+        const am = workStatus[a] && workStatus[a].added_meters;
+        return sum + (am ? Object.keys(am).length : 0);
+    }, 0);
+}
+// 합친 마커 재작업 여부(구성 지번 중 하나라도)
+function aggregateRework(addresses) {
+    return (addresses || []).some(a => workStatus[a] && workStatus[a].rework === true);
 }
 
 // 같은 좌표에 겹친 마커 그룹을 좌표 중심으로 소용돌이(Sunflower spiral) 분산
@@ -333,9 +362,11 @@ function spreadOverlappingMarkers(grouped) {
 }
 
 // 단일 마커 생성 및 지도에 추가
-function createMarker(position, address, meters, category) {
-    const status = workStatus[address] || { state: 'pending', checkedMeters: [], reason: '' };
-    const addedCount = status.added_meters ? Object.keys(status.added_meters).length : 0;
+function createMarker(position, address, meters, category, addresses) {
+    // 합친 마커: 구성 지번 전체(addresses)로 상태 집계. 단일이면 [address].
+    const addrList = (addresses && addresses.length) ? addresses : [address];
+    const state = aggregateState(addrList);
+    const addedCount = aggregateAddedCount(addrList);
     const meterCount = meters.length + addedCount;
     const isSkt = category === 'skt';
     const isTou = category === 'tou';
@@ -345,17 +376,17 @@ function createMarker(position, address, meters, category) {
     if (isSkt) color = 'skt';
     if (isTou) color = 'tou';
     // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
-    if (status.state === 'complete') color = 'gray';
-    else if (status.state === 'hold') color = 'blue';
-    else if (status.state === 'fail') color = 'red';
+    if (state === 'complete') color = 'gray';
+    else if (state === 'hold') color = 'blue';
+    else if (state === 'fail') color = 'red';
     // SKT는 라벨 'SK', TOU는 'TOU', 일반은 개수 (approximate+pending이면 '?')
     let markerLabel;
     if (isSkt) markerLabel = 'SK';
     else if (isTou) markerLabel = 'TOU';
-    else markerLabel = (isApproximate && status.state === 'pending') ? '?' : meterCount;
+    else markerLabel = (isApproximate && state === 'pending') ? '?' : meterCount;
     // TOU는 항목 단위 rework (해당 주소에 rework가 1건 이상이면 '재' 표시)
     const touHasRework = isTou && meters.some(m => m.tou_type === 'rework');
-    const isRework = status.rework === true || touHasRework;
+    const isRework = aggregateRework(addrList) || touHasRework;
 
     const markerContent = `
         <div class="custom-marker ${color}">
@@ -372,9 +403,9 @@ function createMarker(position, address, meters, category) {
     const markerEl = document.createElement('div');
     markerEl.innerHTML = markerContent;
 
-    // 클릭 이벤트를 직접 생성한 DOM에 붙임
+    // 클릭 이벤트를 직접 생성한 DOM에 붙임 — 합친 마커는 구성 지번 전체 전달
     markerEl.addEventListener('click', () => {
-        showDetail(address, meters);
+        showDetail(address, meters, addrList);
     });
 
     const customOverlay = new kakao.maps.CustomOverlay({
@@ -385,15 +416,17 @@ function createMarker(position, address, meters, category) {
 
     customOverlay.setMap(map);
 
-    markers.push({ overlay: customOverlay, address, meters, element: markerEl, category });
+    markers.push({ overlay: customOverlay, address, addresses: addrList, meters, element: markerEl, category });
 }
 
-// 마커 색상 갱신 (상태 변경 시 호출)
+// 마커 색상 갱신 (상태 변경 시 호출) — address는 변경된 단일 지번이지만,
+//   합친 마커는 여러 지번 대표하므로 addresses에 포함하는 마커를 찾아 집계로 다시 칠한다.
 function updateMarkerColor(address) {
-    const marker = markers.find(m => m.address === address);
+    const marker = markers.find(m => (m.addresses || [m.address]).includes(address));
     if (!marker) return;
 
-    const status = workStatus[address] || { state: 'pending' };
+    const addrList = marker.addresses || [marker.address];
+    const state = aggregateState(addrList);
     const isApproximate = marker.meters.some(m => m.좌표정확도 === 'approximate');
     const isSkt = marker.category === 'skt';
     const isTou = marker.category === 'tou';
@@ -402,25 +435,25 @@ function updateMarkerColor(address) {
     if (isSkt) color = 'skt';
     if (isTou) color = 'tou';
     // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
-    if (status.state === 'complete') color = 'gray';
-    else if (status.state === 'hold') color = 'blue';
-    else if (status.state === 'fail') color = 'red';
+    if (state === 'complete') color = 'gray';
+    else if (state === 'hold') color = 'blue';
+    else if (state === 'fail') color = 'red';
 
     const el = marker.element.querySelector('.custom-marker');
     if (el) el.className = `custom-marker ${color}`;
 
-    const addedCount = status.added_meters ? Object.keys(status.added_meters).length : 0;
+    const addedCount = aggregateAddedCount(addrList);
     const totalCount = marker.meters.length + addedCount;
     const labelEl = marker.element.querySelector('.marker-number');
     if (labelEl) {
         if (isSkt) labelEl.textContent = 'SK';
         else if (isTou) labelEl.textContent = 'TOU';
-        else labelEl.textContent = (isApproximate && status.state === 'pending') ? '?' : totalCount;
+        else labelEl.textContent = (isApproximate && state === 'pending') ? '?' : totalCount;
     }
 
     // 재작업 라벨 동기화 (TOU는 항목 단위 rework 체크)
     const touHasRework = isTou && marker.meters.some(m => m.tou_type === 'rework');
-    const isRework = status.rework === true || touHasRework;
+    const isRework = aggregateRework(addrList) || touHasRework;
     let fracEl = marker.element.querySelector('.marker-fraction');
     if (isRework) {
         if (!fracEl) {
@@ -574,8 +607,10 @@ function gotoSearchResult(r) {
     if (r.type === 'meter') {
         // 계기번호 매치: detail 패널도 함께 열기
         setTimeout(() => {
-            const groupMeters = sampleData.filter(s => s.category === it.category && s.주소 === it.주소);
-            if (typeof showDetail === 'function') showDetail(it.주소, groupMeters);
+            // 좌표 기준 합친 마커와 일치 — 같은 좌표·카테고리 전체(여러 지번 포함)
+            const groupMeters = sampleData.filter(s => s.category === it.category && s.lat === it.lat && s.lng === it.lng);
+            const groupAddresses = [...new Set(groupMeters.map(m => m.주소).filter(Boolean))];
+            if (typeof showDetail === 'function') showDetail(it.주소, groupMeters, groupAddresses);
         }, 200);
     }
 }

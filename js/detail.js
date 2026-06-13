@@ -2,14 +2,17 @@
 
 let currentAddress = '';
 let currentMeters = [];
+// 합친 마커(같은 좌표 여러 지번)의 구성 지번 전체. 단일이면 [currentAddress].
+let currentAddresses = [];
 
 // 현재 정렬 모드: 'none' | 'dup' | 'maker'
 let currentSortMode = 'none';
 
 // 주소 클릭 시 상세 패널 표시
-function showDetail(address, meters) {
+function showDetail(address, meters, addresses) {
     currentAddress = address;
     currentMeters = meters;
+    currentAddresses = (addresses && addresses.length) ? addresses : [address];
 
     // 어드민 사진등록 버튼에 현재 주소 전달
     const adminBtn = document.getElementById('admin-upload-btn');
@@ -459,6 +462,12 @@ function renderMetersList() {
         if (meter.상호 && meter.상호 !== '0') detailParts.push(`상호 ${meter.상호}`);
         // 공동주택명 (상호와 다를 때만)
         if (meter.공동주택명 && meter.공동주택명 !== meter.상호) detailParts.push(meter.공동주택명);
+        // 합친 마커: 이 계기의 지번이 대표 지번과 다를 때만 노출 (도로명 같고 지번 다른 케이스).
+        //   기존 도로명/지번 표시는 그대로, 주택명·상호 밑에 "다른 지번"만 추가.
+        //   (renderMetersList는 무인자 — 전역 currentAddress 기준, 주변 코드 따라 esc 없음)
+        if (meter.주소 && meter.주소 !== currentAddress) {
+            detailParts.push(`<span style="color:#9ca3af;">지번 ${meter.주소}</span>`);
+        }
         // 작은 글씨 영역
         const subParts = [];
         // 1) 통신방식 (빨강) · 변대주 한글명 · 인입주
@@ -676,13 +685,19 @@ function closeDetail() {
 function updateStatus(state) {
     const session = authGetSession();
     const reason = (document.getElementById('fail-reason')?.value || '').trim();
-    saveStateEvent(
-        currentAddress,
-        state,
-        state === 'fail' ? reason : '',
-        session ? session.id   : '',
-        session ? session.name : ''
-    );
+    // 합친 마커(같은 좌표 = 한 건물)는 완료/불가/보류를 구성 지번 전부에 기록.
+    //   ※ #2 결정점(영준님 확인 사안): 한 건물 한 번 작업 = 묶인 지번 다 처리.
+    //     primary만 기록하길 원하면 아래를 [currentAddress]로 되돌리면 됨.
+    const targets = (currentAddresses && currentAddresses.length) ? currentAddresses : [currentAddress];
+    targets.forEach(addr => {
+        saveStateEvent(
+            addr,
+            state,
+            state === 'fail' ? reason : '',
+            session ? session.id   : '',
+            session ? session.name : ''
+        );
+    });
     updateMarkerColor(currentAddress);
 }
 
@@ -690,11 +705,12 @@ function updateStatus(state) {
 function resetStatus() {
     if (!workStatus[currentAddress]) return;
 
-    // state만 pending으로 (체크박스/불가 유지)
-    saveStateEvent(currentAddress, 'pending', '', '', '');
+    // state만 pending으로 (체크박스/불가 유지) — 합친 마커는 구성 지번 전부
+    const targets = (currentAddresses && currentAddresses.length) ? currentAddresses : [currentAddress];
+    targets.forEach(addr => { if (workStatus[addr]) saveStateEvent(addr, 'pending', '', '', ''); });
 
     updateMarkerColor(currentAddress);
-    showDetail(currentAddress, currentMeters);
+    showDetail(currentAddress, currentMeters, currentAddresses);
 }
 
 // 계기 체크 토글
