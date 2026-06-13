@@ -98,6 +98,42 @@ async function _collectJongnoByMeter(newMeterNo) {
     log('동행 조회 미구현 stub: ' + newMeterNo, 'warn');
 }
 
+// ── 수집창 진입 화면 (계기번호 입력/QR/OCR로 마스터 받기) ──
+// [수집] 버튼 → 빈 수집창 열림 → 그 안에서 계기번호 받음. (prompt 메시지박스 아님)
+let _collEntryMode = '일반';
+window.__collectOpen = function (workMode) {
+    _collEntryMode = workMode || '일반';
+    const el = _collOverlay();
+    el.innerHTML =
+        `<div style="background:#1e3a8a;color:#fff;padding:12px 16px;position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center">`
+        + `<div style="font-size:15px;font-weight:700">awms 수집</div>`
+        + `<button onclick="collClose()" style="background:#374151;color:#fff;padding:8px 12px;font-size:13px">닫기</button></div>`
+        + `<div style="padding:16px">`
+        + `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">작업방식`
+        + ` <select id="coll-entry-mode" onchange="_collEntrySetMode(this.value)" style="padding:5px;border:1px solid #d1d5db;border-radius:6px;font-size:12px">`
+        + `<option value="일반"${_collEntryMode === '일반' ? ' selected' : ''}>일반시공</option>`
+        + `<option value="동행"${_collEntryMode === '동행' ? ' selected' : ''}>동행시공</option></select></div>`
+        + `<div style="font-weight:700;margin-bottom:8px">마스터 계기번호로 그 주소 전체 불러오기</div>`
+        + `<div style="display:flex;gap:6px;margin-bottom:10px">`
+        + `<input id="coll-entry-no" inputmode="numeric" placeholder="계기번호 입력" style="flex:1;padding:12px;border:1px solid #d1d5db;border-radius:8px;font-size:15px" onkeydown="if(event.key==='Enter')collEntryLoad()">`
+        + `<button onclick="collEntryLoad()" class="btn-primary" style="flex:0 0 80px;width:80px">불러오기</button></div>`
+        + `<button onclick="collEntryScan()" class="btn-secondary" style="width:100%;padding:12px;margin-bottom:6px">QR / OCR 스캔</button>`
+        + `<div style="font-size:11px;color:#9ca3af;margin-top:10px">아미맵에서 [데이터푸쉬]로 넘어오면 자동으로 채워집니다.</div>`
+        + `</div>`;
+    el.style.display = 'block';
+};
+window._collEntrySetMode = function (v) { _collEntryMode = v; };
+window.collEntryLoad = function () {
+    const inp = document.getElementById('coll-entry-no');
+    const no = inp && inp.value ? inp.value.trim() : '';
+    if (!no) { alert('계기번호를 입력하세요'); return; }
+    window.__collectByMeterNo(no, _collEntryMode);
+};
+window.collEntryScan = function () {
+    // QR/OCR 스캔 = 4번 작업(네이티브 GmsBarcodeScanner + OCR). 지금은 자리만.
+    alert('QR/OCR 스캔은 다음 단계에서 연결됩니다.\n지금은 계기번호 직접 입력하세요.');
+};
+
 // ── pool 구성 (handoff·계기번호·동행 공유). 역할은 전부 unassigned로 시작. ──
 function _setColl(addr, jisa, rawMeters, workMode, key) {
     const meters = (rawMeters || []).map(m => {

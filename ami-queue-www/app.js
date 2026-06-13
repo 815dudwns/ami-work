@@ -105,10 +105,7 @@ function _injectCollectBtn() {
     b.className = 'btn-secondary';
     b.style.cssText = 'flex:0 0 70px;width:70px;background:#7c3aed;color:#fff';
     b.textContent = '수집';
-    b.onclick = function () {
-        const no = prompt('마스터 계기번호 입력\n(그 주소의 계기를 전부 불러옵니다)');
-        if (no && no.trim() && window.__collectByMeterNo) window.__collectByMeterNo(no.trim(), '일반');
-    };
+    b.onclick = function () { if (window.__collectOpen) window.__collectOpen('일반'); };
     if (row) row.appendChild(b);
 }
 
