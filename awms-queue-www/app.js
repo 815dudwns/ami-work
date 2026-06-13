@@ -492,6 +492,13 @@ window.refreshQueue = refreshQueue;
 // 초기화
 // ─────────────────────────────────────────────
 (async () => {
+    // 비활성 버튼 비주얼 — disabled 시 흐리게(회색/반투명) 보이게 (영준님: 아이콘 비주얼적으로 비활성화).
+    //   CSS에 :disabled 스타일이 없어 disabled여도 똑같이 보이던 것 보강.
+    try {
+        const _ds = document.createElement('style');
+        _ds.textContent = 'button:disabled{opacity:.4;filter:grayscale(.85);cursor:not-allowed!important}';
+        document.head.appendChild(_ds);
+    } catch (e) {}
     log('AWMS Queue 시작 [JS:remote-r9 진행비주얼+로그버튼]', 'ok');
     _ensureLogToggleBtn();
     initFb();
@@ -530,7 +537,7 @@ window.refreshQueue = refreshQueue;
 
 // 우상단 버전 표시 (새 배포 반영 확인용) — push마다 갱신
 (function () {
-    var APP_VER = 'v0613-등록비활성보강+자동입력폴링제거';
+    var APP_VER = 'v0613-비활성버튼비주얼';
     function show() {
         if (!document.body) { setTimeout(show, 300); return; }
         if (document.getElementById('app-ver')) return;
