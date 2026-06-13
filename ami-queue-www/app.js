@@ -106,8 +106,8 @@ function _injectCollectBtn() {
     b.style.cssText = 'flex:0 0 70px;width:70px;background:#7c3aed;color:#fff';
     b.textContent = '수집';
     b.onclick = function () {
-        const k = prompt('수집 handoff key (아미맵 연동 전 테스트용)');
-        if (k && window.__collectHandoff) window.__collectHandoff(k.trim());
+        const no = prompt('마스터 계기번호 입력\n(그 주소의 계기를 전부 불러옵니다)');
+        if (no && no.trim() && window.__collectByMeterNo) window.__collectByMeterNo(no.trim(), '일반');
     };
     if (row) row.appendChild(b);
 }
