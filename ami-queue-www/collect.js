@@ -42,23 +42,61 @@ window.__collectHandoff = async function (key) {
         const snap = await _db.ref('collect_handoff/' + key).once('value');
         const v = snap.val();
         if (!v || !v.meters) { alert('handoff 데이터 없음: ' + key); log('handoff 비어있음', 'err'); return; }
-        const meters = (v.meters || []).map(m => {
-            const meterNo = String(m.계기번호 || m.meterNo || '');
-            return {
-                meterNo,
-                type: _collParseType(meterNo) || '',
-                comm: _collCommGuess(m.통신방식),
-                jisa: m.지사 || v.jisa || '',
-                mac: '',
-                photos: { pre: '', mac: '', post1: '' },
-            };
-        }).filter(m => m.meterNo);
-        _coll = { key, addr: v.addr || '', jisa: (meters[0] && meters[0].jisa) || '', meters };
-        log('수집 ' + meters.length + '건 (' + (_coll.addr || '') + ')', 'ok');
-        renderCollect();
+        _setColl(v.addr || '', v.jisa || '', v.meters, '일반', key);
     } catch (e) {
         alert('handoff 로드 실패: ' + e.message);
         log('handoff 로드 실패: ' + e.message, 'err');
+    }
+};
+
+// ── _coll 구성 공통 (handoff·계기번호진입·동행 공유) ──
+// rawMeters: site-data/handoff 필드(계기번호·통신방식·지사) 또는 ami-jongno(new_meter_id) 항목 배열
+function _setColl(addr, jisa, rawMeters, workMode, key) {
+    const meters = (rawMeters || []).map(m => {
+        const meterNo = String(m.계기번호 || m.meterNo || m.new_meter_id || '');
+        return {
+            meterNo,
+            type: _collParseType(meterNo) || '',
+            comm: _collCommGuess(m.통신방식 || m.comm),
+            jisa: m.지사 || jisa || '',
+            mac: '',
+            photos: { pre: '', mac: '', post1: '' },
+            // 동행(ami-jongno) 부가정보 — saveAct 칸수/봉인 등에 활용(2차)
+            _cntrClas: m.cntr_clas || '', _cntrPwr: m.cntr_pwr || '', _sealNo: m.seal_no || '', _cha: m.cha || '',
+        };
+    }).filter(m => m.meterNo);
+    _coll = { key: key || '', addr: addr || '', jisa: (meters[0] && meters[0].jisa) || jisa || '', workMode: workMode || '일반', meters };
+    log('수집 ' + meters.length + '건 / ' + (workMode || '일반') + ' (' + (addr || '') + ')', 'ok');
+    renderCollect();
+}
+
+// ── 계기번호 1개 → 그 주소 전체 계기 (일반시공: ami-work siteData 인덱스 조회) ──
+window.__collectByMeterNo = async function (meterNo, workMode) {
+    workMode = workMode || '일반';
+    meterNo = String(meterNo || '').trim();
+    if (!meterNo) { alert('계기번호를 입력하세요'); return; }
+    if (!_db) { try { initFb(); } catch (e) {} }
+    log('계기번호 조회: ' + meterNo + ' (' + workMode + ')', 'warn');
+    if (workMode === '동행') { return _collectJongnoByMeter(meterNo); }
+    try {
+        // 1. 계기번호 → 그 계기 1건(.indexOn 계기번호)
+        const s1 = await _db.ref('siteData/charger4eleccar').orderByChild('계기번호').equalTo(meterNo).once('value');
+        const v1 = s1.val();
+        if (!v1) { alert('site-data에 없는 계기번호: ' + meterNo); log('미존재 ' + meterNo, 'err'); return; }
+        const hit = Object.values(v1)[0];
+        const jibun = hit.주소 || '';
+        // 2. 지번주소(주소) 기준으로 그 주소 전체(.indexOn 주소). 아미맵 마커 그룹핑과 동일 기준.
+        //    ※ 도로명주소 통합은 다른 필지를 잘못 묶는 케이스(85건)가 있어 지번 우선. 정교화는 별도 세션.
+        let meters = [];
+        if (jibun) {
+            const s2 = await _db.ref('siteData/charger4eleccar').orderByChild('주소').equalTo(jibun).once('value');
+            meters = Object.values(s2.val() || {});
+        }
+        if (!meters.length) meters = [hit];
+        _setColl(jibun || hit.도로명주소 || '', hit.지사 || '', meters, '일반', '');
+    } catch (e) {
+        alert('조회 실패: ' + e.message + '\n(인덱스 미설정 시 rules 확인)');
+        log('조회 실패: ' + e.message, 'err');
     }
 };
 
