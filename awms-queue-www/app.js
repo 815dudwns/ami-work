@@ -481,7 +481,8 @@ function randomDelay() {
     const min = (typeof POST_DELAY_MIN === 'number') ? POST_DELAY_MIN : 8000;
     const max = (typeof POST_DELAY_MAX === 'number') ? POST_DELAY_MAX : 18000;
     const ms = min + Math.random() * (max - min);
-    return new Promise(res => setTimeout(res, ms));
+    // 네이티브 구동 대기 — 앱 백그라운드(화면 꺼짐)에서도 진행되게(setTimeout은 throttle로 죽음)
+    return (typeof nativeDelay === 'function') ? nativeDelay(ms) : new Promise(res => setTimeout(res, ms));
 }
 
 // ─────────────────────────────────────────────
@@ -538,7 +539,7 @@ window.refreshQueue = refreshQueue;
 
 // 우상단 버전 표시 (새 배포 반영 확인용) — push마다 갱신
 (function () {
-    var APP_VER = 'v0613-백그라운드유지+리스트건별';
+    var APP_VER = 'v0613-네이티브대기(백그라운드진행)';
     function show() {
         if (!document.body) { setTimeout(show, 300); return; }
         if (document.getElementById('app-ver')) return;

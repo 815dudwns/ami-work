@@ -704,7 +704,7 @@ async function registerReplacement({ addr, meter, rep }) {
     const _gdWaits = [0, 1000, 2000, 3000, 5000, 8000, 12000];
     let detail = {};
     for (let _t = 0; _t < _gdWaits.length; _t++) {
-        if (_gdWaits[_t]) await new Promise(r => setTimeout(r, _gdWaits[_t]));
+        if (_gdWaits[_t]) await ((typeof nativeDelay === 'function') ? nativeDelay(_gdWaits[_t]) : new Promise(r => setTimeout(r, _gdWaits[_t])));
         for (const cand of _consCands) {
             detail = await _lookupGetDetail(cand, gdCntrNo || cntrNo, consTgtSeqno);
             if (Object.keys(detail).length >= 100) { gdConsNo = cand; break; }  // 성공 차수 확정(28용에도 재사용)
@@ -754,7 +754,7 @@ async function registerReplacement({ addr, meter, rep }) {
         let d2 = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
         for (let _t = 0; Object.keys(d2).length < 100 && _t < _gdWaits.length; _t++) {
             L(`[saverow] 28용 getDetail 키부족(${Object.keys(d2).length}) → ${_gdWaits[_t]}ms 재시도 #${_t + 1}`, 'warn');
-            await new Promise(r => setTimeout(r, _gdWaits[_t]));
+            await ((typeof nativeDelay === 'function') ? nativeDelay(_gdWaits[_t]) : new Promise(r => setTimeout(r, _gdWaits[_t])));
             d2 = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
         }
         const donePayload = {};

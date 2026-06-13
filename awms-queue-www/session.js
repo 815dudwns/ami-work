@@ -21,6 +21,37 @@ function awmsEval(expr) {
     });
 }
 
+// ─────────────────────────────────────────────
+// nativeDelay — 네이티브 구동 대기 (setTimeout 대용)
+//   앱 백그라운드 시 webview 페이지 hidden → JS setTimeout이 throttle로 멈춤
+//   (일괄등록 1건 후 정지 원인). 네이티브 Handler.postDelayed는 화면/포커스 무관하게
+//   fire → window.__resumeDelay로 외부 트리거. 등록 루프 모든 대기를 이걸로 교체.
+//   AwmsQ.scheduleDelay 없으면(웹 미리보기) setTimeout 폴백.
+// ─────────────────────────────────────────────
+let __delaySeq = 0;
+const __delayPend = {};
+window.__resumeDelay = (token) => {
+    const res = __delayPend[token];
+    if (res) { delete __delayPend[token]; res(); }
+};
+function nativeDelay(ms) {
+    ms = Math.max(0, Math.round(ms || 0));
+    return new Promise((res) => {
+        if (window.AwmsQ && AwmsQ.scheduleDelay) {
+            const token = ++__delaySeq;
+            // 백스톱 — 네이티브 콜백이 끝내 안 오면(webview null/콜백유실/Doze무한지연) 영구 행 방지.
+            //   둘 중 먼저 fire한 게 resolve(__resumeDelay가 token을 지우면 백스톱은 no-op).
+            const _bk = setTimeout(() => { if (__delayPend[token]) { delete __delayPend[token]; res(); } }, ms + 20000);
+            __delayPend[token] = () => { clearTimeout(_bk); res(); };
+            try { AwmsQ.scheduleDelay(token, ms); }
+            catch (e) { clearTimeout(_bk); delete __delayPend[token]; setTimeout(res, ms); }
+        } else {
+            setTimeout(res, ms);  // 웹 미리보기 폴백
+        }
+    });
+}
+window.nativeDelay = nativeDelay;
+
 // 네이티브가 awmsWebView 실행 결과를 여기로 콜백
 // 미검증 — live session 후 확인
 window.__awmsResult = (id, s) => {
