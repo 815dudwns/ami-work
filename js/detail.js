@@ -330,11 +330,21 @@ function toggleMeterFail(meterNumber) {
         // 이미 불가 → 해제
         delete status.failedMeters[meterNumber];
         localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
+        // Firebase 동기화: 불가 해제 이벤트
+        if (typeof addEvent === 'function') {
+            addEvent({ type: 'meterFail', address: currentAddress, meter: meterNumber, failed: false, ts: Date.now() });
+        }
+        if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
         renderMetersList();
     } else {
         // 불가 처리 → 일단 빈 사유로 등록하고 입력창 표시 (renderMetersList에서 처리)
         status.failedMeters[meterNumber] = '';
         localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
+        // Firebase 동기화: 불가 설정 이벤트 (사유는 saveMeterFailReason에서 갱신)
+        if (typeof addEvent === 'function') {
+            addEvent({ type: 'meterFail', address: currentAddress, meter: meterNumber, reason: '', failed: true, ts: Date.now() });
+        }
+        if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
         renderMetersList();
         // 렌더링 후 해당 입력창에 포커스
         setTimeout(() => {
@@ -351,6 +361,11 @@ function saveMeterFailReason(meterNumber, reason) {
     if (!status.failedMeters) status.failedMeters = {};
     status.failedMeters[meterNumber] = reason;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
+    // Firebase 동기화: 사유 갱신 이벤트
+    if (typeof addEvent === 'function') {
+        addEvent({ type: 'meterFail', address: currentAddress, meter: meterNumber, reason: reason, failed: true, ts: Date.now() });
+    }
+    if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
 }
 
 // 추가된 계기(added_meters)를 currentMeters에 가짜 객체로 합쳐서 함께 표시

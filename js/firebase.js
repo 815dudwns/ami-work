@@ -55,6 +55,7 @@ async function flushEventQueue() {
     // 같은 대상의 중복 이벤트는 ts 최신 것만 유지
     const stateMap = {};   // address → latest state event
     const checkMap = {};   // address+'||'+meter → latest check event
+    const failMap  = {};   // address+'||'+meter → latest meterFail event
 
     queue.forEach(ev => {
         if (ev.type === 'state' || ev.type === 'reset') {
@@ -64,6 +65,10 @@ async function flushEventQueue() {
             const key = ev.address + '||' + ev.meter;
             if (!checkMap[key] || ev.ts > checkMap[key].ts)
                 checkMap[key] = ev;
+        } else if (ev.type === 'meterFail') {
+            const key = ev.address + '||' + ev.meter;
+            if (!failMap[key] || ev.ts > failMap[key].ts)
+                failMap[key] = ev;
         }
     });
 
@@ -85,6 +90,16 @@ async function flushEventQueue() {
         const p = encodeKey(ev.address);
         const m = encodeKey(ev.meter);
         updates[`${p}/meterChecks/${m}`] = { checked: ev.type === 'check', ts: ev.ts };
+    });
+
+    Object.values(failMap).forEach(ev => {
+        const p = encodeKey(ev.address);
+        const m = encodeKey(ev.meter);
+        if (ev.failed) {
+            updates[`${p}/failedMeters/${m}`] = ev.reason != null ? ev.reason : '';
+        } else {
+            updates[`${p}/failedMeters/${m}`] = null; // Firebase에서 노드 제거
+        }
     });
 
     // 전송 전 큐 id 스냅샷 — await 중 추가된 이벤트를 삭제하지 않기 위한 race condition 방지
@@ -237,6 +252,14 @@ function buildOneFromFirebase(val) {
             .map(([encodedMeter]) => decodeKey(encodedMeter));
     }
 
+    // failedMeters: Firebase 키(인코딩됨) → 계기번호(디코딩) 로 변환
+    const failedMeters = {};
+    if (val.failedMeters && typeof val.failedMeters === 'object') {
+        for (const [encodedMeter, reason] of Object.entries(val.failedMeters)) {
+            failedMeters[decodeKey(encodedMeter)] = reason;
+        }
+    }
+
     return {
         state:         val.state         || 'pending',
         reason:        val.reason        || '',
@@ -249,6 +272,7 @@ function buildOneFromFirebase(val) {
         checkedMeters,
         meterChecks,  // 원본 보관 (ts 비교용)
         added_meters: val.added_meters || {},   // 사용자 추가 계기 (admin 등)
+        failedMeters,  // 계기 개별 불가: { 계기번호: 사유 }
     };
 }
 
@@ -311,11 +335,13 @@ function mergeOneAddress(addr, rawVal) {
     const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
 
     if (fbTime > localTime) {
-        // Firebase가 더 최신 — 단, 로컬 전용 필드(failedMeters)는 유지
-        workStatus[addr] = { ...fb, failedMeters: local.failedMeters || {} };
+        // Firebase가 더 최신 — failedMeters도 Firebase 권위로 반영(로컬 큐 미전송분은 flush로 재전송됨)
+        workStatus[addr] = { ...fb };
     } else {
         // 로컬 유지하되 added_meters(추가계기)는 Firebase 권위로 합집합 반영
+        // failedMeters도 Firebase 값으로 갱신 (meterChecks와 동일 처리 — updatedAt 독립)
         local.added_meters = { ...(fb.added_meters || {}), ...(local.added_meters || {}) };
+        local.failedMeters = { ...(fb.failedMeters || {}) };
     }
 }
 

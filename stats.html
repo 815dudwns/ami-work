@@ -9,7 +9,7 @@
     <title>작업 현황 통계 - AMI</title>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-    <script src="js/auth.js?v=20260613authfix"></script>
+    <script src="js/auth.js?v=20260613b"></script>
     <script src="js/config.js?v=20260601b"></script>
     <script src="js/utils.js?v=20260601b"></script>
     <style>
@@ -282,29 +282,44 @@ function allMeters(m) { return m.complete + m.hold + m.fail + m.pending; }
 
 function aggByBranch(fbSiteData, workStatus) {
     const norm = s => String(s || '').replace(/\s+/g, ' ').trim();
-    // workStatus 키 정규화 (workStatus는 지번주소 기준)
+    // workStatus 키 정규화 (workStatus는 지번주소 기준, Firebase raw — 인코딩된 키)
+    // wsNorm: 정규화 주소 → workStatus 값 (인코딩 키를 정규화해 매핑)
     const wsNorm = {};
     for (const k in workStatus) { wsNorm[norm(k)] = workStatus[k]; }
 
-    // 주소(지번)별로 묶어 그 주소의 계기 수 집계 — 한 주소 = 한 진척상태
-    const addrMap = {};   // "지사|주소" -> { gu, addr, count }
-    for (const it of fbSiteData) {
-        const gu = it['지사'] || '미상';
-        const addr = norm(it['주소']);
-        const key = gu + '|' + addr;
-        if (!addrMap[key]) addrMap[key] = { gu, addr, count: 0 };
-        addrMap[key].count += 1;
-    }
+    // 개소(sites) 집계: 주소 단위 — 개소 state 그대로
+    // 계기(meters) 집계: 계기 단위 — failedMeters에 있으면 fail, 없으면 개소 state
+    //   failedMeters: Firebase raw에서 { 인코딩된계기번호: 사유 } 형태.
+    //   계기번호는 숫자(zfill 11자리)라 encodeKey 변환 없으므로 키 = 계기번호 그대로.
+    //   빈 사유('')도 불가 처리(in 연산자 또는 != null 사용).
 
+    // 1패스: 개소별 state 수집
+    const addrSeen = new Set();
     const byGu = {};
-    for (const key in addrMap) {
-        const { gu, addr, count } = addrMap[key];
+
+    for (const it of fbSiteData) {
+        const gu   = it['지사'] || '미상';
+        const addr = norm(it['주소']);
+        const meterNo = String(it['계기번호'] || '');
         const ws = wsNorm[addr];
-        let st = (ws && ws.state) ? ws.state : 'pending';
-        if (st !== 'complete' && st !== 'hold' && st !== 'fail') st = 'pending';
+        let siteSt = (ws && ws.state) ? ws.state : 'pending';
+        if (siteSt !== 'complete' && siteSt !== 'hold' && siteSt !== 'fail') siteSt = 'pending';
+
         if (!byGu[gu]) byGu[gu] = emptyBranch();
-        byGu[gu].sites[st]  += 1;
-        byGu[gu].meters[st] += count;
+
+        // 개소: 주소 첫 등장 시 1회만 집계
+        const addrKey = gu + '|' + addr;
+        if (!addrSeen.has(addrKey)) {
+            addrSeen.add(addrKey);
+            byGu[gu].sites[siteSt] += 1;
+        }
+
+        // 계기: failedMeters에 계기번호 있으면 fail, 없으면 개소 state
+        let meterSt = siteSt;
+        if (ws && ws.failedMeters && meterNo in ws.failedMeters) {
+            meterSt = 'fail';
+        }
+        byGu[gu].meters[meterSt] += 1;
     }
     return byGu;
 }

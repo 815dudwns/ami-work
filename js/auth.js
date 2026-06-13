@@ -34,6 +34,11 @@ const AUTH_KEY = 'ami_auth';
 const FORCE_LOGOUT_VERSION = '20260613a';
 const FORCE_LOGOUT_VERSION_KEY = 'ami_force_logout_version';
 
+// 강력 업데이트(강제 로그아웃)시에만 함께 리셋할 화면상태 키 — 지사/필터/지도위치.
+// 평소 로그아웃·재시작에는 보존되고, FORCE_LOGOUT_VERSION을 올릴 때만 초기화된다.
+// ★작업 데이터(ami_work_status·ami_checked_meters·ami_event_queue)는 여기 넣지 말 것(유실 방지).
+const UI_STATE_KEYS = ['ami_map_view', 'ami_selected_jisa', 'ami_selected_gu', 'ami_selected_categories', 'ami_seen_categories'];
+
 /**
  * 로그인 시도
  * @param {string} id
@@ -82,9 +87,11 @@ function authLogout() {
 function authRequire() {
     const localVer = localStorage.getItem(FORCE_LOGOUT_VERSION_KEY);
     if (localVer && localVer !== FORCE_LOGOUT_VERSION) {
-        // 긴급 강제 로그아웃 — 세션만 제거. 이벤트큐(EVENTS_KEY)·데이터캐시는 보존(미전송 작업 유실 방지, 다음 로그인 후 flush)
+        // 긴급 강제 로그아웃 — 세션 + 화면상태(지사/필터/지도위치) 리셋.
+        // 단 작업 데이터·이벤트큐(EVENTS_KEY)는 보존(미전송 작업 유실 방지, 다음 로그인 후 flush)
         localStorage.removeItem(AUTH_KEY);
         localStorage.removeItem(FORCE_LOGOUT_VERSION_KEY);
+        UI_STATE_KEYS.forEach(k => localStorage.removeItem(k));
         sessionStorage.clear();
         window.location.replace('login.html');
         return;
