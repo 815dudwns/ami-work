@@ -368,15 +368,22 @@ async function runOne(addr, meter) {
         log(`등록 성공: ${meter} (등록번호 ${resp.consTgtSeqno || '?'})`, 'ok');
         _doneProgress(true);
         await markSynced(addr, meter, resp);
-        markDoneLocal(meter, item.rep.new_meter_id);  // 즉시 완료 반영 (다음 refresh 전까지)
+        markDoneLocal(meter, item.rep.new_meter_id);  // 즉시 완료 반영 (다음 수동 새로고침 전까지)
+        // ★ 그 1건만 로컬 반영 — 전체 재조회(refreshQueue: awms 전차수+workStatus 3MB) 안 함.
+        //   item.err=null 필수: 재등록 성공 시 옛 실패 메시지 잔존하면 '완료' 배지+빨간 에러 동시표시 버그.
+        item.status = 'done';
+        item.err = null;
+        item.rep.awms_error = null;
         setTimeout(() => _hideProgress(), 5000);  // 성공 카드 5초 후 자동 숨김
     } catch (e) {
         log(`등록 실패 ${meter}: ${e.message}`, 'err');
         _doneProgress(false, e.message);
         setTimeout(() => _hideProgress(), 8000);  // 실패 카드 8초 후 자동 숨김
         await markError(addr, meter, e.message);
+        item.status = 'err';
+        item.err = e.message;
     }
-    await refreshQueue();   // 이벤트 후 전체 새로고침(awms 완료상태 반영)
+    renderQueue();   // 그 1건만 갱신 반영 (전체 재조회는 수동 새로고침 버튼만)
 }
 
 async function runAll() {
@@ -433,6 +440,7 @@ async function _runBatch(pending, label) {
                 const resp = await registerReplacement({ addr: item.addr, meter: item.meter, rep: item.rep });
                 await markSynced(item.addr, item.meter, resp);
                 markDoneLocal(item.meter, item.rep.new_meter_id);  // 즉시 완료 반영
+                item.status = 'done'; item.err = null; item.rep.awms_error = null;  // 그 1건만 로컬 반영
                 ok++;
                 log(`  성공`, 'ok');
                 _doneProgress(true);
@@ -441,6 +449,7 @@ async function _runBatch(pending, label) {
                 log(`  ${e.message}`, 'err');
                 _doneProgress(false, e.message);
                 await markError(item.addr, item.meter, e.message);
+                item.status = 'err'; item.err = e.message;
             }
             if ((ok + err) < pending.length) {
                 log(`  ... 다음까지 대기`);
@@ -451,7 +460,7 @@ async function _runBatch(pending, label) {
         log(`일괄 완료: 성공 ${ok} / 실패 ${err}`, 'warn');
         _showProgressSummary(ok, err);
         setTimeout(() => _hideProgress(), 6000);
-        await refreshQueue();   // 이벤트 후 전체 새로고침
+        renderQueue();   // 전체 재조회 대신 로컬 갱신 반영 (전체 새로고침은 수동 버튼만)
     } finally {
         // 정상 완료 / 에러 / 중단 어느 경우에도 서비스 종료 + 버튼 복구
         if (window.AwmsQ && AwmsQ.stopBgTask) { try { AwmsQ.stopBgTask(); } catch(e){} }
@@ -520,7 +529,7 @@ window.refreshQueue = refreshQueue;
 
 // 우상단 버전 표시 (새 배포 반영 확인용) — push마다 갱신
 (function () {
-    var APP_VER = 'v0613-실패원인표시';
+    var APP_VER = 'v0613-등록후로컬갱신';
     function show() {
         if (!document.body) { setTimeout(show, 300); return; }
         if (document.getElementById('app-ver')) return;
