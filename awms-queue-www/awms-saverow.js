@@ -695,21 +695,30 @@ async function registerReplacement({ addr, meter, rep }) {
             L(`[saverow] 역조회 정확 CONS_NO=${gdConsNo} CNTR_NO=${gdCntrNo} (작업목록 미등록 계기)`);
         }
     }
-    // 철거 saveRow 직후 awms 서버 반영 지연으로 getDetail이 빈/부족 응답을 주는 경우가 있다.
-    //   빈이면 점점 길게 대기하며 재시도(2026-06-12 키부족 재발 → 대기재시도 복원).
-    let detail = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
-    // 대기 연장(2026-06-13): 기존 13.2초로 부족한 케이스 확인(getDetail 직접호출은 301키=키해소 정상,
-    //   철거직후 그 순간만 빈 응답=타이밍). 누적 약 31초로 연장.
-    const _gdWaits = [1000, 2000, 3000, 5000, 8000, 12000];
-    for (let _t = 0; Object.keys(detail).length < 100 && _t < _gdWaits.length; _t++) {
-        L(`[saverow] getDetail 키부족(${Object.keys(detail).length}) → ${_gdWaits[_t]}ms 대기 후 재시도 #${_t + 1}`, 'warn');
-        await new Promise(r => setTimeout(r, _gdWaits[_t]));
-        detail = await _lookupGetDetail(gdConsNo || consNo, gdCntrNo || cntrNo, consTgtSeqno);
+    // getDetail(신설 베이스 301키) — 차수 후보 다중 시도 (2026-06-13 한전 차수 재배정 확정 대응).
+    //   ★ 실측: 작업목록(getMainList) CONS_NO가 옛 차수(예 032)면 getDetail이 영원히 빈 응답(키0).
+    //     봉인 활성차수(LV_CONS_NO=consNo, 예 21차 219)로 부르면 301키. 철거5000도 이 consNo로 성공.
+    //     → 대기연장(타이밍 가설)만으론 못 잡음. 차수를 바꿔 시도해야 함.
+    //   매 라운드 후보 차수 전부 시도(정답차수면 즉시 301). 점증 대기로 진짜 타이밍 지연도 겸해 흡수.
+    const _consCands = [...new Set([gdConsNo, consNo].filter(Boolean))];
+    const _gdWaits = [0, 1000, 2000, 3000, 5000, 8000, 12000];
+    let detail = {};
+    for (let _t = 0; _t < _gdWaits.length; _t++) {
+        if (_gdWaits[_t]) await new Promise(r => setTimeout(r, _gdWaits[_t]));
+        for (const cand of _consCands) {
+            detail = await _lookupGetDetail(cand, gdCntrNo || cntrNo, consTgtSeqno);
+            if (Object.keys(detail).length >= 100) { gdConsNo = cand; break; }  // 성공 차수 확정(28용에도 재사용)
+        }
+        if (Object.keys(detail).length >= 100) {
+            L(`[saverow] getDetail 키수=${Object.keys(detail).length} (확정차수=${gdConsNo} / 후보 ${_consCands.join('/')})`, 'ok');
+            break;
+        }
+        L(`[saverow] getDetail 빈(차수 ${_consCands.join('/')} 전부 0) → 재시도 #${_t + 1}`, 'warn');
     }
-    // ★ 강행 금지(2026-06-13): 재시도 소진 후에도 키 부족이면 신설 saveRow 중단.
+    // ★ 강행 금지(2026-06-13): 모든 차수·재시도 후에도 키 부족이면 신설 saveRow 중단.
     //   빈/부족 payload로 4000 쏘면 500 + cremo 빈 25 찌꺼기(이번 14건의 정체). 명확히 실패시켜 재등록 유도.
     if (Object.keys(detail).length < 100) {
-        throw new Error(`getDetail 키부족(${Object.keys(detail).length}/301) — awms 신설베이스 미반영(타이밍). 잠시 후 재등록`);
+        throw new Error(`getDetail 키부족(${Object.keys(detail).length}/301) — 차수 ${_consCands.join('/')} 전부 빈 응답. 잠시 후 재등록`);
     }
     const mtrlInfo = await _lookupMtrl(newMeter);
     L(`[saverow] getDetail 키수=${Object.keys(detail).length} / 자재 MTRL_NO=${mtrlInfo.MTRL_NO || '-'} MNFCT_YM=${mtrlInfo.MNFCT_YM || '-'}`);
