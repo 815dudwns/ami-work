@@ -86,7 +86,10 @@ function _loginAutofillExpr() {
 async function ensureLoginAutofill() {
     try {
         const r = await awmsEval(_loginAutofillExpr());
-        if (typeof log === 'function' && r !== 'no-form') log('[login] 자동입력: ' + r);
+        // 실제로 값을 채웠을 때만 로그 (영준님: 자동입력 반복 비효율). no-form/filled=none은 조용.
+        if (typeof log === 'function' && typeof r === 'string' && /filled=(id|pw)/.test(r)) {
+            log('[login] 자동입력: ' + r);
+        }
         return r;
     } catch (e) { return null; }
 }

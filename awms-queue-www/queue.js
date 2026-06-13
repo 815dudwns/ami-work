@@ -405,6 +405,9 @@ function _ensureSelectControls() {
             if (typeof runSelected === 'function') runSelected();
         };
     }
+    // 세션 없으면 선택등록 버튼 비활성화 (생성 후에도 매번 갱신 — 동적생성이라 updateSessionBar가 못 잡는 케이스 보강)
+    const _btnSel = document.getElementById('btn-run-selected');
+    if (_btnSel) _btnSel.disabled = (typeof isSessionOK === 'function') && !isSessionOK();
 }
 
 function renderQueue() {

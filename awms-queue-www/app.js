@@ -520,20 +520,17 @@ window.refreshQueue = refreshQueue;
         log('캐시 즉시 렌더 스킵(파싱 오류): ' + e.message, 'warn');
     }
 
-    await refreshQueue();   // refreshQueue 내부에서 checkSession 먼저 호출 (중복 제거)
+    await refreshQueue();   // refreshQueue 내부에서 checkSession 먼저 호출 (초기 자동입력은 여기서 — 세션없으면 checkSession이 ensureLoginAutofill 호출)
     // 5분마다 세션 체크 (큐 자동 새로고침은 안 함 — 수동/등록이벤트 후에만 갱신)
     setInterval(checkSession, 5 * 60 * 1000);
-    // 세션 없을 때 8초마다 로그인 아이디/비번 자동입력 시도 (awms 열면 바로 채워지게)
-    setInterval(() => {
-        if (typeof isSessionOK === 'function' && !isSessionOK() && typeof ensureLoginAutofill === 'function') {
-            ensureLoginAutofill();
-        }
-    }, 8000);
+    // ★ 자동입력 주기 폴링 제거(영준님: 주기 필요없어, 초기나 새로고침때 확인).
+    //   자동입력은 checkSession(초기 refreshQueue + 새로고침 버튼)이 세션없을 때 ensureLoginAutofill을 호출하는 경로로만.
+    //   awms-bridge-inject도 awms webview page load 시 자체 자동입력하므로 충분.
 })();
 
 // 우상단 버전 표시 (새 배포 반영 확인용) — push마다 갱신
 (function () {
-    var APP_VER = 'v0613-bg알림진행률';
+    var APP_VER = 'v0613-등록비활성보강+자동입력폴링제거';
     function show() {
         if (!document.body) { setTimeout(show, 300); return; }
         if (document.getElementById('app-ver')) return;
