@@ -435,6 +435,11 @@ async function _runBatch(pending, label) {
         for (const item of pending) {
             // 건별 진행 카드 갱신 (단계 초기화 포함)
             _updateProgressCount(ok + err + 1, pending.length, item.meter, item.rep.new_meter_id, item.rep.daily_seq);
+            // 네이티브 알림 진행률 — 화면 꺼도 알림창에서 진행 확인 (영준님 요청)
+            if (window.AwmsQ && AwmsQ.updateProgress) {
+                try { AwmsQ.updateProgress(ok + err + 1, pending.length,
+                    '#' + (item.rep.daily_seq || '') + ' ' + item.meter + '→' + item.rep.new_meter_id); } catch (e) {}
+            }
             try {
                 log(`[${ok + err + 1}/${pending.length}] ${item.meter} 등록 중...`);
                 const resp = await registerReplacement({ addr: item.addr, meter: item.meter, rep: item.rep });
@@ -528,7 +533,7 @@ window.refreshQueue = refreshQueue;
 
 // 우상단 버전 표시 (새 배포 반영 확인용) — push마다 갱신
 (function () {
-    var APP_VER = 'v0613-새로고침피드백+세션비활성';
+    var APP_VER = 'v0613-bg알림진행률';
     function show() {
         if (!document.body) { setTimeout(show, 300); return; }
         if (document.getElementById('app-ver')) return;
