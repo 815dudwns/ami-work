@@ -1,4 +1,31 @@
 // 종로 Firebase 큐 + awms 완료 동기화
+
+// ─────────────────────────────────────────────
+// _friendlyError — 원본 에러 문자열 → {label, hint}
+//   표시용 변환. 원본(raw)은 Firebase에 그대로 저장(덮어쓰지 않음).
+//   queue.js, app.js 양쪽에서 사용 가능한 전역 함수.
+// ─────────────────────────────────────────────
+function _friendlyError(rawMsg) {
+    if (!rawMsg) return { label: '미분류 오류', hint: '로그 확인' };
+    const s = String(rawMsg).toLowerCase();
+    if (s.includes('500') || s.includes('키부족') || s.includes('getdetail')) {
+        return { label: '신설 저장 실패 — 서버 500 (getDetail 키부족)', hint: '재등록 시 대부분 해결' };
+    }
+    if (s.includes('계기 없음') || s.includes('해당 계기')) {
+        return { label: 'awms에 계기 미등록', hint: '계기번호 확인' };
+    }
+    if (s.includes('cntr_no') || s.includes('계약')) {
+        return { label: '계약정보(CNTR_NO) 없음', hint: '주소·계기 확인' };
+    }
+    if (s.includes('봉인')) {
+        return { label: '봉인번호 없음 — 세션 만료 가능', hint: 'awms 재로그인' };
+    }
+    if (s.includes('failed to fetch') || s.includes('fetch') || s.includes('네트워크') || s.includes('networkerror')) {
+        return { label: '네트워크 끊김', hint: '통신 확인' };
+    }
+    return { label: '미분류 오류', hint: '로그 확인' };
+}
+
 let _db = null;
 let _queue = [];  // {addr, meter, rep, status:'pending'|'err'|'done', err?, site}
 let _completedNewMeters = new Set();  // syncCompleted에서 채움
@@ -56,7 +83,21 @@ function initFb() {
 async function refreshQueue() {
     const ok = await syncCompleted();   // 1. awms 완료 수신 (세션+완료대조)
     if (!ok) {
-        // 세션·완료대조 둘 다 돼야 큐 표시 — 안 되면 큐 숨김(이미 등록된 것까지 보여 중복 위험)
+        // [구현 3] 캐시 깜빡임 수정:
+        //   _queue가 이미 차 있으면(캐시 즉시렌더로 채워진 상태) 비우지 않고 유지.
+        //   안전성: 등록(runOne/_runBatch)은 isSessionOK() 가드로 세션 없으면 막히므로
+        //   캐시 표시를 유지해도 중복 등록 위험 없음. 캐시의 done/pending 표시는
+        //   지난 완료대조 기준이라 표시용으로 충분.
+        if (_queue.length > 0) {
+            // 캐시 상태 유지 + 안내만 표시
+            log('awms 미연결 — 화면은 캐시 표시 중 (awms 로그인하면 최신 반영)', 'warn');
+            // 세션바에 안내 메시지 추가 (updateSessionBar 있으면 활용)
+            if (typeof setSessionBarMsg === 'function') {
+                setSessionBarMsg('awms 세션 없음 — 큐 화면은 캐시 기준 (로그인 후 새로고침)');
+            }
+            return;
+        }
+        // _queue가 비어있을 때만 기존대로 빈 화면
         _queue = [];
         if (typeof renderQueue === 'function') renderQueue();
         log('awms 로그인 + 완료대조 필요 — 큐 숨김(중복 방지)', 'warn');
@@ -66,8 +107,20 @@ async function refreshQueue() {
 }
 
 // ─────────────────────────────────────────────
+// djb2 해시 — rows 내용 기반 변화 감지 (dedup)
+// ─────────────────────────────────────────────
+function _djb2Hash(str) {
+    let h = 5381;
+    for (let i = 0; i < str.length; i++) {
+        h = ((h << 5) + h) ^ str.charCodeAt(i);
+        h = h >>> 0;  // 32비트 양수 유지
+    }
+    return h.toString(16);
+}
+
+// ─────────────────────────────────────────────
 // syncCompleted — awms workStep=28 완료목록 수신
-//   (a) ami-work awmscomplete/ 에 PUT
+//   (a) 변화시만 ami-work awmscomplete/ 에 PUT (dedup)
 //   (b) _completedNewMeters Set 갱신 → loadQueue에서 중복 제외
 // ─────────────────────────────────────────────
 async function syncCompleted() {
@@ -75,47 +128,64 @@ async function syncCompleted() {
         const rows = await _fetchAllCompleted();
         if (!rows) return false;  // 세션 없음/완료대조 실패 → 큐 표시 보류(중복 방지)
 
-        // (a) ami-work DB에 PUT (raw fetch — SDK는 ami-jongno용)
-        const payload = {
-            at: Date.now(),
-            busiKey: '397820263153',
-            title: '14차',
-            count: rows.length,
-            total: (rows[0] && rows[0].CNT) || rows.length,  // 서버 보고 총건수
-            rows,
-        };
-        // 고정키 latest로 덮어쓰기 — 매번 c{타임스탬프} 새 키 생성하던 940KB 누적 종료.
-        // 종로 sync-meter-from-awms.html은 shallow로 최신 키 1개만 읽으므로 호환 유지(키 1개=항상 latest).
-        const putUrl = `${AWMS_WORK_DB}/awmscomplete/latest.json`;
-        try {
-            const pr = await fetch(putUrl, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
-            if (pr.ok) {
-                log(`awmscomplete PUT 완료: ${rows.length}건`, 'ok');
-            } else {
-                log(`awmscomplete PUT 실패: HTTP ${pr.status}`, 'warn');
+        // dedup: rows 내용 해시 계산 — count가 아니라 content(WORK_STEP·WHM_NO·CREMO_WHM_NO) 기반
+        const rowsHash = _djb2Hash(JSON.stringify(rows));
+        const lastHash = localStorage.getItem('awmsq_last_pushed_hash');
+        const changed = (rowsHash !== lastHash);
+
+        if (!changed) {
+            log('완료목록 변화 없음 — PUT 생략', 'ok');
+        } else {
+            // (a) ami-work DB에 PUT (raw fetch — SDK는 ami-jongno용)
+            const payload = {
+                at: Date.now(),
+                busiKey: '397820263153',
+                title: '14차',
+                count: rows.length,
+                total: (rows[0] && rows[0].CNT) || rows.length,  // 서버 보고 총건수
+                rows,
+            };
+            // 고정키 latest로 덮어쓰기 — 매번 c{타임스탬프} 새 키 생성하던 940KB 누적 종료.
+            // 종로 sync-meter-from-awms.html은 shallow로 최신 키 1개만 읽으므로 호환 유지(키 1개=항상 latest).
+            const putUrl = `${AWMS_WORK_DB}/awmscomplete/latest.json`;
+            try {
+                const pr = await fetch(putUrl, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (pr.ok) {
+                    log(`awmscomplete PUT 완료: ${rows.length}건`, 'ok');
+                    // PUT 성공 시에만 해시 저장 — 실패 시 저장 안 함 → 다음 syncCompleted에서 재시도
+                    localStorage.setItem('awmsq_last_pushed_hash', rowsHash);
+                } else {
+                    log(`awmscomplete PUT 실패: HTTP ${pr.status}`, 'warn');
+                }
+            } catch (e) {
+                log('awmscomplete PUT 오류: ' + e.message, 'warn');
             }
-        } catch (e) {
-            log('awmscomplete PUT 오류: ' + e.message, 'warn');
+
         }
 
-        // (b) 완료/임시저장 계기 Set — WHM_NO(완료=신설 / 임시저장25=철거) + CREMO_WHM_NO(완료의 철거)
+        // (b) 완료/임시저장 계기 Set — changed 여부와 무관하게 항상 갱신
+        //   ★ dedup 스킵 경로에서도 Set 재구성 필수 — 비워두면 loadQueue가 전 항목을 pending으로 오판
         _completedNewMeters = new Set();
         rows.forEach(r => {
             if (r.WHM_NO) _completedNewMeters.add(String(r.WHM_NO).trim());
             if (r.CREMO_WHM_NO) _completedNewMeters.add(String(r.CREMO_WHM_NO).trim());
         });
         log(`완료 Set 갱신: ${_completedNewMeters.size}건`);
-        // (c) 종로 통계용 가벼운 노드 — 계기번호만 배열로 PUT (awmscomplete 940KB 대신 ~40KB)
-        try {
-            await fetch(`${AWMS_WORK_DB}/awmsDoneMeters.json`, {
-                method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify([..._completedNewMeters])
-            });
-        } catch (e) { /* 통계용 보조 — 실패해도 큐 동작 무관 */ }
+
+        // changed일 때 awmsDoneMeters PUT (Set 갱신 후 정확한 값으로)
+        if (changed) {
+            try {
+                await fetch(`${AWMS_WORK_DB}/awmsDoneMeters.json`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify([..._completedNewMeters])
+                });
+            } catch (e) { /* 통계용 보조 — 실패해도 큐 동작 무관 */ }
+        }
+
         // 조회 성공 = awms 세션 살아있음 → 세션바/isSessionOK 갱신 (앱시작 시 false 고정 해소)
         _sessionOK = true;
         if (!_sessionInfo) _sessionInfo = { userName: 'awms 연결됨' };
@@ -168,14 +238,10 @@ async function _fetchAllCompleted() {
 }
 
 // ─────────────────────────────────────────────
-// loadQueue — ami-jongno workStatus/jongno 읽어 큐 구성
+// _buildQueueFrom — workStatus 객체(ws)로 _queue 구성 + renderQueue
+//   캐시 즉시 렌더 및 라이브 갱신 양쪽에서 공유
 // ─────────────────────────────────────────────
-async function loadQueue() {
-    if (!_db) initFb();
-    log('동기화 큐 조회 중...');
-    const snap = await _db.ref('workStatus/jongno').once('value');
-    const ws = snap.val() || {};
-
+function _buildQueueFrom(ws) {
     const items = [];
     for (const [addr, v] of Object.entries(ws)) {
         const reps = v.replacement_list || {};
@@ -199,7 +265,29 @@ async function loadQueue() {
     _queue = items;
     renderQueue();
     const c = s => items.filter(i => i.status === s).length;
-    log(`큐 조회 완료: 대기 ${c('pending')} / 실패 ${c('err')} / 완료 ${c('done')}`, 'ok');
+    log(`큐 구성: 대기 ${c('pending')} / 실패 ${c('err')} / 완료 ${c('done')}`, 'ok');
+}
+
+// ─────────────────────────────────────────────
+// loadQueue — ami-jongno workStatus/jongno 읽어 큐 구성
+// ─────────────────────────────────────────────
+async function loadQueue() {
+    if (!_db) initFb();
+    log('동기화 큐 조회 중...');
+    const snap = await _db.ref('workStatus/jongno').once('value');
+    const ws = snap.val() || {};
+
+    _buildQueueFrom(ws);
+    log('큐 조회 완료', 'ok');
+
+    // 캐시 저장 — 다음 앱 시작 시 즉시 렌더용 (표시 전용)
+    try {
+        localStorage.setItem('awmsq_cache_completed', JSON.stringify([..._completedNewMeters]));
+        localStorage.setItem('awmsq_cache_workstatus', JSON.stringify(ws));
+    } catch (e) {
+        // QuotaExceededError 등 — 조용히 스킵 (캐시 저장 실패해도 라이브 동작 무관)
+        log('캐시 저장 스킵(용량 부족): ' + e.message, 'warn');
+    }
 }
 
 // ─────────────────────────────────────────────
@@ -353,7 +441,12 @@ function renderQueue() {
         const badgeCls = s.bdg || '';
         const badge = `<span class="badge ${badgeCls}" style="${i.status === 'done' ? 'background:#059669;color:#fff' : ''}">${s.txt}</span>`;
         const seq = i.rep.daily_seq != null ? `<span style="color:#1d4ed8;font-weight:700">#${escapeHtml(i.rep.daily_seq)}</span> ` : '';
-        const errMsg = i.err ? `<div class="meta" style="color:#dc2626">에러: ${escapeHtml(i.err)}</div>` : '';
+        let errMsg = '';
+        if (i.err) {
+            const fe = _friendlyError(i.err);
+            errMsg = `<div class="meta" style="color:#dc2626;font-weight:700">${escapeHtml(fe.label)}</div>`
+                   + `<div class="meta" style="color:#9ca3af;font-size:12px">${escapeHtml(fe.hint)}</div>`;
+        }
         // 등록 버튼: 완료면 숨김, 대기/실패면 등록
         const action = i.status === 'done'
             ? `<span style="color:#059669;font-weight:700;font-size:12px">완료</span>`

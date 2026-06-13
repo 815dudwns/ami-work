@@ -29,21 +29,249 @@ function _statusPanel() {
     return el;
 }
 
-// 상단 큰 배너 (등록 중 / 성공 / 실패)
-function _setBanner(text, kind) {
-    let b = document.getElementById('qbanner');
-    if (!b) {
-        b = document.createElement('div');
-        b.id = 'qbanner';
-        b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:100000;padding:14px 12px;'
-            + 'font:700 15px/1.4 -apple-system,sans-serif;text-align:center;color:#fff;display:none';
-        document.body.appendChild(b);
+// ─────────────────────────────────────────────
+// [로그] 토글 버튼 (우하단 고정, z-index 높게)
+// ─────────────────────────────────────────────
+function _ensureLogToggleBtn() {
+    if (document.getElementById('qlog-toggle')) return;
+    const btn = document.createElement('button');
+    btn.id = 'qlog-toggle';
+    btn.textContent = '[로그]';
+    btn.style.cssText = 'position:fixed;right:10px;bottom:56px;z-index:100001;'
+        + 'padding:6px 12px;font-size:12px;font-weight:700;'
+        + 'background:#374151;color:#9ca3af;border:none;border-radius:8px;cursor:pointer;'
+        + 'box-shadow:0 2px 8px rgba(0,0,0,.4);';
+    btn.onclick = function () {
+        const panel = _statusPanel();
+        if (panel.style.display === 'none' || !panel.style.display) {
+            panel.style.display = 'block';
+            panel.scrollTop = panel.scrollHeight;
+            // 에러 깜빡임 초기화
+            btn.style.animation = '';
+            btn.style.color = '#9ca3af';
+            btn.style.background = '#374151';
+        } else {
+            panel.style.display = 'none';
+        }
+    };
+    if (!document.body) { setTimeout(_ensureLogToggleBtn, 300); return; }
+    document.body.appendChild(btn);
+}
+
+// 에러 시 [로그] 버튼을 빨갛게 표시
+function _flashLogBtn() {
+    const btn = document.getElementById('qlog-toggle');
+    if (!btn) return;
+    btn.style.background = '#dc2626';
+    btn.style.color = '#fff';
+    // CSS keyframe animation이 없으므로 JS interval로 깜빡임
+    let on = true;
+    if (btn._flashTimer) clearInterval(btn._flashTimer);
+    btn._flashTimer = setInterval(function () {
+        btn.style.background = on ? '#dc2626' : '#7f1d1d';
+        on = !on;
+    }, 500);
+    // 8초 후 자동 중지 (패널 열면 onclick에서 초기화됨)
+    setTimeout(function () {
+        if (btn._flashTimer) { clearInterval(btn._flashTimer); btn._flashTimer = null; }
+        // 패널이 아직 닫혀있으면 빨간 정지 상태 유지 (에러 인지 전까지)
+    }, 8000);
+}
+
+// ─────────────────────────────────────────────
+// 진행 비주얼 — 등록 진행 카드 (#qprogress)
+// ─────────────────────────────────────────────
+// 6단계 라벨
+var STAGE_LABELS = ['조회', '사진', '철거', '상세', '신설', '완료'];
+var _progressState = null;  // null = 카드 숨김
+var _progressTimer = null;
+
+function _ensureProgressCard() {
+    let card = document.getElementById('qprogress');
+    if (!card) {
+        card = document.createElement('div');
+        card.id = 'qprogress';
+        card.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:100000;'
+            + 'background:#1e3a5f;color:#fff;padding:10px 14px 12px;'
+            + 'font:13px/1.5 -apple-system,sans-serif;display:none;'
+            + 'border-bottom:3px solid #2563eb;';
+        card.innerHTML =
+            '<div id="qp-count" style="font-size:11px;color:#93c5fd;text-align:center;margin-bottom:3px"></div>'
+            + '<div id="qp-seq" style="font-size:14px;font-weight:700;text-align:center;margin-bottom:4px"></div>'
+            + '<div id="qp-meters" style="font-size:12px;text-align:center;color:#d1fae5;margin-bottom:6px"></div>'
+            + '<div id="qp-steps" style="display:flex;gap:4px;justify-content:center;margin-bottom:4px"></div>'
+            + '<div id="qp-elapsed" style="font-size:11px;text-align:center;color:#9ca3af"></div>';
+        document.body.appendChild(card);
     }
-    if (!text) { b.style.display = 'none'; return; }
-    const bg = kind === 'ok' ? '#059669' : kind === 'err' ? '#dc2626' : '#2563eb';
-    b.style.background = bg;
-    b.textContent = text;
-    b.style.display = 'block';
+    return card;
+}
+
+// 진행 단계 렌더링 (DOM-only, log() 호출 금지)
+function _setStage(stageIdx) {
+    if (!_progressState) return;
+    _progressState.stage = stageIdx;
+    _renderProgressCard();
+}
+
+function _renderProgressCard() {
+    const state = _progressState;
+    if (!state) return;
+    const card = _ensureProgressCard();
+    const count = document.getElementById('qp-count');
+    const seq = document.getElementById('qp-seq');
+    const meters = document.getElementById('qp-meters');
+    const steps = document.getElementById('qp-steps');
+    const elapsed = document.getElementById('qp-elapsed');
+    if (!count || !seq || !meters || !steps || !elapsed) return;
+
+    // 카운트 표시
+    if (state.total > 1) {
+        count.textContent = '등록 중  [' + state.current + ' / ' + state.total + ']';
+    } else {
+        count.textContent = '등록 중';
+    }
+
+    // 시퀀스 / 계기
+    if (state.failed) {
+        seq.style.color = '#fca5a5';
+        seq.textContent = (state.seq != null ? '#' + state.seq + '  ' : '') + '등록 실패';
+        card.style.background = '#7f1d1d';
+        card.style.borderBottomColor = '#dc2626';
+        // 실패 원인 표시 — errLabel/errHint가 있으면 meters 영역에 표시
+        if (state.errLabel) {
+            meters.innerHTML = '<span style="color:#fca5a5;font-weight:700">' + state.errLabel + '</span>'
+                + (state.errHint ? '  <span style="color:#9ca3af;font-size:11px">' + state.errHint + '</span>' : '');
+            return;  // meters 덮어쓰기 후 아래 meters.textContent 건너뜀
+        }
+    } else if (state.done) {
+        seq.style.color = '#6ee7b7';
+        seq.textContent = (state.seq != null ? '#' + state.seq + '  ' : '') + '완료';
+        card.style.background = '#064e3b';
+        card.style.borderBottomColor = '#059669';
+    } else {
+        seq.style.color = '#fff';
+        seq.textContent = state.seq != null ? '#' + state.seq : '';
+        card.style.background = '#1e3a5f';
+        card.style.borderBottomColor = '#2563eb';
+    }
+
+    // 철거 → 신설
+    meters.textContent = (state.meter || '?') + '  →  ' + (state.newMeter || '?');
+
+    // 6단계 진행 바
+    steps.innerHTML = STAGE_LABELS.map(function (lbl, i) {
+        const filled = state.stage != null && i <= state.stage;
+        const isCurrent = state.stage === i && !state.done && !state.failed;
+        const bg = filled
+            ? (state.failed ? '#dc2626' : (state.done ? '#059669' : '#2563eb'))
+            : '#374151';
+        const bdr = isCurrent ? '2px solid #93c5fd' : '2px solid transparent';
+        return '<div style="flex:1;text-align:center;padding:3px 0;border-radius:4px;'
+            + 'background:' + bg + ';border:' + bdr + ';font-size:11px;font-weight:700">' + lbl + '</div>';
+    }).join('');
+
+    // 경과시간
+    if (!state.startTs) {
+        elapsed.textContent = '';
+    } else {
+        const sec = Math.round((Date.now() - state.startTs) / 1000);
+        const stageLabel = (state.stage != null && !state.done && !state.failed)
+            ? STAGE_LABELS[state.stage] + ' 중' : '';
+        elapsed.textContent = stageLabel + (stageLabel ? ' · ' : '') + sec + '초 경과  (1건 평균 약 37초)';
+    }
+}
+
+function _showProgress(meter, newMeter, seq, current, total) {
+    _progressState = {
+        meter: meter, newMeter: newMeter, seq: seq,
+        current: current || 1, total: total || 1,
+        stage: null, done: false, failed: false,
+        startTs: Date.now(),
+    };
+    const card = _ensureProgressCard();
+    card.style.display = 'block';
+    _renderProgressCard();
+    // 경과초 타이머 (중복 방지: clear-before-set)
+    if (_progressTimer) { clearInterval(_progressTimer); _progressTimer = null; }
+    _progressTimer = setInterval(function () {
+        if (_progressState) _renderProgressCard();
+    }, 1000);
+}
+
+function _updateProgressCount(current, total, meter, newMeter, seq) {
+    // 배치 루프 첫 건: _showProgress가 아직 호출 안 된 경우 여기서 초기화
+    if (!_progressState) { _showProgress(meter, newMeter, seq, current, total); return; }
+    _progressState.current = current;
+    _progressState.total = total;
+    _progressState.meter = meter;
+    _progressState.newMeter = newMeter;
+    _progressState.seq = seq;
+    _progressState.stage = null;
+    _progressState.done = false;
+    _progressState.failed = false;
+    _progressState.startTs = Date.now();
+    _renderProgressCard();
+}
+
+function _doneProgress(ok, rawErrMsg) {
+    if (!_progressState) return;
+    if (ok) {
+        _progressState.done = true;
+        _progressState.stage = 5;
+        _progressState.errLabel = null;
+        _progressState.errHint = null;
+    } else {
+        _progressState.failed = true;
+        if (rawErrMsg && typeof _friendlyError === 'function') {
+            const fe = _friendlyError(rawErrMsg);
+            _progressState.errLabel = fe.label;
+            _progressState.errHint = fe.hint;
+        }
+    }
+    _renderProgressCard();
+}
+
+function _hideProgress() {
+    if (_progressTimer) { clearInterval(_progressTimer); _progressTimer = null; }
+    _progressState = null;
+    const card = document.getElementById('qprogress');
+    if (card) card.style.display = 'none';
+}
+
+function _showProgressSummary(okCount, errCount) {
+    if (!_progressState) {
+        // 상태 없으면 임시 생성
+        _progressState = { stage: null, done: true, failed: false, startTs: null };
+    }
+    const card = _ensureProgressCard();
+    const count = document.getElementById('qp-count');
+    const seq = document.getElementById('qp-seq');
+    const meters = document.getElementById('qp-meters');
+    const steps = document.getElementById('qp-steps');
+    const elapsed = document.getElementById('qp-elapsed');
+    if (count) count.textContent = '일괄 등록 완료';
+    if (seq) { seq.textContent = '성공 ' + okCount + '건 / 실패 ' + errCount + '건'; seq.style.color = errCount > 0 ? '#fca5a5' : '#6ee7b7'; }
+    if (meters) meters.textContent = errCount > 0 ? '실패 ' + errCount + '건 (상세는 각 카드/로그)' : '';
+    if (steps) steps.innerHTML = '';
+    if (elapsed) elapsed.textContent = '';
+    card.style.display = 'block';
+    card.style.background = errCount > 0 ? '#7c2d12' : '#064e3b';
+    card.style.borderBottomColor = errCount > 0 ? '#dc2626' : '#059669';
+}
+
+// ─────────────────────────────────────────────
+// log() 키워드 → _setStage 매핑 테이블
+//   awms-saverow.js의 실제 log() 문자열 기반 (수정 없이 후킹)
+// ─────────────────────────────────────────────
+function _detectStageFromMsg(msg) {
+    if (!msg) return -1;
+    if (msg.indexOf('봉인조회') >= 0 || msg.indexOf('고객조회') >= 0 || msg.indexOf('작업목록') >= 0) return 0;
+    if (msg.indexOf('사진 로드') >= 0) return 1;
+    if (msg.indexOf('철거5000 POST') >= 0) return 2;
+    if (msg.indexOf('getDetail') >= 0 || msg.indexOf('자재 MTRL_NO') >= 0) return 3;
+    if (msg.indexOf('신설4000 POST') >= 0) return 4;
+    if (msg.indexOf('완료28') >= 0) return 5;
+    return -1;
 }
 
 // ─────────────────────────────────────────────
@@ -62,8 +290,28 @@ function log(msg, cls) {
             body.appendChild(d);
             // 최근 40줄만 유지
             while (body.childNodes.length > 40) body.removeChild(body.firstChild);
-            panel.style.display = 'block';
-            panel.scrollTop = panel.scrollHeight;
+            // [구현 1] 자동표출 제거 — 패널이 열려있을 때만 scrollTop 갱신
+            if (panel.style.display === 'block') {
+                panel.scrollTop = panel.scrollHeight;
+            }
+            // 에러 시 [로그] 버튼 빨갛게 깜빡임
+            if (cls === 'err') {
+                _flashLogBtn();
+            }
+        }
+    } catch (e) {}
+
+    // [구현 2] 진행 단계 감지 (DOM-only, 재귀 호출 없음)
+    try {
+        if (_progressState && !_progressState.done && !_progressState.failed) {
+            const stageIdx = _detectStageFromMsg(msg);
+            if (stageIdx >= 0) {
+                // 단조 증가 보장: stage가 null이거나 감지한 단계가 현재보다 클 때만 갱신
+                // (getDetail 재시도 로그가 상세(3)로 역행하는 것 방지 — 신설(4) 이후 getDetail 키워드 재등장)
+                if (_progressState.stage == null || stageIdx > _progressState.stage) {
+                    _setStage(stageIdx);
+                }
+            }
         }
     } catch (e) {}
 
@@ -109,22 +357,23 @@ async function runOne(addr, meter) {
         alert('awms 세션이 없습니다. [awms 열기]에서 로그인 후 시도하세요.');
         return;
     }
-    _setBanner(`등록 중... ${meter} → ${item.rep.new_meter_id}`, 'busy');
     log(`등록 시도: ${addr} / ${meter} → ${item.rep.new_meter_id}`);
+    // 진행 카드 표시 (기존 _setBanner 대체)
+    _showProgress(meter, item.rep.new_meter_id, item.rep.daily_seq, 1, 1);
     try {
         if (typeof registerReplacement !== 'function') {
             throw new Error('saverow 모듈 준비중 (awms-saverow.js 미로드)');
         }
         const resp = await registerReplacement({ addr, meter, rep: item.rep });
         log(`등록 성공: ${meter} (등록번호 ${resp.consTgtSeqno || '?'})`, 'ok');
-        _setBanner(`등록 성공  ${meter}  (임시저장, 등록번호 ${resp.consTgtSeqno || '?'})`, 'ok');
+        _doneProgress(true);
         await markSynced(addr, meter, resp);
         markDoneLocal(meter, item.rep.new_meter_id);  // 즉시 완료 반영 (다음 refresh 전까지)
-        setTimeout(() => _setBanner('', ''), 5000);  // 성공 배너 5초 후 자동 숨김
+        setTimeout(() => _hideProgress(), 5000);  // 성공 카드 5초 후 자동 숨김
     } catch (e) {
         log(`등록 실패 ${meter}: ${e.message}`, 'err');
-        _setBanner(`등록 실패  ${meter}  —  ${e.message}`, 'err');
-        setTimeout(() => _setBanner('', ''), 8000);  // 실패 배너도 8초 후 자동 숨김 (계속 안 없어지던 문제)
+        _doneProgress(false, e.message);
+        setTimeout(() => _hideProgress(), 8000);  // 실패 카드 8초 후 자동 숨김
         await markError(addr, meter, e.message);
     }
     await refreshQueue();   // 이벤트 후 전체 새로고침(awms 완료상태 반영)
@@ -177,6 +426,8 @@ async function _runBatch(pending, label) {
     let ok = 0, err = 0;
     try {
         for (const item of pending) {
+            // 건별 진행 카드 갱신 (단계 초기화 포함)
+            _updateProgressCount(ok + err + 1, pending.length, item.meter, item.rep.new_meter_id, item.rep.daily_seq);
             try {
                 log(`[${ok + err + 1}/${pending.length}] ${item.meter} 등록 중...`);
                 const resp = await registerReplacement({ addr: item.addr, meter: item.meter, rep: item.rep });
@@ -184,9 +435,11 @@ async function _runBatch(pending, label) {
                 markDoneLocal(item.meter, item.rep.new_meter_id);  // 즉시 완료 반영
                 ok++;
                 log(`  성공`, 'ok');
+                _doneProgress(true);
             } catch (e) {
                 err++;
                 log(`  ${e.message}`, 'err');
+                _doneProgress(false, e.message);
                 await markError(item.addr, item.meter, e.message);
             }
             if ((ok + err) < pending.length) {
@@ -196,6 +449,8 @@ async function _runBatch(pending, label) {
             }
         }
         log(`일괄 완료: 성공 ${ok} / 실패 ${err}`, 'warn');
+        _showProgressSummary(ok, err);
+        setTimeout(() => _hideProgress(), 6000);
         await refreshQueue();   // 이벤트 후 전체 새로고침
     } finally {
         // 정상 완료 / 에러 / 중단 어느 경우에도 서비스 종료 + 버튼 복구
@@ -223,9 +478,34 @@ window.refreshQueue = refreshQueue;
 // 초기화
 // ─────────────────────────────────────────────
 (async () => {
-    log('AWMS Queue 시작 [JS:remote-r7 완료즉시반영]', 'ok');
+    log('AWMS Queue 시작 [JS:remote-r9 진행비주얼+로그버튼]', 'ok');
+    _ensureLogToggleBtn();
     initFb();
     if (typeof loadSiteMap === 'function') await loadSiteMap();  // 도로명/계약정보 캐시(1회)
+
+    // ── 캐시 즉시 렌더 — checkSession/refreshQueue 호출 전에 지난번 받은 화면을 먼저 그린다 ──
+    // ★ 표시 전용: 등록(runOne/_runBatch/registerReplacement)은 항상 라이브(isSessionOK 가드 유지)
+    try {
+        const cachedCompleted = localStorage.getItem('awmsq_cache_completed');
+        const cachedWs = localStorage.getItem('awmsq_cache_workstatus');
+        if (cachedCompleted && cachedWs) {
+            const completedArr = JSON.parse(cachedCompleted);
+            const ws = JSON.parse(cachedWs);
+            // 캐시 completed로 Set 채우기
+            if (typeof _completedNewMeters !== 'undefined') {
+                _completedNewMeters = new Set(completedArr);
+            }
+            // 캐시 ws로 즉시 화면 그리기
+            if (typeof _buildQueueFrom === 'function') {
+                _buildQueueFrom(ws);
+                log('캐시로 즉시 표시 — awms 갱신 중...', 'ok');
+            }
+        }
+    } catch (e) {
+        // 캐시 파싱 실패(손상/구버전) — 조용히 스킵하고 라이브로만
+        log('캐시 즉시 렌더 스킵(파싱 오류): ' + e.message, 'warn');
+    }
+
     await checkSession();
     await refreshQueue();
     // 5분마다 세션 체크 (큐 자동 새로고침은 안 함 — 수동/등록이벤트 후에만 갱신)
@@ -240,7 +520,7 @@ window.refreshQueue = refreshQueue;
 
 // 우상단 버전 표시 (새 배포 반영 확인용) — push마다 갱신
 (function () {
-    var APP_VER = 'v0613-awmscomplete고정키';
+    var APP_VER = 'v0613-실패원인표시';
     function show() {
         if (!document.body) { setTimeout(show, 300); return; }
         if (document.getElementById('app-ver')) return;
