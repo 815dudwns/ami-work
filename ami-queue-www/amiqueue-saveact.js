@@ -102,7 +102,9 @@ window.saveActOne = async function (id) {
         return;
     }
     if (!confirm(item.addr + '\nawms에 저장(28)합니다. (전송 아님 — awms 화면서 삭제 가능)\n계속할까요?')) return;
-    const dept2 = '7793';   // TODO: 지사→DEPT2 매핑 (테스트는 서울본부직할 고정)
+    // 지사→DEPT2 매핑 (수집 시 저장된 item.jisa). 미상이면 서울본부직할 7793 폴백.
+    const dept2 = (typeof JISA_DEPT2 !== 'undefined' && JISA_DEPT2[item.jisa]) || '7793';
+    if (!JISA_DEPT2 || !JISA_DEPT2[item.jisa]) log('지사 DEPT2 미상(' + (item.jisa || '') + ') → 7793 폴백', 'warn');
     _setBanner('saveAct 저장 중... ' + item.addr, 'busy');
     log('saveAct 시작: ' + item.addr, 'warn');
     let ok = 0, err = 0;

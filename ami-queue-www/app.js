@@ -73,10 +73,35 @@ function openAwms() {
     else log('AwmsQ 브릿지 없음 — 웹 미리보기 모드', 'warn');
 }
 
+// ── 수집(collect.js) 동적 로드 + 진입 버튼 (push만 반영; C 빌드 때 index.html files에 정식 편입) ──
+function _loadCollect() {
+    if (window.__collectHandoff || document.getElementById('collect-js')) return;
+    const s = document.createElement('script');
+    s.id = 'collect-js';
+    s.src = 'https://815dudwns.github.io/ami-work/ami-queue-www/collect.js?t=' + Date.now();
+    document.head.appendChild(s);
+}
+function _injectCollectBtn() {
+    if (document.getElementById('btn-collect')) return;
+    const row = document.querySelector('.container > div[style*="display:flex"]');
+    const b = document.createElement('button');
+    b.id = 'btn-collect';
+    b.className = 'btn-secondary';
+    b.style.cssText = 'flex:0 0 70px;width:70px;background:#7c3aed;color:#fff';
+    b.textContent = '수집';
+    b.onclick = function () {
+        const k = prompt('수집 handoff key (아미맵 연동 전 테스트용)');
+        if (k && window.__collectHandoff) window.__collectHandoff(k.trim());
+    };
+    if (row) row.appendChild(b);
+}
+
 // ── 초기화 ──────────────────────────────────────
 (async () => {
     log('AMI Queue 시작 [Phase A: 목록·삭제만, awms write 없음]', 'ok');
     initFb();
+    _loadCollect();
+    _injectCollectBtn();
     await checkSession();
     await refreshQueue();
     setInterval(checkSession, 5 * 60 * 1000);
