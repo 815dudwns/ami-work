@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v75'; // v75: OTP 자동입력 추가 — awmsOtp/{id} Firebase 폴링 + MutationObserver. v74: inject 로그분리
+  var VER = 'v76'; // v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정. v75: OTP Firebase 폴링+MutationObserver
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -805,19 +805,37 @@ function parseValue(text) {
           box.dispatchEvent(new KeyboardEvent('keyup', { key: digit, bubbles: true }));
         } catch (e) {}
       }
-      // 인증/확인 버튼 탐색 후 클릭 (없으면 입력만)
+      // 로그인 버튼 탐색 후 클릭 (없으면 입력만)
+      // 우선: .login-form 또는 document 에서 button.btn-login
+      // 제외: 재발송/받기/발송/취소 텍스트 버튼 (절대 누르면 안 됨)
       try {
-        var otpWrap = document.getElementById('otpWrap');
-        var scope = otpWrap || document;
-        var btnList = Array.prototype.slice.call(scope.querySelectorAll('button,input[type="submit"],input[type="button"],a'));
-        var authBtn = btnList.find(function (b) {
-          var txt = (b.textContent || b.value || '').trim();
-          return /인증|확인|confirm/i.test(txt) || (b.type === 'submit');
-        });
+        var loginForm = document.querySelector('.login-form') || document;
+        // 1순위: button.btn-login
+        var authBtn = loginForm.querySelector('button.btn-login');
+        if (!authBtn) {
+          // 2순위: 텍스트가 정확히 "로그인"인 버튼
+          var allBtns = Array.prototype.slice.call(loginForm.querySelectorAll('button,input[type="submit"],input[type="button"]'));
+          authBtn = allBtns.find(function (b) {
+            var txt = (b.textContent || b.value || '').trim();
+            // 재발송/받기/발송/취소는 절대 제외
+            if (/재발송|받기|발송|취소/.test(txt)) return false;
+            return txt === '로그인';
+          });
+        }
         if (authBtn) authBtn.click();
       } catch (e) {}
       return true;
     }
+
+    // 헬퍼 내장 OTP 직접 경로 — 네이티브(OtpReaderService)가 webview에 직접 전달.
+    // Firebase 폴링 경로와 동일한 fillOtp 호출. 이중입력 방지: stopPoll() 먼저.
+    window.__otpReceived = function (code) {
+      try {
+        stopPoll();
+        var ok = fillOtp(String(code));
+        rec({ stage: 'otp-native-direct', code2: String(code).slice(0, 2), ok: ok });
+      } catch (e) {}
+    };
 
     function stopPoll() {
       if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
