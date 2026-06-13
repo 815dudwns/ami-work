@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v74'; // v74: inject 로그분리 — awms-queue(AwmsResult)→awmslog/queue, helper→awmslog/helper (혼선차단). v68~73(숫자키보드)은 폐기
+  var VER = 'v75'; // v75: OTP 자동입력 추가 — awmsOtp/{id} Firebase 폴링 + MutationObserver. v74: inject 로그분리
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -17,7 +17,7 @@
   function _logNode() { return (window.AwmsResult || window.AwmsQ) ? 'queue' : 'helper'; }
   var _FBLOG = _FB_BASE + _logNode() + '.json';
   // [v61] firebase 로그 화이트리스트 — 핵심만 보냄(진단 폭주 차단). 디버깅 필요시 window.__FBLOG_ALL=true 로 전체.
-  var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1 };
+  var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1, 'otp-baseline': 1, 'otp-autofill': 1, 'otp-autofill-fail': 1 };
   function rec(o) {
     try {
       o.kind = 'cam'; o.ts = Date.now(); o.url = 'https://awms.kdn.com/__cam__/' + (o.stage || '');
@@ -724,6 +724,23 @@ function parseValue(text) {
           localStorage.setItem('helper_cred_pw', pw);
           rec({ stage: 'login-cred-save', src: 'submit' });
         }
+
+        // OTP 자동입력용: 제출 시점에 awmsID 보관 + baseline ts 확보 (1회만)
+        if (id && !window.__otpAwmsID) {
+          window.__otpAwmsID = id;
+          window.__otpBaselineTs = 0;
+          var _otpFbBase = 'https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app/awmsOtp/';
+          fetch(_otpFbBase + encodeURIComponent(id) + '.json')
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+              window.__otpBaselineTs = (d && typeof d.ts === 'number') ? d.ts : 0;
+              rec({ stage: 'otp-baseline', id: id, baseline: window.__otpBaselineTs });
+            })
+            .catch(function () {
+              window.__otpBaselineTs = 0;
+              rec({ stage: 'otp-baseline', id: id, baseline: 0, err: 'fetch-fail' });
+            });
+        }
       } catch (e) {}
     }
 
@@ -758,6 +775,105 @@ function parseValue(text) {
     }, true); // 캡처 단계, preventDefault 절대 없음
   }
 
+  // ── OTP 자동입력 ──
+  // awms 로그인 후 OTP 화면(#otpWrap input.otp-box 6개)이 나타나면
+  // ami-work Firebase awmsOtp/{awmsID} 를 1.5초 간격으로 폴링해 신규 코드 자동 입력.
+  // 주의: _FB_BASE(ami-jongno)와 다른 ami-work-1c49a DB 사용.
+  var _OTP_FB_BASE = 'https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app/awmsOtp/';
+
+  function tryOtpAutofill() {
+    // 중복 기동 방지
+    if (window.__otpAutofillInstalled) return;
+    window.__otpAutofillInstalled = true;
+
+    var _pollTimer = null;
+    var _pollElapsed = 0;
+    var POLL_INTERVAL = 1500; // ms
+    var POLL_MAX = 60000;     // 최대 60초
+
+    // OTP 6칸에 코드 채우기 + 인증 버튼 클릭
+    function fillOtp(code) {
+      var boxes = document.querySelectorAll('#otpWrap input.otp-box');
+      if (!boxes || boxes.length < 6) return false;
+      var str = String(code);
+      for (var i = 0; i < boxes.length; i++) {
+        var digit = i < str.length ? str.charAt(i) : '';
+        var box = boxes[i];
+        // value setter + input + change (setInput 재사용) + keyup 별도 디스패치
+        setInput(box, digit);
+        try {
+          box.dispatchEvent(new KeyboardEvent('keyup', { key: digit, bubbles: true }));
+        } catch (e) {}
+      }
+      // 인증/확인 버튼 탐색 후 클릭 (없으면 입력만)
+      try {
+        var otpWrap = document.getElementById('otpWrap');
+        var scope = otpWrap || document;
+        var btnList = Array.prototype.slice.call(scope.querySelectorAll('button,input[type="submit"],input[type="button"],a'));
+        var authBtn = btnList.find(function (b) {
+          var txt = (b.textContent || b.value || '').trim();
+          return /인증|확인|confirm/i.test(txt) || (b.type === 'submit');
+        });
+        if (authBtn) authBtn.click();
+      } catch (e) {}
+      return true;
+    }
+
+    function stopPoll() {
+      if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+    }
+
+    function startPoll() {
+      if (_pollTimer) return; // 이미 폴링 중
+      _pollElapsed = 0;
+      _pollTimer = setInterval(function () {
+        _pollElapsed += POLL_INTERVAL;
+        if (_pollElapsed > POLL_MAX) {
+          stopPoll();
+          return;
+        }
+        var awmsId = window.__otpAwmsID;
+        if (!awmsId) return;
+        var baseline = window.__otpBaselineTs || 0;
+        fetch(_OTP_FB_BASE + encodeURIComponent(awmsId) + '.json')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            if (!d || !d.code || typeof d.ts !== 'number') return;
+            if (d.ts <= baseline) return; // 이전 OTP — 무시 (만료 코드 자동입력 방지)
+            // 신규 OTP 수신
+            stopPoll();
+            var code = String(d.code);
+            var ok = fillOtp(code);
+            rec({ stage: 'otp-autofill', id: awmsId, code2: code.slice(0, 2), ok: ok });
+            // single-use: 사용 후 Firebase 노드 삭제
+            fetch(_OTP_FB_BASE + encodeURIComponent(awmsId) + '.json', { method: 'DELETE' })
+              .catch(function () {});
+          })
+          .catch(function () {});
+      }, POLL_INTERVAL);
+    }
+
+    // MutationObserver: #otpWrap input.otp-box 6개 등장 감지 → 폴링 시작
+    // OTP 화면은 로그인 submit 이후 SPA 네비게이션으로 나타나므로 Observer가 필요
+    try {
+      var observer = new MutationObserver(function () {
+        var boxes = document.querySelectorAll('#otpWrap input.otp-box');
+        if (boxes.length >= 6) {
+          startPoll();
+        } else if (_pollTimer) {
+          // OTP 화면이 사라지면 폴링 중단 + 플래그 초기화(다음 로그인 대비)
+          stopPoll();
+        }
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+    } catch (e) {}
+
+    // 이미 OTP 화면이 떠 있을 경우 즉시 체크
+    try {
+      if (document.querySelectorAll('#otpWrap input.otp-box').length >= 6) startPoll();
+    } catch (e) {}
+  }
+
   // 로그인 자동입력 트리거: 즉시 + 300ms + 1000ms (늦게 렌더되는 폼 대응)
   try {
     if (window.__awmsHelper) {
@@ -768,6 +884,8 @@ function parseValue(text) {
       }
       setTimeout(tryLoginAutofill, 300);
       setTimeout(tryLoginAutofill, 1000);
+      // OTP 자동입력 Observer 기동 (로그인 흐름과 동일 라이프사이클)
+      tryOtpAutofill();
     }
   } catch (e) {}
 
