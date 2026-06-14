@@ -437,6 +437,19 @@ window.collSDel = function (i) { if (!_coll) return; _coll.slaves.splice(i, 1); 
 window.collSAddNo = function () { if (!_coll) return; _coll.slaves.push({ meterNo: '', type: '', photo: '' }); renderCollect(); };
 // 빈 카드에 사진 채우기 (사진 슬롯 탭 → 개별 선택)
 window.collSSetPhoto = function (i, input) { const f = input.files && input.files[0]; if (!f || !_coll) return; const r = new FileReader(); r.onload = () => { if (_coll.slaves[i]) { _coll.slaves[i].photo = r.result; renderCollect(); } }; r.readAsDataURL(f); input.value = ''; };
+// 이 슬래이브를 마스터로 승격 (어느게 마스터인지 현장서 정함 — 큐보내기는 마스터 미지정). 기존 마스터는 슬래이브로.
+window.collSMakeMaster = function (i) {
+    if (!_coll) return; const s = _coll.slaves[i]; if (!s) return;
+    const m = _coll.master;
+    if (m.meterNo) _coll.slaves.push({ meterNo: m.meterNo, type: m.type, photo: (m.slots.post1 && m.slots.post1.url) || '' });
+    m.meterNo = s.meterNo; m.type = s.type; m.siteComm = ''; m.bdju = '';
+    m.suffix = _inferSuffix(m.type, m.mac, m.siteComm);
+    if (s.photo && !m.slots.post1) m.slots.post1 = { url: s.photo };   // 슬래이브 계기사진 → 마스터 계기슬롯
+    _coll.slaves.splice(i, 1);
+    _lookupMaster(m.meterNo);
+    log('마스터 변경 → ' + m.meterNo, 'ok');
+    renderCollect();
+};
 
 // ── 포인터 드래그 (마스터 슬롯 swap / 슬래이브 reorder). touch-action은 드래그 요소(.mslot.filled/.scard-handle)에만 → 페이지 스크롤 보존. ──
 let _drag = null;
@@ -570,7 +583,8 @@ function renderCollect() {
         + `<div style="flex:1;display:flex;flex-direction:column;gap:5px">`
         + `<div style="display:flex;gap:6px"><input value="${_esc(s.meterNo)}" oninput="collSSetNo(${i},this.value)" placeholder="계기번호" inputmode="numeric" style="flex:1;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:15px;font-weight:700">`
         + `<button onclick="collSScan(${i})" style="flex:0 0 42px;padding:8px 0;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:11px">QR</button></div>`
-        + `<div style="font-size:10px;color:#9ca3af">${_esc(s.type || '?')}타입 · 분기 ${_bungi(m.suffix, s.type)}</div></div>`
+        + `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;color:#9ca3af">${_esc(s.type || '?')}타입 · 분기 ${_bungi(m.suffix, s.type)}</span>`
+        + `<button onclick="collSMakeMaster(${i})" style="font-size:10px;padding:3px 8px;background:#dbeafe;color:#1e40af;border:none;border-radius:5px;font-weight:700">마스터로</button></div></div>`
         + `<button onclick="collSDel(${i})" style="flex:0 0 auto;align-self:flex-start;width:26px;height:26px;padding:0;background:#fee2e2;color:#b91c1c;border:none;border-radius:13px;font-size:14px">×</button></div>`
     ).join('');
     slaves += `<div style="display:flex;gap:6px;margin-bottom:6px">`
