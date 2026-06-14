@@ -280,51 +280,9 @@ window.__collectByMeterNo = async function (meterNo, workMode) {
 };
 
 // ── 수집창 진입 화면 (계기번호 입력/QR/직접입력으로 받기) ──
-// [수집] 버튼 → 빈 수집창 열림 → 그 안에서 계기번호 받음. (prompt 메시지박스 아님)
-// 동행시공은 별도 조회 안 함 — site-data 밖 계기는 직접입력으로 추가(영준님 2026-06-14).
+// [수집] 버튼 → 바로 빈 마스터 폼(마스터 카드에 번호입력+QR 내장). 진입화면 제거(영준님 2026-06-14).
+// site-data 자동채움(주소/통신/변대주)은 마스터 번호 입력/스캔 시 _lookupMaster가 수행.
 window.__collectOpen = function () {
-    const s = _amiqSettings();
-    const setLine = (s.jisa || s.worker1)
-        ? `${_esc(s.jisa || '지사미설정')}${s.busiName ? ' · ' + _esc(s.busiName) : ''}${s.worker1 ? ' · 작업자 ' + _esc(s.worker1) + (s.worker2 ? ',' + _esc(s.worker2) : '') : ''}`
-        : `<span style="color:#dc2626">사전설정 없음 — [설정]에서 지사·작업자를 먼저 등록하세요</span>`;
-    const el = _collOverlay();
-    el.innerHTML =
-        `<div style="background:#1e3a8a;color:#fff;padding:12px 16px;position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center">`
-        + `<div style="font-size:15px;font-weight:700">awms 수집</div>`
-        + `<div style="display:flex;gap:6px"><button onclick="__settingsOpen()" style="background:#4f46e5;color:#fff;padding:8px 12px;font-size:13px">설정</button>`
-        + `<button onclick="collClose()" style="background:#374151;color:#fff;padding:8px 12px;font-size:13px">닫기</button></div></div>`
-        + `<div style="padding:16px;max-width:560px;margin:0 auto">`
-        + `<div style="font-size:11px;color:#6b7280;background:#f1f5f9;border-radius:8px;padding:8px 10px;margin-bottom:12px">${setLine}</div>`
-        + `<div style="font-weight:700;margin-bottom:8px">계기번호 입력/스캔 → 폼 시작</div>`
-        + `<div style="display:flex;gap:6px;margin-bottom:8px">`
-        + `<input id="coll-entry-no" inputmode="numeric" placeholder="계기번호 입력" style="flex:1;padding:12px;border:1px solid #d1d5db;border-radius:8px;font-size:15px" onkeydown="if(event.key==='Enter')collEntryLoad()">`
-        + `<button onclick="collEntryLoad()" class="btn-primary" style="flex:0 0 70px;width:70px">시작</button></div>`
-        + `<button onclick="collEntryScan()" class="btn-secondary" style="width:100%;padding:13px;margin-bottom:6px;background:#7c3aed;color:#fff">QR / 바코드 스캔</button>`
-        + `<button onclick="collStartBlank()" class="btn-secondary" style="width:100%;padding:13px;margin-bottom:6px;background:#ede9fe;color:#5b21b6">빈 폼으로 시작</button>`
-        + `<div style="font-size:11px;color:#9ca3af;margin-top:10px">계기번호를 입력/스캔하면 폼이 열립니다. site-data에 있으면 주소 전체·계기유형이 자동으로 채워지고, 없으면(현장 대부분) 그 계기로 바로 시작합니다.</div>`
-        + `</div>`;
-    el.style.display = 'block';
-};
-window.collEntryLoad = function () {
-    const inp = document.getElementById('coll-entry-no');
-    const no = inp && inp.value ? inp.value.trim() : '';
-    if (!no) { alert('계기번호를 입력하세요'); return; }
-    window.__collectByMeterNo(no);
-};
-window.collEntryScan = function () {
-    _ensureQrScanner(function (ok) {
-        if (!ok || !window.QrScanner) { alert('스캐너 로드 실패 — 계기번호를 직접 입력하세요'); return; }
-        window.QrScanner.show(function (text) {
-            const no = String(text || '').replace(/\D/g, '');
-            if (!no) { alert('계기번호 인식 실패: ' + text); return; }
-            const inp = document.getElementById('coll-entry-no');
-            if (inp) inp.value = no;
-            window.__collectByMeterNo(no);
-        });
-    });
-};
-// 직접입력 시작 — 빈 폼(계기 0건). [계기추가]로 직접 입력. (site-data 밖 현장)
-window.collStartBlank = function () {
     _setColl('', '', [], '일반', '');
 };
 
@@ -392,14 +350,49 @@ function _setColl(addr, jisa, rawMeters, workMode, key) {
     renderCollect();
 }
 
-// ── 마스터 필드 ──
-window.collMSetNo = function (v) { if (!_coll) return; const m = _coll.master; m.meterNo = String(v || '').trim(); m.type = _collParseType(m.meterNo) || ''; m.suffix = _inferSuffix(m.type, m.mac, m.siteComm); renderCollect(); };
-window.collMSetMac = function (v) { if (!_coll) return; const m = _coll.master; m.mac = String(v || '').trim(); m.suffix = _inferSuffix(m.type, m.mac, m.siteComm); renderCollect(); };
+// ── 마스터 필드 (input은 oninput=값만 저장 → 타이핑 focus 보존, onblur=렌더로 표시 갱신) ──
+window.collMSetNo = function (v) { if (!_coll) return; const m = _coll.master; m.meterNo = String(v || '').trim(); m.type = _collParseType(m.meterNo) || ''; m.suffix = _inferSuffix(m.type, m.mac, m.siteComm); if (m.meterNo.length >= 11) _lookupMaster(m.meterNo); };
+window.collMSetMac = function (v) { if (!_coll) return; const m = _coll.master; m.mac = String(v || '').trim(); m.suffix = _inferSuffix(m.type, m.mac, m.siteComm); };
+window.collMBlur = function () { renderCollect(); };
 window.collMSetSuffix = function (v) { if (_coll) { _coll.master.suffix = v; renderCollect(); } };
 window.collMSetExt = function (c) { if (_coll) _coll.master.ext = c ? 'Y' : 'N'; };
 window.collMSetWorkDiv = function (v) { if (_coll) _coll.master.workDiv = v; };
-window.collSetHam = function (v) { if (_coll) { _coll.hamType = v; renderCollect(); } };
+// 작업방식/함체 = 탭 한방에 토글 (영준님 2026-06-14)
+window.collToggleMode = function () { if (_coll) { _coll.workMode = _coll.workMode === '일반' ? '동행' : '일반'; renderCollect(); } };
+window.collToggleHam = function () { if (_coll) { _coll.hamType = _coll.hamType === '단독' ? '집합' : '단독'; renderCollect(); } };
 window.collClose = function () { const el = document.getElementById('collect-overlay'); if (el) el.style.display = 'none'; };
+
+// 마스터 계기번호 → site-data 자동채움(주소·통신·변대주·지사). 최신 호출만 반영.
+let _lookupSeq = 0;
+function _lookupMaster(no) {
+    if (!no || no.length < 11 || !_db) return;
+    const seq = ++_lookupSeq;
+    _db.ref('siteData/charger4eleccar').orderByChild('계기번호').equalTo(no).once('value').then(s => {
+        if (seq !== _lookupSeq) return;
+        const val = s.val(); if (!val) return;
+        const hit = Object.values(val)[0];
+        const m = _coll && _coll.master; if (!m || m.meterNo !== no) return;
+        if (!_coll.addr) _coll.addr = hit.주소 || hit.도로명주소 || '';
+        m.siteComm = hit.통신방식 || ''; m.bdju = hit.변대주 || '';
+        if (!m.mac) m.suffix = _inferSuffix(m.type, '', m.siteComm);
+        if (!(_coll.settings && _coll.settings.jisa) && hit.지사) _coll.jisa = hit.지사;
+        log('site-data 자동채움: ' + (_coll.addr || no), 'ok');
+        renderCollect();
+    }).catch(() => {});
+}
+// 마스터 계기번호 QR 스캔
+window.collScanMNo = function () {
+    _ensureQrScanner(function (ok) {
+        if (!ok || !window.QrScanner) { alert('스캐너 실패 — 번호 직접입력'); return; }
+        window.QrScanner.show(function (text) {
+            const no = String(text || '').replace(/\D/g, ''); if (!no || !_coll) return;
+            const m = _coll.master; m.meterNo = no; m.type = _collParseType(no) || '';
+            m.suffix = _inferSuffix(m.type, m.mac, m.siteComm);
+            log('마스터 번호 스캔: ' + no, 'ok');
+            renderCollect(); _lookupMaster(no);
+        });
+    });
+};
 
 // 마스터 모뎀맥 QR (맥값 + 스캔화면=모뎀맥 사진 겸용)
 window.collScanMac = function () {
@@ -545,10 +538,11 @@ function renderCollect() {
         + `<div style="background:#1e40af;color:#fff;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">`
         + `<div style="font-size:14px;font-weight:700">마스터</div><div style="font-size:11px;opacity:.9">${_esc(fclty.label)}(${fclty.div})</div></div>`
         + `<div style="display:flex;gap:6px;padding:8px 10px;align-items:center">`
-        + `<input value="${_esc(m.meterNo)}" oninput="collMSetNo(this.value)" placeholder="마스터 계기번호" inputmode="numeric" style="flex:1;padding:9px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;font-weight:700">`
+        + `<input value="${_esc(m.meterNo)}" oninput="collMSetNo(this.value)" onblur="collMBlur()" placeholder="마스터 계기번호" inputmode="numeric" style="flex:1;padding:9px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;font-weight:700">`
+        + `<button onclick="collScanMNo()" style="flex:0 0 50px;padding:9px 0;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700">QR</button>`
         + `<span style="font-size:11px;color:#6b7280">${_esc(m.type || '?')}타입</span></div>`
         + `<div style="display:flex;gap:6px;padding:0 10px 8px;align-items:center">`
-        + `<input value="${_esc(m.mac)}" oninput="collMSetMac(this.value)" placeholder="모뎀맥" style="flex:1;padding:9px;border:1px solid #d1d5db;border-radius:6px;font-size:14px">`
+        + `<input value="${_esc(m.mac)}" oninput="collMSetMac(this.value)" onblur="collMBlur()" placeholder="모뎀맥" style="flex:1;padding:9px;border:1px solid #d1d5db;border-radius:6px;font-size:14px">`
         + `<button onclick="collScanMac()" style="flex:0 0 50px;padding:9px 0;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700">QR</button>`
         + `<select onchange="collMSetSuffix(this.value)" style="flex:0 0 90px;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px">${commSel}</select></div>`
         + (commName ? '' : `<div style="font-size:10px;color:#dc2626;padding:0 10px 6px">통신방식 미판별 — 직접 선택</div>`)
@@ -583,8 +577,8 @@ function renderCollect() {
         + `<div style="background:#fff;padding:8px 16px;border-bottom:1px solid #e5e7eb;font-size:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">`
         + `<span><b>${_esc(_coll.jisa || '지사미설정')}</b>${dept2 ? '(' + dept2 + ')' : ''}</span>`
         + (set.busiName ? `<span style="color:#6b7280">${_esc(set.busiName)}</span>` : '')
-        + `<span>작업방식 <b>${_esc(_coll.workMode)}</b></span>`
-        + `<span>함체 <select onchange="collSetHam(this.value)" style="padding:4px;border:1px solid #d1d5db;border-radius:6px;font-size:12px"><option value="단독"${_coll.hamType === '단독' ? ' selected' : ''}>단독</option><option value="집합"${_coll.hamType === '집합' ? ' selected' : ''}>집합</option></select></span>`
+        + `<span onclick="collToggleMode()" style="cursor:pointer;background:#eef2ff;color:#3730a3;padding:3px 9px;border-radius:12px;user-select:none">작업방식 <b>${_esc(_coll.workMode)}</b></span>`
+        + `<span onclick="collToggleHam()" style="cursor:pointer;background:#eef2ff;color:#3730a3;padding:3px 9px;border-radius:12px;user-select:none">함체 <b>${_esc(_coll.hamType)}</b></span>`
         + (set.worker1 ? `<span style="color:#6b7280">작업자 ${_esc(set.worker1)}${set.worker2 ? ',' + _esc(set.worker2) : ''}</span>` : `<span style="color:#dc2626">작업자 미설정</span>`)
         + `</div>`
         + `<div style="padding:12px;max-width:620px;margin:0 auto">`
