@@ -203,6 +203,19 @@ function renderGuCheckboxes(jisa) {
     });
 }
 
+// 현재 필터(지사/구) 적용된 마커 전체가 보이도록 지도 맞춤.
+//   ★사용자가 지사/구를 바꿀 때만 호출 — init/loadMarkers 경로에서 부르면
+//   앱 켤 때마다 fit돼서 '마지막 위치 유지'가 깨진다. 지리 필터에만 적용(카테고리 제외).
+function fitToFilteredMarkers() {
+    if (!markers.length) return;
+    const bounds = new kakao.maps.LatLngBounds();
+    markers.forEach(m => bounds.extend(m.overlay.getPosition()));
+    if (bounds.isEmpty()) return;
+    map.setBounds(bounds, 60);   // 60px 여백
+    // 단일/소수 좌표면 최대줌으로 튐 — 적당 레벨로 보정 (setBounds는 동기 반영)
+    if (map.getLevel() < 4) map.setLevel(4);
+}
+
 // 지사 선택 변경 시 마커 재생성
 function onJisaChange() {
     const select = document.getElementById('jisa-select');
@@ -215,6 +228,7 @@ function onJisaChange() {
     markers = [];
     loadMarkers();
     refreshAllMarkers();
+    fitToFilteredMarkers();   // 선택 지사 영역으로 지도 이동
 }
 
 // 구 체크박스 변경 시 마커 재생성
@@ -226,6 +240,7 @@ function onGuChange() {
     markers = [];
     loadMarkers();
     refreshAllMarkers();
+    fitToFilteredMarkers();   // 선택 구 영역으로 지도 이동
 }
 
 // 카테고리 체크박스 변경 시 마커 재생성
