@@ -363,119 +363,131 @@ function _ensureQrScanner(cb) {
     document.head.appendChild(s);
 }
 
-// ── pool 구성 (handoff·계기번호·동행 공유). 역할은 전부 unassigned로 시작. ──
+// ── 수집 세션 (단일 마스터 + 슬래이브 사진들). 드래그 매칭(영준님 2026-06-14). ──
+// _coll = { addr,jisa,workMode,key,hamType,settings,
+//   master:{meterNo,type,mac,suffix,ext,bdju,siteComm,workDiv,slots:{pre,mac,post1,post2}},  // slots[k]={url}
+//   slaves:[{meterNo,type,photo}] }  // 사진 1장 = 슬래이브 1개
 function _setColl(addr, jisa, rawMeters, workMode, key) {
     const set = _amiqSettings();
-    const meters = (rawMeters || []).map(m => {
-        const meterNo = String(m.계기번호 || m.meterNo || m.new_meter_id || '');
-        const type = _collParseType(meterNo) || '';
-        return {
-            meterNo, type,
-            siteComm: m.통신방식 || m.comm || '',
-            bdju: m.변대주 || '',          // 변대주(PLC; ≠DCUID). awms 필드매핑은 TODO(미확정)
-            role: 'unassigned', masterIdx: -1,
-            mac: '', suffix: '', ext: 'N', workDiv: 'M1010',
-            photos: { pre: '', mac: '', post1: '', post2: '' },  // 마스터 4
-            photo: '',                                            // 슬래이브 1(slot5)
-            _cntrClas: m.cntr_clas || '', _cntrPwr: m.cntr_pwr || '', _cha: m.cha || '',  // 동행 부가(2차)
-        };
-    }).filter(m => m.meterNo);
-    // 지사: 설정값 우선(동행=서울본부직할), 없으면 진입데이터/site-data
+    const list = (rawMeters || []).map(m => String(m.계기번호 || m.meterNo || m.new_meter_id || '')).filter(Boolean);
+    const firstNo = list[0] || '';
+    const firstRaw = (rawMeters || [])[0] || {};
     let useJisa = jisa || '';
     if (set.jisa) useJisa = set.jisa;
     if ((workMode === '동행' || set.withYn === 'Y') && !set.jisa) useJisa = '서울본부직할';
+    const type = _collParseType(firstNo) || '';
+    const siteComm = firstRaw.통신방식 || firstRaw.comm || '';
     _coll = {
         key: key || '', addr: addr || '', jisa: useJisa,
         workMode: (set.withYn === 'Y' ? '동행' : (workMode || '일반')),
-        hamType: '단독', meters, settings: set,
+        hamType: '단독', settings: set,
+        master: {
+            meterNo: firstNo, type, siteComm, bdju: firstRaw.변대주 || '',
+            mac: '', suffix: _inferSuffix(type, '', siteComm), ext: 'N', workDiv: 'M1010',
+            slots: { pre: null, mac: null, post1: null, post2: null },
+        },
+        slaves: [],
     };
-    log('수집 ' + meters.length + '건 / ' + _coll.workMode + ' (' + (addr || '') + ')', 'ok');
+    log('수집 마스터 ' + (firstNo || '(직접입력)') + ' / ' + _coll.workMode, 'ok');
     renderCollect();
 }
 
-// ── 역할 조작 ──
-window.collSetMac = function (i, v) {
-    const m = _coll && _coll.meters[i]; if (!m) return;
-    m.mac = String(v || '').trim();
-    if (m.mac) {
-        if (m.role !== 'master') { m.role = 'master'; m.masterIdx = -1; }
-        m.suffix = _inferSuffix(m.type, m.mac, m.siteComm);  // 통신방식 자동
-    }
-    renderCollect();
-};
-window.collSetSuffix = function (i, suf) { const m = _coll && _coll.meters[i]; if (m) { m.suffix = suf; renderCollect(); } };
-window.collSetExt = function (i, v) { const m = _coll && _coll.meters[i]; if (m) m.ext = v ? 'Y' : 'N'; };
-window.collSetWorkDiv = function (i, v) { const m = _coll && _coll.meters[i]; if (m) m.workDiv = v; };
-window.collMakeMaster = function (i) {
-    const m = _coll && _coll.meters[i]; if (!m) return;
-    m.role = 'master'; m.masterIdx = -1;
-    m.suffix = m.suffix || _inferSuffix(m.type, m.mac, m.siteComm);
-    renderCollect();
-};
-// 슬래이브 배정 (마스터 인덱스). masterIdx=-1 = 미할당으로
-window.collAssignSlave = function (i, masterIdx) {
-    const m = _coll && _coll.meters[i]; if (!m) return;
-    masterIdx = parseInt(masterIdx, 10);
-    if (isNaN(masterIdx) || masterIdx < 0) { m.role = 'unassigned'; m.masterIdx = -1; }
-    else { m.role = 'slave'; m.masterIdx = masterIdx; m.mac = ''; }
-    renderCollect();
-};
-// 아미고 마스터: 미할당 전부 이 마스터 슬래이브로 (무선, 함체 자동)
-window.collAmigoAuto = function (mi) {
-    if (!_coll) return;
-    _coll.meters.forEach((m, i) => { if (i !== mi && m.role === 'unassigned') { m.role = 'slave'; m.masterIdx = mi; m.mac = ''; } });
-    renderCollect();
-};
+// ── 마스터 필드 ──
+window.collMSetNo = function (v) { if (!_coll) return; const m = _coll.master; m.meterNo = String(v || '').trim(); m.type = _collParseType(m.meterNo) || ''; m.suffix = _inferSuffix(m.type, m.mac, m.siteComm); renderCollect(); };
+window.collMSetMac = function (v) { if (!_coll) return; const m = _coll.master; m.mac = String(v || '').trim(); m.suffix = _inferSuffix(m.type, m.mac, m.siteComm); renderCollect(); };
+window.collMSetSuffix = function (v) { if (_coll) { _coll.master.suffix = v; renderCollect(); } };
+window.collMSetExt = function (c) { if (_coll) _coll.master.ext = c ? 'Y' : 'N'; };
+window.collMSetWorkDiv = function (v) { if (_coll) _coll.master.workDiv = v; };
 window.collSetHam = function (v) { if (_coll) { _coll.hamType = v; renderCollect(); } };
 window.collClose = function () { const el = document.getElementById('collect-overlay'); if (el) el.style.display = 'none'; };
 
-// 계기 직접추가 (리스트밖 / 직접입력 현장). 계기번호 입력받아 pool에 미할당으로 추가.
-// 신설/기설은 폼의 작업구분 드롭다운에서 선택(기본 신설). 맥 넣으면 마스터, 안 넣으면 슬래이브 배정.
-window.collAddMeter = function () {
-    if (!_coll) return;
-    const no = (prompt('추가할 계기번호 입력') || '').trim();
-    if (!no) return;
-    const type = _collParseType(no) || '';
-    _coll.meters.push({
-        meterNo: no, type, siteComm: '', bdju: '', role: 'unassigned', masterIdx: -1,
-        mac: '', suffix: '', ext: 'N', workDiv: 'M1010',
-        photos: { pre: '', mac: '', post1: '', post2: '' }, photo: '', _extra: true,
-    });
-    log('계기 직접추가: ' + no, 'warn');
-    renderCollect();
-};
-
-// 사진: 마스터=photos[k], 슬래이브=photo(slot5). dataURL 콜백 지원(QR 겸용).
-window.collOnPhoto = function (i, k, input) {
-    const f = input.files && input.files[0]; if (!f) return;
-    const r = new FileReader();
-    r.onload = () => _collSetPhoto(i, k, r.result);
-    r.readAsDataURL(f);
-};
-function _collSetPhoto(i, k, dataUrl) {
-    const m = _coll && _coll.meters[i]; if (!m) return;
-    if (k === 'slave') m.photo = dataUrl; else m.photos[k] = dataUrl;
-    renderCollect();
-}
-// 모뎀맥 QR 스캔 = 맥값 + 스캔화면 사진(모뎀맥 사진) 겸용. (design.md §1.5)
-window.collScanMac = function (i) {
+// 마스터 모뎀맥 QR (맥값 + 스캔화면=모뎀맥 사진 겸용)
+window.collScanMac = function () {
     _ensureQrScanner(function (ok) {
-        if (!ok || !window.QrScanner) { alert('스캐너 로드 실패 — 맥을 직접 입력하세요'); return; }
+        if (!ok || !window.QrScanner) { alert('스캐너 로드 실패 — 맥 직접입력'); return; }
         window.QrScanner.show(function (text, blob) {
-            const m = _coll && _coll.meters[i]; if (!m) return;
-            const mac = _modemTo012(text);
-            m.mac = mac;
-            if (m.role !== 'master') { m.role = 'master'; m.masterIdx = -1; }
-            m.suffix = _inferSuffix(m.type, m.mac, m.siteComm);
-            log('맥 스캔: ' + mac, 'ok');
-            if (blob) {   // 스캔 프레임 = 모뎀맥 사진 겸용
-                const r = new FileReader();
-                r.onload = () => { m.photos.mac = r.result; renderCollect(); };
-                r.readAsDataURL(blob);
-            } else { renderCollect(); }
+            if (!_coll) return; const m = _coll.master;
+            m.mac = _modemTo012(text); m.suffix = _inferSuffix(m.type, m.mac, m.siteComm);
+            log('맥 스캔: ' + m.mac, 'ok');
+            if (blob) { const r = new FileReader(); r.onload = () => { m.slots.mac = { url: r.result }; renderCollect(); }; r.readAsDataURL(blob); }
+            else renderCollect();
         });
     });
 };
+// 마스터 사진 막 올리기(다중) → 빈 슬롯부터 순서대로 자동배치(선택순)
+window.collMUpload = function (input) {
+    const files = [...(input.files || [])]; if (!files.length) return;
+    const n = Math.min(files.length, 8); let done = 0; const imgs = new Array(n);
+    files.slice(0, n).forEach((f, i) => { const r = new FileReader(); r.onload = () => { imgs[i] = { url: r.result }; if (++done === n) _placeMasterPhotos(imgs); }; r.readAsDataURL(f); });
+    input.value = '';
+};
+function _placeMasterPhotos(imgs) {
+    const m = _coll.master; let idx = 0;
+    ['pre', 'mac', 'post1', 'post2'].forEach(k => { if (!m.slots[k] && idx < imgs.length) m.slots[k] = imgs[idx++]; });
+    renderCollect();
+}
+window.collMClearSlot = function (k) { if (_coll) { _coll.master.slots[k] = null; renderCollect(); } };
+
+// ── 슬래이브 (사진 = 각 계기). 일괄/개별 업로드, 번호 입력/QR, 삭제, 드래그 reorder ──
+window.collSUpload = function (input) {
+    const files = [...(input.files || [])]; if (!files.length) return;
+    let done = 0; const arr = new Array(files.length);
+    files.forEach((f, i) => { const r = new FileReader(); r.onload = () => { arr[i] = { meterNo: '', type: '', photo: r.result }; if (++done === files.length) { _coll.slaves.push(...arr.filter(Boolean)); renderCollect(); } }; r.readAsDataURL(f); });
+    input.value = '';
+};
+window.collSSetNo = function (i, v) { if (!_coll) return; const s = _coll.slaves[i]; if (s) { s.meterNo = String(v || '').trim(); s.type = _collParseType(s.meterNo) || ''; } };
+window.collSScan = function (i) { _ensureQrScanner(function (ok) { if (!ok || !window.QrScanner) { alert('스캐너 실패'); return; } window.QrScanner.show(function (text) { const no = String(text || '').replace(/\D/g, ''); if (no && _coll && _coll.slaves[i]) { _coll.slaves[i].meterNo = no; _coll.slaves[i].type = _collParseType(no) || ''; renderCollect(); } }); }); };
+window.collSDel = function (i) { if (!_coll) return; _coll.slaves.splice(i, 1); renderCollect(); };
+
+// ── 포인터 드래그 (마스터 슬롯 swap / 슬래이브 reorder). touch-action은 드래그 요소(.mslot.filled/.scard-handle)에만 → 페이지 스크롤 보존. ──
+let _drag = null;
+function _dragInit() {
+    if (_dragInit._done) return; _dragInit._done = true;
+    document.addEventListener('pointerdown', e => {
+        const ov = document.getElementById('collect-overlay'); if (!ov || ov.style.display !== 'block') return;
+        const slot = e.target.closest('.mslot.filled');
+        const sh = e.target.closest('.scard-handle');
+        if (slot) _startDrag(e, { type: 'mslot', key: slot.dataset.slot }, slot, slot.querySelector('img'));
+        else if (sh) { const card = sh.closest('.scard'); if (card) _startDrag(e, { type: 'sreorder', idx: +card.dataset.si }, card, sh.querySelector('img')); }
+    });
+    document.addEventListener('pointermove', e => {
+        if (!_drag) return; e.preventDefault();
+        _moveGhost(e.clientX, e.clientY);
+        _hot(e.clientX, e.clientY, _drag.type === 'mslot' ? '.mslot' : '.scard');
+    });
+    const end = e => {
+        if (!_drag) return;
+        const t = _hot(e.clientX, e.clientY, _drag.type === 'mslot' ? '.mslot' : '.scard');
+        if (t) {
+            if (_drag.type === 'mslot') { const to = t.dataset.slot, fr = _drag.key; const s = _coll.master.slots; const tmp = s[to]; s[to] = s[fr]; s[fr] = tmp; }
+            else { const to = +t.dataset.si, fr = _drag.idx; if (to !== fr && !isNaN(to)) { const a = _coll.slaves; const mv = a.splice(fr, 1)[0]; a.splice(to, 0, mv); } }
+        }
+        if (_drag.ghost) _drag.ghost.remove();
+        if (_drag.src) _drag.src.classList.remove('drag-src');
+        document.querySelectorAll('.drop-hot').forEach(x => x.classList.remove('drop-hot'));
+        _drag = null; renderCollect();
+    };
+    document.addEventListener('pointerup', end);
+    document.addEventListener('pointercancel', end);
+}
+function _startDrag(e, payload, srcEl, img) {
+    e.preventDefault();
+    const r = srcEl.getBoundingClientRect();
+    const g = document.createElement('div');
+    g.style.cssText = 'position:fixed;width:' + Math.min(r.width, 80) + 'px;height:' + Math.min(r.height, 80) + 'px;border-radius:8px;overflow:hidden;pointer-events:none;z-index:99999;transform:translate(-50%,-50%);box-shadow:0 6px 16px rgba(0,0,0,.35);border:2px solid #2563eb;background:#fff';
+    if (img) g.innerHTML = '<img src="' + img.src + '" style="width:100%;height:100%;object-fit:cover">';
+    document.body.appendChild(g);
+    srcEl.classList.add('drag-src');
+    _drag = Object.assign({ ghost: g, src: srcEl }, payload);
+    _moveGhost(e.clientX, e.clientY);
+}
+function _moveGhost(x, y) { if (_drag && _drag.ghost) { _drag.ghost.style.left = x + 'px'; _drag.ghost.style.top = y + 'px'; } }
+function _hot(x, y, sel) {
+    let hot = null;
+    document.querySelectorAll('#collect-overlay ' + sel).forEach(s => { const r = s.getBoundingClientRect(); s.classList.remove('drop-hot'); if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) hot = s; });
+    if (hot) hot.classList.add('drop-hot');
+    return hot;
+}
 
 // ── 시설유형 자동산출 ──
 function _fcltyOf(masterCount, order, slaveCount, hamType) {
@@ -507,172 +519,112 @@ function _frow(label, valueHtml, req) {
 }
 function _ro(v) { return `<span style="font-size:14px;color:#111">${_esc(v || '')}</span>`; }   // 읽기전용(자동)
 
-function _photoSlot(i, k, lbl, cur) {
-    const has = !!cur;
-    return `<label style="flex:1;aspect-ratio:1;border:2px dashed ${has ? '#059669' : '#cbd5e1'};border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;color:${has ? '#059669' : '#94a3b8'};background:${has ? '#ecfdf5' : '#fff'};overflow:hidden;position:relative">`
-        + (has ? `<img src="${cur}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">` : '')
-        + `<span style="position:relative;z-index:1;background:rgba(255,255,255,.7);padding:1px 3px;border-radius:3px">${_esc(lbl)}${has ? ' ✓' : ''}</span>`
-        + `<input type="file" accept="image/*" style="display:none" onchange="collOnPhoto(${i},'${k}',this)"></label>`;
-}
-
-// 마스터 1개 = awms 폼 블록
-function _masterBlock(m, i, masters) {
-    const order = masters.indexOf(i);
-    const slaves = _coll.meters.map((s, si) => (s.role === 'slave' && s.masterIdx === i ? si : -1)).filter(si => si >= 0);
-    const fclty = _fcltyOf(masters.length, order, slaves.length, _coll.hamType);
-    const commName = _SUFFIX_COMM[m.suffix] || '';
-    const commSel = COMM_OPTS.map(([v, l]) => `<option value="${v}"${m.suffix === v ? ' selected' : ''}>${_esc(l)}</option>`).join('');
-    const cnt = 1 + slaves.length;
-    const modemTag = `<span style="font-size:10px;background:#2563eb;color:#fff;padding:1px 6px;border-radius:4px">마스터</span>`;
-
-    let h = `<div class="card" style="margin:0 0 14px;padding:0;overflow:hidden;border:2px solid #2563eb;border-radius:10px">`
-        + `<div style="background:#1e40af;color:#fff;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">`
-        + `<div style="font-size:14px;font-weight:700">${_esc(m.meterNo)} ${modemTag}</div>`
-        + `<div style="font-size:11px;opacity:.9">${_esc(fclty.label)}(${fclty.div})</div></div>`;
-
-    // 시설유형 / 모뎀유형
-    h += _frow('시설유형', _ro(fclty.label + '(' + fclty.div + ') · 자동'), true);
-    h += _frow('모뎀유형', _ro('마스터'), true);
-    // 대표계기 (자동 = 마스터계기, 단독형은 비움)
-    h += _frow('대표계기', _ro(fclty.div === '10' ? '(단독형 — 없음)' : m.meterNo));
-    // 함내계기수(자동) / 동행
-    h += _frow('함내계기수', _ro(fclty.div === '10' ? '(단독형 — 없음)' : String(cnt)) + `<span style="font-size:11px;color:#9ca3af;margin-left:auto">동행 ${_coll.workMode === '동행' ? 'Y' : 'N'}</span>`);
-    // 작업구분
-    h += _frow('작업구분', `<select onchange="collSetWorkDiv(${i},this.value)" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"><option value="M1010"${m.workDiv === 'M1010' ? ' selected' : ''}>신설</option><option value="M1030"${m.workDiv === 'M1030' ? ' selected' : ''}>기설</option></select>${m._extra ? '<span style="font-size:11px;color:#92400e;margin-left:auto">추가계기</span>' : ''}`, true);
-    // 계기번호 (고정) + 계기유형(자동)
-    h += _frow('계기번호', _ro(m.meterNo), true);
-    h += _frow('계기유형', _ro((m.type || '?') + '타입 · 자동'), true);
-    // 모뎀맥 (입력 + QR스캔)
-    h += _frow('모뎀맥', `<input value="${_esc(m.mac)}" oninput="collSetMac(${i},this.value)" placeholder="모뎀맥 입력" style="flex:1;padding:9px;border:1px solid #d1d5db;border-radius:6px;font-size:14px"><button onclick="collScanMac(${i})" style="flex:0 0 56px;width:56px;padding:9px 0;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700">스캔</button>`, true);
-    // 통신방식 (자동/수동)
-    h += _frow('통신방식', `<select onchange="collSetSuffix(${i},this.value)" style="flex:1;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px">${commSel}</select>`
-        + (commName ? `<span style="font-size:10px;color:#059669">자동</span>` : `<span style="font-size:10px;color:#dc2626">미판별</span>`), true);
-    // 분기 (자동, 마스터는 비활성)
-    h += _frow('분기', _ro('없음 (마스터)'));
-    // 변대주 (PLC 계열만)
-    if (_showBdju(m.suffix)) h += _frow('변대주', _ro(m.bdju || '(없음)'));
-    // 외장형 연결장치 (AE만)
-    if (m.type === 'AE') h += _frow('연결장치', `<label style="font-size:13px;display:flex;align-items:center;gap:6px"><input type="checkbox" ${m.ext === 'Y' ? 'checked' : ''} onchange="collSetExt(${i},this.checked)">외장형(etype) Y/N</label>`);
-
-    // 사진 4
-    h += `<div style="padding:10px 12px;background:#f8fafc"><div style="font-size:11px;color:#6b7280;margin-bottom:6px">사진 (시공전 · 모뎀맥 · 시공후1 · 시공후2)</div>`
-        + `<div style="display:flex;gap:5px">${_photoSlot(i, 'pre', '시공전', m.photos.pre)}${_photoSlot(i, 'mac', '모뎀맥', m.photos.mac)}${_photoSlot(i, 'post1', '시공후1', m.photos.post1)}${_photoSlot(i, 'post2', '시공후2', m.photos.post2)}</div></div>`;
-
-    // 슬래이브 섹션
-    h += `<div style="padding:8px 12px;border-top:1px solid #e5e7eb">`;
-    if (slaves.length) {
-        h += slaves.map(si => {
-            const s = _coll.meters[si];
-            return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;background:#f1f5f9;border-radius:8px;padding:6px">`
-                + `<div style="flex:0 0 56px">${_photoSlot(si, 'slave', '계기', s.photo)}</div>`
-                + `<div style="flex:1"><div style="font-size:13px;font-weight:700">${_esc(s.meterNo)} <span style="font-size:10px;color:#64748b">${_esc(s.type || '?')}타입 · 분기 ${_bungi(m.suffix, s.type)}</span></div></div>`
-                + `<button onclick="collAssignSlave(${si},-1)" style="flex:0 0 auto;padding:6px 10px;background:#fee2e2;color:#b91c1c;border:none;border-radius:6px;font-size:12px">제거</button></div>`;
-        }).join('');
-    }
-    // SLAVE 추가 (미할당 pool에서 선택)
-    const un = _coll.meters.map((s, si) => (s.role === 'unassigned' ? si : -1)).filter(si => si >= 0);
-    if (un.length) {
-        h += `<select onchange="if(this.value!=='')collAssignSlave(parseInt(this.value),${i});this.value=''" style="width:100%;padding:9px;border:1px dashed #94a3b8;border-radius:6px;font-size:13px;color:#475569;margin-top:2px">`
-            + `<option value="">+ SLAVE 추가 (남은 계기 선택)</option>`
-            + un.map(si => `<option value="${si}">▸ ${_esc(_coll.meters[si].meterNo)} (${_esc(_coll.meters[si].type || '?')})</option>`).join('') + `</select>`;
-        if (_collIsAmigo(m.type)) h += `<button onclick="collAmigoAuto(${i})" style="width:100%;margin-top:6px;padding:8px;background:#e0e7ff;color:#3730a3;border:none;border-radius:6px;font-size:12px;font-weight:700">아미고 — 남은 계기 전부 이 마스터 슬래이브로(무선)</button>`;
-    }
-    h += `</div></div>`;
-    return h;
+// 마스터 사진 슬롯(드롭존+드래그 swap). cur={url}|null
+function _mslotHtml(k, lbl) {
+    const cur = _coll.master.slots[k];
+    return `<div class="mslot${cur ? ' filled' : ''}" data-slot="${k}" style="flex:1;aspect-ratio:1;border:2px ${cur ? 'solid #059669' : 'dashed #cbd5e1'};border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;color:${cur ? '#059669' : '#94a3b8'};background:${cur ? '#ecfdf5' : '#f8fafc'};overflow:hidden;position:relative;${cur ? 'touch-action:none;cursor:grab' : ''}">`
+        + (cur ? `<img src="${cur.url}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none">` : '')
+        + `<span class="lbl" style="position:relative;z-index:1;background:rgba(255,255,255,.8);padding:1px 4px;border-radius:3px;font-weight:700">${_esc(lbl)}${cur ? ' ✓' : ''}</span>`
+        + (cur ? `<button onclick="collMClearSlot('${k}')" style="position:absolute;top:2px;right:2px;z-index:3;width:18px;height:18px;line-height:1;padding:0;background:rgba(220,38,38,.92);color:#fff;border:none;border-radius:9px;font-size:11px">×</button>` : '')
+        + `</div>`;
 }
 
 function renderCollect() {
     if (!_coll) return;
+    _dragInit();
     const el = _collOverlay();
     const set = _coll.settings || _amiqSettings();
     const dept2 = (typeof JISA_DEPT2 !== 'undefined' && JISA_DEPT2[_coll.jisa]) || '';
-    const masters = _coll.meters.map((m, i) => (m.role === 'master' ? i : -1)).filter(i => i >= 0);
-    const slaveCnt = _coll.meters.filter(m => m.role === 'slave').length;
-    const unList = _coll.meters.map((m, i) => (m.role === 'unassigned' ? i : -1)).filter(i => i >= 0);
+    const m = _coll.master;
+    const fclty = _fcltyOf(1, 0, _coll.slaves.length, _coll.hamType);
+    const commName = _SUFFIX_COMM[m.suffix] || '';
+    const commSel = COMM_OPTS.map(([v, l]) => `<option value="${v}"${m.suffix === v ? ' selected' : ''}>${_esc(l)}</option>`).join('');
 
-    const masterBlocks = masters.map(i => _masterBlock(_coll.meters[i], i, masters)).join('');
+    // 마스터 카드 (계기번호+맥+QR+통신 / 4슬롯 드래그 / 막올리기)
+    const master = `<div class="card" style="margin:0 0 12px;padding:0;overflow:hidden;border:2px solid #2563eb;border-radius:10px">`
+        + `<div style="background:#1e40af;color:#fff;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">`
+        + `<div style="font-size:14px;font-weight:700">마스터</div><div style="font-size:11px;opacity:.9">${_esc(fclty.label)}(${fclty.div})</div></div>`
+        + `<div style="display:flex;gap:6px;padding:8px 10px;align-items:center">`
+        + `<input value="${_esc(m.meterNo)}" oninput="collMSetNo(this.value)" placeholder="마스터 계기번호" inputmode="numeric" style="flex:1;padding:9px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;font-weight:700">`
+        + `<span style="font-size:11px;color:#6b7280">${_esc(m.type || '?')}타입</span></div>`
+        + `<div style="display:flex;gap:6px;padding:0 10px 8px;align-items:center">`
+        + `<input value="${_esc(m.mac)}" oninput="collMSetMac(this.value)" placeholder="모뎀맥" style="flex:1;padding:9px;border:1px solid #d1d5db;border-radius:6px;font-size:14px">`
+        + `<button onclick="collScanMac()" style="flex:0 0 50px;padding:9px 0;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700">QR</button>`
+        + `<select onchange="collMSetSuffix(this.value)" style="flex:0 0 90px;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px">${commSel}</select></div>`
+        + (commName ? '' : `<div style="font-size:10px;color:#dc2626;padding:0 10px 6px">통신방식 미판별 — 직접 선택</div>`)
+        + (m.type === 'AE' ? `<div style="padding:0 10px 8px"><label style="font-size:12px;display:flex;align-items:center;gap:6px"><input type="checkbox" ${m.ext === 'Y' ? 'checked' : ''} onchange="collMSetExt(this.checked)">외장형 연결장치(etype)</label></div>` : '')
+        + (_showBdju(m.suffix) && m.bdju ? `<div style="font-size:11px;color:#6b7280;padding:0 10px 6px">변대주 ${_esc(m.bdju)}</div>` : '')
+        + `<div style="padding:8px 10px;background:#f8fafc">`
+        + `<div style="font-size:11px;color:#6b7280;margin-bottom:6px">마스터 사진 — 4장 올리면 자동배치, 슬롯끼리 끌어 순서변경</div>`
+        + `<div style="display:flex;gap:5px">${_mslotHtml('pre', '시공전')}${_mslotHtml('mac', '모뎀맥')}${_mslotHtml('post1', '계기')}${_mslotHtml('post2', '전체')}</div>`
+        + `<label style="display:block;margin-top:7px;padding:9px;background:#ede9fe;color:#5b21b6;border-radius:8px;font-size:12px;font-weight:700;text-align:center">+ 마스터 사진 막 올리기<input type="file" accept="image/*" multiple style="display:none" onchange="collMUpload(this)"></label>`
+        + `</div></div>`;
 
-    // 미할당 계기 — 맥 입력(마스터) 또는 슬래이브 배정
-    let unBlock = '';
-    if (unList.length) {
-        unBlock = `<div class="card" style="margin:0 0 14px;border-left:4px solid #fbbf24">`
-            + `<div style="font-size:13px;font-weight:700;color:#92400e;margin-bottom:8px">미할당 계기 ${unList.length}건 — 모뎀 꽂은 계기에 맥 입력(=마스터), 나머지는 슬래이브 배정</div>`
-            + unList.map(i => {
-                const m = _coll.meters[i];
-                const masterSel = masters.length
-                    ? `<select onchange="if(this.value!=='')collAssignSlave(${i},this.value)" style="flex:0 0 130px;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px"><option value="">슬래이브로…</option>` + masters.map(mi => `<option value="${mi}">▸ ${_esc(_coll.meters[mi].meterNo)}</option>`).join('') + `</select>`
-                    : '';
-                return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">`
-                    + `<div style="flex:0 0 96px;font-size:12px;font-weight:600">${_esc(m.meterNo)}<br><span style="font-size:10px;color:#9ca3af">${_esc(m.type || '?')}타입</span></div>`
-                    + `<input oninput="collSetMac(${i},this.value)" placeholder="모뎀맥 → 마스터" style="flex:1;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px">`
-                    + `<button onclick="collScanMac(${i})" style="flex:0 0 50px;width:50px;padding:8px 0;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:11px">스캔</button>`
-                    + masterSel + `</div>`;
-            }).join('') + `</div>`;
-    }
+    // 슬래이브 (사진 = 각 계기. 드래그 reorder + 번호 + 삭제)
+    let slaves = `<div style="font-size:13px;font-weight:700;color:#374151;margin:0 2px 6px">슬래이브 ${_coll.slaves.length}건 <span style="font-weight:400;color:#9ca3af;font-size:11px">— 사진=각 계기, 끌어서 순서변경 / 계기번호 입력</span></div>`;
+    slaves += _coll.slaves.map((s, i) =>
+        `<div class="scard" data-si="${i}" style="display:flex;gap:10px;align-items:center;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:7px;margin-bottom:7px">`
+        + `<div class="scard-handle" style="flex:0 0 74px;height:74px;border-radius:8px;overflow:hidden;touch-action:none;cursor:grab;position:relative;background:#000">`
+        + `<img src="${s.photo}" style="width:100%;height:100%;object-fit:cover;pointer-events:none"></div>`
+        + `<div style="flex:1;display:flex;flex-direction:column;gap:5px">`
+        + `<div style="display:flex;gap:6px"><input value="${_esc(s.meterNo)}" oninput="collSSetNo(${i},this.value)" placeholder="계기번호" inputmode="numeric" style="flex:1;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:15px;font-weight:700">`
+        + `<button onclick="collSScan(${i})" style="flex:0 0 42px;padding:8px 0;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:11px">QR</button></div>`
+        + `<div style="font-size:10px;color:#9ca3af">${_esc(s.type || '?')}타입 · 분기 ${_bungi(m.suffix, s.type)}</div></div>`
+        + `<button onclick="collSDel(${i})" style="flex:0 0 auto;align-self:flex-start;width:26px;height:26px;padding:0;background:#fee2e2;color:#b91c1c;border:none;border-radius:13px;font-size:14px">×</button></div>`
+    ).join('');
+    slaves += `<div style="display:flex;gap:6px;margin-bottom:6px">`
+        + `<label style="flex:1;padding:11px;background:#4338ca;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-align:center">+ 한꺼번에<input type="file" accept="image/*" multiple style="display:none" onchange="collSUpload(this)"></label>`
+        + `<label style="flex:1;padding:11px;background:#e0e7ff;color:#3730a3;border-radius:8px;font-size:12px;font-weight:700;text-align:center">+ 하나씩<input type="file" accept="image/*" style="display:none" onchange="collSUpload(this)"></label></div>`;
 
     el.innerHTML =
-        // 헤더
         `<div style="background:#1e3a8a;color:#fff;padding:12px 16px;position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center">`
-        + `<div><div style="font-size:15px;font-weight:700">awms 설비등록 수집</div>`
-        + `<div style="font-size:11px;opacity:.85;margin-top:2px">${_esc(_coll.addr || '')}</div></div>`
-        + `<div style="display:flex;gap:6px"><button onclick="__settingsOpen()" style="background:#4f46e5;color:#fff;padding:8px 12px;font-size:13px">설정</button>`
-        + `<button onclick="collClose()" style="background:#374151;color:#fff;padding:8px 12px;font-size:13px">닫기</button></div></div>`
-        // 사전설정/요약 바
+        + `<div><div style="font-size:15px;font-weight:700">awms 설비등록 수집</div><div style="font-size:11px;opacity:.85;margin-top:2px">${_esc(_coll.addr || '직접입력')}</div></div>`
+        + `<div style="display:flex;gap:6px"><button onclick="__settingsOpen()" style="background:#4f46e5;color:#fff;padding:8px 12px;font-size:13px">설정</button><button onclick="collClose()" style="background:#374151;color:#fff;padding:8px 12px;font-size:13px">닫기</button></div></div>`
         + `<div style="background:#fff;padding:8px 16px;border-bottom:1px solid #e5e7eb;font-size:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">`
         + `<span><b>${_esc(_coll.jisa || '지사미설정')}</b>${dept2 ? '(' + dept2 + ')' : ''}</span>`
         + (set.busiName ? `<span style="color:#6b7280">${_esc(set.busiName)}</span>` : '')
         + `<span>작업방식 <b>${_esc(_coll.workMode)}</b></span>`
         + `<span>함체 <select onchange="collSetHam(this.value)" style="padding:4px;border:1px solid #d1d5db;border-radius:6px;font-size:12px"><option value="단독"${_coll.hamType === '단독' ? ' selected' : ''}>단독</option><option value="집합"${_coll.hamType === '집합' ? ' selected' : ''}>집합</option></select></span>`
         + (set.worker1 ? `<span style="color:#6b7280">작업자 ${_esc(set.worker1)}${set.worker2 ? ',' + _esc(set.worker2) : ''}</span>` : `<span style="color:#dc2626">작업자 미설정</span>`)
-        + `<span style="margin-left:auto;color:#2563eb">마스터 ${masters.length}</span><span style="color:#6b7280">슬래이브 ${slaveCnt}</span>${unList.length ? `<span style="color:#92400e">미할당 ${unList.length}</span>` : ''}</div>`
-        // 본문
+        + `</div>`
         + `<div style="padding:12px;max-width:620px;margin:0 auto">`
-        + unBlock
-        + (masterBlocks || (unList.length ? '' : '<div class="card" style="text-align:center;color:#9ca3af;padding:30px">계기 없음</div>'))
-        // 하단 버튼 (awms처럼)
-        + `<div style="display:flex;gap:6px;margin-top:6px">`
-        + `<button onclick="collAddMeter()" style="flex:1;padding:13px;background:#e5e7eb;color:#374151;border:none;border-radius:8px;font-weight:700">계기추가</button>`
-        + `<button class="btn-green" style="flex:2;padding:13px;background:#059669;color:#fff;border:none;border-radius:8px;font-weight:700" onclick="collSubmit()">완료 — 큐에 담기</button></div>`
+        + master + slaves
+        + `<button class="btn-green" style="width:100%;margin-top:6px;padding:14px;background:#059669;color:#fff;border:none;border-radius:8px;font-weight:700;font-size:15px" onclick="collSubmit()">완료 — 큐에 담기</button>`
         + `<div style="height:40px"></div></div>`;
     el.style.display = 'block';
 }
 
 // ── 큐에 담기: pool → boxes (마스터그룹). 시설유형 자동산출. 출력 스키마 보존(consumer=amiqueue-saveact.js). ──
 window.collSubmit = async function () {
-    if (!_coll || !_coll.meters.length) return;
-    const masters = _coll.meters.map((m, i) => (m.role === 'master' ? i : -1)).filter(i => i >= 0);
-    if (!masters.length) { alert('마스터가 없습니다.\n모뎀 꽂은 계기에 맥을 입력하면 마스터가 됩니다.'); return; }
-    const un = _coll.meters.filter(m => m.role === 'unassigned');
-    if (un.length && !confirm('미할당 계기 ' + un.length + '건이 있습니다(큐에서 제외됨). 계속할까요?')) return;
-    const noSuffix = masters.filter(mi => !_coll.meters[mi].suffix);
-    if (noSuffix.length && !confirm('통신방식 미선택 마스터 ' + noSuffix.length + '건. saveAct 오류 가능.\n계속할까요?')) return;
+    if (!_coll) return;
+    const m = _coll.master;
+    if (!m.meterNo) { alert('마스터 계기번호를 입력하세요'); return; }
+    if (!m.suffix && !confirm('통신방식 미선택. saveAct 오류 가능.\n계속할까요?')) return;
+    const noNo = _coll.slaves.filter(s => !s.meterNo);
+    if (noNo.length && !confirm('계기번호 없는 슬래이브 ' + noNo.length + '건. 계속할까요?')) return;
     const set = _coll.settings || _amiqSettings();
-
-    const boxMasters = masters.map((mi, order) => {
-        const m = _coll.meters[mi];
-        const slaves = _coll.meters.filter(s => s.role === 'slave' && s.masterIdx === mi);
-        const fclty = _fcltyOf(masters.length, order, slaves.length, _coll.hamType);
-        const cnt = 1 + slaves.length;
-        return {
-            meterNo: m.meterNo, meterType: m.type, mac: m.mac,
-            comm: _SUFFIX_COMM[m.suffix] || '', commSuffix: m.suffix,
-            fcltyDiv: fclty.div, fcltyLabel: fclty.label,
-            mbMeterId: fclty.div === '10' ? '' : m.meterNo,
-            mbCnt: fclty.div === '10' ? '' : String(cnt),
-            ext: m.ext || 'N', extConn: m.ext || 'N', bdju: m.bdju || '', workDiv: m.workDiv || 'M1010',
-            photos: m.photos,
-            slaves: slaves.map(s => ({ meterNo: s.meterNo, meterType: s.type, bungi: _bungi(m.suffix, s.type), photo: s.photo || '' })),
-        };
-    });
+    const slaveCnt = _coll.slaves.length;
+    const fclty = _fcltyOf(1, 0, slaveCnt, _coll.hamType);
+    const cnt = 1 + slaveCnt;
+    const ph = k => (m.slots[k] && m.slots[k].url) || '';   // slots[k]={url} → dataURL
+    const boxMaster = {
+        meterNo: m.meterNo, meterType: m.type, mac: m.mac,
+        comm: _SUFFIX_COMM[m.suffix] || '', commSuffix: m.suffix,
+        fcltyDiv: fclty.div, fcltyLabel: fclty.label,
+        mbMeterId: fclty.div === '10' ? '' : m.meterNo,
+        mbCnt: fclty.div === '10' ? '' : String(cnt),
+        ext: m.ext || 'N', extConn: m.ext || 'N', bdju: m.bdju || '', workDiv: m.workDiv || 'M1010',
+        photos: { pre: ph('pre'), mac: ph('mac'), post1: ph('post1'), post2: ph('post2') },
+        slaves: _coll.slaves.map(s => ({ meterNo: s.meterNo, meterType: s.type, bungi: _bungi(m.suffix, s.type), photo: s.photo || '' })),
+    };
     const rec = {
-        workMode: _coll.workMode, addr: _coll.addr || '', jisa: _coll.jisa || '',
-        workDiv: 'M1010',
+        workMode: _coll.workMode, addr: _coll.addr || '', jisa: _coll.jisa || '', workDiv: m.workDiv || 'M1010',
         busiName: set.busiName || '', busiNum: set.busiNum || '',
         workers: { w1: set.worker1 || '', w1Seq: set.worker1Seq || '', w2: set.worker2 || '', w2Seq: set.worker2Seq || '', w3: set.worker3 || '', w3Seq: set.worker3Seq || '' },
         createdAt: new Date().toISOString(), createdBy: 'amiqueue', createdByName: '아미큐수집',
-        status: 'pending', boxes: [{ hamType: _coll.hamType, masters: boxMasters }],
+        status: 'pending', boxes: [{ hamType: _coll.hamType, masters: [boxMaster] }],
     };
-    if (!confirm(_coll.addr + '\n마스터 ' + masters.length + ' · 슬래이브 ' + _coll.meters.filter(m => m.role === 'slave').length + '건을 큐에 담습니다.')) return;
+    if (!confirm((_coll.addr || m.meterNo) + '\n마스터 1 · 슬래이브 ' + slaveCnt + '건을 큐에 담습니다.')) return;
     try {
         const ref = await _db.ref('datapush_queue').push(rec);
         log('큐 담기 완료 → ' + ref.key, 'ok');
