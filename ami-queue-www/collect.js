@@ -457,7 +457,8 @@ let _drag = null;
 function _dragInit() {
     if (_dragInit._done) return; _dragInit._done = true;
     document.addEventListener('pointerdown', e => {
-        const ov = document.getElementById('collect-overlay'); if (!ov || ov.style.display !== 'block') return;
+        if (_drag) { try { if (_drag.ghost) _drag.ghost.remove(); } catch (x) {} _drag = null; }   // 이전 잔존 정리(안전망 — stuck 방지)
+        const ov = document.getElementById('collect-overlay'); if (!ov || ov.style.display !== 'block' || !_coll) return;
         const slot = e.target.closest('.mslot.filled');
         const sh = e.target.closest('.scard-handle');
         if (slot) _startDrag(e, { type: 'mslot', key: slot.dataset.slot }, slot, slot.querySelector('img'));
@@ -468,17 +469,24 @@ function _dragInit() {
         _moveGhost(e.clientX, e.clientY);
         _hot(e.clientX, e.clientY, _drag.type === 'mslot' ? '.mslot' : '.scard');
     });
+    // 드래그 종료 — swap/reorder 중 에러가 나도 _drag를 반드시 null로(finally) → stuck으로 터치 전체 마비되는 것 방지
     const end = e => {
         if (!_drag) return;
-        const t = _hot(e.clientX, e.clientY, _drag.type === 'mslot' ? '.mslot' : '.scard');
-        if (t) {
-            if (_drag.type === 'mslot') { const to = t.dataset.slot, fr = _drag.key; const s = _coll.master.slots; const tmp = s[to]; s[to] = s[fr]; s[fr] = tmp; }
-            else { const to = +t.dataset.si, fr = _drag.idx; if (to !== fr && !isNaN(to)) { const a = _coll.slaves; const mv = a.splice(fr, 1)[0]; a.splice(to, 0, mv); } }
+        const d = _drag;
+        try {
+            const t = _hot(e.clientX, e.clientY, d.type === 'mslot' ? '.mslot' : '.scard');
+            if (t && _coll) {
+                if (d.type === 'mslot') { const to = t.dataset.slot, fr = d.key; const s = _coll.master.slots; const tmp = s[to]; s[to] = s[fr]; s[fr] = tmp; }
+                else { const to = +t.dataset.si, fr = d.idx; if (to !== fr && !isNaN(to) && _coll.slaves[fr]) { const a = _coll.slaves; const mv = a.splice(fr, 1)[0]; a.splice(to, 0, mv); } }
+            }
+        } catch (err) { try { log('드래그 오류: ' + err.message, 'err'); } catch (x) {} }
+        finally {
+            try { if (d.ghost) d.ghost.remove(); } catch (x) {}
+            document.querySelectorAll('.drag-src').forEach(x => x.classList.remove('drag-src'));
+            document.querySelectorAll('.drop-hot').forEach(x => x.classList.remove('drop-hot'));
+            _drag = null;
         }
-        if (_drag.ghost) _drag.ghost.remove();
-        if (_drag.src) _drag.src.classList.remove('drag-src');
-        document.querySelectorAll('.drop-hot').forEach(x => x.classList.remove('drop-hot'));
-        _drag = null; renderCollect();
+        renderCollect();
     };
     document.addEventListener('pointerup', end);
     document.addEventListener('pointercancel', end);
