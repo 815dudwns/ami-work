@@ -77,8 +77,9 @@ function _parseWorkers(body) {
     let arr = Array.isArray(body) ? body : (body && (body.data || body.list || body.rows || body.result || body.userList)) || [];
     if (!Array.isArray(arr)) arr = [];
     return arr.map(o => {
-        const name = o.WORKER_NAME || o.USER_NM || o.EMP_NM || o.USER_NAME || o.NAME || o.userNm || o.userName || o.name || '';
-        const seq = o.WORKER_SEQ || o.USER_SEQ || o.EMP_SEQ || o.SEQ || o.userSeq || o.seq || '';
+        // awms 통신팀 getUserList 실측: USER_NM(이름) / USER_ID(=WORKER_SEQ, 우영준 273584)
+        const name = o.USER_NM || o.WORKER_NAME || o.EMP_NM || o.USER_NAME || o.NAME || o.userNm || o.userName || o.name || '';
+        const seq = o.USER_ID || o.WORKER_SEQ || o.USER_SEQ || o.EMP_SEQ || o.SEQ || o.userSeq || o.seq || '';
         return { name: String(name).trim(), seq: String(seq).trim() };
     }).filter(w => w.seq);
 }
@@ -99,8 +100,9 @@ function _parseBusiList(body) {
     let arr = Array.isArray(body) ? body : (body && (body.data || body.list || body.rows || body.result || body.busiList)) || [];
     if (!Array.isArray(arr)) arr = [];
     return arr.map(o => {
-        const name = o.BUSI_NM || o.BUSINESS_NM || o.BSNS_NM || o.busiNm || o.NAME || o.name || '';
-        const num = o.BUSI_NUM || o.BUSI_NO || o.BSNS_NO || o.busiNum || o.BUSINESS_NO || o.NUM || '';
+        // awms 통신팀 getBusiList 실측: CONS_NM(사업명) / CONS_NO(사업번호, BUSI_NUM=C11G250023)
+        const name = o.CONS_NM || o.BUSI_NM || o.BUSINESS_NM || o.BSNS_NM || o.busiNm || o.NAME || o.name || '';
+        const num = o.CONS_NO || o.BUSI_NUM || o.BUSI_NO || o.BSNS_NO || o.busiNum || o.BUSINESS_NO || o.NUM || '';
         return { name: String(name).trim(), num: String(num).trim() };
     }).filter(b => b.num || b.name);
 }
@@ -659,3 +661,7 @@ window.collSubmit = async function () {
         alert('큐에 담았습니다. [큐] 화면에서 확인하세요.');
     } catch (e) { alert('큐 담기 실패: ' + e.message); log('큐 담기 실패: ' + e.message, 'err'); }
 };
+
+// collect.js 로드 완료 시점에 이미 awms 세션이 연결돼 있으면 자동로드 트리거.
+// (app.js checkSession이 collect 동적로드보다 먼저 끝난 경우 — session.js의 호출은 그때 __amiqAutoLoad 미정의라 스킵됨)
+try { if (typeof isSessionOK === 'function' && isSessionOK() && typeof window.__amiqAutoLoad === 'function') { window.__amiqAutoLoad(); } } catch (e) {}
