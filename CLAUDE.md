@@ -15,9 +15,9 @@
 | **아미큐**(통신큐·통신팀) | `ami-queue` `versionName` / `ami-queue-www/app.js` `APP_VER` | `1.0` / `v0614-awms폼재설계` | 2026-06-14 |
 | **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260612phasecount2` / `v20260613.2` | 2026-06-13 |
 | **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260613a` | 2026-06-13 |
-| **헬퍼**(awms-helper) | `versionName` / inject | `1.0.76` / inject `v77` | 2026-06-13 |
+| **헬퍼**(awms-helper) | `versionName` / inject | `1.0.76` / inject `v78` | 2026-06-14 |
 | **OTP수집기**(awms-otp-collector) | `versionName` | `1.0.0` | 2026-06-13 |
-| **awms-bridge-inject**(리모컨·헬퍼/아미큐/계기큐 공용) | `awms-bridge-inject.js` `VER` | `v77` | 2026-06-13 |
+| **awms-bridge-inject**(리모컨·헬퍼/아미큐/계기큐 공용) | `awms-bridge-inject.js` `VER` | `v78` | 2026-06-14 |
 
 규칙: 계기큐·아미큐 JS는 github 원격로드라 `APP_VER` 갱신+push만으로 반영(APK 빌드는 네이티브 변경 시만). 종로맵은 `APP_VERSION`+`?v=`+메뉴라벨 함께([[jongno_app_version_deploy]]). 아미맵 `FORCE_LOGOUT_VERSION`은 긴급 시만 범프([[ami_work_init_logout_fix]]).
 

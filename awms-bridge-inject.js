@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v77'; // v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v78'; // v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -756,17 +756,17 @@ function parseValue(text) {
         var isSubmitEl = (tag === 'button') || (tag === 'input' && (type === 'submit' || type === 'button'));
         var hasLoginTxt = loginSubmitRe.test(txt);
         if (isSubmitEl || hasLoginTxt) {
-          // password input 있는 폼과 연관된 경우만
+          // 자격증명 저장 = password input 있는 폼과 연관된 경우만
           var f = detectLoginFields();
-          if (f) {
-            saveCurrentCred();
-            // ── OTP 겹침방지: OTP 발송 트리거 버튼이면 "내가 요청자" 로컬 표시 ──
-            // 같은 폰(A33) 헬퍼+아미큐 둘 다 NLS 감지 시, 요청한 앱만 카톡 캡쳐.
-            // __markOtpReq = 네이티브가 주입(자기앱 SharedPreferences otp_req_ts=now). 없으면 무동작(구버전 앱).
-            var elId2 = el.id || '';
-            if (/^(btnAuthor|btnLogin|btnRetry)$/.test(elId2) || /인증번호|로그인|login/i.test(txt)) {
-              if (window.__markOtpReq) { try { window.__markOtpReq(); rec({ stage: 'otp-req-mark', btn: elId2 || txt.slice(0, 8) }); } catch (e) {} }
-            }
+          if (f) { saveCurrentCred(); }
+          // ── OTP 겹침방지: OTP 발송 트리거 버튼이면 "내가 요청자" 로컬 표시 ──
+          // 같은 폰(A33) 헬퍼+아미큐 둘 다 NLS 감지 시, 요청한 앱만 카톡 캡쳐.
+          // __markOtpReq = 네이티브가 주입(자기앱 SharedPreferences otp_req_ts=now). 없으면 무동작(구버전 앱).
+          // ★v78: password폼 유무와 무관하게 마킹(if(f) 밖으로). 인증번호 재발송 화면엔 password칸이 없어
+          //   if(f)=false로 막혀 마킹 누락→옛 ts 만료→캡쳐 스킵되던 버그 수정.
+          var elId2 = el.id || '';
+          if (/^(btnAuthor|btnLogin|btnRetry)$/.test(elId2) || /인증번호|로그인|login/i.test(txt)) {
+            if (window.__markOtpReq) { try { window.__markOtpReq(); rec({ stage: 'otp-req-mark', btn: elId2 || txt.slice(0, 8) }); } catch (e) {} }
           }
         }
       } catch (e) {}
