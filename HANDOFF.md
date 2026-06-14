@@ -26,7 +26,7 @@
 - **종로맵 #6 계기종류 표시방식 + 폰 실측** — 버벅임/필터/완료숨김.
 - **아미큐 수집폼 awms폼 본뜨기 재설계** — 캡처 레퍼런스 `research/awms-poc/awms_설비등록화면_{상단,하단}_20260614.png`, 설계 design.md §1.5. collect.js를 awms 설비등록 폼 모양으로(자동값 채움+맥/사진만) + 설정페이지(지사·사업명·동행·작업자) + 맥QR=모뎀맥사진겸용. **목적=맥+사진 모으기, 나머지 파생/자동**(영준님 못박음). → [[amiqueue_collect_masterkey]].
 - **아미큐 OTP = APK 재설치 시 접근성 꺼짐** → 설정→접근성→AMI Queue 수동 재활성화(adb 강제 삼성차단). → [[awms_otp_amiqueue_embed]].
-- **★ 4앱 신규 아이콘 — 계기큐·아미큐·보조앱 APK 설치 대기(2026-06-14)**: 웹 2개(아미맵 PWA화 신규 + 종로맵 아이콘) push 완료. APK 3개 빌드성공+새아이콘 포함 검증. **설치는 폰에서**: `~/Projects/{awms-queue,ami-queue,jongno-snap}/android/app/build/outputs/apk/debug/app-debug.apk`. ★계기큐·아미큐 재설치는 **awms 로그아웃 위험**([[awms_queue_session_keep_reinstall]]) — 세션복원 절차 따를 것. 생성레시피·자산 [[app_icons_system]](`design/app-icons/`).
+- ✓**4앱 신규 아이콘 적용 완료·폰검증(2026-06-14)**: 웹 2개(아미맵 PWA화 신규 + 종로맵) push, APK 3개(계기큐·아미큐·보조앱) install-r 완료. 폰 앱서랍 확인 — adaptive 마스킹 정상(스쿼클 라벨 안잘림). 아미큐 awms 세션쿠키 백업은 0개(보존불가)였으나 재로그인은 id/pw 자동+수동OTP. 아미맵=홈화면추가 시 standalone. 생성레시피·자산 [[app_icons_system]](`design/app-icons/`).
 
 ## 종로 보조앱(snap) — 신규 진행중 (2026-06-14)
 > 2인1조 사진분담 컴패니언. 시공자가 사진만, daily_seq(=작업번호)로 메인앱 자동연동. 상세 [[jongno_snap_companion]] + `jongno-combined/research/보조앱_snap_설계.md`
