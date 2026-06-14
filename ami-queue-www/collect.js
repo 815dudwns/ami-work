@@ -120,25 +120,46 @@ window.__settingsLoadBusiList = async function (silent) {
         return true;
     } catch (e) { log('사업명 조회 실패: ' + e.message, 'warn'); return false; }
 };
-// 세션 연결 시 자동 로드 (작업자+사업명). session.js checkSession 성공 시 호출. 1회 가드.
+// awms 공사설정 현재값 조회 (getUserWorkGroup) — 지금 awms에 지정된 작업자1/2/3 SEQ.
+async function _loadCurrentConfig() {
+    const base = (typeof AWMS_BASE !== 'undefined' ? AWMS_BASE : 'https://awms.kdn.com');
+    const url = base + '/ami/mob/cst/mobCst1000/getUserWorkGroup?DEPT1=3970';
+    const body = await awmsEval(`fetch(${JSON.stringify(url)},{credentials:'include',cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject('HTTP '+r.status))`);
+    const arr = Array.isArray(body) ? body : (body && (body.data || body.list)) || [];
+    return (Array.isArray(arr) && arr[0]) || null;
+}
+// 세션 연결 시 자동 로드 — awms 공사설정의 "현재 설정값"을 그대로 미러(작업자·사업명). 1회 가드.
 let _amiqAutoLoaded = false;
 window.__amiqAutoLoad = async function (force) {
     if (_amiqAutoLoaded && !force) return;
     if (typeof awmsEval !== 'function') return;
-    log('사전설정 자동 로드(작업자·사업명)…', 'warn');
-    let any = false;
-    try { if (await _loadWorkersInto()) any = true; } catch (e) {}
-    try { if (await window.__settingsLoadBusiList(true)) any = true; } catch (e) {}
-    if (any) {
-        _amiqAutoLoaded = true;
-        // 사업명 1건뿐이면 설정에 자동 채움(미설정 시)
-        const s = _amiqSettings();
-        if (!s.busiNum && _amiqBusiList.length === 1) {
-            s.busiName = _amiqBusiList[0].name; s.busiNum = _amiqBusiList[0].num;
-            try { localStorage.setItem(_SETTINGS_KEY, JSON.stringify(s)); } catch (e) {}
-            log('사업명 자동설정: ' + s.busiName, 'ok');
+    log('사전설정 자동 로드(awms 현재 공사설정)…', 'warn');
+    let okList = false;
+    try { okList = await _loadWorkersInto(); } catch (e) {}     // 전체명단(SEQ→이름 매핑용)
+    try { await window.__settingsLoadBusiList(true); } catch (e) {}
+    const s = _amiqSettings();
+    let changed = false;
+    // 작업자 = awms 공사설정 현재값(getUserWorkGroup) 그대로
+    try {
+        const cfg = await _loadCurrentConfig();
+        if (cfg) {
+            const nameOf = seq => { seq = String(seq || ''); const w = _amiqWorkerList.find(x => x.seq === seq); return w ? w.name : ''; };
+            s.worker1Seq = String(cfg.WORKER1_SEQ || ''); s.worker1 = nameOf(cfg.WORKER1_SEQ);
+            s.worker2Seq = String(cfg.WORKER2_SEQ || ''); s.worker2 = nameOf(cfg.WORKER2_SEQ);
+            s.worker3Seq = String(cfg.WORKER3_SEQ || ''); s.worker3 = nameOf(cfg.WORKER3_SEQ);
+            changed = true;
+            log('현재 공사설정 작업자: ' + [s.worker1 + '(' + s.worker1Seq + ')', s.worker2, s.worker3].filter(x => x && !x.endsWith('()')).join(', '), 'ok');
         }
-        // 설정창 열려있으면 새로고침
+    } catch (e) { log('공사설정 조회 실패: ' + e.message, 'warn'); }
+    // 사업명 = 사업번호 형식(C로 시작 = saveAct BUSI_NUM) 우선 자동선택(미설정 시)
+    if (_amiqBusiList.length && !s.busiNum) {
+        const pick = _amiqBusiList.find(b => /^C/i.test(b.num)) || _amiqBusiList[0];
+        s.busiName = pick.name; s.busiNum = pick.num; changed = true;
+        log('사업명 자동: ' + s.busiName + ' (' + s.busiNum + ')', 'ok');
+    }
+    if (changed || okList) {
+        try { localStorage.setItem(_SETTINGS_KEY, JSON.stringify(s)); } catch (e) {}
+        _amiqAutoLoaded = true;
         const el = document.getElementById('collect-overlay');
         if (el && el.style.display === 'block' && document.getElementById('set-jisa')) window.__settingsOpen();
     }
