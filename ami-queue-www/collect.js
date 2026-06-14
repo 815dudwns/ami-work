@@ -83,29 +83,77 @@ function _parseWorkers(body) {
     }).filter(w => w.seq);
 }
 // awms 세션으로 작업자 명단 조회 (통신팀 mobCst1000/getUserList). 경로/응답 미확정 → 방어 파싱 + 원시응답 로그.
+// 수동 [불러오기] — 작업자+사업명 둘 다 조회
 window.__settingsLoadWorkers = async function () {
     if (typeof awmsEval !== 'function') { alert('awms 브릿지 없음 — 폰 앱에서 시도하세요'); return; }
+    log('작업자·사업명 명단 조회…', 'warn');
+    let okW = false, okB = false;
+    try { okW = await _loadWorkersInto(); } catch (e) { log('작업자 조회 실패: ' + e.message, 'err'); }
+    try { okB = await window.__settingsLoadBusiList(true); } catch (e) {}
+    if (!okW && !okB) { alert('명단을 못 받았습니다.\nawms 세션 로그인 후 다시 시도하거나 수동입력하세요.\n(로그에 원시응답 기록됨)'); return; }
+    window.__settingsOpen();   // 드롭다운으로 다시 렌더
+};
+// awms에서 받아온 사업명 명단 (getBusiList). 비면 수동입력 폴백.
+let _amiqBusiList = [];
+function _parseBusiList(body) {
+    let arr = Array.isArray(body) ? body : (body && (body.data || body.list || body.rows || body.result || body.busiList)) || [];
+    if (!Array.isArray(arr)) arr = [];
+    return arr.map(o => {
+        const name = o.BUSI_NM || o.BUSINESS_NM || o.BSNS_NM || o.busiNm || o.NAME || o.name || '';
+        const num = o.BUSI_NUM || o.BUSI_NO || o.BSNS_NO || o.busiNum || o.BUSINESS_NO || o.NUM || '';
+        return { name: String(name).trim(), num: String(num).trim() };
+    }).filter(b => b.num || b.name);
+}
+// 사업명 조회 (통신팀 mobCst1000/getBusiList). 경로/응답 미확정 → 방어 파싱.
+window.__settingsLoadBusiList = async function (silent) {
+    if (typeof awmsEval !== 'function') { if (!silent) alert('awms 브릿지 없음 — 폰 앱에서 시도하세요'); return false; }
+    const base = (typeof AWMS_BASE !== 'undefined' ? AWMS_BASE : 'https://awms.kdn.com');
+    const url = base + '/ami/mob/cst/mobCst1000/getBusiList?DEPT1=3970';
+    try {
+        const body = await awmsEval(`fetch(${JSON.stringify(url)},{credentials:'include',cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject('HTTP '+r.status))`);
+        const list = _parseBusiList(body);
+        if (!list.length) { log('사업명 0건 — 응답: ' + JSON.stringify(body).slice(0, 200), 'warn'); return false; }
+        _amiqBusiList = list;
+        log('사업명 ' + list.length + '건 로드: ' + list.slice(0, 2).map(b => b.name).join(', ') + '…', 'ok');
+        return true;
+    } catch (e) { log('사업명 조회 실패: ' + e.message, 'warn'); return false; }
+};
+// 세션 연결 시 자동 로드 (작업자+사업명). session.js checkSession 성공 시 호출. 1회 가드.
+let _amiqAutoLoaded = false;
+window.__amiqAutoLoad = async function (force) {
+    if (_amiqAutoLoaded && !force) return;
+    if (typeof awmsEval !== 'function') return;
+    log('사전설정 자동 로드(작업자·사업명)…', 'warn');
+    let any = false;
+    try { if (await _loadWorkersInto()) any = true; } catch (e) {}
+    try { if (await window.__settingsLoadBusiList(true)) any = true; } catch (e) {}
+    if (any) {
+        _amiqAutoLoaded = true;
+        // 사업명 1건뿐이면 설정에 자동 채움(미설정 시)
+        const s = _amiqSettings();
+        if (!s.busiNum && _amiqBusiList.length === 1) {
+            s.busiName = _amiqBusiList[0].name; s.busiNum = _amiqBusiList[0].num;
+            try { localStorage.setItem(_SETTINGS_KEY, JSON.stringify(s)); } catch (e) {}
+            log('사업명 자동설정: ' + s.busiName, 'ok');
+        }
+        // 설정창 열려있으면 새로고침
+        const el = document.getElementById('collect-overlay');
+        if (el && el.style.display === 'block' && document.getElementById('set-jisa')) window.__settingsOpen();
+    }
+};
+// 작업자 명단만 조회해서 _amiqWorkerList 채움 (자동/수동 공용)
+async function _loadWorkersInto() {
     const s = _amiqSettings();
     const dept2 = (typeof JISA_DEPT2 !== 'undefined' && JISA_DEPT2[s.jisa]) || '7793';
     const base = (typeof AWMS_BASE !== 'undefined' ? AWMS_BASE : 'https://awms.kdn.com');
     const url = base + '/ami/mob/cst/mobCst1000/getUserList?DEPT1=3970&DEPT2=' + dept2 + '&FLAG=M10';
-    log('작업자 명단 조회: ' + url, 'warn');
-    try {
-        const body = await awmsEval(`fetch(${JSON.stringify(url)},{credentials:'include',cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject('HTTP '+r.status))`);
-        const list = _parseWorkers(body);
-        if (!list.length) {
-            log('작업자 0건 — 응답: ' + JSON.stringify(body).slice(0, 300), 'err');
-            alert('작업자 명단을 못 받았습니다.\n응답구조가 예상과 달라 수동입력으로 진행하세요.\n(로그에 원시응답 기록됨)');
-            return;
-        }
-        _amiqWorkerList = list;
-        log('작업자 ' + list.length + '명 로드: ' + list.slice(0, 3).map(w => w.name + '/' + w.seq).join(', ') + '…', 'ok');
-        window.__settingsOpen();   // 드롭다운으로 다시 렌더
-    } catch (e) {
-        log('작업자 조회 실패: ' + e.message, 'err');
-        alert('작업자 조회 실패: ' + e.message + '\nawms 세션 로그인 후 다시 시도하세요.');
-    }
-};
+    const body = await awmsEval(`fetch(${JSON.stringify(url)},{credentials:'include',cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject('HTTP '+r.status))`);
+    const list = _parseWorkers(body);
+    if (!list.length) { log('작업자 0건 — 응답: ' + JSON.stringify(body).slice(0, 200), 'warn'); return false; }
+    _amiqWorkerList = list;
+    log('작업자 ' + list.length + '명 로드', 'ok');
+    return true;
+}
 window.__settingsOpen = function () {
     const s = _amiqSettings();
     const jisaOpts = (typeof JISA_DEPT2 !== 'undefined' ? Object.keys(JISA_DEPT2) : [])
@@ -129,8 +177,9 @@ window.__settingsOpen = function () {
         + `<div style="padding:16px;max-width:560px;margin:0 auto">`
         + `<div style="font-size:11px;color:#9ca3af;margin-bottom:14px">한 번 설정하면 모든 수집에 자동 적용됩니다. (지사·사업명·동행·작업자)</div>`
         + row('지사', `<select id="set-jisa" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;font-size:14px"><option value="">지사 선택</option>${jisaOpts}</select>`)
-        + row('사업명', inp('set-busiName', s.busiName, '예: 25년도 AMI 통신망 보강공사_강북'))
-        + row('사업번호(BUSI_NUM)', inp('set-busiNum', s.busiNum, '예: C11G250023 (없으면 빈칸)'))
+        + (_amiqBusiList.length
+            ? row('사업명 (awms 명단)', `<select id="set-busiSel" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;font-size:14px"><option value="">선택</option>${_amiqBusiList.map(b => `<option value="${_esc(b.num)}"${b.num === s.busiNum ? ' selected' : ''}>${_esc(b.name)} (${_esc(b.num)})</option>`).join('')}</select>`)
+            : row('사업명', inp('set-busiName', s.busiName, '예: 25년도 AMI 통신망 보강공사_강북') + inp('set-busiNum', s.busiNum, '사업번호 BUSI_NUM (없으면 빈칸)')))
         + row('동행시공 여부', `<select id="set-withYn" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;font-size:14px"><option value="N"${s.withYn === 'N' ? ' selected' : ''}>일반(단독)</option><option value="Y"${s.withYn === 'Y' ? ' selected' : ''}>동행시공</option></select>`)
         + `<div style="border-top:1px solid #e5e7eb;margin:16px 0 12px;padding-top:12px;display:flex;justify-content:space-between;align-items:center"><span style="font-size:13px;font-weight:700;color:#374151">작업자</span>`
         + `<button onclick="__settingsLoadWorkers()" style="padding:7px 12px;background:#4f46e5;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700">awms에서 명단 불러오기</button></div>`
@@ -151,8 +200,12 @@ window.__settingsSave = function () {
         return { name: g('set-w' + n), seq: g('set-w' + n + 's') };
     };
     const w1 = gw(1), w2 = gw(2), w3 = gw(3);
+    // 사업명 — 명단 드롭다운(num) 있으면 거기서 이름 역추출, 없으면 수동입력
+    let busiName = g('set-busiName'), busiNum = g('set-busiNum');
+    const bsel = document.getElementById('set-busiSel');
+    if (bsel) { busiNum = bsel.value; const b = _amiqBusiList.find(x => x.num === busiNum); busiName = b ? b.name : ''; }
     const s = {
-        jisa: g('set-jisa'), busiName: g('set-busiName'), busiNum: g('set-busiNum'), withYn: g('set-withYn'),
+        jisa: g('set-jisa'), busiName, busiNum, withYn: g('set-withYn'),
         worker1: w1.name, worker1Seq: w1.seq, worker2: w2.name, worker2Seq: w2.seq, worker3: w3.name, worker3Seq: w3.seq,
     };
     try { localStorage.setItem(_SETTINGS_KEY, JSON.stringify(s)); } catch (e) {}
@@ -436,7 +489,7 @@ function _photoSlot(i, k, lbl, cur) {
     return `<label style="flex:1;aspect-ratio:1;border:2px dashed ${has ? '#059669' : '#cbd5e1'};border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;color:${has ? '#059669' : '#94a3b8'};background:${has ? '#ecfdf5' : '#fff'};overflow:hidden;position:relative">`
         + (has ? `<img src="${cur}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">` : '')
         + `<span style="position:relative;z-index:1;background:rgba(255,255,255,.7);padding:1px 3px;border-radius:3px">${_esc(lbl)}${has ? ' ✓' : ''}</span>`
-        + `<input type="file" accept="image/*" capture="environment" style="display:none" onchange="collOnPhoto(${i},'${k}',this)"></label>`;
+        + `<input type="file" accept="image/*" style="display:none" onchange="collOnPhoto(${i},'${k}',this)"></label>`;
 }
 
 // 마스터 1개 = awms 폼 블록

@@ -46,6 +46,8 @@ async function checkSession() {
         _sessionOK = Array.isArray(arr) && arr.length > 0;
         _sessionInfo = _sessionOK ? { userName: 'awms 연결됨', cha: arr.length } : null;
         updateSessionBar();
+        // 세션 연결되면 사전설정(작업자·사업명) 자동 로드 (1회 가드는 __amiqAutoLoad 내부)
+        if (_sessionOK && typeof window.__amiqAutoLoad === 'function') { try { window.__amiqAutoLoad(); } catch (e) {} }
         return _sessionOK;
     } catch (e) {
         _sessionOK = false;
