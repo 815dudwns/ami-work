@@ -27,40 +27,54 @@ const SACT_TMPL = {
 function _instM(type) { return ({ E: 'HW4020', AE: 'HW4040', G: 'HW4030', AMIGO: 'HW4050' })[type] || 'HW4010'; }
 function _commSuffix(comm) { return ({ 'ks-plc': '10', hpgp: '20', lte_IV: '70', 'k-dcu': '90', 'smgw-c': '92' })[comm] || ''; }
 
+// 공사설정값(작업자 SEQ·사업번호) = item.workers/busiNum이 있으면 하드코딩 대체. (getUserList로 채운 설정)
+function _applyConfig(e, item) {
+    const wk = (item && item.workers) || {};
+    if (wk.w1Seq) e.WORKER1_SEQ = wk.w1Seq;
+    if (wk.w2Seq) e.WORKER2_SEQ = wk.w2Seq;
+    if (wk.w3Seq) e.WORKER3_SEQ = wk.w3Seq;
+    if (item && item.busiNum) e.BUSI_NUM = item.busiNum;
+}
+
 // 마스터 1행 entries (datapush_queue가 fcltyDiv/mbCnt/mbMeterId 이미 계산 → 그대로 매핑)
-function _masterEntries(m, dept2) {
+function _masterEntries(m, dept2, item) {
     const im = _instM(m.meterType);
     const e = Object.assign({}, SACT_TMPL);
     e.DEPT2 = dept2;
     e.INST_M = im;
     e.INST_S = im + _commSuffix(m.comm);
     e.INSTR_NUM = m.meterNo;
+    e.WORK_DIV = m.workDiv || 'M1010';      // 신설M1010/기설M1030 (collect 작업구분)
     e.FCLTY_DIV = m.fcltyDiv || '10';
     e.MODEM_DIV = '10';
     e.MAC_MODEM = m.mac || '';
     e.MB_METER_ID = m.mbMeterId || '';     // 단독형은 ''(datapush가 이미 비움)
     e.MB_CNT = m.mbCnt || '';              // 단독형은 ''
     e.EXT_CONN_DEV = (im === 'HW4040') ? (m.extConn || 'N') : '';   // AE타입만
+    _applyConfig(e, item);
     return Object.entries(e);
 }
 
-// 슬래이브 1행 entries (마스터 그룹 따라감)
-function _slaveEntries(master, slave, dept2) {
+// 슬래이브 1행 entries (마스터 그룹 따라감). masterAtch3 = 마스터 saveAct 응답 시공전 파일ID(공유).
+function _slaveEntries(master, slave, dept2, item, masterAtch3) {
     const im = _instM(slave.meterType);
     const e = Object.assign({}, SACT_TMPL);
     e.DEPT2 = dept2;
     e.INST_M = im;
     e.INST_S = im + _commSuffix(master.comm);   // 마스터 통신방식 따라감
     e.INSTR_NUM = slave.meterNo;
+    e.WORK_DIV = master.workDiv || 'M1010';
     e.FCLTY_DIV = master.fcltyDiv || '20';      // 마스터 그룹 시설유형
     e.MODEM_DIV = '20';
     e.MB_METER_ID = master.meterNo;             // 대표계기 = 마스터
     e.MB_CNT = master.mbCnt || '';
     e.BUNGI = (master.comm === 'smgw-c') ? '무선' : '0.5';
+    if (masterAtch3) e.ATCH_FILE_ID_3 = masterAtch3;   // 시공전 = 마스터 파일ID 공유(헬퍼 L1164 방식). 4는 awms 자동공유.
+    _applyConfig(e, item);
     return Object.entries(e);
 }
 
-// 사진: datapush photos {pre,mac,post1,post2} → ATCH_3/4/5/6 (GATE1 확정)
+// 마스터 사진: datapush photos {pre,mac,post1,post2} → ATCH_3/4/5/6 (GATE1 확정)
 function _photosOf(m) {
     const map = [['pre', '3'], ['mac', '4'], ['post1', '5'], ['post2', '6']];
     const out = [];
@@ -72,6 +86,15 @@ function _photosOf(m) {
         if (b64) out.push({ b64, field: 'ATCH_FILE_ID_' + slot + '_SRC', filename: 'p' + slot + '.jpg' });
     });
     return out;
+}
+
+// 슬래이브 사진: 자기 계기사진 1장 → ATCH_FILE_ID_5_SRC (3·4는 마스터 공유/자동). slave.photo = dataURL.
+function _slavePhotos(slave) {
+    const durl = slave && slave.photo;
+    if (!durl) return [];
+    const i = durl.indexOf('base64,');
+    const b64 = i >= 0 ? durl.slice(i + 7) : '';
+    return b64 ? [{ b64, field: 'ATCH_FILE_ID_5_SRC', filename: 'p5.jpg' }] : [];
 }
 
 // saveAct expr (awmsEval FormData — awms-saverow _saveRowExpr와 동일 패턴)
@@ -89,7 +112,7 @@ function _saveActExpr(entries, photos, url) {
         const r=await fetch(${JSON.stringify(url)},{method:'POST',credentials:'include',body:fd});
         const t=await r.text();let j;try{j=JSON.parse(t);}catch(e){j=null;}
         const ok=(j&&j.result===1)||(t&&t.trim()==='1');
-        return {status:r.status,body:t,ok,atchFileId3:j&&j.atchFileId3,photoNote:notes.join(' / ')||'무첨부'};
+        return {status:r.status,body:t,ok,atchFileId3:j&&j.atchFileId3,atchFileId4:j&&j.atchFileId4,photoNote:notes.join(' / ')||'무첨부'};
     })()`;
 }
 
@@ -111,12 +134,14 @@ window.saveActOne = async function (id) {
     for (const box of item.boxes || []) {
         for (const m of box.masters || []) {
             try {
-                const resp = await awmsEval(_saveActExpr(_masterEntries(m, dept2), _photosOf(m), SAVEACT_URL));
-                if (resp && resp.ok) { ok++; log('마스터 ' + m.meterNo + ' 저장 OK (' + (resp.photoNote || '') + ')', 'ok'); }
+                const resp = await awmsEval(_saveActExpr(_masterEntries(m, dept2, item), _photosOf(m), SAVEACT_URL));
+                let mAtch3 = '';
+                if (resp && resp.ok) { ok++; mAtch3 = resp.atchFileId3 || ''; log('마스터 ' + m.meterNo + ' 저장 OK (' + (resp.photoNote || '') + ')', 'ok'); }
                 else { err++; log('마스터 ' + m.meterNo + ' 실패: ' + String((resp && resp.body) || '?').slice(0, 80), 'err'); }
                 for (const sl of m.slaves || []) {
-                    const sr = await awmsEval(_saveActExpr(_slaveEntries(m, sl, dept2), [], SAVEACT_URL));
-                    if (sr && sr.ok) { ok++; log('슬래이브 ' + sl.meterNo + ' OK', 'ok'); }
+                    // 슬래이브: 시공전(3)=마스터 파일ID 공유, 4=awms 자동, 5=자기 계기사진
+                    const sr = await awmsEval(_saveActExpr(_slaveEntries(m, sl, dept2, item, mAtch3), _slavePhotos(sl), SAVEACT_URL));
+                    if (sr && sr.ok) { ok++; log('슬래이브 ' + sl.meterNo + ' OK (' + (sr.photoNote || '') + (mAtch3 ? ' / 시공전공유' : '') + ')', 'ok'); }
                     else { err++; log('슬래이브 ' + sl.meterNo + ' 실패: ' + String((sr && sr.body) || '?').slice(0, 60), 'err'); }
                 }
             } catch (e) { err++; log('오류 ' + m.meterNo + ': ' + e.message, 'err'); }

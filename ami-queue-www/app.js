@@ -1,7 +1,7 @@
 // AMI Queue — 메인 (로그 패널 / 세션 / 초기화). Phase A: 목록 표시·삭제만.
 
 // 앱 버전 (원격로드 반영 확인용 — 화면 헤더에 표시). 갱신 시 CLAUDE.md 버전표도 갱신.
-const APP_VER = 'v0613a-수집폼';
+const APP_VER = 'v0614-awms폼재설계';
 
 // ── 화면 처리상황 패널 ──────────────────────────
 function _statusPanel() {
@@ -107,6 +107,16 @@ function _injectCollectBtn() {
     b.textContent = '수집';
     b.onclick = function () { if (window.__collectOpen) window.__collectOpen('일반'); };
     if (row) row.appendChild(b);
+    // 설정 버튼 (사전설정 — 지사·사업명·동행·작업자)
+    if (!document.getElementById('btn-settings')) {
+        const sb = document.createElement('button');
+        sb.id = 'btn-settings';
+        sb.className = 'btn-secondary';
+        sb.style.cssText = 'flex:0 0 56px;width:56px;background:#4f46e5;color:#fff';
+        sb.textContent = '설정';
+        sb.onclick = function () { if (window.__settingsOpen) window.__settingsOpen(); };
+        if (row) row.appendChild(sb);
+    }
 }
 
 // ── 초기화 ──────────────────────────────────────
