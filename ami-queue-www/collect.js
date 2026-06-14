@@ -327,9 +327,10 @@ function _ensureQrScanner(cb) {
 //   slaves:[{meterNo,type,photo}] }  // 사진 1장 = 슬래이브 1개
 function _setColl(addr, jisa, rawMeters, workMode, key) {
     const set = _amiqSettings();
-    const list = (rawMeters || []).map(m => String(m.계기번호 || m.meterNo || m.new_meter_id || '')).filter(Boolean);
-    const firstNo = list[0] || '';
-    const firstRaw = (rawMeters || [])[0] || {};
+    const noOf = r => String(r.계기번호 || r.meterNo || r.new_meter_id || '');
+    const raws = (rawMeters || []).filter(r => noOf(r));   // 번호 있는 계기만
+    const firstRaw = raws[0] || {};
+    const firstNo = noOf(firstRaw);
     let useJisa = jisa || '';
     if (set.jisa) useJisa = set.jisa;
     if ((workMode === '동행' || set.withYn === 'Y') && !set.jisa) useJisa = '서울본부직할';
@@ -344,9 +345,10 @@ function _setColl(addr, jisa, rawMeters, workMode, key) {
             mac: '', suffix: _inferSuffix(type, '', siteComm), ext: 'N', workDiv: 'M1010',
             slots: { pre: null, mac: null, post1: null, post2: null },
         },
-        slaves: [],
+        // 지도에서 마스터 고르면 그 주소 나머지 계기 = 슬래이브로 따라옴(번호 세팅, 사진은 현장 매칭)
+        slaves: raws.slice(1).map(r => { const no = noOf(r); return { meterNo: no, type: _collParseType(no) || '', photo: '' }; }),
     };
-    log('수집 마스터 ' + (firstNo || '(직접입력)') + ' / ' + _coll.workMode, 'ok');
+    log('수집 마스터 ' + (firstNo || '(직접입력)') + ' + 슬래이브 ' + Math.max(0, raws.length - 1) + ' / ' + _coll.workMode, 'ok');
     renderCollect();
 }
 
@@ -431,6 +433,10 @@ window.collSUpload = function (input) {
 window.collSSetNo = function (i, v) { if (!_coll) return; const s = _coll.slaves[i]; if (s) { s.meterNo = String(v || '').trim(); s.type = _collParseType(s.meterNo) || ''; } };
 window.collSScan = function (i) { _ensureQrScanner(function (ok) { if (!ok || !window.QrScanner) { alert('스캐너 실패'); return; } window.QrScanner.show(function (text) { const no = String(text || '').replace(/\D/g, ''); if (no && _coll && _coll.slaves[i]) { _coll.slaves[i].meterNo = no; _coll.slaves[i].type = _collParseType(no) || ''; renderCollect(); } }); }); };
 window.collSDel = function (i) { if (!_coll) return; _coll.slaves.splice(i, 1); renderCollect(); };
+// 계기번호 먼저 — 빈 카드(사진 슬롯 빈) 추가. 사진은 나중에 그 카드 슬롯 탭/드래그로.
+window.collSAddNo = function () { if (!_coll) return; _coll.slaves.push({ meterNo: '', type: '', photo: '' }); renderCollect(); };
+// 빈 카드에 사진 채우기 (사진 슬롯 탭 → 개별 선택)
+window.collSSetPhoto = function (i, input) { const f = input.files && input.files[0]; if (!f || !_coll) return; const r = new FileReader(); r.onload = () => { if (_coll.slaves[i]) { _coll.slaves[i].photo = r.result; renderCollect(); } }; r.readAsDataURL(f); input.value = ''; };
 
 // ── 포인터 드래그 (마스터 슬롯 swap / 슬래이브 reorder). touch-action은 드래그 요소(.mslot.filled/.scard-handle)에만 → 페이지 스크롤 보존. ──
 let _drag = null;
@@ -558,8 +564,9 @@ function renderCollect() {
     let slaves = `<div style="font-size:13px;font-weight:700;color:#374151;margin:0 2px 6px">슬래이브 ${_coll.slaves.length}건 <span style="font-weight:400;color:#9ca3af;font-size:11px">— 사진=각 계기, 끌어서 순서변경 / 계기번호 입력</span></div>`;
     slaves += _coll.slaves.map((s, i) =>
         `<div class="scard" data-si="${i}" style="display:flex;gap:10px;align-items:center;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:7px;margin-bottom:7px">`
-        + `<div class="scard-handle" style="flex:0 0 74px;height:74px;border-radius:8px;overflow:hidden;touch-action:none;cursor:grab;position:relative;background:#000">`
-        + `<img src="${s.photo}" style="width:100%;height:100%;object-fit:cover;pointer-events:none"></div>`
+        + (s.photo
+            ? `<div class="scard-handle" style="flex:0 0 74px;height:74px;border-radius:8px;overflow:hidden;touch-action:none;cursor:grab;position:relative;background:#000"><img src="${s.photo}" style="width:100%;height:100%;object-fit:cover;pointer-events:none"></div>`
+            : `<label style="flex:0 0 74px;height:74px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#94a3b8;background:#f8fafc">사진<input type="file" accept="image/*" style="display:none" onchange="collSSetPhoto(${i},this)"></label>`)
         + `<div style="flex:1;display:flex;flex-direction:column;gap:5px">`
         + `<div style="display:flex;gap:6px"><input value="${_esc(s.meterNo)}" oninput="collSSetNo(${i},this.value)" placeholder="계기번호" inputmode="numeric" style="flex:1;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:15px;font-weight:700">`
         + `<button onclick="collSScan(${i})" style="flex:0 0 42px;padding:8px 0;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:11px">QR</button></div>`
@@ -567,8 +574,9 @@ function renderCollect() {
         + `<button onclick="collSDel(${i})" style="flex:0 0 auto;align-self:flex-start;width:26px;height:26px;padding:0;background:#fee2e2;color:#b91c1c;border:none;border-radius:13px;font-size:14px">×</button></div>`
     ).join('');
     slaves += `<div style="display:flex;gap:6px;margin-bottom:6px">`
-        + `<label style="flex:1;padding:11px;background:#4338ca;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-align:center">+ 한꺼번에<input type="file" accept="image/*" multiple style="display:none" onchange="collSUpload(this)"></label>`
-        + `<label style="flex:1;padding:11px;background:#e0e7ff;color:#3730a3;border-radius:8px;font-size:12px;font-weight:700;text-align:center">+ 하나씩<input type="file" accept="image/*" style="display:none" onchange="collSUpload(this)"></label></div>`;
+        + `<label style="flex:1;padding:11px;background:#4338ca;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-align:center">사진 한꺼번에<input type="file" accept="image/*" multiple style="display:none" onchange="collSUpload(this)"></label>`
+        + `<label style="flex:1;padding:11px;background:#e0e7ff;color:#3730a3;border-radius:8px;font-size:12px;font-weight:700;text-align:center">사진 하나씩<input type="file" accept="image/*" style="display:none" onchange="collSUpload(this)"></label>`
+        + `<button onclick="collSAddNo()" style="flex:1;padding:11px;background:#e5e7eb;color:#374151;border:none;border-radius:8px;font-size:12px;font-weight:700">+ 계기번호</button></div>`;
 
     el.innerHTML =
         `<div style="background:#1e3a8a;color:#fff;padding:12px 16px;position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center">`
