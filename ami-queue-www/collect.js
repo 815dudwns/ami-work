@@ -346,7 +346,7 @@ function _setColl(addr, jisa, rawMeters, workMode, key) {
             slots: { pre: null, mac: null, post1: null, post2: null },
         },
         // 지도에서 마스터 고르면 그 주소 나머지 계기 = 슬래이브로 따라옴(번호 세팅, 사진은 현장 매칭)
-        slaves: raws.slice(1).map(r => { const no = noOf(r); return { meterNo: no, type: _collParseType(no) || '', photo: '' }; }),
+        slaves: raws.slice(1).map(r => { const no = noOf(r); return { meterNo: no, type: _collParseType(no) || '', photo: '', incl: true }; }),
     };
     log('수집 마스터 ' + (firstNo || '(직접입력)') + ' + 슬래이브 ' + Math.max(0, raws.length - 1) + ' / ' + _coll.workMode, 'ok');
     renderCollect();
@@ -427,21 +427,22 @@ window.collMClearSlot = function (k) { if (_coll) { _coll.master.slots[k] = null
 window.collSUpload = function (input) {
     const files = [...(input.files || [])]; if (!files.length) return;
     let done = 0; const arr = new Array(files.length);
-    files.forEach((f, i) => { const r = new FileReader(); r.onload = () => { arr[i] = { meterNo: '', type: '', photo: r.result }; if (++done === files.length) { _coll.slaves.push(...arr.filter(Boolean)); renderCollect(); } }; r.readAsDataURL(f); });
+    files.forEach((f, i) => { const r = new FileReader(); r.onload = () => { arr[i] = { meterNo: '', type: '', photo: r.result, incl: true }; if (++done === files.length) { _coll.slaves.push(...arr.filter(Boolean)); renderCollect(); } }; r.readAsDataURL(f); });
     input.value = '';
 };
 window.collSSetNo = function (i, v) { if (!_coll) return; const s = _coll.slaves[i]; if (s) { s.meterNo = String(v || '').trim(); s.type = _collParseType(s.meterNo) || ''; } };
 window.collSScan = function (i) { _ensureQrScanner(function (ok) { if (!ok || !window.QrScanner) { alert('스캐너 실패'); return; } window.QrScanner.show(function (text) { const no = String(text || '').replace(/\D/g, ''); if (no && _coll && _coll.slaves[i]) { _coll.slaves[i].meterNo = no; _coll.slaves[i].type = _collParseType(no) || ''; renderCollect(); } }); }); };
 window.collSDel = function (i) { if (!_coll) return; _coll.slaves.splice(i, 1); renderCollect(); };
 // 계기번호 먼저 — 빈 카드(사진 슬롯 빈) 추가. 사진은 나중에 그 카드 슬롯 탭/드래그로.
-window.collSAddNo = function () { if (!_coll) return; _coll.slaves.push({ meterNo: '', type: '', photo: '' }); renderCollect(); };
+window.collSAddNo = function () { if (!_coll) return; _coll.slaves.push({ meterNo: '', type: '', photo: '', incl: true }); renderCollect(); };
+window.collSToggleIncl = function (i) { if (_coll && _coll.slaves[i]) { _coll.slaves[i].incl = !_coll.slaves[i].incl; renderCollect(); } };
 // 빈 카드에 사진 채우기 (사진 슬롯 탭 → 개별 선택)
 window.collSSetPhoto = function (i, input) { const f = input.files && input.files[0]; if (!f || !_coll) return; const r = new FileReader(); r.onload = () => { if (_coll.slaves[i]) { _coll.slaves[i].photo = r.result; renderCollect(); } }; r.readAsDataURL(f); input.value = ''; };
 // 이 슬래이브를 마스터로 승격 (어느게 마스터인지 현장서 정함 — 큐보내기는 마스터 미지정). 기존 마스터는 슬래이브로.
 window.collSMakeMaster = function (i) {
     if (!_coll) return; const s = _coll.slaves[i]; if (!s) return;
     const m = _coll.master;
-    if (m.meterNo) _coll.slaves.push({ meterNo: m.meterNo, type: m.type, photo: (m.slots.post1 && m.slots.post1.url) || '' });
+    if (m.meterNo) _coll.slaves.push({ meterNo: m.meterNo, type: m.type, photo: (m.slots.post1 && m.slots.post1.url) || '', incl: true });
     m.meterNo = s.meterNo; m.type = s.type; m.siteComm = ''; m.bdju = '';
     m.suffix = _inferSuffix(m.type, m.mac, m.siteComm);
     if (s.photo && !m.slots.post1) m.slots.post1 = { url: s.photo };   // 슬래이브 계기사진 → 마스터 계기슬롯
@@ -576,7 +577,7 @@ function renderCollect() {
     // 슬래이브 (사진 = 각 계기. 드래그 reorder + 번호 + 삭제)
     let slaves = `<div style="font-size:13px;font-weight:700;color:#374151;margin:0 2px 6px">슬래이브 ${_coll.slaves.length}건 <span style="font-weight:400;color:#9ca3af;font-size:11px">— 사진=각 계기, 끌어서 순서변경 / 계기번호 입력</span></div>`;
     slaves += _coll.slaves.map((s, i) =>
-        `<div class="scard" data-si="${i}" style="display:flex;gap:10px;align-items:center;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:7px;margin-bottom:7px">`
+        `<div class="scard" data-si="${i}" style="display:flex;gap:10px;align-items:center;background:#fff;border:1px solid ${s.incl !== false ? '#e5e7eb' : '#d1d5db'};border-radius:10px;padding:7px;margin-bottom:7px;${s.incl !== false ? '' : 'opacity:.5;'}">`
         + (s.photo
             ? `<div class="scard-handle" style="flex:0 0 74px;height:74px;border-radius:8px;overflow:hidden;touch-action:none;cursor:grab;position:relative;background:#000"><img src="${s.photo}" style="width:100%;height:100%;object-fit:cover;pointer-events:none"></div>`
             : `<label style="flex:0 0 74px;height:74px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#94a3b8;background:#f8fafc">사진<input type="file" accept="image/*" style="display:none" onchange="collSSetPhoto(${i},this)"></label>`)
@@ -585,7 +586,10 @@ function renderCollect() {
         + `<button onclick="collSScan(${i})" style="flex:0 0 42px;padding:8px 0;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:11px">QR</button></div>`
         + `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;color:#9ca3af">${_esc(s.type || '?')}타입 · 분기 ${_bungi(m.suffix, s.type)}</span>`
         + `<button onclick="collSMakeMaster(${i})" style="font-size:10px;padding:3px 8px;background:#dbeafe;color:#1e40af;border:none;border-radius:5px;font-weight:700">마스터로</button></div></div>`
-        + `<button onclick="collSDel(${i})" style="flex:0 0 auto;align-self:flex-start;width:26px;height:26px;padding:0;background:#fee2e2;color:#b91c1c;border:none;border-radius:13px;font-size:14px">×</button></div>`
+        + `<div style="flex:0 0 auto;display:flex;flex-direction:column;gap:5px;align-items:center">`
+        + `<button onclick="collSDel(${i})" style="width:26px;height:26px;padding:0;background:#fee2e2;color:#b91c1c;border:none;border-radius:13px;font-size:14px">×</button>`
+        + `<button onclick="collSToggleIncl(${i})" style="font-size:9px;padding:3px 6px;background:${s.incl !== false ? '#dcfce7' : '#f3f4f6'};color:${s.incl !== false ? '#15803d' : '#9ca3af'};border:none;border-radius:6px;font-weight:700;white-space:nowrap">${s.incl !== false ? '포함' : '제외'}</button>`
+        + `</div></div>`
     ).join('');
     slaves += `<div style="display:flex;gap:6px;margin-bottom:6px">`
         + `<label style="flex:1;padding:11px;background:#4338ca;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-align:center">사진 한꺼번에<input type="file" accept="image/*" multiple style="display:none" onchange="collSUpload(this)"></label>`
@@ -616,10 +620,12 @@ window.collSubmit = async function () {
     const m = _coll.master;
     if (!m.meterNo) { alert('마스터 계기번호를 입력하세요'); return; }
     if (!m.suffix && !confirm('통신방식 미선택. saveAct 오류 가능.\n계속할까요?')) return;
-    const noNo = _coll.slaves.filter(s => !s.meterNo);
+    const inclSlaves = _coll.slaves.filter(s => s.incl !== false);   // 이번 그룹
+    const restSlaves = _coll.slaves.filter(s => s.incl === false);   // 남길 것(다음 마스터)
+    const noNo = inclSlaves.filter(s => !s.meterNo);
     if (noNo.length && !confirm('계기번호 없는 슬래이브 ' + noNo.length + '건. 계속할까요?')) return;
     const set = _coll.settings || _amiqSettings();
-    const slaveCnt = _coll.slaves.length;
+    const slaveCnt = inclSlaves.length;
     const fclty = _fcltyOf(1, 0, slaveCnt, _coll.hamType);
     const cnt = 1 + slaveCnt;
     const ph = k => (m.slots[k] && m.slots[k].url) || '';   // slots[k]={url} → dataURL
@@ -631,7 +637,7 @@ window.collSubmit = async function () {
         mbCnt: fclty.div === '10' ? '' : String(cnt),
         ext: m.ext || 'N', extConn: m.ext || 'N', bdju: m.bdju || '', workDiv: m.workDiv || 'M1010',
         photos: { pre: ph('pre'), mac: ph('mac'), post1: ph('post1'), post2: ph('post2') },
-        slaves: _coll.slaves.map(s => ({ meterNo: s.meterNo, meterType: s.type, bungi: _bungi(m.suffix, s.type), photo: s.photo || '' })),
+        slaves: inclSlaves.map(s => ({ meterNo: s.meterNo, meterType: s.type, bungi: _bungi(m.suffix, s.type), photo: s.photo || '' })),
     };
     const rec = {
         workMode: _coll.workMode, addr: _coll.addr || '', jisa: _coll.jisa || '', workDiv: m.workDiv || 'M1010',
@@ -640,14 +646,24 @@ window.collSubmit = async function () {
         createdAt: new Date().toISOString(), createdBy: 'amiqueue', createdByName: '아미큐수집',
         status: 'pending', boxes: [{ hamType: _coll.hamType, masters: [boxMaster] }],
     };
-    if (!confirm((_coll.addr || m.meterNo) + '\n마스터 1 · 슬래이브 ' + slaveCnt + '건을 큐에 담습니다.')) return;
+    if (!confirm((_coll.addr || m.meterNo) + '\n마스터 ' + m.meterNo + ' · 슬래이브 ' + slaveCnt + '건 큐에 담습니다.' + (restSlaves.length ? '\n(남은 ' + restSlaves.length + '건은 유지 — 다음 마스터로 계속)' : ''))) return;
     try {
         const ref = await _db.ref('datapush_queue').push(rec);
-        log('큐 담기 완료 → ' + ref.key, 'ok');
-        if (_coll.key) { try { await _db.ref('collect_handoff/' + _coll.key).remove(); } catch (e) {} }
-        _coll = null; collClose();
+        log('큐 담기 완료 → ' + ref.key + ' (슬래이브 ' + slaveCnt + ')', 'ok');
         if (typeof refreshQueue === 'function') refreshQueue();
-        alert('큐에 담았습니다. [큐] 화면에서 확인하세요.');
+        if (restSlaves.length) {
+            // 남은 계기로 계속 — 마스터 리셋, 남은 슬래이브만 유지(다시 포함 상태로)
+            restSlaves.forEach(s => { s.incl = true; });
+            _coll.master = { meterNo: '', type: '', siteComm: '', bdju: '', mac: '', suffix: '', ext: 'N', workDiv: 'M1010', slots: { pre: null, mac: null, post1: null, post2: null } };
+            _coll.slaves = restSlaves;
+            log('남은 ' + restSlaves.length + '건으로 계속 — 다음 마스터 지정', 'warn');
+            renderCollect();
+            alert('담았습니다. 남은 ' + restSlaves.length + '건이 슬래이브로 남아있습니다.\n다음 마스터를 [마스터로] 또는 번호 입력으로 지정하세요.');
+        } else {
+            if (_coll.key) { try { await _db.ref('collect_handoff/' + _coll.key).remove(); } catch (e) {} }
+            _coll = null; collClose();
+            alert('큐에 담았습니다. [큐] 화면에서 확인하세요.');
+        }
     } catch (e) { alert('큐 담기 실패: ' + e.message); log('큐 담기 실패: ' + e.message, 'err'); }
 };
 
