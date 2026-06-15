@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v78'; // v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v79'; // v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1624,6 +1624,53 @@ function parseValue(text) {
           return _gum(constraints);
         })();
       };
+    }
+  } catch (e) {}
+
+  // ── [v79] 헬퍼 ⌂(홈) 버튼: awms를 떠나 재로딩하던 문제 해결 ──────────────
+  //   기존: ⌂ → location.href='https://localhost/' → awms 통째 언로드 → 재진입 시 전체 재로딩(느림).
+  //   변경: ⌂ → awms는 그대로 둔 채 홈 오버레이만 띄움. "AWMS로 돌아가기" = 오버레이 닫기(재로딩 0).
+  //   헬퍼 전용(window.AndroidNav 게이트) — 아미큐/계기큐(AwmsQ/AwmsResult)엔 ⌂ 없고 미적용.
+  try {
+    if (window.AndroidNav) {
+      var openHelperHome = function () {
+        if (document.getElementById('__helper_home')) return;
+        var ov = document.createElement('div');
+        ov.id = '__helper_home';
+        ov.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:linear-gradient(160deg,#1e3a8a,#0f172a);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#fff;padding:env(safe-area-inset-top,0) 24px env(safe-area-inset-bottom,0);box-sizing:border-box;';
+        var t = document.createElement('div');
+        t.textContent = 'AWMS 헬퍼';
+        t.style.cssText = 'font-size:26px;font-weight:800;letter-spacing:0.5px;';
+        var s = document.createElement('div');
+        s.textContent = '작업 화면은 그대로 유지됩니다';
+        s.style.cssText = 'font-size:13px;opacity:0.72;margin-top:-10px;';
+        var back = document.createElement('button');
+        back.textContent = 'AWMS로 돌아가기';
+        back.style.cssText = 'background:#fff;color:#1e3a8a;border:none;border-radius:14px;padding:18px 40px;font-size:19px;font-weight:800;box-shadow:0 6px 20px rgba(0,0,0,0.35);';
+        back.onclick = function () { ov.remove(); };
+        var setBtn = document.createElement('button');
+        setBtn.textContent = '설정 열기 (앱 재시작)';
+        setBtn.style.cssText = 'background:transparent;color:#cbd5e1;border:1px solid rgba(255,255,255,0.3);border-radius:12px;padding:11px 26px;font-size:13px;';
+        setBtn.onclick = function () { window.location.href = 'https://localhost/'; };
+        ov.appendChild(t); ov.appendChild(s); ov.appendChild(back); ov.appendChild(setBtn);
+        document.body.appendChild(ov);
+      };
+      window.__openHelperHome = openHelperHome;
+      var rebindHome = function () {
+        var bar = document.getElementById('__bridge_toolbar');
+        if (!bar) return false;
+        var btns = bar.querySelectorAll('button');
+        var found = false;
+        for (var i = 0; i < btns.length; i++) {
+          if (btns[i].textContent === '⌂' && !btns[i].__homeRebound) {  // ⌂
+            btns[i].__homeRebound = true;
+            btns[i].onclick = function (e) { if (e) e.preventDefault(); openHelperHome(); };
+            found = true;
+          }
+        }
+        return found;
+      };
+      var _t = 0, _iv = setInterval(function () { _t++; if (rebindHome() || _t > 25) clearInterval(_iv); }, 300);
     }
   } catch (e) {}
 })();
