@@ -26,6 +26,14 @@
 - **종로맵 #6 계기종류 표시방식 + 폰 실측** — 버벅임/필터/완료숨김.
 - **아미큐 수집폼 awms폼 본뜨기 재설계** — 캡처 레퍼런스 `research/awms-poc/awms_설비등록화면_{상단,하단}_20260614.png`, 설계 design.md §1.5. collect.js를 awms 설비등록 폼 모양으로(자동값 채움+맥/사진만) + 설정페이지(지사·사업명·동행·작업자) + 맥QR=모뎀맥사진겸용. **목적=맥+사진 모으기, 나머지 파생/자동**(영준님 못박음). → [[amiqueue_collect_masterkey]].
 - **아미큐 OTP = APK 재설치 시 접근성 꺼짐** → 설정→접근성→AMI Queue 수동 재활성화(adb 강제 삼성차단). → [[awms_otp_amiqueue_embed]].
+- **★ #76(누하동 148-2) awms 삭제+재등록** — QR오독으로 신설 51379112262 등록됨(실제 02530274000). 종로앱 데이터는 02530274000으로 고침. **awms는 신설번호 수정 불가(잠김) → 잘못된 51379112262 삭제 후 02530274000 재등록.** ⚠️순서: awms 삭제 먼저(안 하면 계기큐가 02530274000 중복등록). 
+- **★후처리 자동화 (기획 진행중)** — 마감 후 점검→검증→수정→보고 자동화. 문서 `research/후처리_자동화_기획.md`, 메모리 [[postprocess_automation_plan]]. ocr-meter `research/ocr_poc/daily_cycle.py`가 수집·검진 담당(이미 동작), 빠진 핵심=`--apply`(verdict→데이터 반영).
+  - **1단계 규칙필터 완료(2026-06-16)**: 신설=EA/G/Amigo만, 철거=타입코드중점(E/G/표준형15·35), 차단=후처리에서만. 신설번호 출처=site-data(신설계기마스터).
+  - **2단계 `--apply` = 내일 이어서 설계**: dry-run우선·멱등·live재조회·parseq대조. +영준님 추가요구: **ocr-meter cycle_state 동기화**(cycle.py sync_review) + **판정 롤백(뒤로가기) 페이지**(맞는값 잘못입력 대비).
+  - awms 수정API = [[awms_edit_reading_api]](mobMtr5000/saveRow, EX_WORK_STEP=28, RE_SAVE_YN=Y, 캡처템플릿 `research/awms-poc/수정저장_캡처_mobMtr5000_20260615.json`).
+- ✓**종로맵 신설번호 A/B/G/L 알파벳버튼 clay 디자인 적용(2026-06-16, v20260616.1)**: `.rpl-alpha-btn-new` CSS누락 보완(밋밋→clay). 디자인지침 [[jongno_design_system_path]](토큰 css/clay.css, 핸드오프 design_handoff_clay_dark/). push 완료.
+- ✓**종로맵 검침 비고기능 완료(2026-06-15, v20260615.8)**: 교체모달 비고칸(클레이/다크)+DB저장(record.remark)+편집로드/리셋. stats엑셀=사진을 **철거지침 칸별(주간/야간/최대/무효)+신계기 하이퍼링크('보기')**, 열너비 통일, 비고컬럼. QR **계기번호 타입코드 검증 강화**(17/19/25.../53/55만 통과 — #76 오독 재발방지). → [[jongno_remark_excel]]
+- ✓**종로맵 아이폰PWA siteData IDB캐시+렌더우선 / 헬퍼 ⌂홈오버레이(inject v79)** → [[jongno_ios_pwa_sitedata_cache]] [[helper_home_overlay]]
 - ✓**4앱 신규 아이콘 적용 완료·폰검증(2026-06-14)**: 웹 2개(아미맵 PWA화 신규 + 종로맵) push, APK 3개(계기큐·아미큐·보조앱) install-r 완료. 폰 앱서랍 확인 — adaptive 마스킹 정상(스쿼클 라벨 안잘림). 아미큐 awms 세션쿠키 백업은 0개(보존불가)였으나 재로그인은 id/pw 자동+수동OTP. 아미맵=홈화면추가 시 standalone. 생성레시피·자산 [[app_icons_system]](`design/app-icons/`).
 
 ## 종로 보조앱(snap) — 신규 진행중 (2026-06-14)
@@ -40,9 +48,14 @@
   - ★**YOLO가 snap만 "거의 못찾던" 원인 해결**: 삼성 content:// 파일 createImageBitmap 다중호출 디코드실패 → file→메모리 Blob 1회 materialize 후 compress/detect/박스 재사용(종로맵 동일). 모델=종로맵과 동일 `lcd_detector_512.onnx`(ocr-meter 분리정책 소관이나 물리적으론 ami-work/research·jongno/models, ocr-meter엔 모델파일 없음).
   - ✓**흡수 폰검증 완료(새로고침 후)**: temp seq3,4,5에 사진·검침값·QR계기번호·YOLO region 다 저장됨 확인. 종로앱 흡수도 동작. ★단 **"반영안됨"은 폰 종로앱이 옛 캐시(v20260614.4, 흡수코드없는 ?v=b)를 들고 있던 것** — APP_VERSION 자기리로드는 HTML 자체가 stale캐시면 못 돈다(순환). **새로고침(캐시버스트)하니 최신 로드→흡수 정상**. 코드는 처음부터 정상. → [[jongno_cache_busting]].
   - 자산복사=deploy.sh(폰 앱 완전종료 후 재실행 필요). → [[jongno_snap_companion]].
+- ✓**백그라운드 업로드(WorkManager)+로그아웃+부모우선 (2026-06-15, snap v20260615.3 빌드/설치)**: 사진찍으면 즉시 큐등록→다음작업, 네이티브 워커가 Storage REST업로드+RTDB PATCH(HttpURLConnection PATCH불가→X-HTTP-Method-Override)+실패5회시 갤러리저장(Pictures/종로사진실패). `available()` 폴백(구앱/브라우저 기존방식). 부모우선=snap이 종로맵 할당값 안덮음(시나리오A ifEmpty 검사). 로그아웃버튼(아이디전환, 데이터는 아이디무관 공유). 스크롤없는 고정레이아웃은 사진 찌부러져(flex+min-height:0) 원복. → [[jongno_snap_bg_upload]]
+  - ★★**로컬번들**: jongno-snap은 server.url 없음 → snap.html 변경은 **github push로 폰 반영 안 됨**. `cp jongno-combined/snap.html → jongno-snap/android/app/src/main/assets/public/index.html` + `assembleDebug` + `install -r` + 재시작 필수. cap sync 금지(www가 assets 덮어씀).
+- ★**백그라운드 실동작 미검증(GATE)**: 워커 자기로그 0줄, tempPhotos 업로드는 폴백(foreground)으로도 설명됨. **사진찍고 즉시 화면끄기 60초 → 워커 doWork/Storage 로그+새 tempPhotos 생기는지** 확인 전엔 실패/재전송/job-status 구현 금지(advisor). enqueue 호출되는지(UploadBridge 로그/"대기열등록됨" 콘솔)부터 확인.
+- 시트 삭제메뉴(영준님 명세: 없음=촬영/앨범, 있음=+삭제[temp만·부모보호·슬롯단위], 실패=재전송/촬영/앨범) **미구현** — 위 검증 후. 재전송 원본=워커 최종실패시 캐시삭제됨→캐시유지 or 갤러리재선택 정해야.
 
 ## 블로커
-없음. (제주 완료0 / 종로 미연계 = 영준님 지시로 제외)
+- **보조앱(snap) 백그라운드 업로드 실동작 미검증** — 워커가 backgrounded 상태에서 진짜 도는지 미확인(폴백 의심). 60초 화면끄기 테스트 통과가 실패/재전송/job-status 구현의 전제. → [[jongno_snap_bg_upload]]
+- (제주 완료0 / 종로 미연계 = 영준님 지시로 제외)
 
 ## Firebase 요금제/사용량 (2026-06-13 갱신)
 - **ami-work RTDB 다운로드 무료 한도 100% 소진 → 차단 위험. Blaze 전환으로 해제.**
@@ -62,6 +75,7 @@
 - **TOU = 정적파일(data/tou-data.json), Firebase 아님 — push로 반영.** 마커 미완은 해당 배치만.
 - **★site-data.json 변경 시 `python3 scripts/gen_site_version.py` 필수**(Part2 캐시-우선 로더 — 안 하면 작업자 폰 옛 IDB캐시 유지). → [[amimap_part2_sitedata_cache]].
 - **아미맵 마커 = 좌표 기준 그룹핑**(같은 좌표 여러 지번 1마커, 재건축 한건물 통합). 완료 시 구성 지번 전부 기록. → [[amimap_marker_coord_merge]].
+- **종로맵 검침값 입력규칙**(2026-06-15) — 자릿수 단상(17/19/25/26/27/53)5·나머지6, 최대전력만 7(4자리.2자리), 순서 주·야·무효·최대, 소수칸 inputmode=decimal, 최대전력≥10000 저장경고. 최대↔무효 작업자혼동 빈발(6/15 9건 swap보정, awms동기화분 awms도 틀림). 계기큐는 workStatus/jongno 직접읽어 자동반영. → [[jongno_reading_input_rules]].
 - **28(완료) 되돌리기 불가**(계기팀). 통신팀은 전송 전이면 삭제·수정 자유.
 - **주소상태(workStatus)는 무조건 Firebase.** 종로DB=ami-jongno.
 - **★실효계기 데이터 단일원본 = `data/site-data.json`. Firebase siteData(charger4eleccar) 소비자 = stats.html(분모)+아미큐(조회). 아미맵은 site-data.json만 봄(Firebase 아님).** 새 엑셀은 윤용운(←주덕기) 정기 누적 → site-data.json 갱신 시 **반드시 `upload_sitedata.py`(소스=site-data.json으로 고정됨)+`gen_site_version.py` 같이** 돌려야 Firebase·아미맵캐시 안 어긋남. 2026-06-14 Firebase 19613(5/7옛스냅샷)→26588 재업로드로 어긋남 해소(24530178317 등 6975 신규대상). → [[실효계기_엑셀_라이프사이클]]. **종로/철거 대조 키=고객번호(계기번호는 교체로 바뀜).**

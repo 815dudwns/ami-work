@@ -13,8 +13,8 @@
 |---|---|---|---|
 | **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` / APK | `v0613-네이티브대기(백그라운드진행)` / APK 오버레이fetch | 2026-06-13 |
 | **아미큐**(통신큐·통신팀) | `ami-queue` `versionName` / `ami-queue-www/app.js` `APP_VER` | `1.0` / `v0614f-여러그룹` | 2026-06-14 |
-| **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260615.4` / `v20260615.4` | 2026-06-15 |
-| **종로 보조앱**(jongno-snap) | `snap.html` 하단 라벨 / APK | `v20260614.11` / 설치됨 | 2026-06-14 |
+| **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260616.1` / `v20260616.1` | 2026-06-16 |
+| **종로 보조앱**(jongno-snap) | `snap.html` 하단 라벨 / APK | `v20260615.11` / 설치됨 | 2026-06-15 |
 | **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260613a` | 2026-06-13 |
 | **헬퍼**(awms-helper) | `versionName` / inject | `1.0.76` / inject `v79` | 2026-06-15 |
 | **OTP수집기**(awms-otp-collector) | `versionName` | `1.0.0` | 2026-06-13 |
