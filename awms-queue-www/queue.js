@@ -8,6 +8,10 @@
 function _friendlyError(rawMsg) {
     if (!rawMsg) return { label: '미분류 오류', hint: '로그 확인' };
     const s = String(rawMsg).toLowerCase();
+    // awms 임시저장(WORK_STEP 25) — 계기큐 재등록 불가, awms에서 직접 완료해야 함
+    if (s.includes('임시저장')) {
+        return { label: 'awms 임시저장(미완료)', hint: 'awms에서 완료 처리 필요' };
+    }
     // 타이밍성 키부족(철거직후 awms 신설베이스 미반영) — 강행금지로 명확히 throw됨. 재등록하면 해결.
     if (s.includes('키부족') || s.includes('미반영') || s.includes('getdetail')) {
         return { label: 'awms 신설베이스 미반영(타이밍)', hint: '철거는 저장됨 — 30초 후 재등록' };
@@ -33,7 +37,8 @@ function _friendlyError(rawMsg) {
 
 let _db = null;
 let _queue = [];  // {addr, meter, rep, status:'pending'|'err'|'done', err?, site, draft, quarantine}
-let _completedNewMeters = new Set();  // syncCompleted에서 채움
+let _completedNewMeters = new Set();  // syncCompleted에서 채움 (awms 완료 28)
+let _awmsDraftMeters = new Set();     // awms 임시저장(WORK_STEP=25) — 실패로 표시, 전체올리기 제외
 let _siteMap = {};         // 계기번호 → site-data(도로명주소/계약종별/계약전력 등)
 let _dateFilter = 'all';   // 날짜별 보기 필터
 let _activeTab = 'queue';  // 'queue' | 'quarantine' — 탭 상태
@@ -186,12 +191,17 @@ async function syncCompleted() {
 
         // (b) 완료/임시저장 계기 Set — changed 여부와 무관하게 항상 갱신
         //   ★ dedup 스킵 경로에서도 Set 재구성 필수 — 비워두면 loadQueue가 전 항목을 pending으로 오판
+        //   ★ WORK_STEP 분리: 28=완료(_completedNewMeters), 25=awms 임시저장(_awmsDraftMeters)
+        //   25를 완료로 섞으면 awms 미완료(임시저장)건이 '완료'로 오판됨 → 분리 필수
         _completedNewMeters = new Set();
+        _awmsDraftMeters = new Set();
         rows.forEach(r => {
-            if (r.WHM_NO) _completedNewMeters.add(String(r.WHM_NO).trim());
-            if (r.CREMO_WHM_NO) _completedNewMeters.add(String(r.CREMO_WHM_NO).trim());
+            const step = String(r.WORK_STEP || '').trim();
+            const tgt = (step === '25') ? _awmsDraftMeters : _completedNewMeters;  // 25 외(28)는 완료
+            if (r.WHM_NO) tgt.add(String(r.WHM_NO).trim());
+            if (r.CREMO_WHM_NO) tgt.add(String(r.CREMO_WHM_NO).trim());
         });
-        log(`완료 Set 갱신: ${_completedNewMeters.size}건`);
+        log(`완료 ${_completedNewMeters.size} / awms임시저장(25) ${_awmsDraftMeters.size}건`);
 
         // changed일 때 awmsDoneMeters PUT (Set 갱신 후 정확한 값으로)
         if (changed) {
@@ -265,17 +275,20 @@ function _buildQueueFrom(ws) {
         for (const [meter, rep] of Object.entries(reps)) {
             if (rep.source) continue;                  // import류(source 태그: awms/kepco_jungong 등)는 큐 제외 — 우리 실작업(source 없음)만 등록 대상
             if (!rep.new_meter_id) continue;           // 신계기 없으면 미완성(실작업 아님)
-            // draft(임시저장) 항목도 큐에 포함 — 단 'err' 상태로 표시, 전체올리기 제외
+            if (rep.draft) continue;                   // 종로앱 임시저장(미완성) — 큐 제외
             // 상태 = awms 라이브 대조. 등록돼도 안 사라지고 '등록완료'로 표시(영준님 지시).
-            const inAwms = _completedNewMeters.has(String(meter).trim()) || _completedNewMeters.has(String(rep.new_meter_id).trim());
-            const isDraft = rep.draft === true;
-            const status = (rep.awms_error || isDraft) ? 'err' : (inAwms ? 'done' : 'pending');
+            const m = String(meter).trim(), nm = String(rep.new_meter_id).trim();
+            const inAwms = _completedNewMeters.has(m) || _completedNewMeters.has(nm);          // awms 완료(28)
+            const inAwms25 = _awmsDraftMeters.has(m) || _awmsDraftMeters.has(nm);              // awms 임시저장(25)
+            // 28 우선: 완료면 done. 완료 아니고 25면 실패(awms서 완료해야 — 재등록 불가). awms_error는 항상 실패.
+            const status = rep.awms_error ? 'err' : (inAwms ? 'done' : (inAwms25 ? 'err' : 'pending'));
+            const isAwmsDraft = inAwms25 && !inAwms;
             items.push({
                 addr, meter, rep,
                 status,
-                draft: isDraft,
                 quarantine: rep.quarantine === true,
-                err: rep.awms_error || (isDraft ? '임시저장(미완성)' : null),
+                awmsDraft: isAwmsDraft,   // 전체올리기 제외용(awms서 완료해야 하므로 재등록 무의미)
+                err: rep.awms_error || (isAwmsDraft ? 'awms 임시저장(WORK_STEP 25) — awms에서 완료 필요' : null),
                 site: _siteMap[String(meter).trim()] || {},
             });
         }
@@ -304,6 +317,7 @@ async function loadQueue() {
     // 캐시 저장 — 다음 앱 시작 시 즉시 렌더용 (표시 전용)
     try {
         localStorage.setItem('awmsq_cache_completed', JSON.stringify([..._completedNewMeters]));
+        localStorage.setItem('awmsq_cache_draft25', JSON.stringify([..._awmsDraftMeters]));
         localStorage.setItem('awmsq_cache_workstatus', JSON.stringify(ws));
     } catch (e) {
         // QuotaExceededError 등 — 조용히 스킵 (캐시 저장 실패해도 라이브 동작 무관)
@@ -332,12 +346,12 @@ function switchTab(tab) {
 }
 window.switchTab = switchTab;
 
-// 탭 네비 바 (동적 생성) — queue-list 위에 삽입
+// 탭 네비 바 (동적 생성) — .container 최상단에 삽입 (btn-run-all, date-bar, queue-list 위)
 function _ensureTabBar() {
     if (document.getElementById('tab-bar')) return;
     const bar = document.createElement('div');
     bar.id = 'tab-bar';
-    bar.style.cssText = 'display:flex;gap:0;padding:8px 12px 0;border-bottom:2px solid #e5e7eb;background:#fff;';
+    bar.style.cssText = 'display:flex;gap:0;padding:8px 12px 0;border-bottom:2px solid #e5e7eb;background:#fff;margin-bottom:8px;';
 
     // 인라인 스타일 — 탭 버튼 공통
     const btnBase = 'padding:8px 18px;font-size:14px;font-weight:700;border:none;border-bottom:2px solid transparent;'
@@ -348,8 +362,15 @@ function _ensureTabBar() {
         `<button id="tab-btn-queue" class="tab-btn tab-btn-active" style="${btnActive}" onclick="switchTab('queue')">큐</button>`
         + `<button id="tab-btn-quarantine" class="tab-btn" style="${btnBase}" onclick="switchTab('quarantine')">격리 (<span id="quarantine-count">0</span>)</button>`;
 
-    const list = document.getElementById('queue-list');
-    if (list && list.parentNode) list.parentNode.insertBefore(bar, list);
+    // .container 첫 자식 앞에 삽입 (awms열기/새로고침 버튼행 위)
+    const container = document.querySelector('.container');
+    if (container) {
+        container.insertBefore(bar, container.firstChild);
+    } else {
+        // 폴백: queue-list 앞
+        const list = document.getElementById('queue-list');
+        if (list && list.parentNode) list.parentNode.insertBefore(bar, list);
+    }
 
     // active 스타일 CSS 주입 (동적 active 클래스용 — 인라인보다 우선)
     if (!document.getElementById('tab-style')) {
@@ -537,20 +558,13 @@ function renderQueue() {
         const road = i.site && i.site.도로명주소 ? escapeHtml(i.site.도로명주소) : '';
         const jibun = escapeHtml(i.addr);
         const badgeCls = s.bdg || '';
-        // draft 항목은 뱃지에 추가 표시
-        const draftLabel = i.draft ? ' [임시저장]' : '';
-        const badge = `<span class="badge ${badgeCls}" style="${i.status === 'done' ? 'background:#059669;color:#fff' : ''}">${s.txt}${draftLabel}</span>`;
+        const badge = `<span class="badge ${badgeCls}" style="${i.status === 'done' ? 'background:#059669;color:#fff' : ''}">${s.txt}</span>`;
         const seq = i.rep.daily_seq != null ? `<span style="color:#1d4ed8;font-weight:700">#${escapeHtml(i.rep.daily_seq)}</span> ` : '';
         let errMsg = '';
         if (i.err) {
-            // draft는 friendlyError 우회 — '임시저장(미완성)' 그대로 표시
-            if (i.draft) {
-                errMsg = `<div class="meta" style="color:#dc2626;font-weight:700">임시저장 — 종로 앱에서 완성 후 등록</div>`;
-            } else {
-                const fe = _friendlyError(i.err);
-                errMsg = `<div class="meta" style="color:#dc2626;font-weight:700">${escapeHtml(fe.label)}</div>`
-                       + `<div class="meta" style="color:#9ca3af;font-size:12px">${escapeHtml(fe.hint)}</div>`;
-            }
+            const fe = _friendlyError(i.err);
+            errMsg = `<div class="meta" style="color:#dc2626;font-weight:700">${escapeHtml(fe.label)}</div>`
+                   + `<div class="meta" style="color:#9ca3af;font-size:12px">${escapeHtml(fe.hint)}</div>`;
         }
         // 등록/격리/복귀 버튼
         const _noSess = (typeof isSessionOK === 'function') && !isSessionOK();
@@ -565,8 +579,8 @@ function renderQueue() {
             // 큐 탭: 등록/재등록 + 격리 버튼
             const quarBtn = `<button style="padding:6px 10px;width:auto;border:1px solid #d1d5db;border-radius:8px;background:#f9fafb;color:#374151;font-size:13px"
                 onclick="quarantineOne('${escapeAttr(i.addr)}', '${escapeAttr(i.meter)}')">격리</button>`;
-            if (i.draft) {
-                // 임시저장(미완성)=종로 앱에서 완성해야 등록 가능 → 계기큐에선 등록 막고 격리만
+            if (i.awmsDraft) {
+                // awms 임시저장(25)은 awms에서 완료해야 함 → 계기큐 등록 막고 격리만(재등록하면 또 걸림)
                 actionBtns = quarBtn;
             } else {
                 const regBtn = `<button class="btn-primary" style="padding:6px 12px;width:auto" ${_noSess ? 'disabled' : ''}
