@@ -216,13 +216,17 @@ function saveCheckEvent(address, meter, checked) {
     if (checked && idx === -1) cm.push(meter);
     if (!checked && idx > -1) cm.splice(idx, 1);
     workStatus[address].checkedMeters = cm;
+    // 로컬 meterChecks에도 ts와 함께 기록 — 머지 union에서 내 미전송 체크 보존(encodeKey로 Firebase 키와 동일 형식)
+    const _ts = Date.now();
+    if (!workStatus[address].meterChecks) workStatus[address].meterChecks = {};
+    workStatus[address].meterChecks[encodeKey(meter)] = { checked, ts: _ts };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
 
     addEvent({
         address,
         type: checked ? 'check' : 'uncheck',
         meter,
-        ts: Date.now(),
+        ts: _ts,
     });
 
     // 체크 별도 localStorage 갱신
@@ -232,8 +236,8 @@ function saveCheckEvent(address, meter, checked) {
     });
     saveCheckedLocal(allChecked);
 
-    // 작업 즉시 전송 (fire-and-forget)
-    if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
+    // 체크는 빠르게 전송 — 0.4초 디바운스(연타는 묶고 단발은 거의 즉시). 여러 명 같은 건물 체크 실시간성.
+    if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced(400);
 }
 
 // ── Firebase 데이터 → 내부 형식 변환 ─────────────────────────
@@ -334,14 +338,24 @@ function mergeOneAddress(addr, rawVal) {
     const fbTime    = fb.updatedAt    ? new Date(fb.updatedAt).getTime()    : 0;
     const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
 
+    // ★ meterChecks(계기 체크)는 updatedAt과 독립 이벤트 — 계기별 ts로 union 머지.
+    //   updatedAt 게이트에 막히면 다른 작업자 체크가 반영 안 됨(여러 명이 같은 건물 체크 시 실시간 안 됨).
+    //   union이라 다른 작업자 체크를 받으면서 내 미전송 체크(local)도 보존.
+    const mc = { ...(local.meterChecks || {}) };
+    Object.entries(fb.meterChecks || {}).forEach(([m, v]) => {
+        if (!mc[m] || ((v && v.ts) || 0) >= ((mc[m] && mc[m].ts) || 0)) mc[m] = v;
+    });
+    const mergedChecked = Object.entries(mc).filter(([, v]) => v && v.checked).map(([m]) => decodeKey(m));
+
     if (fbTime > localTime) {
-        // Firebase가 더 최신 — failedMeters도 Firebase 권위로 반영(로컬 큐 미전송분은 flush로 재전송됨)
-        workStatus[addr] = { ...fb };
+        // Firebase가 더 최신 — 단 meterChecks/checkedMeters는 위 union 결과로(내 미전송 체크 유실 방지)
+        workStatus[addr] = { ...fb, meterChecks: mc, checkedMeters: mergedChecked };
     } else {
-        // 로컬 유지하되 added_meters(추가계기)는 Firebase 권위로 합집합 반영
-        // failedMeters도 Firebase 값으로 갱신 (meterChecks와 동일 처리 — updatedAt 독립)
-        local.added_meters = { ...(fb.added_meters || {}), ...(local.added_meters || {}) };
-        local.failedMeters = { ...(fb.failedMeters || {}) };
+        // 로컬 유지하되 added_meters(추가계기)는 합집합, failedMeters는 Firebase 권위, meterChecks는 ts union
+        local.added_meters  = { ...(fb.added_meters || {}), ...(local.added_meters || {}) };
+        local.failedMeters  = { ...(fb.failedMeters || {}) };
+        local.meterChecks   = mc;
+        local.checkedMeters = mergedChecked;
     }
 }
 
@@ -388,6 +402,15 @@ function persistAllDebounced() {
 // child_changed 1건: 마커 즉시 갱신 + localStorage 디바운스 저장
 function persistAndPaint(addr) {
     if (typeof updateMarkerColor === 'function') updateMarkerColor(addr);
+    // 같은 주소(합친 마커면 구성 지번 포함) 상세 패널이 열려 있으면 체크박스 목록도 실시간 갱신
+    //   (지금까지 마커 색만 갱신 → 패널 열어둔 작업자는 닫았다 다시 열어야 남의 체크가 보였음)
+    try {
+        const overlay = document.getElementById('fullpage-overlay');
+        const detailOpen = overlay && overlay.classList.contains('active');
+        const inView = (typeof currentAddress !== 'undefined' && currentAddress === addr)
+            || (typeof currentAddresses !== 'undefined' && Array.isArray(currentAddresses) && currentAddresses.includes(addr));
+        if (detailOpen && inView && typeof renderMetersList === 'function') renderMetersList();
+    } catch (e) {}
     persistAllDebounced();
 }
 
