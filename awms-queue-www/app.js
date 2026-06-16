@@ -391,7 +391,7 @@ async function runAll() {
     const inView = (typeof _dateFilter !== 'undefined' && _dateFilter !== 'all' && typeof _dateKey === 'function')
         ? _queue.filter(i => _dateKey(i.rep.replaced_at) === _dateFilter)
         : _queue;
-    const pending = inView.filter(i => i.status === 'pending' || i.status === 'err');
+    const pending = inView.filter(i => (i.status === 'pending' || i.status === 'err') && !i.quarantine && !i.draft);
     const dateLabel = (typeof _dateFilter !== 'undefined' && _dateFilter !== 'all') ? _dateFilter : '전체';
     await _runBatch(pending, dateLabel);
 }
@@ -401,7 +401,7 @@ async function runSelected() {
     const checks = Array.from(document.querySelectorAll('.q-check:checked'));
     if (!checks.length) { alert('선택된 항목이 없습니다. (시퀀스 앞 체크박스로 선택)'); return; }
     const keySet = new Set(checks.map(c => `${c.dataset.addr}${c.dataset.meter}`));
-    const pending = _queue.filter(i => i.status !== 'done' && keySet.has(`${i.addr}${i.meter}`));
+    const pending = _queue.filter(i => i.status !== 'done' && !i.quarantine && !i.draft && keySet.has(`${i.addr}${i.meter}`));
     await _runBatch(pending, '선택');
 }
 window.runSelected = runSelected;
@@ -539,7 +539,7 @@ window.refreshQueue = refreshQueue;
 
 // 우상단 버전 표시 (새 배포 반영 확인용) — push마다 갱신
 (function () {
-    var APP_VER = 'v0613-네이티브대기(백그라운드진행)';
+    var APP_VER = 'v0616-격리탭+임시저장실패표시';
     function show() {
         if (!document.body) { setTimeout(show, 300); return; }
         if (document.getElementById('app-ver')) return;
