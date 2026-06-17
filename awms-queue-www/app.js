@@ -430,6 +430,22 @@ async function _runBatch(pending, label) {
     // 백그라운드 서비스 시작 — 화면 꺼져도 루프 유지
     if (window.AwmsQ && AwmsQ.startBgTask) { try { AwmsQ.startBgTask(); } catch(e){} }
 
+    // ★ 업로드 중 화면 슬립 방지 — 화면 꺼지면 awms webview가 freeze돼 등록이 멈추는 문제 회피.
+    //   wakeLock은 화면 꺼짐/탭 숨김 시 자동 해제되므로 visibilitychange로 화면 복귀 시 재획득.
+    let _wl = null;
+    const _acquireWL = async () => {
+        if (_wl && !_wl.released) return;
+        try {
+            if (navigator.wakeLock && navigator.wakeLock.request) {
+                _wl = await navigator.wakeLock.request('screen');
+                _wl.addEventListener && _wl.addEventListener('release', () => { _wl = null; });
+            }
+        } catch (e) { log('화면유지(wakeLock) 미지원/실패: ' + e.message, 'warn'); }
+    };
+    const _wlVis = () => { if (document.visibilityState === 'visible') _acquireWL(); };
+    await _acquireWL();
+    document.addEventListener('visibilitychange', _wlVis);
+
     let ok = 0, err = 0;
     try {
         for (const item of pending) {
@@ -468,7 +484,9 @@ async function _runBatch(pending, label) {
         setTimeout(() => _hideProgress(), 6000);
         renderQueue();   // 전체 재조회 대신 로컬 갱신 반영 (전체 새로고침은 수동 버튼만)
     } finally {
-        // 정상 완료 / 에러 / 중단 어느 경우에도 서비스 종료 + 버튼 복구
+        // 정상 완료 / 에러 / 중단 어느 경우에도 화면유지 해제 + 서비스 종료 + 버튼 복구
+        document.removeEventListener('visibilitychange', _wlVis);
+        try { if (_wl && !_wl.released) await _wl.release(); } catch (e) {} _wl = null;
         if (window.AwmsQ && AwmsQ.stopBgTask) { try { AwmsQ.stopBgTask(); } catch(e){} }
         if (btnAll) btnAll.disabled = false;
         if (btnSel) btnSel.disabled = false;
@@ -544,7 +562,7 @@ window.refreshQueue = refreshQueue;
 
 // 우상단 버전 표시 (새 배포 반영 확인용) — push마다 갱신
 (function () {
-    var APP_VER = 'v0616c-awms25실패+draft원복+격리';
+    var APP_VER = 'v0617a-업로드중화면유지';
     function show() {
         if (!document.body) { setTimeout(show, 300); return; }
         if (document.getElementById('app-ver')) return;
