@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v79'; // v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v80'; // v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1118,7 +1118,16 @@ function parseValue(text) {
     var raw = String(mac || '');
     if (/^012\d{8}$/.test(raw.replace(/\D/g, ''))) return 'LTE';
     var m = raw.toUpperCase().replace(/[^0-9A-F]/g, '');
-    if (/^847207/.test(m)) { var c = m.charAt(6); if (c === '0' || c === 'E') return '90'; if (c === 'B' || c === 'C' || c === 'D') return '10'; }
+    if (/^847207/.test(m)) {
+      var c = m.charAt(6);
+      if (c === '0') {                                        // 7번째 0 = 기본 k-dcu, 단 8·9번째 핫스팟은 ks-plc
+        var c89 = m.substr(7, 2);
+        if (c89 === 'E3' || c89 === 'E4' || c89 === 'D9') return '10';  // E3/E4=PLC순수(K-DCU 0), D9=PLC우세(77%)
+        return '90';
+      }
+      if (c === 'E') return '90';                             // k-dcu
+      if (c === 'B' || c === 'C' || c === 'D') return '10';   // ks-plc
+    }
     if (/^E0AEED/.test(m)) return '10';                       // ks-plc
     if (/^44B433/.test(m) || /^0014B0/.test(m)) return '20';  // hpgp
     if (/^AC5E8C/.test(m)) return 'SKIP';                     // 혼재(K-DCU67/PLC27) → 자동 안 함, 직접 선택

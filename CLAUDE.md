@@ -13,12 +13,12 @@
 |---|---|---|---|
 | **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` / APK | `v0617a-업로드중화면유지` / APK 오버레이fetch | 2026-06-16 |
 | **아미큐**(통신큐·통신팀) | `ami-queue` `versionName` / `ami-queue-www/app.js` `APP_VER` | `1.0` / `v0614f-여러그룹` | 2026-06-14 |
-| **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260616.7` / `v20260616.7` | 2026-06-16 |
-| **종로 보조앱**(jongno-snap) | `snap.html` 하단 라벨 / APK | `v20260615.11` / 설치됨 | 2026-06-15 |
+| **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260618.4` / `v20260618.4` (추가계기 단상삼상필터 픽스) | 2026-06-18 |
+| **종로 보조앱**(jongno-snap) | `snap.html` 설정 버전라벨 / APK | `v20260618.2` (동시업로드 temp유출 픽스) / versionCode 78 | 2026-06-18 |
 | **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260616a` | 2026-06-16 |
-| **헬퍼**(awms-helper) | `versionName` / inject | `1.0.76` / inject `v79` | 2026-06-15 |
+| **헬퍼**(awms-helper) | `versionName` / inject | `1.0.76` / inject `v80` | 2026-06-20 |
 | **OTP수집기**(awms-otp-collector) | `versionName` | `1.0.0` | 2026-06-13 |
-| **awms-bridge-inject**(리모컨·헬퍼/아미큐/계기큐 공용) | `awms-bridge-inject.js` `VER` | `v79` | 2026-06-15 |
+| **awms-bridge-inject**(리모컨·헬퍼/아미큐/계기큐 공용) | `awms-bridge-inject.js` `VER` | `v80` | 2026-06-20 |
 
 규칙: 계기큐·아미큐 JS는 github 원격로드라 `APP_VER` 갱신+push만으로 반영(APK 빌드는 네이티브 변경 시만). 종로맵은 `APP_VERSION`+`?v=`+메뉴라벨 함께([[jongno_app_version_deploy]]). 아미맵 `FORCE_LOGOUT_VERSION`은 긴급 시만 범프([[ami_work_init_logout_fix]]).
 
@@ -106,6 +106,14 @@
 - **문서**: `research/awms-poc/awms_지침_구조_조사.md`
 - 1종/2종 계기 = 지침 4개(주간 WHME_DAY / 야간 WHME_MNGT / 최대전력 DM_MT_DAY / 무효전력 VAR_DAY). 단상은 주간/야간만.
 - 현재 빌더·종로는 1개~2개만 → 1종2종 미지원(TODO). selectCustomerInfo/getDetail로 계기종류 판별 가능.
+
+## 종로맵 디자인 지침 (★UI 작업 전 반드시 — 영준님 못박음 2026-06-17)
+> 임의 토큰·스타일로 버튼/카드 만들지 말 것. 아래 clay 정식 토큰만 사용. (어긴 사고: 2026-06-17 검침토글 버튼을 `--line`/`--accent` 없는 토큰으로 만들어 깨짐)
+- **정식 디자인 = clay(다크/라이트). 토큰 단일출처 = `jongno-combined/css/clay.css`.**
+- **최신 디자인 지침 보관: `jongno-combined/design_지침_20260616/`** (6/16 받은 clay 적용본 css/html + 원본 zip). 현재 종로맵 clay.css·replacement-modal.css와 동일(이미 반영됨). 옛 `design_handoff_clay_dark`(6/6)는 참고만.
+- **실제 clay 토큰만 사용** (clay.css): 색 `--surface`/`--surface-2`/`--bg-deep`/`--ink`/`--ink-2`/`--ink-3`/`--mint`/`--mint-l`/`--mint-deep`/`--mint-strong`/`--mint-soft`, 그림자 `--clay`/`--clay-sm`/`--clay-inset`/`--clay-inset-sm`/`--clay-mint`, 반경 `--radius`(22)/`--radius-sm`(14)/`--radius-pill`(999), 포커스 `--focus-glow`. **`--line`·`--accent`는 clay에 없음(만들지 말 것).**
+- **버튼 = 알약형(`--radius-pill`) + 그림자(`--clay-sm`), border 없음.** 활성/주버튼 = 민트 그라데이션 `linear-gradient(145deg,var(--mint-l),var(--mint)) + var(--clay-mint)`, 눌림 `--clay-inset-sm`. 모드전환 토글은 세그먼트 `.cseg button.active` 패턴.
+- 버튼 클래스: `.cbtn`/`.cbtn-primary`, 세그먼트 `.cseg`, 입력 `.cinput`, 칩 `.cchip`. 모달은 `.rpl-btn`(clay 토큰 구성). 교체모달 정식 디자인 = `design_지침_20260616/css/replacement-modal.css` + 핸드오프 `계기교체모달 리디자인 v2.html`. → [[jongno_design_system_path]]
 
 ## 예정 기능 (우선순위순)
 1. UI 개선 (DaisyUI 또는 Variant 방식)
