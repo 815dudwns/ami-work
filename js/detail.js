@@ -683,7 +683,6 @@ function closeDetail() {
 
 // 주소의 작업 상태 업데이트 후 마커 색상 갱신
 function updateStatus(state) {
-  try {
     const session = authGetSession();
     const reason = (document.getElementById('fail-reason')?.value || '').trim();
     // 합친 마커(같은 좌표 = 한 건물)는 완료/불가/보류를 구성 지번 전부에 기록.
@@ -700,11 +699,6 @@ function updateStatus(state) {
         );
     });
     updateMarkerColor(currentAddress);
-  } catch (e) {
-    // [임시 진단] 완료/보류/불가 눌렀을 때만 에러 표시 — 원인 잡으면 제거
-    alert('상태변경 에러:\n' + (e && e.message ? e.message : e) + '\n\n' + (e && e.stack ? e.stack.split('\n').slice(0,5).join('\n') : ''));
-    throw e;
-  }
 }
 
 // 주소의 작업 상태 초기화 (pending으로 되돌리기) — 체크박스는 유지

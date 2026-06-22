@@ -180,30 +180,50 @@ function saveStateEvent(address, state, reason, updatedBy, updatedByName) {
     if (!workStatus[address]) {
         workStatus[address] = { state: 'pending', checkedMeters: [], reason: '' };
     }
+    const _ts = Date.now();
     workStatus[address].state         = state;
     workStatus[address].reason        = reason || '';
-    workStatus[address].updatedAt     = isoKst();
+    workStatus[address].updatedAt     = isoKst(new Date(_ts));
     workStatus[address].updatedBy     = updatedBy || '';
     workStatus[address].updatedByName = updatedByName || '';
     // 재작업 처리 — complete 또는 fail/hold로 새로 작업하면 rework 플래그 해제
     if (state !== 'pending' && workStatus[address].rework) {
         workStatus[address].rework = false;
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
+    // localStorage 미러 — 저장공간(quota) 초과해도 앱 동작/전송을 막지 않는다.
+    //   (미러는 즉시표시용일 뿐, 권위는 Firebase. quota여도 아래 직접 전송으로 서버 반영 보장.)
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
+    } catch (e) {
+        console.warn('[quota] workStatus 미러 저장 실패 — 무시하고 전송 진행:', e.message);
+    }
 
-    addEvent({
+    const ev = {
         address,
         type: state === 'pending' ? 'reset' : 'state',
-        state,
-        reason,
-        updatedBy,
-        updatedByName,
+        state, reason, updatedBy, updatedByName,
         rework: state !== 'pending' ? false : undefined,
-        ts: Date.now(),
-    });
+        ts: _ts,
+    };
 
-    // 작업 즉시 전송 (fire-and-forget — 실패 시 큐 유지되어 다음 기회에 재시도)
-    if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
+    // 상태 변경은 Firebase로 직접 전송 — quota로 이벤트 큐(localStorage) 저장이 막혀도 서버 반영 보장.
+    //   전송 실패(오프라인 등) 시에만 큐로 폴백.
+    if (statusRef) {
+        const p = encodeKey(address);
+        const upd = {};
+        upd[`${p}/state`]         = state;
+        upd[`${p}/reason`]        = reason || '';
+        upd[`${p}/updatedAt`]     = isoKst(new Date(_ts));
+        upd[`${p}/updatedBy`]     = updatedBy || '';
+        upd[`${p}/updatedByName`] = updatedByName || '';
+        if (state !== 'pending') upd[`${p}/rework`] = false;
+        statusRef.update(upd).catch(err => {
+            console.warn('[state] 직접 전송 실패, 큐 폴백:', err && err.message);
+            try { addEvent(ev); if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced(); } catch (_) {}
+        });
+    } else {
+        try { addEvent(ev); if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced(); } catch (_) {}
+    }
 }
 
 // 체크 토글
@@ -220,24 +240,40 @@ function saveCheckEvent(address, meter, checked) {
     const _ts = Date.now();
     if (!workStatus[address].meterChecks) workStatus[address].meterChecks = {};
     workStatus[address].meterChecks[encodeKey(meter)] = { checked, ts: _ts };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
+    // 미러 — quota 초과해도 막지 않음(권위는 Firebase)
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
+    } catch (e) {
+        console.warn('[quota] check 미러 저장 실패 — 무시하고 전송 진행:', e.message);
+    }
 
-    addEvent({
-        address,
-        type: checked ? 'check' : 'uncheck',
-        meter,
-        ts: _ts,
-    });
+    const _fallback = () => {
+        try {
+            addEvent({ address, type: checked ? 'check' : 'uncheck', meter, ts: _ts });
+            if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced(400);
+        } catch (_) {}
+    };
 
-    // 체크 별도 localStorage 갱신
-    const allChecked = {};
-    Object.keys(workStatus).forEach(addr => {
-        if (workStatus[addr]?.checkedMeters?.length) allChecked[addr] = workStatus[addr].checkedMeters;
-    });
-    saveCheckedLocal(allChecked);
+    // 체크도 Firebase 직접 전송 — quota로 큐가 막혀도 서버 반영 보장. 실패 시 큐 폴백.
+    if (statusRef) {
+        const p = encodeKey(address);
+        const m = encodeKey(meter);
+        statusRef.child(p).child('meterChecks').child(m).set({ checked, ts: _ts })
+            .catch(err => { console.warn('[check] 직접 전송 실패, 큐 폴백:', err && err.message); _fallback(); });
+    } else {
+        _fallback();
+    }
 
-    // 체크는 빠르게 전송 — 0.4초 디바운스(연타는 묶고 단발은 거의 즉시). 여러 명 같은 건물 체크 실시간성.
-    if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced(400);
+    // 체크 별도 localStorage 갱신 — quota-safe
+    try {
+        const allChecked = {};
+        Object.keys(workStatus).forEach(addr => {
+            if (workStatus[addr]?.checkedMeters?.length) allChecked[addr] = workStatus[addr].checkedMeters;
+        });
+        saveCheckedLocal(allChecked);
+    } catch (e) {
+        console.warn('[quota] checkedLocal 저장 실패(무시):', e.message);
+    }
 }
 
 // ── Firebase 데이터 → 내부 형식 변환 ─────────────────────────
