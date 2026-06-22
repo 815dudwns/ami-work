@@ -2,6 +2,24 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
+    <!-- [임시 디버그] 전송 대기 큐 막힘 진단 — 잡힌 뒤 제거 -->
+    <script>
+    window.addEventListener('load', function(){
+      setTimeout(function(){
+        try {
+          var q = JSON.parse(localStorage.getItem('ami_event_queue') || '[]');
+          if (!q.length) { alert('전송 대기 큐: 비어 있음 (큐 막힘 아님 — 다른 원인)'); return; }
+          var lines = q.slice(0, 12).map(function(e){
+            return e.type + ' | ' + String(e.address||'').slice(-14) + ' | ' + (e.state||'');
+          }).join('\n');
+          if (confirm('전송 대기 큐 ' + q.length + '건이 막혀있습니다:\n\n' + lines + (q.length>12?'\n...':'') + '\n\n[확인]=비우고 새로고침(미전송분 포기) / [취소]=유지')) {
+            localStorage.removeItem('ami_event_queue');
+            location.reload();
+          }
+        } catch (err) { alert('큐 확인 오류: ' + err); }
+      }, 3500);
+    });
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
