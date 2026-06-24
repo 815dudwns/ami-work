@@ -31,7 +31,7 @@ const AUTH_KEY = 'ami_auth';
 // 강제 로그아웃 버전 — ★긴급(보안/중대버그)시에만 값을 올린다. 평소 배포에는 절대 건드리지 않는다.
 // 값을 올리면, 이전 값을 저장해둔 사용자만 1회 로그아웃된다.
 // 저장값이 없으면(신규 설치 / WebView 저장소 휘발) 로그아웃하지 않는다 — 불필요한 재로그인 방지.
-const FORCE_LOGOUT_VERSION = '20260624a';
+const FORCE_LOGOUT_VERSION = '20260616a';
 const FORCE_LOGOUT_VERSION_KEY = 'ami_force_logout_version';
 
 // 강력 업데이트(강제 로그아웃)시에만 함께 리셋할 화면상태 키 — 지사/필터/지도위치.
