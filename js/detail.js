@@ -684,12 +684,6 @@ function closeDetail() {
 // 주소의 작업 상태 업데이트 후 마커 색상 갱신
 function updateStatus(state) {
     const session = authGetSession();
-    // ★ 세션 게이트 — 로그인이 없거나 이름/아이디가 빈 경우 상태변경 차단
-    if (!session || !session.id || !session.name) {
-        alert('로그인이 만료되었습니다. 다시 로그인해주세요.');
-        authLogout();
-        return;
-    }
     const reason = (document.getElementById('fail-reason')?.value || '').trim();
     // 합친 마커(같은 좌표 = 한 건물)는 완료/불가/보류를 구성 지번 전부에 기록.
     //   ※ #2 결정점(영준님 확인 사안): 한 건물 한 번 작업 = 묶인 지번 다 처리.
@@ -700,8 +694,8 @@ function updateStatus(state) {
             addr,
             state,
             state === 'fail' ? reason : '',
-            session.id,
-            session.name
+            session ? session.id   : '',
+            session ? session.name : ''
         );
     });
     updateMarkerColor(currentAddress);
