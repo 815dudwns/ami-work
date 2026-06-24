@@ -177,6 +177,12 @@ function applyLocalChecked() {
 
 // 상태 변경 (완료/보류/불가/초기화)
 function saveStateEvent(address, state, reason, updatedBy, updatedByName) {
+    // ★ 이중 안전망 — 작업자명/아이디가 비어있으면 저장 차단 (세션 없는 빈 이름 저장 방지)
+    //   단, 초기화(pending) 는 관리자 리셋 용도이므로 게이트 제외.
+    if (state !== 'pending' && (!updatedBy || !updatedByName)) {
+        console.warn('[saveStateEvent] 세션 없음 — 저장 차단. state:', state, 'updatedBy:', updatedBy);
+        return false;
+    }
     if (!workStatus[address]) {
         workStatus[address] = { state: 'pending', checkedMeters: [], reason: '' };
     }

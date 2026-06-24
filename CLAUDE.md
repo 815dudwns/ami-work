@@ -13,12 +13,13 @@
 |---|---|---|---|
 | **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` / APK | `v0617a-업로드중화면유지` / APK 오버레이fetch | 2026-06-16 |
 | **아미큐**(통신큐·통신팀) | `ami-queue` `versionName` / `ami-queue-www/app.js` `APP_VER` | `1.0` / `v0614f-여러그룹` | 2026-06-14 |
-| **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260618.4` / `v20260618.4` (추가계기 단상삼상필터 픽스) | 2026-06-18 |
+| **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260623.1` / `v20260623.1` (명륜 가 필터 추가) | 2026-06-23 |
 | **종로 보조앱**(jongno-snap) | `snap.html` 설정 버전라벨 / APK | `v20260618.2` (동시업로드 temp유출 픽스) / versionCode 78 | 2026-06-18 |
-| **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260616a` | 2026-06-16 |
+| **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260624a` | 2026-06-24 |
 | **헬퍼**(awms-helper) | `versionName` / inject | `1.0.76` / inject `v80` | 2026-06-20 |
 | **OTP수집기**(awms-otp-collector) | `versionName` | `1.0.0` | 2026-06-13 |
 | **awms-bridge-inject**(리모컨·헬퍼/아미큐/계기큐 공용) | `awms-bridge-inject.js` `VER` | `v80` | 2026-06-20 |
+| **명륜 팀배분**(myungroon) | `jongno-combined/myungroon.html` `myungroon_app_version` / 메뉴라벨 | `20260624.1` / `명륜 팀배분 v20260624.1` | 2026-06-24 |
 
 규칙: 계기큐·아미큐 JS는 github 원격로드라 `APP_VER` 갱신+push만으로 반영(APK 빌드는 네이티브 변경 시만). 종로맵은 `APP_VERSION`+`?v=`+메뉴라벨 함께([[jongno_app_version_deploy]]). 아미맵 `FORCE_LOGOUT_VERSION`은 긴급 시만 범프([[ami_work_init_logout_fix]]).
 
