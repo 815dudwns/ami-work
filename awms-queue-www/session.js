@@ -3,6 +3,74 @@ let _sessionOK = false;
 let _sessionInfo = null;
 
 // ─────────────────────────────────────────────
+// 아이디 프로필 관리 (localStorage awms_id_profiles)
+// ─────────────────────────────────────────────
+var _DEFAULT_PROFILES = [
+    { id: 'mdp2504381', label: '종로(메인)', pw: '', count: 0 },
+    { id: 'mdp2504271', label: '지금', pw: '', count: 0 },
+];
+
+function loadProfiles() {
+    try {
+        var raw = localStorage.getItem('awms_id_profiles');
+        if (raw) {
+            var arr = JSON.parse(raw);
+            if (Array.isArray(arr) && arr.length > 0) return arr;
+        }
+    } catch (e) {}
+    // 기본값 초기화
+    saveProfiles(_DEFAULT_PROFILES);
+    return _DEFAULT_PROFILES.map(function (p) { return Object.assign({}, p); });
+}
+
+function saveProfiles(arr) {
+    try { localStorage.setItem('awms_id_profiles', JSON.stringify(arr)); } catch (e) {}
+}
+
+// 현재 활성 아이디와 매칭되는 프로필 count++
+function incrementProfileCount() {
+    try {
+        var activeId = localStorage.getItem('helper_cred_id') || '';
+        if (!activeId) return;
+        var profiles = loadProfiles();
+        var found = false;
+        for (var i = 0; i < profiles.length; i++) {
+            if (profiles[i].id === activeId) {
+                profiles[i].count = (profiles[i].count || 0) + 1;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            profiles.push({ id: activeId, label: activeId, pw: '', count: 1 });
+        }
+        saveProfiles(profiles);
+    } catch (e) {}
+}
+window.incrementProfileCount = incrementProfileCount;
+
+// 세션 확인 성공 시 USER_ID + 현재 pw 프로필에 자동 기록
+function _syncProfileFromSession(userId) {
+    try {
+        if (!userId) return;
+        var pw = localStorage.getItem('helper_cred_pw') || '';
+        var profiles = loadProfiles();
+        var found = false;
+        for (var i = 0; i < profiles.length; i++) {
+            if (profiles[i].id === userId) {
+                if (pw) profiles[i].pw = pw;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            profiles.push({ id: userId, label: userId, pw: pw, count: 0 });
+        }
+        saveProfiles(profiles);
+    } catch (e) {}
+}
+
+// ─────────────────────────────────────────────
 // awmsEval — awmsWebView 컨텍스트에서 식(expr) 실행 후 결과 반환
 // 미검증 — live session 후 확인
 // ─────────────────────────────────────────────
@@ -76,6 +144,19 @@ async function checkSession() {
         const arr = Array.isArray(body) ? body : ((body && body.data) || []);
         _sessionOK = Array.isArray(arr) && arr.length > 0;
         _sessionInfo = _sessionOK ? { userName: 'awms 연결됨', cha: arr.length } : null;
+        if (_sessionOK) {
+            // 세션 성공 시 awms USER_ID 추출 → 프로필에 pw 자동 기록
+            try {
+                const userId = await awmsEval(
+                    `(function(){try{return appIndexVm&&appIndexVm.sessionInfo&&appIndexVm.sessionInfo.USER_ID||'';}catch(e){return '';}})()`
+                );
+                if (userId) {
+                    // helper_cred_id를 현재 awms USER_ID로 갱신 (로그인 성공 기준)
+                    localStorage.setItem('helper_cred_id', userId);
+                    _syncProfileFromSession(userId);
+                }
+            } catch (e) { /* USER_ID 추출 실패는 무시 */ }
+        }
         updateSessionBar();
         return _sessionOK;
     } catch (e) {
@@ -98,10 +179,26 @@ function _loginAutofillExpr() {
     return `(()=>{try{
         var pw=document.getElementById('pw'), id=document.getElementById('id');
         if(!pw||!id){ return 'no-form'; }
-        // 1) 저장 리스너 1회 등록 — 수동 로그인 시 id/pw를 localStorage에 저장
+        // 1) 저장 리스너 1회 등록 — 수동 로그인 시 id/pw를 localStorage에 저장 + 프로필 자동기록
         if(!window.__qLoginSave){
             window.__qLoginSave=true;
-            var save=function(){try{if(id.value)localStorage.setItem('helper_cred_id',id.value);if(pw.value)localStorage.setItem('helper_cred_pw',pw.value);}catch(e){}};
+            var save=function(){try{
+                var idVal=id.value, pwVal=pw.value;
+                if(idVal) localStorage.setItem('helper_cred_id',idVal);
+                if(pwVal) localStorage.setItem('helper_cred_pw',pwVal);
+                // 프로필 자동기록: 저장된 id와 pw를 awms_id_profiles에 반영
+                if(idVal){
+                    try{
+                        var raw=localStorage.getItem('awms_id_profiles');
+                        var profiles=raw?JSON.parse(raw):[];
+                        if(!Array.isArray(profiles)) profiles=[];
+                        var found=false;
+                        for(var i=0;i<profiles.length;i++){if(profiles[i].id===idVal){if(pwVal)profiles[i].pw=pwVal;found=true;break;}}
+                        if(!found) profiles.push({id:idVal,label:idVal,pw:pwVal||'',count:0});
+                        localStorage.setItem('awms_id_profiles',JSON.stringify(profiles));
+                    }catch(pe){}
+                }
+            }catch(e){}};
             var btn=document.getElementById('btnLogin');
             if(btn) btn.addEventListener('click',save,true);
             document.addEventListener('keydown',function(e){if(e.key==='Enter')save();},true);

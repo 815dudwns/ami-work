@@ -79,6 +79,260 @@ function _flashLogBtn() {
 }
 
 // ─────────────────────────────────────────────
+// 아이디 설정 버튼 + 모달 (동적 DOM)
+// ─────────────────────────────────────────────
+function _ensureIdSettingBtn() {
+    if (document.getElementById('qid-setting-btn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'qid-setting-btn';
+    btn.textContent = '[아이디 설정]';
+    btn.style.cssText = 'position:fixed;right:10px;bottom:96px;z-index:100001;'
+        + 'padding:5px 10px;font-size:11px;font-weight:700;'
+        + 'background:#1e3a5f;color:#93c5fd;border:1px solid #2563eb;border-radius:8px;cursor:pointer;'
+        + 'box-shadow:0 2px 8px rgba(0,0,0,.4);';
+    btn.onclick = _openIdModal;
+    if (!document.body) { setTimeout(_ensureIdSettingBtn, 300); return; }
+    document.body.appendChild(btn);
+}
+
+function _openIdModal() {
+    // 기존 모달 제거
+    var old = document.getElementById('qid-modal-overlay');
+    if (old) old.remove();
+
+    var profiles = (typeof loadProfiles === 'function') ? loadProfiles() : [];
+    // count 내림차순 정렬
+    var sorted = profiles.slice().sort(function (a, b) { return (b.count || 0) - (a.count || 0); });
+    var activeId = localStorage.getItem('helper_cred_id') || '';
+
+    // 오버레이
+    var overlay = document.createElement('div');
+    overlay.id = 'qid-modal-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200000;display:flex;align-items:center;justify-content:center;';
+    overlay.onclick = function (e) { if (e.target === overlay) overlay.remove(); };
+
+    // 모달 박스
+    var modal = document.createElement('div');
+    modal.style.cssText = 'background:#1f2937;color:#f3f4f6;border-radius:12px;padding:20px;width:92vw;max-width:440px;'
+        + 'max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.6);font-family:-apple-system,sans-serif;';
+
+    // 헤더
+    var hd = document.createElement('div');
+    hd.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;';
+    var title = document.createElement('span');
+    title.style.cssText = 'font-size:15px;font-weight:700;color:#93c5fd;';
+    title.textContent = 'awms 아이디 설정';
+    var closeBtn = document.createElement('button');
+    closeBtn.textContent = '닫기';
+    closeBtn.style.cssText = 'padding:4px 12px;font-size:12px;background:#374151;color:#d1d5db;border:none;border-radius:6px;cursor:pointer;';
+    closeBtn.onclick = function () { overlay.remove(); };
+    hd.appendChild(title);
+    hd.appendChild(closeBtn);
+    modal.appendChild(hd);
+
+    // 안내
+    var guide = document.createElement('div');
+    guide.style.cssText = 'font-size:11px;color:#9ca3af;margin-bottom:12px;line-height:1.5;';
+    guide.textContent = '많이 올린 순으로 표시됩니다. 처음 수동로그인하면 비번이 자동 저장됩니다.';
+    modal.appendChild(guide);
+
+    // 프로필 목록
+    var listDiv = document.createElement('div');
+    listDiv.id = 'qid-profile-list';
+    _renderProfileList(listDiv, sorted, activeId, overlay);
+    modal.appendChild(listDiv);
+
+    // 구분선
+    var hr = document.createElement('div');
+    hr.style.cssText = 'border-top:1px solid #374151;margin:14px 0;';
+    modal.appendChild(hr);
+
+    // 아이디 추가 폼
+    var addTitle = document.createElement('div');
+    addTitle.style.cssText = 'font-size:13px;font-weight:700;color:#d1d5db;margin-bottom:8px;';
+    addTitle.textContent = '+ 아이디 추가';
+    modal.appendChild(addTitle);
+
+    var addForm = _buildAddForm(overlay);
+    modal.appendChild(addForm);
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+}
+
+function _renderProfileList(container, sorted, activeId, overlay) {
+    container.innerHTML = '';
+    if (!sorted.length) {
+        var empty = document.createElement('div');
+        empty.style.cssText = 'color:#9ca3af;font-size:12px;text-align:center;padding:10px;';
+        empty.textContent = '저장된 아이디가 없습니다.';
+        container.appendChild(empty);
+        return;
+    }
+    sorted.forEach(function (profile, idx) {
+        var row = document.createElement('div');
+        var isActive = profile.id === activeId;
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 12px;margin-bottom:8px;border-radius:8px;'
+            + 'background:' + (isActive ? '#1e3a5f' : '#111827') + ';'
+            + 'border:1px solid ' + (isActive ? '#2563eb' : '#374151') + ';';
+
+        // 정보 영역
+        var info = document.createElement('div');
+        info.style.cssText = 'flex:1;min-width:0;';
+        var labelLine = document.createElement('div');
+        labelLine.style.cssText = 'font-size:13px;font-weight:700;color:' + (isActive ? '#93c5fd' : '#f3f4f6') + ';';
+        labelLine.textContent = profile.label + (isActive ? ' [현재]' : '');
+        var idLine = document.createElement('div');
+        idLine.style.cssText = 'font-size:11px;color:#9ca3af;margin-top:2px;';
+        idLine.textContent = profile.id + '  (등록 ' + (profile.count || 0) + '건)';
+        info.appendChild(labelLine);
+        info.appendChild(idLine);
+        row.appendChild(info);
+
+        // [이 아이디로 로그인] 버튼
+        var loginBtn = document.createElement('button');
+        loginBtn.textContent = isActive ? '사용중' : '이 아이디로 로그인';
+        loginBtn.style.cssText = 'padding:5px 10px;font-size:11px;font-weight:700;border:none;border-radius:6px;cursor:pointer;white-space:nowrap;'
+            + (isActive ? 'background:#374151;color:#9ca3af;cursor:default;' : 'background:#2563eb;color:#fff;');
+        if (!isActive) {
+            loginBtn.onclick = (function (p) {
+                return function () {
+                    if (!confirm(p.label + '(' + p.id + ') 아이디로 전환할까요?')) return;
+                    localStorage.setItem('helper_cred_id', p.id);
+                    if (p.pw) localStorage.setItem('helper_cred_pw', p.pw);
+                    alert(p.label + ' 아이디로 전환했습니다.\n[awms 열기]에서 기존 계정 로그아웃 후 재로그인하세요.\n\nID는 자동입력, 비번은 ' + (p.pw ? '자동입력' : '수동 입력') + ', 인증번호(OTP)는 수동.\n로그인 후 [새로고침].');
+                    overlay.remove();
+                    if (typeof updateSessionBar === 'function') updateSessionBar();
+                };
+            })(profile);
+        }
+        row.appendChild(loginBtn);
+
+        // [편집] 버튼
+        var editBtn = document.createElement('button');
+        editBtn.textContent = '편집';
+        editBtn.style.cssText = 'padding:5px 8px;font-size:11px;background:#374151;color:#d1d5db;border:none;border-radius:6px;cursor:pointer;';
+        editBtn.onclick = (function (p, r) {
+            return function () { _showEditRow(r, p, activeId, overlay); };
+        })(profile, row);
+        row.appendChild(editBtn);
+
+        // [삭제] 버튼
+        var delBtn = document.createElement('button');
+        delBtn.textContent = '삭제';
+        delBtn.style.cssText = 'padding:5px 8px;font-size:11px;background:#7f1d1d;color:#fca5a5;border:none;border-radius:6px;cursor:pointer;';
+        delBtn.onclick = (function (p) {
+            return function () {
+                if (!confirm(p.label + '(' + p.id + ') 삭제할까요?')) return;
+                var profiles = (typeof loadProfiles === 'function') ? loadProfiles() : [];
+                profiles = profiles.filter(function (x) { return x.id !== p.id; });
+                if (typeof saveProfiles === 'function') saveProfiles(profiles);
+                _openIdModal(); // 모달 재오픈으로 갱신
+            };
+        })(profile);
+        row.appendChild(delBtn);
+
+        container.appendChild(row);
+    });
+}
+
+function _showEditRow(row, profile, activeId, overlay) {
+    row.innerHTML = '';
+    row.style.background = '#111827';
+    row.style.border = '1px solid #2563eb';
+    row.style.flexDirection = 'column';
+    row.style.alignItems = 'stretch';
+    row.style.gap = '6px';
+
+    var labelInp = document.createElement('input');
+    labelInp.type = 'text';
+    labelInp.value = profile.label;
+    labelInp.placeholder = '라벨';
+    labelInp.style.cssText = 'width:100%;padding:6px 8px;font-size:12px;background:#374151;color:#f3f4f6;border:1px solid #4b5563;border-radius:6px;box-sizing:border-box;';
+
+    var pwInp = document.createElement('input');
+    pwInp.type = 'password';
+    pwInp.value = profile.pw || '';
+    pwInp.placeholder = '비번 (빈칸=미변경)';
+    pwInp.style.cssText = labelInp.style.cssText;
+
+    var btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:6px;justify-content:flex-end;';
+
+    var saveBtn = document.createElement('button');
+    saveBtn.textContent = '저장';
+    saveBtn.style.cssText = 'padding:5px 14px;font-size:12px;font-weight:700;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;';
+    saveBtn.onclick = function () {
+        var profiles = (typeof loadProfiles === 'function') ? loadProfiles() : [];
+        for (var i = 0; i < profiles.length; i++) {
+            if (profiles[i].id === profile.id) {
+                profiles[i].label = labelInp.value.trim() || profile.label;
+                if (pwInp.value) profiles[i].pw = pwInp.value;
+                break;
+            }
+        }
+        if (typeof saveProfiles === 'function') saveProfiles(profiles);
+        _openIdModal();
+    };
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.textContent = '취소';
+    cancelBtn.style.cssText = 'padding:5px 10px;font-size:12px;background:#374151;color:#d1d5db;border:none;border-radius:6px;cursor:pointer;';
+    cancelBtn.onclick = function () { _openIdModal(); };
+
+    btnRow.appendChild(cancelBtn);
+    btnRow.appendChild(saveBtn);
+    row.appendChild(labelInp);
+    row.appendChild(pwInp);
+    row.appendChild(btnRow);
+}
+
+function _buildAddForm(overlay) {
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px;';
+
+    var inp = function (ph, type) {
+        var el = document.createElement('input');
+        el.type = type || 'text';
+        el.placeholder = ph;
+        el.style.cssText = 'width:100%;padding:8px 10px;font-size:13px;background:#111827;color:#f3f4f6;'
+            + 'border:1px solid #374151;border-radius:6px;box-sizing:border-box;';
+        return el;
+    };
+
+    var idInp = inp('아이디 (예: mdp250xxxx)');
+    var pwInp = inp('비번 (나중에 수동로그인으로도 저장됨)', 'password');
+    var lblInp = inp('라벨 (예: 종로팀 서브)');
+
+    var addBtn = document.createElement('button');
+    addBtn.textContent = '추가';
+    addBtn.style.cssText = 'padding:8px;font-size:13px;font-weight:700;background:#2563eb;color:#fff;'
+        + 'border:none;border-radius:6px;cursor:pointer;width:100%;';
+    addBtn.onclick = function () {
+        var idVal = idInp.value.trim();
+        if (!idVal) { alert('아이디를 입력하세요.'); return; }
+        var profiles = (typeof loadProfiles === 'function') ? loadProfiles() : [];
+        for (var i = 0; i < profiles.length; i++) {
+            if (profiles[i].id === idVal) { alert('이미 등록된 아이디입니다.'); return; }
+        }
+        profiles.push({
+            id: idVal,
+            label: lblInp.value.trim() || idVal,
+            pw: pwInp.value || '',
+            count: 0,
+        });
+        if (typeof saveProfiles === 'function') saveProfiles(profiles);
+        _openIdModal();
+    };
+
+    wrap.appendChild(idInp);
+    wrap.appendChild(pwInp);
+    wrap.appendChild(lblInp);
+    wrap.appendChild(addBtn);
+    return wrap;
+}
+
+// ─────────────────────────────────────────────
 // 진행 비주얼 — 등록 진행 카드 (#qprogress)
 // ─────────────────────────────────────────────
 // 6단계 라벨
@@ -367,6 +621,7 @@ async function runOne(addr, meter) {
         const resp = await registerReplacement({ addr, meter, rep: item.rep });
         log(`등록 성공: ${meter} (등록번호 ${resp.consTgtSeqno || '?'})`, 'ok');
         _doneProgress(true);
+        if (typeof incrementProfileCount === 'function') incrementProfileCount();
         await markSynced(addr, meter, resp);
         markDoneLocal(meter, item.rep.new_meter_id);  // 즉시 완료 반영 (다음 수동 새로고침 전까지)
         // ★ 그 1건만 로컬 반영 — 전체 재조회(refreshQueue: awms 전차수+workStatus 3MB) 안 함.
@@ -462,6 +717,7 @@ async function _runBatch(pending, label) {
                 await markSynced(item.addr, item.meter, resp);
                 markDoneLocal(item.meter, item.rep.new_meter_id);  // 즉시 완료 반영
                 item.status = 'done'; item.err = null; item.rep.awms_error = null;  // 그 1건만 로컬 반영
+                if (typeof incrementProfileCount === 'function') incrementProfileCount();
                 ok++;
                 log(`  성공`, 'ok');
                 _doneProgress(true);
@@ -519,8 +775,9 @@ window.refreshQueue = refreshQueue;
         _ds.textContent = 'button:disabled{opacity:.4;filter:grayscale(.85);cursor:not-allowed!important}';
         document.head.appendChild(_ds);
     } catch (e) {}
-    log('AWMS Queue 시작 [JS:remote-r9 진행비주얼+로그버튼]', 'ok');
+    log('AWMS Queue 시작 [JS:remote-r10 아이디선택]', 'ok');
     _ensureLogToggleBtn();
+    _ensureIdSettingBtn();
     initFb();
     if (typeof loadSiteMap === 'function') await loadSiteMap();  // 도로명/계약정보 캐시(1회)
 
@@ -562,7 +819,7 @@ window.refreshQueue = refreshQueue;
 
 // 우상단 버전 표시 (새 배포 반영 확인용) — push마다 갱신
 (function () {
-    var APP_VER = 'v0626a-토글제거';
+    var APP_VER = 'v0626b-아이디선택';
     function show() {
         if (!document.body) { setTimeout(show, 300); return; }
         if (document.getElementById('app-ver')) return;
