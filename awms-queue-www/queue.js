@@ -37,8 +37,9 @@ function _friendlyError(rawMsg) {
 
 let _db = null;
 let _queue = [];  // {addr, meter, rep, status:'pending'|'err'|'done', err?, site, draft, quarantine}
-let _completedNewMeters = new Set();  // syncCompleted에서 채움 (awms 완료 28)
+let _completedNewMeters = new Set();  // syncCompleted에서 채움 (awms 완료 28) — 현 계정·전차수
 let _awmsDraftMeters = new Set();     // awms 임시저장(WORK_STEP=25) — 실패로 표시, 전체올리기 제외
+let _persistedDone = new Set();       // awmsDoneMeters(ami-work DB) 누적 — 계정 무관 영구 완료목록
 let _siteMap = {};         // 계기번호 → site-data(도로명주소/계약종별/계약전력 등)
 let _dateFilter = 'all';   // 날짜별 보기 필터
 let _activeTab = 'queue';  // 'queue' | 'quarantine' — 탭 상태
@@ -189,6 +190,33 @@ async function syncCompleted() {
 
         }
 
+        // (b-0) awmsDoneMeters GET — 계정 무관 영구 누적 완료목록 (_persistedDone)
+        //   _completedNewMeters 재구성 전에 먼저 GET해 기존 누적 확보.
+        //   실패 시: 최초 로드면 빈 Set 유지, 이전 성공 이력 있으면 마지막 값 유지(과감 중복 방지).
+        let existingPersistedArr = null;
+        try {
+            const pRes = await fetch(`${AWMS_WORK_DB}/awmsDoneMeters.json`);
+            if (pRes.ok) {
+                const pData = await pRes.json();
+                if (pData != null) {
+                    const raw = Array.isArray(pData) ? pData : Object.values(pData);
+                    existingPersistedArr = raw.map(x => String(x).trim()).filter(Boolean);
+                    _persistedDone = new Set(existingPersistedArr);
+                    log(`awmsDoneMeters 로드: ${_persistedDone.size}건 (계정 무관 누적)`, 'ok');
+                } else {
+                    // DB 노드 null = 아직 없음 → 빈 Set
+                    existingPersistedArr = [];
+                    _persistedDone = new Set();
+                }
+            } else {
+                log(`awmsDoneMeters GET 실패: HTTP ${pRes.status} — 이전 _persistedDone 유지`, 'warn');
+                // existingPersistedArr = null → 아래 merge PUT 생략
+            }
+        } catch (e) {
+            log('awmsDoneMeters GET 오류 — 이전 _persistedDone 유지: ' + e.message, 'warn');
+            // _persistedDone 그대로 유지 (이미 이전 성공값 또는 초기 빈 Set)
+        }
+
         // (b) 완료/임시저장 계기 Set — changed 여부와 무관하게 항상 갱신
         //   ★ dedup 스킵 경로에서도 Set 재구성 필수 — 비워두면 loadQueue가 전 항목을 pending으로 오판
         //   ★ WORK_STEP 분리: 28=완료(_completedNewMeters), 25=awms 임시저장(_awmsDraftMeters)
@@ -201,16 +229,24 @@ async function syncCompleted() {
             if (r.WHM_NO) tgt.add(String(r.WHM_NO).trim());
             if (r.CREMO_WHM_NO) tgt.add(String(r.CREMO_WHM_NO).trim());
         });
-        log(`완료 ${_completedNewMeters.size} / awms임시저장(25) ${_awmsDraftMeters.size}건`);
+        log(`완료(현계정) ${_completedNewMeters.size} / awms임시저장(25) ${_awmsDraftMeters.size}건`);
 
-        // changed일 때 awmsDoneMeters PUT (Set 갱신 후 정확한 값으로)
-        if (changed) {
+        // changed일 때 awmsDoneMeters merge PUT (덮어쓰기 금지 → 기존 누적 합집합)
+        //   existingPersistedArr이 null이면 GET 실패 → PUT 생략(덮어쓰기 위험 방지)
+        if (changed && existingPersistedArr !== null) {
             try {
+                // 기존 누적(existingPersistedArr) ∪ 현 계정 완료(28)(_completedNewMeters) 합집합
+                const merged = new Set([...existingPersistedArr, ..._completedNewMeters]);
                 await fetch(`${AWMS_WORK_DB}/awmsDoneMeters.json`, {
                     method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify([..._completedNewMeters])
+                    body: JSON.stringify([...merged])
                 });
-            } catch (e) { /* 통계용 보조 — 실패해도 큐 동작 무관 */ }
+                // PUT 성공 → _persistedDone도 최신 합집합으로 갱신
+                _persistedDone = merged;
+                log(`awmsDoneMeters merge PUT: ${merged.size}건 (누적 영구 저장)`, 'ok');
+            } catch (e) {
+                log('awmsDoneMeters merge PUT 오류(큐 동작 무관): ' + e.message, 'warn');
+            }
         }
 
         // 조회 성공 = awms 세션 살아있음 → 세션바/isSessionOK 갱신 (앱시작 시 false 고정 해소)
@@ -278,7 +314,9 @@ function _buildQueueFrom(ws) {
             if (rep.draft) continue;                   // 종로앱 임시저장(미완성) — 큐 제외
             // 상태 = awms 라이브 대조. 등록돼도 안 사라지고 '등록완료'로 표시(영준님 지시).
             const m = String(meter).trim(), nm = String(rep.new_meter_id).trim();
-            const inAwms = _completedNewMeters.has(m) || _completedNewMeters.has(nm);          // awms 완료(28)
+            // inAwms: 현 계정 완료(28) OR 계정 무관 영구 누적(awmsDoneMeters) — 어느 계정에서 완료해도 done
+            const inAwms = _completedNewMeters.has(m) || _completedNewMeters.has(nm)
+                || _persistedDone.has(m) || _persistedDone.has(nm);                            // awms 완료(28)
             const inAwms25 = _awmsDraftMeters.has(m) || _awmsDraftMeters.has(nm);              // awms 임시저장(25)
             // 28 우선: 완료면 done. 완료 아니고 25면 실패(awms서 완료해야 — 재등록 불가). awms_error는 항상 실패.
             const status = rep.awms_error ? 'err' : (inAwms ? 'done' : (inAwms25 ? 'err' : 'pending'));
