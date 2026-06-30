@@ -146,6 +146,22 @@
       </div>
     </div>
 
+    <!-- 공사설정 (작업자/공사번호) -->
+    <div class="card" id="card-busi">
+      <div class="head" onclick="toggleCard('busi')">
+        <div class="h-main"><div class="h-lbl">공사설정</div><div class="h-val unset" id="busi-hval">미설정</div></div>
+        <span class="caret">&#9660;</span>
+      </div>
+      <div class="bodywrap" id="bodywrap-busi">
+        <div class="cbody">
+          <div class="desc">작업자1은 <b>로그인 계정</b>으로 자동 설정됩니다. 작업조2·공사번호만 입력하세요. (정본 기본값 채워둠)</div>
+          <div class="field"><label>작업조2 (WORKER2_SEQ)</label><input id="busi-worker2" class="inp" type="text" inputmode="numeric" autocomplete="off" placeholder="예: 20118"></div>
+          <div class="field"><label>공사번호 (BUSI_NUM)</label><input id="busi-num" class="inp" type="text" autocomplete="off" placeholder="예: C11G250023"></div>
+          <button class="save" onclick="saveBusi()">공사설정 저장</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 세션 + 시작 -->
     <div class="sessionbar">
       <span class="dot" id="dotSession"></span>

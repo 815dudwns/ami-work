@@ -13,14 +13,17 @@ const Store = {
   getCred() { return { id: localStorage.getItem('cred_id') || '', pw: localStorage.getItem('cred_pw') || '' }; },
   saveCam(label, deviceId) { localStorage.setItem('cam_label', label); localStorage.setItem('cam_deviceId', deviceId); },
   getCam() { const l = localStorage.getItem('cam_label') || ''; return l ? { label: l, deviceId: localStorage.getItem('cam_deviceId') || '' } : null; },
+  saveBusi(w2, busi) { localStorage.setItem('worker2_seq', w2); localStorage.setItem('busi_num', busi); },
+  getBusi() { return { w2: localStorage.getItem('worker2_seq') || '20118', busi: localStorage.getItem('busi_num') || 'C11G250023' }; },
 };
 
 // 설정 → 백엔드 CONFIG 동기화 (saveAct가 DEPT2/WORKER/CRED 사용)
 async function pushConfig() {
-  const d = Store.getDept(), c = Store.getCred();
+  const d = Store.getDept(), c = Store.getCred(), b = Store.getBusi();
   try {
     await apiFetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ DEPT2: d.dept, WITH_YN: d.with, CRED_ID: c.id, CRED_PW: c.pw }) });
+      body: JSON.stringify({ DEPT2: d.dept, WITH_YN: d.with, CRED_ID: c.id, CRED_PW: c.pw,
+        WORKER2_SEQ: b.w2, BUSI_NUM: b.busi }) });
   } catch (e) { /* 백엔드 미연결 무시 */ }
 }
 
@@ -41,7 +44,7 @@ function toggleCard(key) {
   const card = $('card-' + key), body = $('bodywrap-' + key);
   if (!card || !body) return;
   const isOpen = card.classList.contains('open');
-  ['dept', 'cam', 'acct'].forEach(k => {
+  ['dept', 'cam', 'acct', 'busi'].forEach(k => {
     $('card-' + k).classList.remove('open');
     $('bodywrap-' + k).style.display = 'none';
   });
@@ -85,6 +88,21 @@ function showSavedCred() {
 }
 function maskId(id) { return id.length <= 2 ? id + '***' : id.slice(0, 2) + '*'.repeat(Math.max(3, Math.min(6, id.length - 2))); }
 window.saveCred = saveCred;
+
+// ── 공사설정 (작업조2·공사번호) ────────────────────
+function saveBusi() {
+  const w2 = $('busi-worker2').value.trim(), busi = $('busi-num').value.trim();
+  if (!w2 || !busi) { showToast('작업조2와 공사번호를 모두 입력하세요'); return; }
+  Store.saveBusi(w2, busi); pushConfig(); showSavedBusi();
+  $('bodywrap-busi').style.display = 'none'; $('card-busi').classList.remove('open');
+  showToast('공사설정이 저장됐어요');
+}
+function showSavedBusi() {
+  const b = Store.getBusi();
+  $('busi-worker2').value = b.w2; $('busi-num').value = b.busi;
+  setHval('busi-hval', '작업조2 ' + b.w2 + ' · ' + b.busi, true);
+}
+window.saveBusi = saveBusi;
 
 // ── 카메라 ──────────────────────────────────────────
 let _stream = null, _pendingDev = null, _pendingLabel = null;
@@ -155,5 +173,6 @@ $('btnLogin').onclick = async () => {
 $('btnBack').onclick = () => { $('scInput').classList.add('hidden'); $('scSetup').classList.remove('hidden'); refreshSession(); };
 
 // ── 초기화 ──────────────────────────────────────────
-['dept', 'cam', 'acct'].forEach(k => { $('bodywrap-' + k).style.display = 'none'; });
-showSavedDept(); showSavedCred(); showSavedCam(); refreshSession();
+['dept', 'cam', 'acct', 'busi'].forEach(k => { $('bodywrap-' + k).style.display = 'none'; });
+showSavedDept(); showSavedCred(); showSavedCam(); showSavedBusi(); refreshSession();
+pushConfig();   // 초기 진입 시 저장된 공사설정을 백엔드에 반영 (정본 기본값 포함)
