@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>통신팀 awms 입력</title>
+<style>
+  :root { --bg:#0f1419; --card:#1a2129; --card2:#232c38; --ink:#e8edf2; --ink2:#9aa7b4;
+          --mint:#3ddc97; --mint-d:#06241a; --line:#2a333d; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; font-family:-apple-system,'Apple SD Gothic Neo',sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width:560px; margin:0 auto; padding:18px; }
+  .title { font-size:13px; font-weight:800; color:var(--ink2); letter-spacing:1px; margin:6px 2px 16px; }
+
+  /* 아코디언 카드 (헬퍼 설정 패턴 이식) */
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; margin-bottom:11px; overflow:hidden; }
+  .card.open { border-color:var(--mint); }
+  .head { display:flex; align-items:center; gap:13px; padding:15px; cursor:pointer; }
+  .h-main { flex:1; min-width:0; }
+  .h-lbl { font-size:12px; font-weight:700; color:var(--ink2); }
+  .h-val { font-size:16px; font-weight:700; margin-top:3px; }
+  .h-val.unset { color:#5f6b7a; }
+  .h-val.set { color:var(--mint); }
+  .caret { color:var(--ink2); transition:transform .2s; }
+  .card.open .caret { transform:rotate(180deg); }
+  .bodywrap { display:none; }
+  .cbody { border-top:1px solid var(--line); background:var(--card2); padding:15px; }
+  .desc { font-size:13px; line-height:1.6; color:#b6c2d0; margin-bottom:12px; }
+  .field { margin-bottom:12px; }
+  .field label { display:block; font-size:12px; font-weight:700; color:var(--ink2); margin-bottom:6px; }
+  .inp, .sel { width:100%; background:#11161e; border:1.5px solid var(--line); color:var(--ink);
+               border-radius:10px; padding:13px 14px; font-size:16px; font-family:inherit; }
+  .save { width:100%; padding:14px; border:none; border-radius:11px; font-size:16px; font-weight:800; cursor:pointer;
+          background:linear-gradient(145deg,#4fe9a8,var(--mint)); color:var(--mint-d); }
+  .save:disabled { opacity:.5; cursor:default; }
+  .save.ghost { background:transparent; border:1px solid var(--line); color:var(--ink); font-weight:500; }
+  .camopt { display:flex; align-items:center; gap:12px; padding:13px 14px; border-radius:10px;
+            border:1.5px solid var(--line); background:#11161e; cursor:pointer; margin-bottom:8px; }
+  .camopt.sel { border-color:var(--mint); }
+  .camopt .nm { font-size:15px; font-weight:700; }
+  .camopt .hint { font-size:12px; color:var(--ink2); margin-top:1px; }
+
+  /* 세션 바 */
+  .sessionbar { display:flex; align-items:center; gap:10px; padding:14px 15px; background:var(--card);
+                border:1px solid var(--line); border-radius:14px; margin-top:6px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:#555; flex-shrink:0; }
+  .dot.on { background:var(--mint); }
+  .sessionbar .txt { flex:1; font-size:14px; color:var(--ink2); }
+  .sessionbar .btn { padding:10px 16px; border:none; border-radius:10px; font-weight:700; cursor:pointer;
+                     background:linear-gradient(145deg,#4fe9a8,var(--mint)); color:var(--mint-d); white-space:nowrap; }
+
+  .toast { position:fixed; bottom:30px; left:50%; transform:translateX(-50%); background:#0e2a1e;
+           border:1px solid #2a5d44; color:#fff; padding:12px 20px; border-radius:30px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  .toast.show { opacity:1; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ===== 설정 페이지 (초기) ===== -->
+  <section id="scSetup">
+    <div class="title">설정 · 한 번만 맞추면 끝</div>
+
+    <!-- 지사 · 동행시공 -->
+    <div class="card" id="card-dept">
+      <div class="head" onclick="toggleCard('dept')">
+        <div class="h-main"><div class="h-lbl">지사 · 동행시공</div><div class="h-val unset" id="dept-hval">미설정</div></div>
+        <span class="caret">&#9660;</span>
+      </div>
+      <div class="bodywrap" id="bodywrap-dept">
+        <div class="cbody">
+          <div class="field">
+            <label>지사</label>
+            <select id="dept-select" class="sel">
+              <option value="">지사 선택</option>
+              <option value="3000">동대문중랑지사</option>
+              <option value="3100">광진성동지사</option>
+              <option value="3400">노원도봉지사</option>
+              <option value="3500">서대문은평지사</option>
+              <option value="3600">마포용산지사</option>
+              <option value="3985">서울본부</option>
+              <option value="4080">강북성북지사</option>
+              <option value="5999">구좌(PLC)</option>
+              <option value="7793">서울본부직할</option>
+              <option value="9100">서울고객센터</option>
+              <option value="9922">기타</option>
+              <option value="9999">기타2</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>동행시공 여부</label>
+            <select id="with-select" class="sel">
+              <option value="">선택</option>
+              <option value="Y">Y (동행시공)</option>
+              <option value="N">N</option>
+            </select>
+          </div>
+          <button class="save" onclick="saveDept()">지사 저장</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 카메라 -->
+    <div class="card" id="card-cam">
+      <div class="head" onclick="toggleCard('cam')">
+        <div class="h-main"><div class="h-lbl">카메라</div><div class="h-val unset" id="cam-hval">미설정</div></div>
+        <span class="caret">&#9660;</span>
+      </div>
+      <div class="bodywrap" id="bodywrap-cam">
+        <div class="cbody">
+          <div class="desc">OCR·사진·QR 스캔에 쓸 <b>후면 카메라</b>를 고르세요. 광각이 잡히면 글자 인식이 안 됩니다.</div>
+          <div id="cam-list"></div>
+          <button class="save" id="confirm-btn" onclick="confirmCamera()" disabled>카메라 저장</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- awms 계정 -->
+    <div class="card" id="card-acct">
+      <div class="head" onclick="toggleCard('acct')">
+        <div class="h-main"><div class="h-lbl">awms 계정</div><div class="h-val unset" id="acct-hval">미설정</div></div>
+        <span class="caret">&#9660;</span>
+      </div>
+      <div class="bodywrap" id="bodywrap-acct">
+        <div class="cbody">
+          <div class="desc">한 번 저장하면 로그인 시 아이디·비번이 <b>자동 입력</b>됩니다. (OTP는 폰에서 자동수집)</div>
+          <div class="field"><label>아이디</label><input id="cred-id" class="inp" type="text" autocomplete="off" placeholder="아이디 입력"></div>
+          <div class="field"><label>비밀번호</label><input id="cred-pw" class="inp" type="password" autocomplete="off" placeholder="비밀번호 입력"></div>
+          <button class="save" onclick="saveCred()">계정 저장</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 세션 + 시작 -->
+    <div class="sessionbar">
+      <span class="dot" id="dotSession"></span>
+      <span class="txt" id="sessionTxt">세션 확인 중…</span>
+      <button class="btn" id="btnLogin">세션 가져오기</button>
+    </div>
+  </section>
+
+  <!-- ===== 입력 페이지 (골격) ===== -->
+  <section id="scInput" class="hidden">
+    <div class="title">설비 등록</div>
+    <div class="card"><div class="cbody" style="border:none">
+      <div class="desc" id="acctTxt"></div>
+      <div class="desc">사진수집 → 맥수집(QR/바코드) → 계기번호 확인(OCR/QR/수기) → 전송. (구현 진행 중)</div>
+      <button class="save ghost" id="btnBack">설정으로</button>
+    </div></div>
+  </section>
+
+</div>
+<div class="toast" id="toast"></div>
+<script src="settings.js"></script>
+</body>
+</html>

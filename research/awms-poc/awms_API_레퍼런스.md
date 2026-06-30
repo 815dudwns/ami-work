@@ -23,7 +23,7 @@
 - **API 베이스(계기팀)**: `https://awms.kdn.com/ami/mob/mtr`  (코드 상수 `AWMS_API`)
 - **API 베이스(통신팀)**: `https://awms.kdn.com/ami/mob/cst`  (MOBCST, 섹션 8)
 - **API 베이스(자재)**: `https://awms.kdn.com/ami/mob/mtl`  (자재조회만 다른 도메인)
-- **인증**: 로그인된 awms 세션 쿠키(`credentials:'include'`). OTP(인증번호) 2단계, 세션 약 4시간 만료. PC 직접 호출 403 → 폰 awms-bridge WebView 세션을 빌려야 함.
+- **인증**: 로그인된 awms 세션 쿠키(`credentials:'include'`). OTP(인증번호) 2단계, 세션 약 4시간 만료. **세션 쿠키(JSESSIONID)만 있으면 PC(맥)에서도 직접 호출 가능** — 폰에서 OTP 로그인으로 세션 발급 → 맥이 세션 넘겨받아 직접 호출(맥 세션). (구조 파악 전 "PC 직접 403, 폰 세션 빌려야"라던 초기 기록은 폐기 — 2026-07-01.)
 - **공통 파라미터 상수** (config.js `DEFAULT_AWMS`):
   - `HDQR_CD`(본부코드) = `3970` (서울본부직할) — 파라미터명은 호출마다 `BONBU_CD`/`DEPT1`/`HDQR_CD`로 다름(값은 동일)
   - `OFFICE_CD`(부서코드) = `7793` — 파라미터명 `OFFC_CD`/`DEPT2`
@@ -211,7 +211,7 @@ pwr≥20 & {213,610}              → 2칸 [whme_day, dm_mt_day]
 | `getUserList` / `getUserWorkGroup` | GET | `mobCst1000/...` | 작업자/작업조 |
 | `getBusiMacConnection` / `getBusiMacBoxConnection` | GET | `mobCst1000/...` | 모뎀 MAC 연결정보 |
 | `checkMeterDuplication` | GET | `mobCst1000/checkMeterDuplication` | 계기 중복체크 |
-| `saveAct` | POST | `mobCst1000/saveAct` | 작업 저장 |
+| `saveAct` | POST | `mobCst1000/saveAct` | 작업 저장 (params **객체** 또는 **FormData**+사진Blob). **★봉인 빈문자열("")=500 → 빌더 빈값 omit 필수. MTR_WITH_YN=Y(통신팀). 상세 `통신팀_설비등록_조사.md` §saveAct500 / 메모리 awms_saveact_500_fix** |
 | `sendSelections` | POST | `mobCst1000/sendSelections` | **선택건 전송** (전송 → WORK_STEP 29) ★ |
 | `revokeSelections` | POST | `mobCst1000/revokeSelections` | 전송 취소 |
 | `deleteRows` / `checkDuplication` | POST | `mobCst1000/...` | 행삭제/중복체크 |
@@ -303,3 +303,32 @@ GET /ami/mob/cst/mobCst1000/getMainList
 - `vm.rowClick(idx)` → `fnSelectDetail`(getDetail) → currentRow 로드(비동기 ~1.8s 대기 후 읽기).
 - `mobCst1000Api`는 전역 접근 가능 → `deleteRows([row])` 등 직접 호출.
 - 세션 흔들림 잦음 → 병렬 금지, await + result 체크, 실패 시 중단.
+
+## 8.6 검침값(철거 지침) 수정 — 완료(28) 레코드 (2026-06-15 실측)
+
+**철거 지침 필드** (신설은 `CGD_*`):
+| 칸 | 철거 필드 |
+|---|---|
+| 주간 | `DGD_WHME_NDL_DAY_QTT` |
+| 야간 | `DGD_WHME_NDL_MNGT_QTT` |
+| 최대전력 | `DGD_DM_MT_NDL_DAY_QTT` |
+| 무효 | `DGD_VAR_NDL_DAY_QTT` |
+| 자릿수 | `DGD_WHME_NDL_DGTS` |
+
+- **읽기**: `mobMtr1000/getDetail` 응답에 `DGD_*` 현재값 들어있음(0=미입력).
+- **★ mobMtr4000/saveRow(신설)로 DGD 보내면 응답 `"1"`(성공처럼) 뜨지만 철거지침 반영 안 됨(no-op).** 철거지침은 철거(mobMtr5000) 소관. getDetail 301키(신설베이스)+DGD override+RE_SAVE_YN='Y'를 4000에 보낸 실측: status 200/body "1"인데 재조회 DGD 그대로 0. **속지 말 것.**
+- **awms UI 수정저장 = 철거지침 변경 OK** (DGD 바뀜, **봉인·사진·WORK_STEP 28 그대로 유지, 봉인+1 없음**). 실측: #28 `02171928121`→12233, #67 `02171927585`→25594 (21차 CONS_NO 397820263220). 수정저장은 **사진 재첨부 불필요**(기존 ATCH_FILE_ID 유지).
+- **★ 수정 API 엔드포인트/페이로드 미확보(TODO)**: 계기큐(awms-queue) `capacitor.config` `CapacitorHttp.enabled=true` → awms 페이지 `fetch`가 **네이티브 우회** → CDP `Network.requestWillBeSent`에 **안 잡힘**(saveRow 캡처 2회 실패 원인). 캡처하려면 **window.fetch 후킹**(Runtime.evaluate로 `fetch`/`XMLHttpRequest` 오버라이드해 saveRow URL·body 로깅) 후 수정저장 1회 관찰 필요.
+- **현행 절차**: 검침값만 누락된 28 완료건 = **awms 앱에서 직접 수정저장**(안전·검증됨). 종로앱(ami-jongno) 검침값은 별도로 `removal_value`+`removal_values.whme_day` PATCH로 채움(데이터, awms와 무관).
+
+### 8.6.1 검침값 수정 API — 확정 (2026-06-15 실측 캡처, window.fetch 후킹)
+**철거 지침(검침값) 수정 = `mobMtr5000/saveRow`** (신설 4000 아님! — 4000으로 보내면 "1" 떠도 DGD no-op).
+- POST `/ami/mob/mtr/mobMtr5000/saveRow` (FormData, 307필드 = getDetail 전체 + 아래 키)
+- **`WORK_STEP=28`, `EX_WORK_STEP=28`, `RE_SAVE_YN=Y`** (★28 편집은 EX_WORK_STEP도 **28**. 25→28 완료와 다름)
+- `DGD_WHME_NDL_DAY_QTT`=새 검침값 (야간/최대/무효는 DGD_WHME_NDL_MNGT/DM_MT_NDL_DAY/VAR_NDL_DAY)
+- 식별: `CONS_TGT_SEQNO`+`CONS_NO`+`CNTR_NO`, `WHM_NO`(철거)·`CREMO_WHM_NO`(신설)
+- **사진 재첨부 불필요**(수정저장이라 기존 ATCH_FILE_ID 유지), 봉인 그대로(봉인+1 없음).
+- **신설계기번호(CREMO_WHM_NO)는 수정 불가**(awms UI 잠김) — 신설 틀리면 delete+재등록.
+- 캡처법: 계기큐 CapacitorHttp=true라 CDP Network 안 잡힘 → `window.fetch`/XHR 후킹(Runtime.evaluate)으로 `__capturedSaves` 수집 후 수정저장 1회 관찰. (검증된 캡처)
+
+**자동화 레시피**: getDetail(mobMtr1000, 301키) → `DGD_WHME_NDL_DAY_QTT` override + `WORK_STEP=28`+`EX_WORK_STEP=28`+`RE_SAVE_YN=Y` 추가 → mobMtr5000/saveRow POST(사진 없이). (5000이 307필드 기대 — getDetail 301에 누락분 있으면 보강 필요, 다음 실행시 캡처 body와 diff로 확정.)
