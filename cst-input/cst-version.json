@@ -1,5 +1,5 @@
 {
-  "versionName": "1.0.2",
+  "versionName": "1.0.3",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "아미큐(통신팀 입력) — 이름/아이콘 변경 + 백엔드URL 입력 + 통신방식 직접선택"
+  "notes": "사진 다중선택(구글포토 한번에 4·슬레이브 30) — 마스터 일괄넣기"
 }
