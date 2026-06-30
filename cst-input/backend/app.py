@@ -143,6 +143,28 @@ def infer_inst_s(inst_m: str, mac: str) -> str:
     return inst_m + suf                                          # PLC/k-dcu/hpgp = 맥으로 확정
 
 
+# 통신방식 suffix 코드표 (헬퍼 awms-bridge-inject.js L1102 일치). 직접선택 UI 옵션 단일출처.
+COMM_SUFFIX_LABELS = [
+    ("10", "KS-PLC"), ("20", "HPGP"), ("40", "LTE"),
+    ("70", "LTE_IV"), ("80", "IoT-PLC"), ("90", "K-DCU"), ("92", "SMGW-C(아미고)"),
+]
+_COMM_LABEL = dict(COMM_SUFFIX_LABELS)
+
+
+def commtype_for(mac: str, meter_no: str = ""):
+    """모뎀맥 → 통신방식 자동판별 결과 (프론트 표시/직접선택 판단용).
+    return {suffix, label, auto, reason}. auto=False면 프론트 직접선택 필요(미상/혼재)."""
+    raw = _mac_raw_suffix(mac)
+    if raw == "SKIP":
+        return {"suffix": "", "label": "", "auto": False, "reason": "혼재(AC5E8C) — 직접 선택"}
+    if raw == "LTE":
+        # 최종 suffix는 계기유형(아미고=92/그외=70)에 따라 saveAct에서 확정. 표시만 LTE 계열.
+        return {"suffix": "LTE", "label": "LTE 계열(계기유형으로 확정)", "auto": True, "reason": ""}
+    if raw in _COMM_LABEL:
+        return {"suffix": raw, "label": _COMM_LABEL[raw], "auto": True, "reason": ""}
+    return {"suffix": "", "label": "", "auto": False, "reason": "미판별 — 직접 선택"}
+
+
 def mac_to_suffix(mac: str) -> str:
     """하위호환 래퍼."""
     s = _mac_raw_suffix(mac)
@@ -181,14 +203,16 @@ _EMPTY_FIELDS = ["REMV_MEMO", "IND_CBD_DIV_CD", "FAC1", "LINE_FAIR", "USE_CT", "
     "SEAL_BOX", "SEAL_METER", "SEAL_OUTER"]
 
 
-def _common(meter_no, mac, inst_m, mb_meter_id, mb_cnt):
+def _common(meter_no, mac, inst_m, mb_meter_id, mb_cnt, inst_s, bungi=""):
+    # INST_S/BUNGI는 호출자가 결정(헬퍼 조건): 마스터=자동/직접선택, 슬레이브=마스터 suffix 상속.
     d = dict(_MASTER_BASE)
     for k in _EMPTY_FIELDS:
         d.setdefault(k, "")
+    d["BUNGI"] = bungi
     d.update({
         "DEPT1": CONFIG["DEPT1"], "DEPT2": CONFIG["DEPT2"], "BUSI_NUM": CONFIG["BUSI_NUM"],
         "WORKER1_SEQ": CONFIG["WORKER1_SEQ"], "WORKER2_SEQ": CONFIG["WORKER2_SEQ"],
-        "INSTR_NUM": meter_no, "INST_M": inst_m, "INST_S": infer_inst_s(inst_m, mac) or (inst_m + "10"),
+        "INSTR_NUM": meter_no, "INST_M": inst_m, "INST_S": inst_s,
         "MAC_MODEM": mac, "MODEM_MAC": mac, "MB_METER_ID": mb_meter_id, "MB_CNT": str(mb_cnt),
     })
     return d
@@ -338,18 +362,35 @@ def api_saveact(body: dict = Body(...)):
     if miss:
         raise HTTPException(400, f"공사설정 누락: {', '.join(miss)} — 설정페이지/세션 가져오기로 채우세요")
     tmpd = Path(tempfile.mkdtemp(prefix="cstsave_"))
-    m = body["master"]; mb = m["meterNo"]
+    m = body["master"]; mb = m["meterNo"]; mac = m["mac"]
     n = 1 + len(body.get("slaves", []))
-    # 마스터 (INST_M 계기번호 자동판별)
-    mf = _common(mb, m["mac"], infer_inst_m(mb), mb, n)
+    # ── 마스터 통신방식(suffix) 확정: 직접선택(commSuffix) 우선 → 자동판별 → LTE는 계기유형으로 ──
+    m_instM = infer_inst_m(mb)
+    override = str(body.get("commSuffix", "")).strip()   # 프론트 직접선택 '10'/'20'/'40'/'70'/'80'/'90'/'92'
+    if override:
+        if override not in _COMM_LABEL:
+            raise HTTPException(400, f"통신방식 코드 오류: {override}")
+        master_suffix = override
+        m_inst_s = m_instM + override
+    else:
+        auto = infer_inst_s(m_instM, mac)               # 자동(맥/계기유형). 미상이면 ''
+        if not auto:
+            raise HTTPException(400, "통신방식 미상(혼재/미판별) — 직접 선택 필요(commSuffix)")
+        m_inst_s = auto
+        master_suffix = auto[-2:]                        # 슬레이브 상속용 (LTE도 70/92로 확정된 끝2자리)
+    # 마스터
+    mf = _common(mb, mac, m_instM, mb, n, m_inst_s, bungi="")
     mf["MODEM_DIV"] = "10"
     res_m = saveact_post(mf, _photos_to_files(m.get("photos", {}), tmpd))
     fid3 = res_m.get("atchFileId3", ""); fid4 = res_m.get("atchFileId4", "")
     results = [{"role": "master", "meterNo": mb, "resp": res_m}]
-    # 슬레이브 (사진 3/4 = 마스터 파일ID 공유 문자열, 5만 고유 바이너리)
+    # 슬레이브 (헬퍼 조건: INST_S=슬레이브계기타입+마스터suffix 상속, BUNGI=마스터92&아미고?무선:0.5)
     for s in body.get("slaves", []):
-        sf = _common(s["meterNo"], m["mac"], infer_inst_m(s["meterNo"]), mb, n)
-        sf["MODEM_DIV"] = "20"; sf["BUNGI"] = s.get("bungi", "무선")
+        s_instM = infer_inst_m(s["meterNo"])
+        s_inst_s = s_instM + master_suffix
+        s_bungi = "무선" if (master_suffix == "92" and s_instM == "HW4050") else "0.5"
+        sf = _common(s["meterNo"], mac, s_instM, mb, n, s_inst_s, bungi=s_bungi)
+        sf["MODEM_DIV"] = "20"
         photos = {"ATCH_FILE_ID_3": fid3, "ATCH_FILE_ID_4": fid4}
         sp = _photos_to_files(s.get("photos", {}), tmpd)
         if sp.get("ATCH_FILE_ID_5_SRC"):
@@ -357,6 +398,14 @@ def api_saveact(body: dict = Body(...)):
         res_s = saveact_post(sf, photos)
         results.append({"role": "slave", "meterNo": s["meterNo"], "resp": res_s})
     return {"results": results}
+
+
+@app.get("/api/commtype")
+def api_commtype(mac: str = "", meterNo: str = ""):
+    """모뎀맥 통신방식 자동판별 + 직접선택 옵션 목록. 프론트 step-mac에서 호출."""
+    r = commtype_for(mac, meterNo)
+    r["options"] = [{"v": v, "t": t} for v, t in COMM_SUFFIX_LABELS]
+    return r
 
 
 # 정적 UI (마지막에 마운트)

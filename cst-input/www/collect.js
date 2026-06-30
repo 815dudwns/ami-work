@@ -4,6 +4,7 @@ const CST = {
   master: { photos: {}, meterNo: '', mac: '', instM: 'HW4050' }, // photos:{3,4,5,6} base64
   slaves: [],          // [{photo5, meterNo}]
   confirmQueue: [], confirmIdx: 0,
+  commAuto: null, commSuffix: '',   // 통신방식 자동판별결과 / 직접선택값(미상시)
 };
 const MASTER_SLOTS = [
   { k: '3', lbl: '작업전' }, { k: '4', lbl: '모뎀맥' },
@@ -72,11 +73,40 @@ $('btnPhotosNext').onclick = () => {
     }).catch(e => { CST._ocrErr = e.message; });
 };
 
-// ── 모뎀맥 ──
-$('btnScanMac').onclick = () => scan(v => $('macInput').value = v);
+// ── 모뎀맥 + 통신방식 자동판별/직접선택 ──
+$('btnScanMac').onclick = () => scan(v => { $('macInput').value = v; checkCommType(); });
+$('macInput').addEventListener('change', checkCommType);
+
+async function checkCommType() {
+  const mac = $('macInput').value.trim();
+  CST.commAuto = null; CST.commSuffix = '';
+  $('commAuto').textContent = ''; $('commSelectWrap').style.display = 'none';
+  if (!mac) return;
+  try {
+    const r = await (await apiFetch('/api/commtype?mac=' + encodeURIComponent(mac))).json();
+    CST.commAuto = r;
+    if (r.auto) {
+      $('commAuto').textContent = '통신방식 자동판별: ' + r.label;
+      $('commAuto').style.color = 'var(--mint)';
+    } else {
+      $('commAuto').textContent = (r.reason || '통신방식 자동판별 안 됨') + ' — 아래에서 선택';
+      $('commAuto').style.color = '#e0b14a';
+      const sel = $('commSelect');
+      sel.innerHTML = '<option value="">선택하세요</option>' +
+        (r.options || []).map(o => `<option value="${o.v}">${o.t}</option>`).join('');
+      $('commSelectWrap').style.display = 'block';
+    }
+  } catch (e) { $('commAuto').textContent = '통신방식 조회 실패(백엔드 확인)'; }
+}
+$('commSelect') && ($('commSelect').onchange = () => { CST.commSuffix = $('commSelect').value; });
+
 $('btnMacNext').onclick = () => {
   const mac = $('macInput').value.trim();
   if (!mac) { showToast('모뎀맥을 입력하세요'); return; }
+  // 자동판별 안 된 경우 직접선택 강제 (헬퍼 조건: SKIP/미상)
+  if (CST.commAuto && !CST.commAuto.auto && !CST.commSuffix) {
+    showToast('통신방식을 선택하세요'); return;
+  }
   CST.master.mac = mac;
   CST.confirmQueue = [{ role: '마스터', photoB64: CST.master.photos['5'], target: CST.master }];
   CST.slaves.forEach((s, i) => CST.confirmQueue.push({ role: '슬레이브 ' + (i + 1), photoB64: s.photo5, target: s }));
@@ -112,6 +142,7 @@ function showDone() {
 $('btnSubmit').onclick = async () => {
   $('btnSubmit').disabled = true; $('submitResult').textContent = '전송 중…';
   const body = {
+    commSuffix: CST.commSuffix || '',   // 직접선택 시만 값 (자동판별이면 빈값→백엔드 자동)
     master: { meterNo: CST.master.meterNo, mac: CST.master.mac, instM: CST.master.instM, photos: CST.master.photos },
     slaves: CST.slaves.map(s => ({ meterNo: s.meterNo, photos: { 5: s.photo5 } })),
   };
@@ -127,5 +158,8 @@ $('btnSubmit').onclick = async () => {
 window.cstInitInput = () => {
   CST.master = { photos: {}, meterNo: '', mac: '', instM: 'HW4050' };
   CST.slaves = []; CST.confirmQueue = []; CST.confirmIdx = 0;
+  CST.commAuto = null; CST.commSuffix = '';
+  if ($('commAuto')) $('commAuto').textContent = '';
+  if ($('commSelectWrap')) $('commSelectWrap').style.display = 'none';
   renderMaster(); renderSlaves(); showStep('photos');
 };
