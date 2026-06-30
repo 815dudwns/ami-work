@@ -11,6 +11,22 @@ const MASTER_SLOTS = [
   { k: '5', lbl: '시공후 계기' }, { k: '6', lbl: '시공후 집합' },
 ];
 
+// 통신방식 코드표(백엔드 COMM_SUFFIX_LABELS 동일) + 계기유형 판별(백엔드 _TYPE_MAP 동일)
+const COMM_LABELS = { '10': 'KS-PLC', '20': 'HPGP', '40': 'LTE', '70': 'LTE_IV', '80': 'IoT-PLC', '90': 'K-DCU', '92': 'SMGW-C(아미고)' };
+const TYPE_MAP = { '17': 'E', '19': 'EA', '25': 'G', '26': 'G', '27': 'G', '45': 'G', '46': 'G', '47': 'G', '53': 'Amigo', '55': 'Amigo' };
+function isAmigo(meterNo) { return TYPE_MAP[String(meterNo || '').padStart(11, '0').slice(2, 4)] === 'Amigo'; }
+// 마스터 통신방식 suffix: 직접선택 우선 → 자동판별(LTE는 마스터 계기유형으로 92/70 확정)
+function masterSuffix() {
+  if (CST.commSuffix) return CST.commSuffix;
+  const a = CST.commAuto;
+  if (!a || !a.suffix) return '';
+  if (a.suffix === 'LTE') return isAmigo(CST.master.meterNo) ? '92' : '70';
+  return a.suffix;
+}
+function commLabelOf(suf) { return suf ? (COMM_LABELS[suf] || suf) : ((CST.commAuto && CST.commAuto.label) || '미상'); }
+// 슬레이브 분기(백엔드 동일): 마스터 SMGW-C(92) & 슬레이브 아미고 → 무선, 그외 0.5
+function slaveBungi(sufMaster, slaveMeterNo) { return (sufMaster === '92' && isAmigo(slaveMeterNo)) ? '무선' : '0.5'; }
+
 function showStep(s) { ['master', 'slave', 'mac', 'confirm', 'done'].forEach(x => $('step-' + x).classList.toggle('hidden', x !== s)); }
 
 // 앨범 사진 선택 (촬영 capture 금지 — photo_upload_policy)
@@ -176,8 +192,19 @@ $('btnConfirmNext').onclick = () => {
 // ── 전송 ──
 function showDone() {
   showStep('done');
-  $('doneSummary').innerHTML = `마스터 <b>${CST.master.meterNo}</b> · 맥 ${CST.master.mac}<br>` +
-    (CST.slaves.length ? CST.slaves.map((s, i) => `슬레이브${i + 1} ${s.meterNo}`).join('<br>') : '슬레이브 없음');
+  const suf = masterSuffix();
+  const cnt = 1 + CST.slaves.length;
+  let html = `대표계기 <b>${CST.master.meterNo || '-'}</b><br>`;
+  html += `통신방식 <b>${commLabelOf(suf)}</b><br>`;
+  html += `함내 계기수 <b>${cnt}</b> (마스터 1 + 슬레이브 ${CST.slaves.length})<br>`;
+  html += `모뎀맥 ${CST.master.mac || '-'}`;
+  if (CST.slaves.length) {
+    html += '<br><br>슬레이브:<br>' + CST.slaves.map((s, i) =>
+      `${i + 1}. ${s.meterNo || '-'} · 분기 <b>${slaveBungi(suf, s.meterNo)}</b>`).join('<br>');
+  } else {
+    html += '<br><br>슬레이브 없음';
+  }
+  $('doneSummary').innerHTML = html;
   $('submitResult').textContent = '';
 }
 $('btnSubmit').onclick = async () => {
