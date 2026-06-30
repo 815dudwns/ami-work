@@ -32,15 +32,20 @@ function pickPhotos(cb) {
 }
 const SLAVE_MAX = 30;
 
-// QR/바코드 스캔 (폰앱 ScannerBridge). 웹에선 미지원. ★실동작 폰 미검증.
+// QR/바코드 스캔 (폰앱 ScannerBridge). scan()은 void(비동기) — 결과는 네이티브가
+// window.__onNativeScan(v) 콜백으로 전달(emitScan). 빈 문자열=취소/실패.
 function scan(cb) {
   if (window.AndroidScanner && AndroidScanner.scan) {
-    window.__cstScanCb = cb;            // 네이티브가 비동기 결과 시 호출 (브릿지 측 연동 필요)
-    try { const r = AndroidScanner.scan(); if (r && typeof r === 'string') cb(r); }
+    window.__cstScanCb = cb;
+    try { AndroidScanner.scan(); }
     catch (e) { showToast('스캔 실패: ' + e.message); }
   } else showToast('QR/바코드 스캔은 폰 앱에서만');
 }
-window.__cstScanResult = (v) => { if (window.__cstScanCb) window.__cstScanCb(v); }; // 네이티브 콜백 진입점
+// 네이티브 emitScan 진입점 (헬퍼/awms 공용 함수명과 동일). 값 있을 때만 콜백.
+window.__onNativeScan = (v) => {
+  const cb = window.__cstScanCb; window.__cstScanCb = null;
+  if (v && cb) cb(v);
+};
 
 // ── 사진 수집 ──
 function renderMaster() {
