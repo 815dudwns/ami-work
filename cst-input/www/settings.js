@@ -141,7 +141,7 @@ async function refreshSession() {
     return ok;
   } catch (e) { $('sessionTxt').textContent = '백엔드 연결 실패'; return false; }
 }
-function showInput(account) { $('scSetup').classList.add('hidden'); $('scInput').classList.remove('hidden'); $('acctTxt').textContent = '계정 ' + (account || ''); }
+function showInput(account) { $('scSetup').classList.add('hidden'); $('scInput').classList.remove('hidden'); if (window.cstInitInput) window.cstInitInput(); }
 
 $('btnLogin').onclick = async () => {
   $('btnLogin').textContent = '가져오는 중…'; $('btnLogin').disabled = true;

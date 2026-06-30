@@ -40,6 +40,20 @@
   .camopt .nm { font-size:15px; font-weight:700; }
   .camopt .hint { font-size:12px; color:var(--ink2); margin-top:1px; }
 
+  /* 사진 수집 */
+  .seclbl { font-size:12px; font-weight:700; color:var(--ink2); margin-bottom:10px; }
+  .pgrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .pslot { aspect-ratio:4/3; border:1.5px dashed var(--line); border-radius:10px; background:#11161e;
+           display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; overflow:hidden; position:relative; }
+  .pslot img { width:100%; height:100%; object-fit:cover; }
+  .pslot .lbl { font-size:13px; color:var(--ink2); text-align:center; padding:4px; }
+  .pslot.filled { border-style:solid; border-color:var(--mint); }
+  .pslot .tag { position:absolute; top:5px; left:5px; font-size:10px; background:rgba(0,0,0,.6); color:#fff; padding:2px 6px; border-radius:6px; }
+  .slavecard { display:flex; align-items:center; gap:10px; padding:10px; border:1px solid var(--line); border-radius:10px; margin-bottom:8px; }
+  .slavecard .th { width:54px; height:54px; border-radius:8px; background:#11161e; object-fit:cover; flex-shrink:0; cursor:pointer; }
+  .slavecard .nm { flex:1; font-size:14px; }
+  .slavecard .del { color:#e26; background:none; border:none; font-size:13px; cursor:pointer; }
+
   /* 세션 바 */
   .sessionbar { display:flex; align-items:center; gap:10px; padding:14px 15px; background:var(--card);
                 border:1px solid var(--line); border-radius:14px; margin-top:6px; }
@@ -140,18 +154,64 @@
     </div>
   </section>
 
-  <!-- ===== 입력 페이지 (골격) ===== -->
+  <!-- ===== 입력 페이지 ===== -->
   <section id="scInput" class="hidden">
-    <div class="title">설비 등록</div>
-    <div class="card"><div class="cbody" style="border:none">
-      <div class="desc" id="acctTxt"></div>
-      <div class="desc">사진수집 → 맥수집(QR/바코드) → 계기번호 확인(OCR/QR/수기) → 전송. (구현 진행 중)</div>
-      <button class="save ghost" id="btnBack">설정으로</button>
-    </div></div>
+
+    <!-- STEP A: 사진 수집 -->
+    <div id="step-photos">
+      <div class="title">설비 등록 · 사진</div>
+      <div class="card"><div class="cbody" style="border:none">
+        <div class="seclbl">마스터 (대표 모뎀)</div>
+        <div class="pgrid" id="masterPhotos"></div>
+      </div></div>
+      <div class="card"><div class="cbody" style="border:none">
+        <div class="seclbl">슬레이브 — 계기사진 N장 = 슬레이브 N개</div>
+        <div id="slaveList"></div>
+        <button class="save ghost" id="btnAddSlave">+ 슬레이브 계기사진 추가</button>
+      </div></div>
+      <button class="save" id="btnPhotosNext">다음 · 사진 넘기고 계기번호 인식</button>
+    </div>
+
+    <!-- STEP B: 모뎀맥 -->
+    <div id="step-mac" class="hidden">
+      <div class="title">모뎀맥 입력</div>
+      <div class="card"><div class="cbody" style="border:none">
+        <div class="desc">사진은 넘겨졌고 계기번호 인식이 백그라운드로 진행됩니다.</div>
+        <div class="field"><label>모뎀맥</label><input id="macInput" class="inp" placeholder="QR/바코드 스캔 또는 수기"></div>
+        <button class="save ghost" id="btnScanMac">QR / 바코드 스캔</button>
+      </div></div>
+      <button class="save" id="btnMacNext">다음 · 계기번호 확인</button>
+    </div>
+
+    <!-- STEP C: 계기번호 확인 -->
+    <div id="step-confirm" class="hidden">
+      <div class="title">계기번호 확인 <span class="seclbl" id="confirmProgress"></span></div>
+      <div class="card"><div class="cbody" style="border:none">
+        <div class="seclbl" id="confirmRole"></div>
+        <img id="confirmPhoto" style="width:100%;border-radius:10px;margin-bottom:12px;background:#11161e;min-height:120px">
+        <div class="field"><label>계기번호 (인식값 — 틀리면 지우고 수정/스캔)</label>
+          <input id="confirmInput" class="inp" inputmode="numeric"></div>
+        <button class="save ghost" id="btnScanMeter">QR / 바코드로 재인식</button>
+      </div></div>
+      <button class="save" id="btnConfirmNext">확인 · 다음</button>
+    </div>
+
+    <!-- STEP D: 전송 -->
+    <div id="step-done" class="hidden">
+      <div class="title">전송</div>
+      <div class="card"><div class="cbody" style="border:none">
+        <div class="desc" id="doneSummary"></div>
+        <button class="save" id="btnSubmit">awms 전송 (saveAct)</button>
+        <div class="desc" id="submitResult" style="margin-top:12px"></div>
+      </div></div>
+    </div>
+
+    <button class="save ghost" id="btnBack" style="margin-top:8px">설정으로 (취소)</button>
   </section>
 
 </div>
 <div class="toast" id="toast"></div>
 <script src="settings.js"></script>
+<script src="collect.js"></script>
 </body>
 </html>
