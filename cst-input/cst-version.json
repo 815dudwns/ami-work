@@ -1,5 +1,5 @@
 {
-  "versionName": "1.0.5",
+  "versionName": "1.0.6",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "앱 버전 표시 + 사진 마스터/슬레이브 단계분리(마스터 먼저 OCR) + 키보드/다중선택"
+  "notes": "구글포토 다중선택 헬퍼방식(무조건 멀티) + 뒤로가기 종료팝업"
 }
