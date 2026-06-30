@@ -30,3 +30,4 @@ sort-demo.html
 .claude/settings.local.json
 
 __pycache__/
+cst-input/backend/session.json

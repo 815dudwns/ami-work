@@ -190,9 +190,13 @@ $('btnLogin').onclick = async () => {
       showToast('세션 정상 (' + (s.account || '계정') + ')'); showInput(s.account);
     } else {
       // 2) 세션 없으면 USB 헬퍼에서 pull 시도 (원격이면 실패 → 폰 USB 필요)
-      const r = await (await apiFetch('/api/session/pull', { method: 'POST' })).json();
-      if (r.ok && r.alive) { await pushConfig(); await refreshSession(); showToast('세션 정상 · 작업자1 ' + (r.worker1 || '?')); showInput(r.account); }
-      else showToast('세션 가져오기 실패 — 폰 awms 로그인/USB 확인');
+      let pulled = false;
+      try {
+        const r = await (await apiFetch('/api/session/pull', { method: 'POST' })).json();
+        if (r.ok && r.alive) { await pushConfig(); await refreshSession(); showToast('세션 정상 · 작업자1 ' + (r.worker1 || '?')); showInput(r.account); pulled = true; }
+      } catch (e) { /* 원격(adb 없음) → 아래 미리보기 진입 */ }
+      // 3) 세션 못 가져와도 입력화면 진입 허용(전송 직전까지 테스트용). 전송은 백엔드가 세션없으면 401 차단.
+      if (!pulled) { await pushConfig(); showToast('세션 없음 — 미리보기(전송 불가). 통신방식·OCR은 동작'); showInput(''); }
     }
   } catch (e) { showToast('실패(백엔드 URL 확인): ' + e.message); }
   $('btnLogin').textContent = '세션 가져오기'; $('btnLogin').disabled = false;

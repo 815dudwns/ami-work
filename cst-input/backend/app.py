@@ -22,9 +22,37 @@ CDP_DIR = ROOT / "research" / "awms-poc"             # cdp_cookies.py 등
 AWMS = "https://awms.kdn.com/ami/mob/cst/mobCst1000"
 CDP_PORT = 9222
 
-# ── 세션 보관 (메모리) ─────────────────────────────────
+# ── 세션 보관 (메모리 + 디스크 persist) ─────────────────
 # 폰 헬퍼 awms 세션(JSESSIONID httpOnly + XSRF) + UA를 넘겨받아 보관.
+# 디스크 persist → 백엔드 재기동해도 세션 생존(무USB 자립: 폰 재전송 없이도 4시간 내 유지).
 SESSION = {"jsessionid": None, "rememberedId": None, "xsrf": None, "ua": None, "ts": 0}
+SESSION_FILE = Path(__file__).resolve().parent / "session.json"   # *.py·session.json은 .gitignore
+# 무USB 원격 세션 전송 보호용 공유 시크릿 (헬퍼 inject와 동일값). 공개 터널 write 보호.
+PUSH_SECRET = "cst-amiq-2026"
+
+
+def _save_session():
+    try:
+        SESSION_FILE.write_text(json.dumps(SESSION), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _load_session():
+    try:
+        SESSION.update(json.loads(SESSION_FILE.read_text(encoding="utf-8")))
+    except Exception:
+        pass
+
+
+def _parse_cookie_header(cookie_str: str) -> dict:
+    """'JSESSIONID=x; rememberedId=273584; XSRF-TOKEN=y' → dict."""
+    out = {}
+    for part in str(cookie_str or "").split(";"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            out[k.strip()] = v.strip()
+    return out
 
 # 설정값 — /api/config로 갱신 (헬퍼 설정페이지: 지사/동행/계정 + awms 공사설정)
 CONFIG = {"BUSI_NUM": "C11G250023", "WORKER1_SEQ": "273584", "WORKER2_SEQ": "20118",
@@ -73,6 +101,7 @@ def pull_session():
     # 아니면 검증된 기본값(273584) 유지. 라이브 전 /api/session/pull 응답의 worker1로 273584인지 눈으로 확인할 것.
     if rid and str(rid).isdigit():
         CONFIG["WORKER1_SEQ"] = rid
+    _save_session()
     return SESSION
 
 
@@ -241,6 +270,7 @@ app = FastAPI(title="통신팀 awms 맥 입력장치")
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])  # 폰 앱/터널에서 호출
+_load_session()   # 재기동 시 디스크 세션 복원 (무USB 자립)
 
 
 @app.get("/api/session")
@@ -258,6 +288,28 @@ def api_session_pull():
                 "worker1": CONFIG["WORKER1_SEQ"], "worker2": CONFIG["WORKER2_SEQ"]}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+@app.post("/api/session/push")
+def api_session_push(body: dict = Body(...)):
+    """무USB 원격 세션 전송: 폰 헬퍼(SessionBridge)가 CookieManager로 읽은 awms 쿠키를 POST.
+    body = {secret, cookie:'JSESSIONID=..; rememberedId=..; XSRF-TOKEN=..', ua}.
+    httpOnly JSESSIONID도 네이티브 CookieManager는 읽음 → adb 없이 세션 확보."""
+    if body.get("secret") != PUSH_SECRET:
+        raise HTTPException(403, "시크릿 불일치")
+    c = _parse_cookie_header(body.get("cookie", ""))
+    js = c.get("JSESSIONID")
+    rid = c.get("rememberedId")
+    xsrf = c.get("XSRF-TOKEN")
+    if not js:
+        raise HTTPException(400, "JSESSIONID 없음 — 폰 awms 로그인 확인")
+    SESSION.update(jsessionid=js, rememberedId=rid, xsrf=xsrf,
+                   ua=body.get("ua") or SESSION.get("ua") or "", ts=int(time.time()))
+    if rid and str(rid).isdigit():
+        CONFIG["WORKER1_SEQ"] = rid
+    _save_session()
+    return {"ok": True, "alive": session_alive(), "account": rid,
+            "worker1": CONFIG["WORKER1_SEQ"], "worker2": CONFIG["WORKER2_SEQ"]}
 
 
 @app.get("/api/config")

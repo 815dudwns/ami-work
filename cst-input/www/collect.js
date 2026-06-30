@@ -20,6 +20,17 @@ function pickPhoto(cb) {
   inp.onchange = () => { const f = inp.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => cb(r.result); r.readAsDataURL(f); };
   inp.click();
 }
+// 여러 장 한번에 선택 → base64 배열 콜백 (헬퍼식 일괄). 선택 순서 유지.
+function pickPhotos(cb) {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+  inp.onchange = () => {
+    const fs = Array.from(inp.files); if (!fs.length) return;
+    Promise.all(fs.map(f => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); }))).then(cb);
+  };
+  inp.click();
+}
+const SLAVE_MAX = 30;
 
 // QR/바코드 스캔 (폰앱 ScannerBridge). 웹에선 미지원. ★실동작 폰 미검증.
 function scan(cb) {
@@ -54,7 +65,21 @@ function renderSlaves() {
     el.appendChild(d);
   });
 }
-$('btnAddSlave').onclick = () => pickPhoto(b64 => { CST.slaves.push({ photo5: b64, meterNo: '' }); renderSlaves(); });
+// 마스터 일괄: 선택 순서대로 3·4·5·6 채움(최대 4, 초과 무시). 개별은 슬롯 탭 유지.
+$('btnMasterBulk') && ($('btnMasterBulk').onclick = () => pickPhotos(b64s => {
+  MASTER_SLOTS.forEach((s, i) => { if (b64s[i]) CST.master.photos[s.k] = b64s[i]; });
+  if (b64s.length > 4) showToast('마스터는 최대 4장(3·4·5·6) — 4장만 적용');
+  renderMaster();
+}));
+// 슬레이브 일괄: 여러 장 한번에 추가(최대 30). 개별 추가도 같은 버튼.
+$('btnAddSlave').onclick = () => pickPhotos(b64s => {
+  let added = 0;
+  for (const b of b64s) {
+    if (CST.slaves.length >= SLAVE_MAX) { showToast('슬레이브 최대 ' + SLAVE_MAX + '개'); break; }
+    CST.slaves.push({ photo5: b, meterNo: '' }); added++;
+  }
+  renderSlaves();
+});
 
 // [다음] 사진 넘김 → OCR 백그라운드 시작 → 맥수집
 $('btnPhotosNext').onclick = () => {
