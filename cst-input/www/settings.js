@@ -165,7 +165,7 @@ $('btnLogin').onclick = async () => {
   $('btnLogin').textContent = '가져오는 중…'; $('btnLogin').disabled = true;
   try {
     const r = await (await apiFetch('/api/session/pull', { method: 'POST' })).json();
-    if (r.ok && r.alive) { await pushConfig(); await refreshSession(); showInput(r.account); }
+    if (r.ok && r.alive) { await pushConfig(); await refreshSession(); showToast('세션 정상 · 작업자1 ' + (r.worker1 || '?')); showInput(r.account); }
     else showToast('세션 가져오기 실패 — 폰 awms 로그인 확인');
   } catch (e) { showToast('실패: ' + e.message); }
   $('btnLogin').textContent = '세션 가져오기'; $('btnLogin').disabled = false;

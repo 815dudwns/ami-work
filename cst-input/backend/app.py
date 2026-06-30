@@ -68,8 +68,10 @@ def pull_session():
     if not js:
         raise RuntimeError("JSESSIONID 없음 — 폰 awms 로그인 필요")
     SESSION.update(jsessionid=js, rememberedId=rid, xsrf=xsrf, ua=ua, ts=int(time.time()))
-    # WORKER1_SEQ = 로그인 계정(rememberedId) 자동 배선 — 정본에서 WORKER1=로그인계정(273584).
-    if rid:
+    # WORKER1_SEQ 자동 배선: 정본에선 WORKER1==로그인계정(273584)이라 일치하나 개념상 다를 수 있음
+    # (rememberedId=로그인아이디 / WORKER1_SEQ=작업자일련번호). 숫자열(작업자SEQ 형태)일 때만 덮어쓰고,
+    # 아니면 검증된 기본값(273584) 유지. 라이브 전 /api/session/pull 응답의 worker1로 273584인지 눈으로 확인할 것.
+    if rid and str(rid).isdigit():
         CONFIG["WORKER1_SEQ"] = rid
     return SESSION
 
@@ -227,7 +229,9 @@ def api_session():
 def api_session_pull():
     try:
         pull_session()
-        return {"ok": True, "alive": session_alive(), "account": SESSION["rememberedId"]}
+        # worker1: 라이브 전 273584 확인용 (rememberedId가 작업자SEQ와 다르면 여기서 드러남)
+        return {"ok": True, "alive": session_alive(), "account": SESSION["rememberedId"],
+                "worker1": CONFIG["WORKER1_SEQ"], "worker2": CONFIG["WORKER2_SEQ"]}
     except Exception as e:
         raise HTTPException(500, str(e))
 
