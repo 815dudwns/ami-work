@@ -162,6 +162,21 @@
       </div>
     </div>
 
+    <!-- 백엔드 연결 (원격 터널 URL) -->
+    <div class="card" id="card-backend">
+      <div class="head" onclick="toggleCard('backend')">
+        <div class="h-main"><div class="h-lbl">백엔드 연결</div><div class="h-val unset" id="backend-hval">미설정</div></div>
+        <span class="caret">&#9660;</span>
+      </div>
+      <div class="bodywrap" id="bodywrap-backend">
+        <div class="cbody">
+          <div class="desc">맥 백엔드 주소. 같은 USB면 비워두고(자동), 원격이면 터널 URL(https://…trycloudflare.com) 입력.</div>
+          <div class="field"><label>백엔드 URL</label><input id="backend-url" class="inp" type="url" autocomplete="off" placeholder="https://....trycloudflare.com (USB면 비움)"></div>
+          <button class="save" onclick="saveBackend()">저장 후 연결확인</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 세션 + 시작 -->
     <div class="sessionbar">
       <span class="dot" id="dotSession"></span>

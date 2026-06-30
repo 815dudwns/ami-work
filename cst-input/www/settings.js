@@ -2,8 +2,11 @@
 // 저장: localStorage(맥 웹) + 백엔드 /api/config 동기화. 헬퍼 Android 브릿지 대신 localStorage.
 const $ = (id) => document.getElementById(id);
 // 백엔드 베이스: 맥 로컬(localhost:8766) 또는 터널URL. 설정에서 override 가능.
-const API_BASE = localStorage.getItem('cst_backend') || (location.port === '8766' ? '' : 'http://127.0.0.1:8766');
-const apiFetch = (p, o) => fetch(API_BASE + p, o);
+// 백엔드 베이스: 저장된 터널URL(원격) > 같은포트(8766) > localhost. 매 호출 읽어 저장 즉시 반영.
+function backendBase() {
+  return localStorage.getItem('cst_backend') || (location.port === '8766' ? '' : 'http://127.0.0.1:8766');
+}
+const apiFetch = (p, o) => fetch(backendBase() + p, o);
 
 // ── 저장소 (localStorage) ───────────────────────────
 const Store = {
@@ -44,7 +47,7 @@ function toggleCard(key) {
   const card = $('card-' + key), body = $('bodywrap-' + key);
   if (!card || !body) return;
   const isOpen = card.classList.contains('open');
-  ['dept', 'cam', 'acct', 'busi'].forEach(k => {
+  ['dept', 'cam', 'acct', 'busi', 'backend'].forEach(k => {
     $('card-' + k).classList.remove('open');
     $('bodywrap-' + k).style.display = 'none';
   });
@@ -104,6 +107,22 @@ function showSavedBusi() {
 }
 window.saveBusi = saveBusi;
 
+// ── 백엔드 연결 (원격 터널 URL) ─────────────────────
+async function saveBackend() {
+  let u = $('backend-url').value.trim().replace(/\/+$/, '');
+  if (u) localStorage.setItem('cst_backend', u); else localStorage.removeItem('cst_backend');
+  showSavedBackend();
+  const ok = await refreshSession();
+  showToast(ok ? '백엔드 연결 정상 (세션 OK)' : '연결됐지만 세션 없음/만료 — 세션 가져오기 필요');
+  $('bodywrap-backend').style.display = 'none'; $('card-backend').classList.remove('open');
+}
+function showSavedBackend() {
+  const u = localStorage.getItem('cst_backend') || '';
+  $('backend-url').value = u;
+  setHval('backend-hval', u ? u.replace(/^https?:\/\//, '').slice(0, 30) : 'USB(자동)', true);
+}
+window.saveBackend = saveBackend;
+
 // ── 카메라 ──────────────────────────────────────────
 let _stream = null, _pendingDev = null, _pendingLabel = null;
 async function listCameras() {
@@ -162,17 +181,25 @@ async function refreshSession() {
 function showInput(account) { $('scSetup').classList.add('hidden'); $('scInput').classList.remove('hidden'); if (window.cstInitInput) window.cstInitInput(); }
 
 $('btnLogin').onclick = async () => {
-  $('btnLogin').textContent = '가져오는 중…'; $('btnLogin').disabled = true;
+  $('btnLogin').textContent = '확인 중…'; $('btnLogin').disabled = true;
   try {
-    const r = await (await apiFetch('/api/session/pull', { method: 'POST' })).json();
-    if (r.ok && r.alive) { await pushConfig(); await refreshSession(); showToast('세션 정상 · 작업자1 ' + (r.worker1 || '?')); showInput(r.account); }
-    else showToast('세션 가져오기 실패 — 폰 awms 로그인 확인');
-  } catch (e) { showToast('실패: ' + e.message); }
+    // 1) 이미 백엔드에 세션 살아있으면(원격: adb pull 불가) 바로 진입
+    const s = await (await apiFetch('/api/session')).json();
+    if (s.hasSession && s.alive) {
+      await pushConfig(); await refreshSession();
+      showToast('세션 정상 (' + (s.account || '계정') + ')'); showInput(s.account);
+    } else {
+      // 2) 세션 없으면 USB 헬퍼에서 pull 시도 (원격이면 실패 → 폰 USB 필요)
+      const r = await (await apiFetch('/api/session/pull', { method: 'POST' })).json();
+      if (r.ok && r.alive) { await pushConfig(); await refreshSession(); showToast('세션 정상 · 작업자1 ' + (r.worker1 || '?')); showInput(r.account); }
+      else showToast('세션 가져오기 실패 — 폰 awms 로그인/USB 확인');
+    }
+  } catch (e) { showToast('실패(백엔드 URL 확인): ' + e.message); }
   $('btnLogin').textContent = '세션 가져오기'; $('btnLogin').disabled = false;
 };
 $('btnBack').onclick = () => { $('scInput').classList.add('hidden'); $('scSetup').classList.remove('hidden'); refreshSession(); };
 
 // ── 초기화 ──────────────────────────────────────────
 ['dept', 'cam', 'acct', 'busi'].forEach(k => { $('bodywrap-' + k).style.display = 'none'; });
-showSavedDept(); showSavedCred(); showSavedCam(); showSavedBusi(); refreshSession();
+showSavedDept(); showSavedCred(); showSavedCam(); showSavedBusi(); showSavedBackend(); refreshSession();
 pushConfig();   // 초기 진입 시 저장된 공사설정을 백엔드에 반영 (정본 기본값 포함)
