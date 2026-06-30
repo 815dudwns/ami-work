@@ -11,7 +11,7 @@ const MASTER_SLOTS = [
   { k: '5', lbl: '시공후 계기' }, { k: '6', lbl: '시공후 집합' },
 ];
 
-function showStep(s) { ['photos', 'mac', 'confirm', 'done'].forEach(x => $('step-' + x).classList.toggle('hidden', x !== s)); }
+function showStep(s) { ['master', 'slave', 'mac', 'confirm', 'done'].forEach(x => $('step-' + x).classList.toggle('hidden', x !== s)); }
 
 // 앨범 사진 선택 (촬영 capture 금지 — photo_upload_policy)
 function pickPhoto(cb) {
@@ -81,21 +81,32 @@ $('btnAddSlave').onclick = () => pickPhotos(b64s => {
   renderSlaves();
 });
 
-// [다음] 사진 넘김 → OCR 백그라운드 시작 → 맥수집
-$('btnPhotosNext').onclick = () => {
+// [마스터 다음] 마스터 사진 넘김 → 마스터 OCR 백그라운드 시작 → 슬레이브 사진 화면
+// (슬레이브 사진 고르는 동안 첫 마스터 OCR이 끝나 시간 확보 — 영준님 설계)
+$('btnMasterNext').onclick = () => {
   if (!CST.master.photos['5']) { showToast('마스터 시공후 계기사진(5번)이 필요합니다'); return; }
-  showStep('mac');
-  const imgs = [{ id: 'master', b64: CST.master.photos['5'] }];
-  CST.slaves.forEach((s, i) => { if (s.photo5) imgs.push({ id: 'slave' + i, b64: s.photo5 }); });
-  CST._ocrDone = false;
-  apiFetch('/api/ocr', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ images: imgs }) })
+  CST._masterOcrDone = false;
+  apiFetch('/api/ocr', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ images: [{ id: 'master', b64: CST.master.photos['5'] }] }) })
     .then(r => r.json()).then(j => {
-      (j.results || []).forEach(res => {
-        if (res.id === 'master') CST.master.meterNo = res.meterNo;
-        else { const i = +res.id.slice(5); if (CST.slaves[i]) CST.slaves[i].meterNo = res.meterNo; }
-      });
-      CST._ocrDone = true;
+      (j.results || []).forEach(res => { if (res.id === 'master') CST.master.meterNo = res.meterNo; });
+      CST._masterOcrDone = true;
     }).catch(e => { CST._ocrErr = e.message; });
+  showStep('slave'); renderSlaves();
+};
+
+// [슬레이브 다음] 슬레이브 사진 넘김 → 슬레이브 OCR 시작 → 맥수집
+$('btnSlaveNext').onclick = () => {
+  const imgs = [];
+  CST.slaves.forEach((s, i) => { if (s.photo5) imgs.push({ id: 'slave' + i, b64: s.photo5 }); });
+  CST._ocrDone = CST._masterOcrDone;   // 확인화면 라벨용
+  if (imgs.length) {
+    apiFetch('/api/ocr', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ images: imgs }) })
+      .then(r => r.json()).then(j => {
+        (j.results || []).forEach(res => { const i = +res.id.slice(5); if (CST.slaves[i]) CST.slaves[i].meterNo = res.meterNo; });
+        CST._ocrDone = true;
+      }).catch(e => { CST._ocrErr = e.message; });
+  } else { CST._ocrDone = true; }
+  showStep('mac');
 };
 
 // ── 모뎀맥 + 통신방식 자동판별/직접선택 ──
@@ -194,5 +205,5 @@ window.cstInitInput = () => {
   CST.commAuto = null; CST.commSuffix = '';
   if ($('commAuto')) $('commAuto').textContent = '';
   if ($('commSelectWrap')) $('commSelectWrap').style.display = 'none';
-  renderMaster(); renderSlaves(); showStep('photos');
+  renderMaster(); renderSlaves(); showStep('master');
 };

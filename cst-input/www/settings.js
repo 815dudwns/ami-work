@@ -252,8 +252,23 @@ function showUpdateModal(latest, apkUrl, notes) {
 }
 window.checkAppUpdate = checkAppUpdate;
 
+// 앱 버전 표시: 설치된 APK 실버전(네이티브) + 최신 배포버전(version.json). 영준님 대조용.
+async function showVersion() {
+  const el = $('verLabel'); if (!el) return;
+  let installed = '';
+  try { if (window.AndroidUpdate && AndroidUpdate.getVersionName) installed = AndroidUpdate.getVersionName(); } catch (e) {}
+  if (!installed) installed = localStorage.getItem('cst_installed_ver') || '(웹/구버전)';
+  let latest = '';
+  try { const v = await (await fetch(VER_JSON_URL + '?t=' + Date.now(), { cache: 'no-store' })).json(); latest = v.versionName || ''; } catch (e) {}
+  const up = latest && installed && cmpVer(latest, installed) > 0;
+  el.innerHTML = '아미큐 v' + installed + (latest ? ' · 최신 v' + latest + (up ? ' (업데이트 있음)' : ' (최신)') : '');
+  el.style.color = up ? '#e0b14a' : 'var(--ink-3,#7d8fa0)';
+}
+window.showVersion = showVersion;
+
 // ── 초기화 ──────────────────────────────────────────
 ['dept', 'cam', 'acct', 'busi'].forEach(k => { $('bodywrap-' + k).style.display = 'none'; });
 showSavedDept(); showSavedCred(); showSavedCam(); showSavedBusi(); showSavedBackend(); refreshSession();
 checkAppUpdate(false);   // 앱 시작 시 자동업데이트 체크(폰 AndroidUpdate 있을 때만)
+showVersion();           // 앱 화면에 설치버전·최신버전 표시
 pushConfig();   // 초기 진입 시 저장된 공사설정을 백엔드에 반영 (정본 기본값 포함)

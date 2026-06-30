@@ -184,26 +184,34 @@
       <span class="txt" id="sessionTxt">세션 확인 중…</span>
       <button class="btn" id="btnLogin">세션 가져오기</button>
     </div>
+    <div id="verLabel" style="text-align:center;color:var(--ink-3,#7d8fa0);font-size:12px;margin-top:14px">아미큐 버전 확인 중…</div>
   </section>
 
   <!-- ===== 입력 페이지 ===== -->
   <section id="scInput" class="hidden" style="padding-bottom:50vh">
 
-    <!-- STEP A: 사진 수집 -->
-    <div id="step-photos">
-      <div class="title">설비 등록 · 사진</div>
+    <!-- STEP A1: 마스터 사진 (먼저 넣고 다음 → 마스터 OCR 백그라운드 시작) -->
+    <div id="step-master">
+      <div class="title">마스터 사진 (최대 4장)</div>
       <div class="card"><div class="cbody" style="border:none">
         <div class="seclbl">마스터 (대표 모뎀)</div>
         <button class="save ghost" id="btnMasterBulk" style="margin-bottom:10px">사진 한번에 넣기 (최대 4 · 작업전/모뎀맥/시공후계기/집합 순)</button>
         <div class="pgrid" id="masterPhotos"></div>
         <div class="desc" style="margin-top:6px">칸을 직접 눌러 개별 교체도 가능</div>
       </div></div>
+      <button class="save" id="btnMasterNext">다음 · 슬레이브 사진</button>
+    </div>
+
+    <!-- STEP A2: 슬레이브 사진 (다음 → 슬레이브 OCR 시작). 마스터 OCR은 이 동안 진행 -->
+    <div id="step-slave" class="hidden">
+      <div class="title">슬레이브 사진 (최대 30)</div>
       <div class="card"><div class="cbody" style="border:none">
-        <div class="seclbl">슬레이브 — 계기사진 N장 = 슬레이브 N개 (최대 30)</div>
+        <div class="seclbl">슬레이브 — 계기사진 N장 = 슬레이브 N개</div>
         <div id="slaveList"></div>
         <button class="save ghost" id="btnAddSlave">+ 슬레이브 계기사진 추가 (한번에 여러 장)</button>
+        <div class="desc" style="margin-top:6px">슬레이브 없으면 바로 다음</div>
       </div></div>
-      <button class="save" id="btnPhotosNext">다음 · 사진 넘기고 계기번호 인식</button>
+      <button class="save" id="btnSlaveNext">다음 · 모뎀맥</button>
     </div>
 
     <!-- STEP B: 모뎀맥 -->
