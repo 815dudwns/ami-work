@@ -179,6 +179,14 @@ $('btnSubmit').onclick = async () => {
   $('btnSubmit').disabled = false;
 };
 
+// 키보드가 입력칸 가리는 문제: 포커스 시 해당 input을 화면 중앙으로 스크롤(키보드 애니메이션 후).
+['macInput', 'confirmInput'].forEach(id => {
+  const el = $(id);
+  if (el) el.addEventListener('focus', () => setTimeout(() => {
+    try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+  }, 300));
+});
+
 // 입력 진입 초기화 (settings.js showInput에서 호출)
 window.cstInitInput = () => {
   CST.master = { photos: {}, meterNo: '', mac: '', instM: 'HW4050' };

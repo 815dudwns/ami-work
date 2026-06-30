@@ -1,5 +1,5 @@
 {
-  "versionName": "1.0.3",
+  "versionName": "1.0.4",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "사진 다중선택(구글포토 한번에 4·슬레이브 30) — 마스터 일괄넣기"
+  "notes": "키보드 가림 해결(adjustResize) + 사진 다중선택(구글포토 4·슬레이브 30)"
 }
