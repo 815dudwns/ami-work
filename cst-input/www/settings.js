@@ -199,26 +199,52 @@ $('btnLogin').onclick = async () => {
 };
 $('btnBack').onclick = () => { $('scInput').classList.add('hidden'); $('scSetup').classList.remove('hidden'); refreshSession(); };
 
-// ── 인앱 자동업데이트 (네이티브 AndroidUpdate 브릿지) ──
-// cst-version.json의 versionLabel과 localStorage 비교 → 새 버전이면 APK 받아 설치.
-// 설치된 APK 버전을 JS가 직접 못 읽어 localStorage(cst_apk_ver)로 추적(설치 시도 시 기록).
-const APK_VERSION_URL = 'https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/cst-version.json';
+// ── 인앱 자동업데이트 (jongno-snap 보조앱 방식 그대로: cmpVer + 모달) ──
+// 보조앱은 www 번들이라 APP_VER 상수가 설치버전. cst는 www 원격로드라 설치버전을
+// localStorage(cst_installed_ver)로 추적(지금설치 클릭 시 기록). 비교/모달 로직은 보조앱과 동일.
+const VER_JSON_URL = 'https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/cst-version.json';
+// 버전 라벨 사전식 숫자 비교. a>b면 +1. (보조앱 cmpVer 동일)
+function cmpVer(a, b) {
+  const pa = String(a).split('.').map(n => parseInt(n, 10) || 0);
+  const pb = String(b).split('.').map(n => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) { const x = pa[i] || 0, y = pb[i] || 0; if (x !== y) return x > y ? 1 : -1; }
+  return 0;
+}
 async function checkAppUpdate(manual) {
-  if (!(window.AndroidUpdate && AndroidUpdate.available && AndroidUpdate.available())) {
-    if (manual) showToast('이 환경에선 자동설치 미지원(폰 앱에서만)');
-    return;
-  }
+  try { if (typeof AndroidUpdate === 'undefined' || !AndroidUpdate.available()) { if (manual) showToast('이 환경에선 자동설치 미지원(폰 앱에서만)'); return; } }
+  catch (e) { if (manual) showToast('자동설치 미지원'); return; }
+  let info;
   try {
-    const v = await (await fetch(APK_VERSION_URL + '?t=' + Date.now())).json();
-    const cur = localStorage.getItem('cst_apk_ver') || '';
-    if (v.versionLabel && v.versionLabel !== cur && v.apkUrl) {
-      localStorage.setItem('cst_apk_ver', v.versionLabel);   // 중복 다운로드 방지(설치 시도 기록)
-      showToast('새 버전 ' + v.versionLabel + ' 설치를 시작합니다');
-      AndroidUpdate.downloadAndInstall(v.apkUrl, v.versionLabel);
-    } else if (manual) {
-      showToast('최신 버전입니다 (' + (cur || v.versionLabel || '?') + ')');
-    }
-  } catch (e) { if (manual) showToast('업데이트 확인 실패: ' + e.message); }
+    const res = await fetch(VER_JSON_URL + '?t=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return;
+    info = await res.json();
+  } catch (e) { if (manual) showToast('업데이트 확인 실패: ' + e.message); return; }
+  const latest = info && info.versionName, apkUrl = info && info.apkUrl;
+  if (!latest || !apkUrl) return;
+  const installed = localStorage.getItem('cst_installed_ver') || '0';
+  if (cmpVer(latest, installed) <= 0) { if (manual) showToast('최신 버전입니다 (' + installed + ')'); return; }
+  showUpdateModal(latest, apkUrl, info.notes || '');
+}
+function showUpdateModal(latest, apkUrl, notes) {
+  if (document.getElementById('upd-modal')) return;
+  const ov = document.createElement('div');
+  ov.id = 'upd-modal';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:24px;';
+  ov.innerHTML =
+    '<div style="background:var(--surface,#1a2330);border-radius:22px;box-shadow:0 20px 60px rgba(0,0,0,.5);max-width:360px;width:100%;padding:28px 24px;text-align:center;">' +
+      '<div style="font-size:20px;font-weight:800;color:var(--ink,#eaf2fb);margin-bottom:8px;">새 버전이 있습니다</div>' +
+      '<div style="font-size:15px;color:var(--ink-2,#9fb2c6);margin-bottom:4px;">v' + latest + ' 으로 업데이트</div>' +
+      (notes ? '<div style="font-size:13px;color:var(--ink-3,#7d8fa0);margin-bottom:18px;">' + notes + '</div>' : '<div style="margin-bottom:18px;"></div>') +
+      '<button id="upd-go" style="width:100%;padding:18px;border:none;border-radius:999px;background:linear-gradient(145deg,var(--mint,#3ddc97),#2bb89a);color:#04261f;font-size:18px;font-weight:800;box-shadow:0 8px 20px rgba(43,184,154,.35);margin-bottom:10px;">지금 설치</button>' +
+      '<button id="upd-later" style="width:100%;padding:14px;border:none;border-radius:999px;background:transparent;color:var(--ink-2,#9fb2c6);font-size:15px;font-weight:700;">나중에</button>' +
+    '</div>';
+  document.body.appendChild(ov);
+  document.getElementById('upd-later').onclick = () => ov.remove();
+  document.getElementById('upd-go').onclick = () => {
+    try { AndroidUpdate.downloadAndInstall(apkUrl, latest); localStorage.setItem('cst_installed_ver', latest); } catch (e) {}
+    ov.remove();
+  };
 }
 window.checkAppUpdate = checkAppUpdate;
 
