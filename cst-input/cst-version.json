@@ -1,0 +1,6 @@
+{
+  "versionCode": 2,
+  "versionLabel": "1.0.2",
+  "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
+  "note": "아미큐(통신팀 입력) — 이름/아이콘 변경 + 백엔드URL 입력 + 통신방식 직접선택"
+}

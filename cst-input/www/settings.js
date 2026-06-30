@@ -199,7 +199,31 @@ $('btnLogin').onclick = async () => {
 };
 $('btnBack').onclick = () => { $('scInput').classList.add('hidden'); $('scSetup').classList.remove('hidden'); refreshSession(); };
 
+// ── 인앱 자동업데이트 (네이티브 AndroidUpdate 브릿지) ──
+// cst-version.json의 versionLabel과 localStorage 비교 → 새 버전이면 APK 받아 설치.
+// 설치된 APK 버전을 JS가 직접 못 읽어 localStorage(cst_apk_ver)로 추적(설치 시도 시 기록).
+const APK_VERSION_URL = 'https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/cst-version.json';
+async function checkAppUpdate(manual) {
+  if (!(window.AndroidUpdate && AndroidUpdate.available && AndroidUpdate.available())) {
+    if (manual) showToast('이 환경에선 자동설치 미지원(폰 앱에서만)');
+    return;
+  }
+  try {
+    const v = await (await fetch(APK_VERSION_URL + '?t=' + Date.now())).json();
+    const cur = localStorage.getItem('cst_apk_ver') || '';
+    if (v.versionLabel && v.versionLabel !== cur && v.apkUrl) {
+      localStorage.setItem('cst_apk_ver', v.versionLabel);   // 중복 다운로드 방지(설치 시도 기록)
+      showToast('새 버전 ' + v.versionLabel + ' 설치를 시작합니다');
+      AndroidUpdate.downloadAndInstall(v.apkUrl, v.versionLabel);
+    } else if (manual) {
+      showToast('최신 버전입니다 (' + (cur || v.versionLabel || '?') + ')');
+    }
+  } catch (e) { if (manual) showToast('업데이트 확인 실패: ' + e.message); }
+}
+window.checkAppUpdate = checkAppUpdate;
+
 // ── 초기화 ──────────────────────────────────────────
 ['dept', 'cam', 'acct', 'busi'].forEach(k => { $('bodywrap-' + k).style.display = 'none'; });
 showSavedDept(); showSavedCred(); showSavedCam(); showSavedBusi(); showSavedBackend(); refreshSession();
+checkAppUpdate(false);   // 앱 시작 시 자동업데이트 체크(폰 AndroidUpdate 있을 때만)
 pushConfig();   // 초기 진입 시 저장된 공사설정을 백엔드에 반영 (정본 기본값 포함)
