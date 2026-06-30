@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v80'; // v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v81'; // v81: BARCODE 1D전용 스캐너 분기(scanBarcode, QR제외/PLC 12자리 오독방지, 헬퍼APK 1.0.78+). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -957,7 +957,9 @@ function parseValue(text) {
             window.__pendingField = vm ? (vm.vFlmnCl || '') : '';
             rec({ stage: 'intercept', txt: txt, field: window.__pendingField });
             closeFlmnModal();
-            if (window.AndroidScanner && window.AndroidScanner.scan) window.AndroidScanner.scan();
+            // BARCODE = 1D 전용 스캐너(QR 제외, PLC 12자리 오독 방지). 구버전 APK(scanBarcode 미탑재)는 scan 폴백.
+            if (txt === 'BARCODE' && window.AndroidScanner && window.AndroidScanner.scanBarcode) window.AndroidScanner.scanBarcode();
+            else if (window.AndroidScanner && window.AndroidScanner.scan) window.AndroidScanner.scan();
             else alert('네이티브 스캐너 없음 (앱 업데이트 필요)');
           }
         } catch (err) {}
