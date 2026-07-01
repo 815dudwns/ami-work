@@ -1,5 +1,5 @@
 {
-  "versionName": "2.0.13",
+  "versionName": "2.1.0",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "마스터 사진 4장 일괄선택 버튼 복원(개별+일괄 둘다), 계기·모뎀맥 QR스캔/바코드스캔 버튼 분리(바코드=1D전용)"
+  "notes": "상단 탭(설정/수집/큐) + 수집 단계이동 하단 화살표. 큐 담기·EXIF 올리기는 다음 업데이트"
 }
