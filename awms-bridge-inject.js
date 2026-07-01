@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v82'; // v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v83'; // v83: 헬퍼 awms세션→맥 백엔드 push(현장 무USB, AwmsSession.getCookie 네이티브 게터+자동감지+맥세션↑버튼). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -29,6 +29,54 @@
         body: JSON.stringify({ s: o.stage || '', d: o, iso: new Date().toISOString(), ver: VER, ph: (function(){try{return _phoneId();}catch(e){return '';}})() }) }).catch(function () {});
     } catch (e) {}
   }
+
+  // ── [v83] awms 세션 → 맥 백엔드 push (현장 무USB: 헬퍼 로그인 세션을 맥으로 전송) ──
+  // 헬퍼에만 AwmsSession 브릿지 주입(계기팀 awms-queue엔 없음 → skip). httpOnly JSESSIONID는 네이티브 게터로.
+  // 맥URL은 quick tunnel(재기동마다 바뀜) → 바뀌면 이 상수만 고쳐 push(재빌드 0).
+  var MAC_BACKEND = 'https://students-pens-expensive-controller.trycloudflare.com';
+  var MAC_PUSH_SECRET = 'cst-amiq-2026';
+  function _macToast(msg) {
+    try {
+      var d = document.createElement('div'); d.textContent = msg;
+      d.style.cssText = 'position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:2147483647;background:rgba(18,26,22,.96);color:#3ddc97;padding:12px 18px;border-radius:12px;font-size:14px;font-weight:700;box-shadow:0 6px 20px rgba(0,0,0,.45);max-width:82vw;text-align:center';
+      document.body.appendChild(d); setTimeout(function () { try { d.remove(); } catch (e) {} }, 2800);
+    } catch (e) {}
+  }
+  function pushSessionToMac(manual) {
+    try {
+      if (!window.AwmsSession || !window.AwmsSession.getCookie) { if (manual) _macToast('세션브릿지 없음 — 헬퍼 업데이트 필요'); return; }
+      var cookie = ''; try { cookie = window.AwmsSession.getCookie() || ''; } catch (e) {}
+      if (cookie.indexOf('JSESSIONID') < 0) { if (manual) _macToast('로그인 세션 없음 — awms 로그인 먼저'); return; }
+      if (manual) _macToast('맥으로 세션 전송 중…');
+      fetch(MAC_BACKEND + '/api/session/push', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ secret: MAC_PUSH_SECRET, cookie: cookie, ua: navigator.userAgent }) })
+        .then(function (r) { return r.json().catch(function () { return { ok: false, _s: r.status }; }); })
+        .then(function (j) { _macToast(j && j.ok ? ('맥 세션전송 성공 · ' + (j.account || '') + ' (쿠키' + cookie.length + ')') : ('맥 전송실패 ' + (j && j._s || ''))); })
+        .catch(function (e) { _macToast('맥 전송실패(URL확인): ' + e.message); });
+    } catch (e) { if (manual) _macToast('오류: ' + e.message); }
+  }
+  window.__pushSessionToMac = pushSessionToMac;
+  // 로그인 성공 자동 감지 → 1회 자동 push (헬퍼 AwmsSession 있을 때만)
+  var _macSessPushed = false;
+  setInterval(function () {
+    try {
+      if (_macSessPushed || !window.AwmsSession || !window.AwmsSession.getCookie) return;
+      var c = ''; try { c = window.AwmsSession.getCookie() || ''; } catch (e) {}
+      if (c.indexOf('JSESSIONID') < 0) return;   // 아직 로그인 안됨
+      _macSessPushed = true; pushSessionToMac(false);
+    } catch (e) {}
+  }, 5000);
+  // 플로팅 [맥세션↑] 버튼 — 로그인된 헬퍼에서 언제든 재전송(터널 갱신/세션 재발급 대비)
+  setInterval(function () {
+    try {
+      if (!window.AwmsSession || !window.AwmsSession.getCookie) return;   // 헬퍼만
+      if (document.getElementById('__macSessBtn')) return;
+      var b = document.createElement('button'); b.id = '__macSessBtn'; b.textContent = '맥세션↑';
+      b.style.cssText = 'position:fixed;right:10px;bottom:130px;z-index:2147483646;background:linear-gradient(145deg,#5fe0c0,#2bb89a);color:#04261f;border:none;border-radius:999px;padding:10px 14px;font-size:13px;font-weight:800;box-shadow:0 6px 16px rgba(43,184,154,.4)';
+      b.onclick = function () { pushSessionToMac(true); };
+      document.body.appendChild(b);
+    } catch (e) {}
+  }, 3000);
 
   // [v50] 버전 배지 — 화면 우측 상단에 현재 inject 버전 표시 (최신 수신 확인용) + boot 로그
   function _verBadge() {
