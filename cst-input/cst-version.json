@@ -1,5 +1,5 @@
 {
-  "versionName": "1.0.7",
+  "versionName": "2.0.2",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "현장 무USB 세션: 아미큐 자체 awms 로그인(OTP자동)→복귀시 세션 맥 전송 (헬퍼 무관)"
+  "notes": "네이티브 재작성: 백엔드 URL 자동발견(폰 입력 불필요)·awms 로그인 별창·수집 진행바·인앱 자동업데이트"
 }
