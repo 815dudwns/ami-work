@@ -8,8 +8,21 @@
       → 계기번호 확인 → saveAct(마스터+슬레이브 결합) 전송.
 PoC 검증 완료(2026-07-01): 맥 직접 saveAct result:1, 마스터+슬레이브 MB_REG_CNT=2.
 """
-import json, subprocess, urllib.request, time, os, re, base64, tempfile
+import json, subprocess, urllib.request, time, os, re, base64, tempfile, shutil, glob
 from pathlib import Path
+
+
+def _cleanup_old_temp(max_age_sec=3600):
+    """오래된 OCR/전송 임시 사진폴더 청소(맥 누적 방지). 기동 시 + 주기적 안전망."""
+    base = tempfile.gettempdir()
+    now = time.time()
+    for pat in ("cstocr_*", "cstsave_*"):
+        for d in glob.glob(os.path.join(base, pat)):
+            try:
+                if now - os.path.getmtime(d) > max_age_sec:
+                    shutil.rmtree(d, ignore_errors=True)
+            except Exception:
+                pass
 import requests
 from fastapi import FastAPI, Body, HTTPException
 from fastapi.responses import JSONResponse
@@ -271,6 +284,7 @@ from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])  # 폰 앱/터널에서 호출
 _load_session()   # 재기동 시 디스크 세션 복원 (무USB 자립)
+_cleanup_old_temp(0)   # 기동 시 남은 임시 사진폴더 전부 정리(in-flight 없음)
 
 
 @app.get("/api/session")
@@ -393,26 +407,29 @@ def api_ocr(body: dict = Body(...)):
     listfile = tmpd / "list.txt"
     listfile.write_text("\n".join(str(p) for _, p in paths))
     try:
-        out = subprocess.run(["swift", str(OCR_SWIFT), str(listfile)],
-                             capture_output=True, text=True, timeout=180).stdout
-    except Exception as e:
-        raise HTTPException(500, f"OCR 실패: {e}")
-    # ===FILE:path=== 블록별 (y, conf, text) 수집 (swift 출력: y\tconf\ttext)
-    blocks, cur = {}, None
-    for ln in out.splitlines():
-        if ln.startswith("===FILE:"):
-            cur = ln[len("===FILE:"):].rstrip("="); blocks[cur] = []
-        elif cur and "\t" in ln:
-            parts = ln.split("\t")
-            if len(parts) >= 3:
-                try: blocks[cur].append((float(parts[0]), float(parts[1]), parts[2]))
-                except Exception: pass
-    results = []
-    for iid, p in paths:
-        lines = blocks.get(str(p), [])
-        results.append({"id": iid, "meterNo": _extract_meter_no(lines),
-                        "raw": " | ".join(t for _, _, t in lines)[:240]})
-    return {"results": results}
+        try:
+            out = subprocess.run(["swift", str(OCR_SWIFT), str(listfile)],
+                                 capture_output=True, text=True, timeout=180).stdout
+        except Exception as e:
+            raise HTTPException(500, f"OCR 실패: {e}")
+        # ===FILE:path=== 블록별 (y, conf, text) 수집 (swift 출력: y\tconf\ttext)
+        blocks, cur = {}, None
+        for ln in out.splitlines():
+            if ln.startswith("===FILE:"):
+                cur = ln[len("===FILE:"):].rstrip("="); blocks[cur] = []
+            elif cur and "\t" in ln:
+                parts = ln.split("\t")
+                if len(parts) >= 3:
+                    try: blocks[cur].append((float(parts[0]), float(parts[1]), parts[2]))
+                    except Exception: pass
+        results = []
+        for iid, p in paths:
+            lines = blocks.get(str(p), [])
+            results.append({"id": iid, "meterNo": _extract_meter_no(lines),
+                            "raw": " | ".join(t for _, _, t in lines)[:240]})
+        return {"results": results}
+    finally:
+        shutil.rmtree(tmpd, ignore_errors=True)   # 받은 사진 즉시 정리(맥 누적 방지)
 
 
 def _photos_to_files(photos, tmpd):
@@ -492,6 +509,7 @@ def _saveact_core(body):
         results.append({"role": "slave", "meterNo": s["meterNo"], "resp": res_s})
         yield {"type": "item", "role": "slave", "meterNo": s["meterNo"], "idx": i + 2, "total": n,
                "ok": bool(res_s.get("result") == 1)}
+    shutil.rmtree(tmpd, ignore_errors=True)   # 전송 완료 → 임시 사진 정리(맥 누적 방지)
     yield {"type": "done", "results": results}
 
 
