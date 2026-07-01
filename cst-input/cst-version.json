@@ -1,5 +1,5 @@
 {
-  "versionName": "2.0.6",
+  "versionName": "2.0.7",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "사진 미리보기 90도 눕힘 픽스(EXIF 적용). awms 전송은 원본 그대로(awms가 정상 처리)"
+  "notes": "사진 회전 근본픽스 — EXIF를 픽셀에 굽고 정사각 크롭(플래그 제거). awms·한전서버·미리보기 어디서도 안 돔(보조앱 방식)"
 }
