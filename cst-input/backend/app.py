@@ -467,9 +467,11 @@ def _saveact_core(body):
             raise HTTPException(400, "통신방식 미상(혼재/미판별) — 직접 선택 필요(commSuffix)")
         m_inst_s = auto
         master_suffix = auto[-2:]                        # 슬레이브 상속용 (LTE도 70/92로 확정된 끝2자리)
+    # 작업구분: 신설=M1010(기본) / 기설=M1030 (ami-queue-design.md — 리스트밖 계기를 마스터로 쓰면 기설)
+    work_div = "M1030" if str(body.get("mode", "")).strip() == "existing" else "M1010"
     # 마스터
     mf = _common(mb, mac, m_instM, mb, n, m_inst_s, bungi="")
-    mf["MODEM_DIV"] = "10"
+    mf["MODEM_DIV"] = "10"; mf["WORK_DIV"] = work_div
     res_m = saveact_post(mf, _photos_to_files(m.get("photos", {}), tmpd))
     fid3 = res_m.get("atchFileId3", ""); fid4 = res_m.get("atchFileId4", "")
     results = [{"role": "master", "meterNo": mb, "resp": res_m}]
@@ -481,7 +483,7 @@ def _saveact_core(body):
         s_inst_s = s_instM + master_suffix
         s_bungi = "무선" if (master_suffix == "92" and s_instM == "HW4050") else "0.5"
         sf = _common(s["meterNo"], mac, s_instM, mb, n, s_inst_s, bungi=s_bungi)
-        sf["MODEM_DIV"] = "20"
+        sf["MODEM_DIV"] = "20"; sf["WORK_DIV"] = work_div
         photos = {"ATCH_FILE_ID_3": fid3, "ATCH_FILE_ID_4": fid4}
         sp = _photos_to_files(s.get("photos", {}), tmpd)
         if sp.get("ATCH_FILE_ID_5_SRC"):
