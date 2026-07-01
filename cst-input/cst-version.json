@@ -1,5 +1,5 @@
 {
-  "versionName": "1.0.6",
+  "versionName": "1.0.7",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "구글포토 다중선택 헬퍼방식(무조건 멀티) + 뒤로가기 종료팝업"
+  "notes": "현장 무USB 세션: 아미큐 자체 awms 로그인(OTP자동)→복귀시 세션 맥 전송 (헬퍼 무관)"
 }

@@ -167,6 +167,31 @@ function confirmCamera() {
 function showSavedCam() { const c = Store.getCam(); setHval('cam-hval', c ? c.label : '미설정', !!c); }
 window.confirmCamera = confirmCamera;
 
+// ── awms 로그인(현장 무USB) + 세션 맥 전송 ──────────
+// 아미큐 자체에서 awms 로그인(같은 webview로 awms 이동, OTP 자동수집) → 복귀 시
+// AwmsSession.getCookie(네이티브, httpOnly 포함)로 세션 읽어 맥 /api/session/push.
+function awmsLogin() {
+  if (!(window.AwmsSession && AwmsSession.openLogin)) { showToast('폰 앱에서만 (아미큐 업데이트 필요)'); return; }
+  localStorage.setItem('awms_login_pending', '1');
+  AwmsSession.openLogin();   // awms 로그인 화면으로. 로그인 후 뒤로가기로 복귀.
+}
+window.awmsLogin = awmsLogin;
+
+// 복귀(앱 로드) 시 로그인 대기중이면 세션 읽어 맥 전송
+async function pushAwmsSessionIfPending() {
+  if (localStorage.getItem('awms_login_pending') !== '1') return;
+  if (!(window.AwmsSession && AwmsSession.getCookie)) return;
+  let cookie = ''; try { cookie = AwmsSession.getCookie() || ''; } catch (e) {}
+  if (cookie.indexOf('JSESSIONID') < 0) { showToast('awms 로그인 안 됨 — 다시 로그인'); return; }
+  localStorage.removeItem('awms_login_pending');
+  try {
+    const r = await (await apiFetch('/api/session/push', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: 'cst-amiq-2026', cookie, ua: navigator.userAgent }) })).json();
+    showToast(r && r.ok ? ('맥 세션 전송 성공 · ' + (r.account || '')) : '맥 세션 전송 실패');
+    if (r && r.ok) { await pushConfig(); await refreshSession(); }
+  } catch (e) { showToast('맥 전송 실패(백엔드 URL 확인): ' + e.message); }
+}
+
 // ── 세션 (핸드오프) ─────────────────────────────────
 async function refreshSession() {
   try {
@@ -271,4 +296,5 @@ window.showVersion = showVersion;
 showSavedDept(); showSavedCred(); showSavedCam(); showSavedBusi(); showSavedBackend(); refreshSession();
 checkAppUpdate(false);   // 앱 시작 시 자동업데이트 체크(폰 AndroidUpdate 있을 때만)
 showVersion();           // 앱 화면에 설치버전·최신버전 표시
+pushAwmsSessionIfPending();  // awms 로그인 후 복귀 시 세션 맥 전송
 pushConfig();   // 초기 진입 시 저장된 공사설정을 백엔드에 반영 (정본 기본값 포함)
