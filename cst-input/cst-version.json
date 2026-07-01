@@ -1,5 +1,5 @@
 {
-  "versionName": "2.0.10",
+  "versionName": "2.0.11",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "상단 흰/찌그러진 띠(스플래시 아이콘 잔존) 원천제거 — 스플래시 테마 폐기, 다크 테마로 바로 기동. 신설/기설 WORK_DIV(슬레이브 항상 신설)"
+  "notes": "OTP 자동입력 배선 픽스(__markOtpReq→otp_req_ts, 겹침방지 게이트 통과). 임시사진 자동정리"
 }
