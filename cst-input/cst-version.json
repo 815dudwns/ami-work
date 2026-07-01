@@ -1,5 +1,5 @@
 {
-  "versionName": "2.1.1",
+  "versionName": "2.1.2",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "큐 완성: 수집→큐에 담기, 큐탭 [올려] 버튼=EXIF 시각 보정(마지막사진=현재-10초, 실제간격 보존 admin.html방식)→전송. 원본 촬영시각 캡처·큐 파일저장(앱 껐다켜도 유지)"
+  "notes": "상단 겹침(상태바 뒤로 그려짐) 픽스 — Android15 강제 edge-to-edge 해제+fitsSystemWindows(보조앱 방식)"
 }
