@@ -1,5 +1,5 @@
 {
-  "versionName": "2.0.11",
+  "versionName": "2.0.12",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "OTP 자동입력 배선 픽스(__markOtpReq→otp_req_ts, 겹침방지 게이트 통과). 임시사진 자동정리"
+  "notes": "OTP 카톡 채널 매칭 픽스(new_message_v1 정확일치→startsWith, 헬퍼 회귀수정 이식). 모든 폰 OTP 미감지 원인"
 }
