@@ -12,7 +12,11 @@ const apiFetch = (p, o) => fetch(backendBase() + p, o);
 const Store = {
   saveDept(dept, withYn) { localStorage.setItem('dept_code', dept); localStorage.setItem('with_yn', withYn); },
   getDept() { return { dept: localStorage.getItem('dept_code') || '', with: localStorage.getItem('with_yn') || '' }; },
-  saveCred(id, pw) { localStorage.setItem('cred_id', id); localStorage.setItem('cred_pw', pw); },
+  saveCred(id, pw) {
+    localStorage.setItem('cred_id', id); localStorage.setItem('cred_pw', pw);
+    // 네이티브 SharedPreferences에도 저장 → awms 로그인 화면 ID/PW 자동입력(markerJs가 SharedPreferences 읽음)
+    try { if (window.AndroidCred && AndroidCred.saveCred) AndroidCred.saveCred(id, pw); } catch (e) {}
+  },
   getCred() { return { id: localStorage.getItem('cred_id') || '', pw: localStorage.getItem('cred_pw') || '' }; },
   saveCam(label, deviceId) { localStorage.setItem('cam_label', label); localStorage.setItem('cam_deviceId', deviceId); },
   getCam() { const l = localStorage.getItem('cam_label') || ''; return l ? { label: l, deviceId: localStorage.getItem('cam_deviceId') || '' } : null; },
@@ -297,4 +301,6 @@ showSavedDept(); showSavedCred(); showSavedCam(); showSavedBusi(); showSavedBack
 checkAppUpdate(false);   // 앱 시작 시 자동업데이트 체크(폰 AndroidUpdate 있을 때만)
 showVersion();           // 앱 화면에 설치버전·최신버전 표시
 pushAwmsSessionIfPending();  // awms 로그인 후 복귀 시 세션 맥 전송
+// 저장된 계정을 네이티브에 동기화(awms 로그인 자동입력용) — 재입력 없이 반영
+try { const _c = Store.getCred(); if (_c.id && window.AndroidCred && AndroidCred.saveCred) AndroidCred.saveCred(_c.id, _c.pw); } catch (e) {}
 pushConfig();   // 초기 진입 시 저장된 공사설정을 백엔드에 반영 (정본 기본값 포함)
