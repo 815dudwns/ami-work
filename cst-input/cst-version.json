@@ -1,5 +1,5 @@
 {
-  "versionName": "2.1.4",
+  "versionName": "2.1.5",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "사진 저장 파일명=사진등록 페이지(admin.html) 형식 YYYYMMDD_HHMMSS.jpg (중복 _1,_2), 보정시각순"
+  "notes": "파일명 시각 == EXIF 촬영시각 1:1(YYYYMMDD_HHMMSS.jpg, 안드로이드 카메라형식). dedup 제거"
 }
