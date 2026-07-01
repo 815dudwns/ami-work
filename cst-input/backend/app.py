@@ -483,7 +483,7 @@ def _saveact_core(body):
         s_inst_s = s_instM + master_suffix
         s_bungi = "무선" if (master_suffix == "92" and s_instM == "HW4050") else "0.5"
         sf = _common(s["meterNo"], mac, s_instM, mb, n, s_inst_s, bungi=s_bungi)
-        sf["MODEM_DIV"] = "20"; sf["WORK_DIV"] = work_div
+        sf["MODEM_DIV"] = "20"; sf["WORK_DIV"] = "M1010"   # 슬레이브는 항상 신설(마스터만 기설 M1030)
         photos = {"ATCH_FILE_ID_3": fid3, "ATCH_FILE_ID_4": fid4}
         sp = _photos_to_files(s.get("photos", {}), tmpd)
         if sp.get("ATCH_FILE_ID_5_SRC"):
