@@ -1,5 +1,5 @@
 {
-  "versionName": "2.1.2",
+  "versionName": "2.1.3",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "상단 겹침(상태바 뒤로 그려짐) 픽스 — Android15 강제 edge-to-edge 해제+fitsSystemWindows(보조앱 방식)"
+  "notes": "큐 항목 '사진 저장(EXIF 확인용)' 버튼 — 보정된 사진을 갤러리 Pictures/아미큐에 시각기반 파일명으로 저장(이름·EXIF 확인)"
 }
