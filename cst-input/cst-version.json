@@ -1,5 +1,5 @@
 {
-  "versionName": "2.0.4",
+  "versionName": "2.0.5",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "상단 흰 띠(awms WebView 하드웨어 잔상) 픽스 — 소프트웨어 레이어+창배경 다크"
+  "notes": "사진 90도 눕힘 픽스(EXIF방향+정사각크롭, 보조앱 방식), 전송 405 폴백"
 }
