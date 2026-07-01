@@ -180,13 +180,16 @@ async function loadSiteData() {
     return map;
 }
 
-// Firebase siteData = 실제 앱에 배포된 작업대상(19,613). 전체(지사별) 탭의 분모.
-// 로컬 site-data.json(26,588)은 보강현황 겹침분 포함 raw라 분모로 쓰지 않음.
+// 전체(지사별) 탭 분모 = Firebase siteData 였으나, 매 조회마다 22MB 통째 다운로드가
+// RTDB egress 폭증(하루 ~1.5GB)의 범인이라 경량 인덱스 정적파일로 교체(2026-07-01).
+// data/stats-site-index.json = Firebase siteData에서 지사·주소·계기번호 3필드만 추출
+// (aggByBranch가 쓰는 필드 전부). GitHub Pages 서빙이라 Firebase 비용 0.
+// ★ 갱신: upload_sitedata.py 후 반드시 `python3 scripts/gen_stats_index.py` 실행.
 async function loadFbSiteData() {
     if (_fbSiteData) return _fbSiteData;
-    const snap = await _db.ref('siteData/charger4eleccar').once('value');
-    const val = snap.val();
-    _fbSiteData = Array.isArray(val) ? val.filter(Boolean) : (val ? Object.values(val) : []);
+    const resp = await fetch('data/stats-site-index.json', { cache: 'no-cache' });
+    if (!resp.ok) throw new Error('stats-site-index.json 로드 실패 (scripts/gen_stats_index.py 실행 필요)');
+    _fbSiteData = await resp.json();
     return _fbSiteData;
 }
 

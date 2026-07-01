@@ -11,12 +11,12 @@
 
 | 앱(호칭) | 버전 위치 | 현재 버전 | 갱신일 |
 |---|---|---|---|
-| **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` / APK | `v0617a-업로드중화면유지` / APK 오버레이fetch | 2026-06-16 |
+| **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` / APK | `v0626b-아이디선택` / APK 오버레이fetch | 2026-06-26 |
 | **아미큐**(통신큐·통신팀) | `ami-queue` `versionName` / `ami-queue-www/app.js` `APP_VER` | `1.0` / `v0614f-여러그룹` | 2026-06-14 |
-| **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260623.1` / `v20260623.1` (명륜 가 필터 추가) | 2026-06-23 |
+| **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260627.3` / `v20260627.3` (관리자 메뉴: 리포트 삭제·검침값검증→데이터검증 포털, VALIDATE_PORTAL_URL 상수 추가 / 메뉴 기본펼침: 테마 접고 지도표시만) | 2026-06-28 |
 | **종로 보조앱**(jongno-snap) | `snap.html` 설정 버전라벨 / APK | `v20260618.2` (동시업로드 temp유출 픽스) / versionCode 78 | 2026-06-18 |
 | **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260624a` | 2026-06-24 |
-| **헬퍼**(awms-helper) | `versionName` / inject | `1.0.76` / inject `v80` | 2026-06-20 |
+| **헬퍼**(awms-helper) | `versionName` / inject | `1.0.77` / inject `v80` | 2026-06-28 |
 | **OTP수집기**(awms-otp-collector) | `versionName` | `1.0.0` | 2026-06-13 |
 | **awms-bridge-inject**(리모컨·헬퍼/아미큐/계기큐 공용) | `awms-bridge-inject.js` `VER` | `v80` | 2026-06-20 |
 | **명륜 팀배분**(myungroon) | `jongno-combined/myungroon.html` `myungroon_app_version` / 메뉴라벨 | `20260624.1` / `명륜 팀배분 v20260624.1` | 2026-06-24 |
@@ -45,6 +45,7 @@
 4. site-data.json에 합치기 (계기번호 중복 체크)
 5. **★ `python3 scripts/gen_site_version.py` — site-data.version.json 재생성** (안 하면 작업자 폰이 옛 IndexedDB 캐시 계속 사용. site-data.json 바꾸면 무조건 실행)
 6. Firebase 업로드: upload_sitedata.py → siteData/charger4eleccar
+6.5. **★ `python3 scripts/gen_stats_index.py` — data/stats-site-index.json 재생성**(stats.html 지사별 탭 분모. Firebase siteData에서 3필드 추출. 안 하면 통계 분모가 옛값)
 7. 작업상태 업로드: scripts/upload_work_status.py → workStatus/charger4eleccar
 8. git commit & push
 9. 브라우저 확인
@@ -64,7 +65,8 @@
 
 ## 통계 페이지 (stats.html — 관리자 + user09 윤용운 전용)
 > 구조·집계·분모 규칙: `research/통계페이지_구조.md` (매번 다시 분석 말 것)
-> ★ 전체(지사별) 탭 분모 = **Firebase siteData 19,613** (실제 작업대상). 로컬 site-data.json 26,588은 겹침분 포함 raw라 분모 아님.
+> ★ 전체(지사별) 탭 분모 = **Firebase siteData**(실제 작업대상). 로컬 site-data.json은 겹침분 포함 raw라 분모 아님.
+> ★ **stats는 Firebase siteData를 직접 안 읽음(2026-07-01)** — 매 조회 22MB 통째 다운로드가 RTDB egress 폭증(하루 ~1.5GB) 범인이라 경량 인덱스 `data/stats-site-index.json`(지사·주소·계기번호 3필드, GitHub Pages 서빙=Firebase비용0)으로 대체. **생성 = `python3 scripts/gen_stats_index.py`(Firebase siteData에서 추출). upload_sitedata.py 후 반드시 같이 실행**(안 하면 stats 분모가 옛 인덱스).
 
 ## Firebase
 - DB: https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app
