@@ -1,5 +1,5 @@
 {
-  "versionName": "2.0.3",
+  "versionName": "2.0.4",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "awms 로그인 흰화면·잔상 픽스, 세션표시 정리, 지사목록 전체(서울본부직할 등)"
+  "notes": "상단 흰 띠(awms WebView 하드웨어 잔상) 픽스 — 소프트웨어 레이어+창배경 다크"
 }
