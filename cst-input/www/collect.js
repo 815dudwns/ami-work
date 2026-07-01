@@ -27,6 +27,22 @@ function commLabelOf(suf) { return suf ? (COMM_LABELS[suf] || suf) : ((CST.commA
 // 슬레이브 분기(백엔드 동일): 마스터 SMGW-C(92) & 슬레이브 아미고 → 무선, 그외 0.5
 function slaveBungi(sufMaster, slaveMeterNo) { return (sufMaster === '92' && isAmigo(slaveMeterNo)) ? '무선' : '0.5'; }
 
+// ── QR/바코드 파싱 (헬퍼 awms-parseValue.js 법칙 그대로) ──
+// 계기번호: parseValue().value (13/11/15자리·계기ID·* 제거 규칙 재사용)
+function parseMeterScan(raw) {
+  try { if (window.parseValue) { var p = parseValue(String(raw).replace(/\*/g, '')); if (p && p.value) return String(p.value); } } catch (e) {}
+  var m = String(raw || '').match(/\d{11}/); return m ? m[0] : String(raw || '').replace(/[^0-9A-Za-z]/g, '');
+}
+// 모뎀맥: parseValue → LTE(012+끝8) 변환, PLC hex는 원본 (inject macToSuffix 앞단과 동일)
+function parseMacScan(raw) {
+  var s = String(raw || '').replace(/\*/g, '').trim();
+  try { if (window.parseValue) { var p = parseValue(s); if (p && p.value) s = String(p.value); } } catch (e) {}
+  var d = s.replace(/\D/g, '');
+  if (/^012\d{8}$/.test(d)) return d;
+  if (/G1S3/i.test(raw) && d.length >= 8) return '012' + d.slice(-8);
+  return s;
+}
+
 function showStep(s) { ['master', 'slave', 'mac', 'confirm', 'done'].forEach(x => $('step-' + x).classList.toggle('hidden', x !== s)); }
 
 // 앨범 사진 선택 (촬영 capture 금지 — photo_upload_policy)
@@ -111,6 +127,7 @@ $('btnMasterNext').onclick = () => {
     .then(r => r.json()).then(j => {
       (j.results || []).forEach(res => { if (res.id === 'master') CST.master.meterNo = res.meterNo; });
       CST._masterOcrDone = true;
+      if (!$('step-confirm').classList.contains('hidden')) renderConfirm();  // 확인화면이면 즉시 갱신
     }).catch(e => { CST._ocrErr = e.message; });
   showStep('slave'); renderSlaves();
 };
@@ -125,13 +142,14 @@ $('btnSlaveNext').onclick = () => {
       .then(r => r.json()).then(j => {
         (j.results || []).forEach(res => { const i = +res.id.slice(5); if (CST.slaves[i]) CST.slaves[i].meterNo = res.meterNo; });
         CST._ocrDone = true;
+        if (!$('step-confirm').classList.contains('hidden')) renderConfirm();  // 확인화면이면 즉시 갱신
       }).catch(e => { CST._ocrErr = e.message; });
   } else { CST._ocrDone = true; }
   showStep('mac');
 };
 
 // ── 모뎀맥 + 통신방식 자동판별/직접선택 ──
-$('btnScanMac').onclick = () => scan(v => { $('macInput').value = v; checkCommType(); });
+$('btnScanMac').onclick = () => scan(v => { $('macInput').value = parseMacScan(v); checkCommType(); });
 $('macInput').addEventListener('change', checkCommType);
 
 async function checkCommType() {
@@ -179,7 +197,7 @@ function renderConfirm() {
   $('confirmPhoto').src = q.photoB64 || '';
   $('confirmInput').value = q.target.meterNo || '';
 }
-$('btnScanMeter').onclick = () => scan(v => $('confirmInput').value = v);
+$('btnScanMeter').onclick = () => scan(v => $('confirmInput').value = parseMeterScan(v));
 $('btnConfirmNext').onclick = () => {
   const v = $('confirmInput').value.trim();
   if (!v) { showToast('계기번호를 입력하세요'); return; }
