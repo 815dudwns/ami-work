@@ -1,5 +1,5 @@
 {
-  "versionName": "2.1.5",
+  "versionName": "2.1.6",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "파일명 시각 == EXIF 촬영시각 1:1(YYYYMMDD_HHMMSS.jpg, 안드로이드 카메라형식). dedup 제거"
+  "notes": "큐 올릴때 진행바(건별 N/M), 큐 정렬 오래된것 위→최신 아래"
 }
