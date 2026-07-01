@@ -326,18 +326,47 @@ def api_config_set(body: dict = Body(...)):
 OCR_SWIFT = ROOT / "research" / "ocr_poc" / "visionocr_batch.swift"
 
 
+# ── 계기번호 추출 = 데이터 검증 포털 방식 이식 (run_vision_batch.extract_meter) ──
+# 상단18%(LCD·MAC) 제외 + Amigo/11자리/하이픈 후보 + over-read 폴백(타입코드 유효 11자 윈도우)
+# + 선택: Amigo 우선 → 신뢰도 높은 것 → 동점이면 y중앙(0.5) 근접. 스펙문구 숫자 오인 방지.
+_METER_11 = re.compile(r'\b(\d{11})\b')
+_AMIGO_PAT = re.compile(r'\b(A\d{10})\b', re.IGNORECASE)
+_METER_HYPHEN = re.compile(r'(\d{2})\s*[-]\s*(\d{2})\s*[-]\s*(\d{7})\s*[-]\s*(\d{4})')
+_AMIGO_HYPHEN = re.compile(r'A0\s*[-]\s*55\s*[-]\s*(\d{7,8})', re.IGNORECASE)
+_METER_TYPE_CODES = {'17', '19', '25', '26', '27', '45', '46', '47', '53', '55'}
+
+
 def _extract_meter_no(lines):
-    """visionocr 줄들[(conf,text)] → 계기번호. A+10~11자리 또는 11자리 숫자, 최고 conf."""
-    best = ("", -1.0)
-    for conf, text in lines:
-        t = text.upper().replace(" ", "")
-        for m in re.finditer(r'[A-Z]{1,2}\d{9,10}', t):
-            if conf > best[1]:
-                best = (m.group(), conf)
-        d = re.sub(r'\D', '', text)
-        if len(d) == 11 and conf > best[1]:
-            best = (d, conf)
-    return best[0]
+    """[(y,conf,text)] → 계기번호. 검증 포털 extract_meter 이식."""
+    lines = [(y, c, t) for y, c, t in lines if y > 0.18]   # 상단 18%(LCD표시·MAC) 제외
+    cand11, candA = [], []
+    for y, conf, text in lines:
+        for m in _METER_11.finditer(text):
+            cand11.append((y, conf, m.group(1)))
+        for m in _AMIGO_PAT.finditer(text):
+            candA.append((y, conf, m.group(1).upper()))
+        for m in _METER_HYPHEN.finditer(text):
+            merged = m.group(1) + m.group(2) + m.group(3) + m.group(4)
+            if len(merged) >= 11:
+                cand11.append((y, conf, merged[:11]))
+        for m in _AMIGO_HYPHEN.finditer(text):
+            amigo = 'A055' + re.sub(r'[^0-9]', '', m.group(1))
+            if len(amigo) == 11:
+                candA.append((y, conf, amigo.upper()))
+    # over-read 폴백: 깨끗한 11자 후보 없으면 긴 숫자열(12+)에서 타입코드 유효 11자 윈도우 수집
+    if not cand11 and not candA:
+        for y, conf, text in lines:
+            for run in re.findall(r'\d{12,}', re.sub(r'[^0-9]', '', text)):
+                for i in range(len(run) - 10):
+                    w = run[i:i + 11]
+                    if w[2:4] in _METER_TYPE_CODES:
+                        cand11.append((y, conf, w))
+    if candA:
+        return max(candA, key=lambda x: x[1])[2]
+    if cand11:
+        # 신뢰도 우선, 동점이면 y중앙 근접 (명판=중앙, 스펙문구보다 우선)
+        return max(cand11, key=lambda x: (x[1], -abs(x[0] - 0.5)))[2]
+    return ''
 
 
 @app.post("/api/ocr")
@@ -368,7 +397,7 @@ def api_ocr(body: dict = Body(...)):
                              capture_output=True, text=True, timeout=180).stdout
     except Exception as e:
         raise HTTPException(500, f"OCR 실패: {e}")
-    # ===FILE:path=== 블록별 (conf, text) 수집
+    # ===FILE:path=== 블록별 (y, conf, text) 수집 (swift 출력: y\tconf\ttext)
     blocks, cur = {}, None
     for ln in out.splitlines():
         if ln.startswith("===FILE:"):
@@ -376,13 +405,13 @@ def api_ocr(body: dict = Body(...)):
         elif cur and "\t" in ln:
             parts = ln.split("\t")
             if len(parts) >= 3:
-                try: blocks[cur].append((float(parts[1]), parts[2]))
+                try: blocks[cur].append((float(parts[0]), float(parts[1]), parts[2]))
                 except Exception: pass
     results = []
     for iid, p in paths:
         lines = blocks.get(str(p), [])
         results.append({"id": iid, "meterNo": _extract_meter_no(lines),
-                        "raw": " | ".join(t for _, t in lines)[:240]})
+                        "raw": " | ".join(t for _, _, t in lines)[:240]})
     return {"results": results}
 
 
@@ -401,21 +430,29 @@ def _photos_to_files(photos, tmpd):
     return out
 
 
-@app.post("/api/saveact")
-def api_saveact(body: dict = Body(...)):
-    """마스터 1 + 슬레이브 N 결합 등록.
-    body = {master:{meterNo,mac,instM,photos:{3,4,5,6 base64}}, slaves:[{meterNo,photos:{5}}]}
-    슬레이브 사진 3/4 = 마스터 응답 파일ID 공유, 고유는 5만.
-    """
+def _saveact_precheck():
+    """전송 전 게이트(세션·공사설정). 두 엔드포인트(classic/stream) 공용. 실패 시 HTTPException."""
     if not session_alive():
-        raise HTTPException(401, "awms 세션 만료 — 폰 재로그인 후 /api/session/pull")
+        raise HTTPException(401, "awms 세션 만료 — 폰 재로그인 후 세션 다시 가져오기")
     # 631 NOT NULL 프리플라이트: 필수 식별필드 빈값이면 거부 (라이브 631 디버깅 비용 회피).
     miss = [k for k in ("WORKER1_SEQ", "WORKER2_SEQ", "BUSI_NUM", "DEPT1", "DEPT2") if not str(CONFIG.get(k, "")).strip()]
     if miss:
         raise HTTPException(400, f"공사설정 누락: {', '.join(miss)} — 설정페이지/세션 가져오기로 채우세요")
+
+
+def _saveact_core(body):
+    """마스터 1 + 슬레이브 N 결합 등록의 실제 로직. 진행 이벤트를 yield하는 제너레이터.
+    yield: {"type":"start","total":n}
+         / {"type":"item","role","meterNo","idx","total","ok"}  (건별 등록 직후)
+         / {"type":"done","results":[...]}                       (마지막, 전체 결과)
+    classic 엔드포인트는 이 제너레이터를 소비해 done의 results만 반환(출력 바이트 동일 유지).
+    stream 엔드포인트는 각 이벤트를 NDJSON 한 줄로 흘려보냄.
+    ★ fid3/fid4 마스터→슬레이브 공유·순차 로직은 종전과 동일 — 감싸기만."""
     tmpd = Path(tempfile.mkdtemp(prefix="cstsave_"))
     m = body["master"]; mb = m["meterNo"]; mac = m["mac"]
-    n = 1 + len(body.get("slaves", []))
+    slaves = body.get("slaves", [])
+    n = 1 + len(slaves)
+    yield {"type": "start", "total": n}
     # ── 마스터 통신방식(suffix) 확정: 직접선택(commSuffix) 우선 → 자동판별 → LTE는 계기유형으로 ──
     m_instM = infer_inst_m(mb)
     override = str(body.get("commSuffix", "")).strip()   # 프론트 직접선택 '10'/'20'/'40'/'70'/'80'/'90'/'92'
@@ -436,8 +473,10 @@ def api_saveact(body: dict = Body(...)):
     res_m = saveact_post(mf, _photos_to_files(m.get("photos", {}), tmpd))
     fid3 = res_m.get("atchFileId3", ""); fid4 = res_m.get("atchFileId4", "")
     results = [{"role": "master", "meterNo": mb, "resp": res_m}]
+    yield {"type": "item", "role": "master", "meterNo": mb, "idx": 1, "total": n,
+           "ok": bool(res_m.get("result") == 1)}
     # 슬레이브 (헬퍼 조건: INST_S=슬레이브계기타입+마스터suffix 상속, BUNGI=마스터92&아미고?무선:0.5)
-    for s in body.get("slaves", []):
+    for i, s in enumerate(slaves):
         s_instM = infer_inst_m(s["meterNo"])
         s_inst_s = s_instM + master_suffix
         s_bungi = "무선" if (master_suffix == "92" and s_instM == "HW4050") else "0.5"
@@ -449,7 +488,43 @@ def api_saveact(body: dict = Body(...)):
             photos["ATCH_FILE_ID_5_SRC"] = sp["ATCH_FILE_ID_5_SRC"]
         res_s = saveact_post(sf, photos)
         results.append({"role": "slave", "meterNo": s["meterNo"], "resp": res_s})
+        yield {"type": "item", "role": "slave", "meterNo": s["meterNo"], "idx": i + 2, "total": n,
+               "ok": bool(res_s.get("result") == 1)}
+    yield {"type": "done", "results": results}
+
+
+@app.post("/api/saveact")
+def api_saveact(body: dict = Body(...)):
+    """마스터 1 + 슬레이브 N 결합 등록 (classic). 출력 = {"results":[...]} — 종전과 바이트 동일.
+    ★진행표시가 필요한 프론트는 /api/saveact/stream을 먼저 시도하고, 실패 시 이 경로로 폴백."""
+    _saveact_precheck()
+    results = []
+    for ev in _saveact_core(body):
+        if ev.get("type") == "done":
+            results = ev["results"]
     return {"results": results}
+
+
+@app.post("/api/saveact/stream")
+def api_saveact_stream(body: dict = Body(...)):
+    """/api/saveact 진행표시판 — NDJSON 스트림. 건별 등록 직후 item 이벤트, 마지막에 done(전체 결과).
+    프리체크(세션/설정)는 스트림 시작 전 정상 HTTPException(401/400)으로 반환. 스트림 시작 후엔
+    상태코드 못 바꾸므로 done의 각 resp.result로 성공/실패 판정.
+    ★터널(cloudflare) 버퍼링 대비: X-Accel-Buffering:no + content-length 없이 chunked."""
+    _saveact_precheck()
+
+    def _gen():
+        try:
+            for ev in _saveact_core(body):
+                yield json.dumps(ev, ensure_ascii=False) + "\n"
+        except HTTPException as he:
+            yield json.dumps({"type": "error", "detail": he.detail}, ensure_ascii=False) + "\n"
+        except Exception as e:
+            yield json.dumps({"type": "error", "detail": str(e)}, ensure_ascii=False) + "\n"
+
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(_gen(), media_type="application/x-ndjson",
+                             headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"})
 
 
 @app.get("/api/commtype")
