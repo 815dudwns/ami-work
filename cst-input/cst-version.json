@@ -1,5 +1,5 @@
 {
-  "versionName": "2.0.7",
+  "versionName": "2.0.8",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "사진 회전 근본픽스 — EXIF를 픽셀에 굽고 정사각 크롭(플래그 제거). awms·한전서버·미리보기 어디서도 안 돔(보조앱 방식)"
+  "notes": "수집 단계 이동 화면 ← 화살표(시스템 뒤로가기는 설정으로), 전송완료→새수집/실패→그대로"
 }
