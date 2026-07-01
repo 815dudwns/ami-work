@@ -1,5 +1,5 @@
 {
-  "versionName": "2.0.2",
+  "versionName": "2.0.3",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "네이티브 재작성: 백엔드 URL 자동발견(폰 입력 불필요)·awms 로그인 별창·수집 진행바·인앱 자동업데이트"
+  "notes": "awms 로그인 흰화면·잔상 픽스, 세션표시 정리, 지사목록 전체(서울본부직할 등)"
 }
