@@ -1,5 +1,5 @@
 {
-  "versionName": "2.0.12",
+  "versionName": "2.0.13",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "OTP 카톡 채널 매칭 픽스(new_message_v1 정확일치→startsWith, 헬퍼 회귀수정 이식). 모든 폰 OTP 미감지 원인"
+  "notes": "마스터 사진 4장 일괄선택 버튼 복원(개별+일괄 둘다), 계기·모뎀맥 QR스캔/바코드스캔 버튼 분리(바코드=1D전용)"
 }
