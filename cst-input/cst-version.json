@@ -1,5 +1,5 @@
 {
-  "versionName": "2.0.8",
+  "versionName": "2.0.9",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "수집 단계 이동 화면 ← 화살표(시스템 뒤로가기는 설정으로), 전송완료→새수집/실패→그대로"
+  "notes": "상단 흰띠 제거(다크테마), 백엔드카드·공사설정 입력 삭제(자동), 마스터 신설기설 토글+사진 4칸 개별선택+큰 버튼, 슬레이브 큰 버튼"
 }
