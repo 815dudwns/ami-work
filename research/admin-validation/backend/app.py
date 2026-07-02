@@ -3435,6 +3435,132 @@ _TRANSMIT_JOBS: Dict[str, dict] = {}
 _TRANSMIT_JOBS_LOCK = threading.Lock()
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# CDP 공통 헬퍼 — 계기큐 UI(localhost/"AWMS Queue") 타깃 eval
+#   _remote_register / /transmit/session / /transmit/login 에서 재사용.
+#   타깃 선택 규칙: type==page AND (url에 localhost 포함 OR title=="AWMS Queue")
+#                  AND awms.kdn.com 제외 — _remote_register 와 완전 동일.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _cdp_eval_queue(expr: str, *, await_promise: bool = False, timeout: int = 10) -> dict:
+    """계기큐 UI(localhost) CDP Runtime.evaluate.
+
+    반환: {ok:True, value: <returnByValue 결과>}  /  {ok:False, err: str}
+    adb forward 는 호출 전 이미 설정돼 있어야 한다 (_cdp_connect_queue 에서 호출).
+    내부 연결·forward 정리는 _cdp_connect_queue 가 담당.
+    """
+    import websocket as _ws_mod
+
+    CDP_PORT = 9222
+    PKG = "com.youngjun.awmsqueue"
+
+    # 1) pid
+    import subprocess
+    try:
+        r = subprocess.run(
+            ["adb", "shell", "pidof", PKG],
+            timeout=5, capture_output=True, text=True,
+        )
+        pid_raw = (r.stdout or "").strip().split()
+        if not pid_raw:
+            return {"ok": False, "err": f"계기큐 프로세스 없음(pidof {PKG})"}
+        pid = pid_raw[0].strip()
+    except Exception as e:
+        return {"ok": False, "err": f"pid 조회 실패: {e}"}
+
+    # 2) 소켓명 탐색
+    default_sock = f"webview_devtools_remote_{pid}"
+    try:
+        r2 = subprocess.run(
+            ["adb", "shell", "cat", "/proc/net/unix"],
+            timeout=5, capture_output=True, text=True,
+        )
+        sock_name = default_sock
+        for line in r2.stdout.splitlines():
+            if f"webview_devtools_remote_{pid}" in line:
+                parts = line.strip().split()
+                if parts:
+                    raw_name = parts[-1].lstrip("@")
+                    if raw_name:
+                        sock_name = raw_name
+                break
+    except Exception:
+        sock_name = default_sock
+
+    # 3) adb forward
+    try:
+        subprocess.run(
+            ["adb", "forward", f"tcp:{CDP_PORT}", f"localabstract:{sock_name}"],
+            timeout=5, capture_output=True, check=True,
+        )
+    except Exception as e:
+        return {"ok": False, "err": f"adb forward 실패: {e}"}
+
+    try:
+        # 4) 타깃 선택 — localhost/"AWMS Queue", awms.kdn.com 제외
+        try:
+            raw_json = urllib.request.urlopen(
+                f"http://localhost:{CDP_PORT}/json", timeout=5
+            ).read()
+            targets = json.loads(raw_json)
+        except Exception as e:
+            return {"ok": False, "err": f"/json 조회 실패: {e}"}
+
+        ws_url = None
+        for t in targets:
+            url_t = t.get("url", "")
+            title_t = t.get("title", "")
+            if t.get("type") == "page" and (
+                "localhost" in url_t or title_t == "AWMS Queue"
+            ) and "awms.kdn.com" not in url_t:
+                ws_url = t.get("webSocketDebuggerUrl")
+                break
+
+        if not ws_url:
+            return {
+                "ok": False,
+                "err": "계기큐 UI 타깃 없음 (https://localhost/ 페이지 미발견)",
+                "targets": [{"url": t.get("url"), "title": t.get("title")} for t in targets],
+            }
+
+        # 5) Runtime.evaluate
+        try:
+            ws = _ws_mod.create_connection(
+                ws_url, timeout=timeout, max_size=None, suppress_origin=True
+            )
+            msg = json.dumps({
+                "id": 1,
+                "method": "Runtime.evaluate",
+                "params": {
+                    "expression": expr,
+                    "awaitPromise": await_promise,
+                    "returnByValue": True,
+                    "userGesture": True,
+                },
+            })
+            ws.send(msg)
+            while True:
+                r_raw = json.loads(ws.recv())
+                if r_raw.get("id") == 1:
+                    ws.close()
+                    res = r_raw.get("result", {})
+                    if "exceptionDetails" in res:
+                        return {"ok": False, "err": f"JS 예외: {res['exceptionDetails']}"}
+                    value = res.get("result", {}).get("value")
+                    return {"ok": True, "value": value}
+        except Exception as e:
+            return {"ok": False, "err": f"CDP eval 실패: {e}"}
+
+    finally:
+        try:
+            subprocess.run(
+                ["adb", "forward", "--remove", f"tcp:{CDP_PORT}"],
+                timeout=5, capture_output=True,
+            )
+        except Exception:
+            pass
+
+
 def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
     """맥→폰 계기큐 리모컨 — CDP 배선 구현 (T11).
 
@@ -3789,6 +3915,24 @@ def post_transmit_run(req: TransmitRunReq):
             fa_app = _get_transmit_fa_app(ds)
             ws_path = ds.get("ws_path", "workStatus/jongno")
 
+            # 전송 진행 모니터 초기화 — transmit_monitor/{dataset}
+            def _push_monitor(status: str, done: int, total_: int,
+                               current_mid: str = "", current_seal: str = ""):
+                try:
+                    from firebase_admin import db as fb_db
+                    fb_db.reference(f"transmit_monitor/{req.dataset}", app=fa_app).set({
+                        "status": status,
+                        "done": done,
+                        "total": total_,
+                        "current_mid": current_mid,
+                        "current_seal": current_seal,
+                        "ts": int(time.time() * 1000),
+                    })
+                except Exception as mon_err:
+                    print(f"[transmit] monitor push 실패(무시): {mon_err}", flush=True)
+
+            _push_monitor("running", 0, total)
+
             # 건별 전송 루프
             for idx, a in enumerate(req.assignments):
                 mid = str(a.get("mid", "")).strip()
@@ -3801,6 +3945,11 @@ def post_transmit_run(req: TransmitRunReq):
                     addr = str(a.get("addr", "")).strip() or mid_addr_idx.get(mid, "")
                     if not addr:
                         raise ValueError(f"addr 역탐색 실패: mid={mid} (workStatus에 없음)")
+
+                    # 건별 모니터 push — 현재 처리 중인 계기 번호·봉인 번호
+                    _push_monitor("running", idx, total,
+                                  current_mid=mid,
+                                  current_seal=seal.get("seal_no", ""))
 
                     # 리모컨 전송 (기본=연결검증, AWMS_LIVE_SEND=1 or live=true 시 실등록)
                     payload = {
@@ -3888,6 +4037,9 @@ def post_transmit_run(req: TransmitRunReq):
                         "finished_at": datetime.now(KST).isoformat(),
                     })
 
+            # 모니터 완료 push
+            _push_monitor("done", ok_count + fail_count, total)
+
         except Exception as job_err:
             # 잡 레벨 예외 (설정 로드 실패 등)
             _append_log({
@@ -3902,6 +4054,11 @@ def post_transmit_run(req: TransmitRunReq):
                         "status": "error",
                         "finished_at": datetime.now(KST).isoformat(),
                     })
+            # 모니터 에러 push (fa_app이 초기화 전에 예외 날 수 있으므로 try)
+            try:
+                _push_monitor("error", 0, total)
+            except Exception:
+                pass
         finally:
             # workStatus 캐시 무효화 — awms_synced 기록이 다음 /results에 즉시 반영되도록
             _invalidate_ws_raw(req.dataset)
@@ -3920,6 +4077,176 @@ def get_transmit_job(job_id: str):
     if job is None:
         raise HTTPException(status_code=404, detail=f"transmit job '{job_id}' 없음")
     return job
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# OTP 로그인 리모컨 + 세션 확인
+#   /transmit/login  — 폰 계기큐 awms 로그인 폼 자동입력 + 버튼 클릭 (OTP는 사람 수동)
+#   /transmit/session — 현재 awms 로그인 상태 확인 (조회 전용, 실행 안전)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TransmitLoginReq(BaseModel):
+    dataset: str
+    # account = awms_id_profiles 의 id 값 (또는 label 폴백)
+    account: str
+
+
+@app.post("/transmit/login")
+def post_transmit_login(req: TransmitLoginReq):
+    """계기큐 awms 로그인 자동입력 + 버튼 클릭.
+
+    1) 계기큐 localStorage 'awms_id_profiles' 에서 account id/pw 조회.
+    2) localStorage helper_cred_id/pw 에 기록 (아이디 전환).
+    3) awms 로그인 폼(awmsEval 경유 #id/#pw 직접 강제 입력 + #btnLogin 클릭).
+    4) 반환: {ok, msg:"폰에서 OTP 입력하세요"}.
+
+    ★ 이 엔드포인트 자체를 호출하지 않으면 실행 없음 — 코드만 준비.
+    """
+    # ── CDP eval 표현식 ─────────────────────────────────────────────────────
+    # account_j: 외부에서 받은 account 문자열을 JS 리터럴로 안전하게 이스케이프
+    account_j = json.dumps(req.account)
+
+    # 1단계: localStorage 프로필에서 id/pw 조회 + helper_cred 갱신
+    # 2단계: awmsEval (계기큐 → awms 웹뷰 XHR 브릿지)로 폼 직접 강제 입력
+    # 3단계: #btnLogin 클릭 → OTP 화면 진입
+    # 주의: awmsEval 내부 표현식은 awms.kdn.com 컨텍스트에서 평가됨.
+    #        #id/#pw 는 awms 로그인 폼 DOM (awmsEval 필수, 계기큐 DOM 아님).
+    expr = (
+        "(async()=>{"
+        f"const TARGET_ACCOUNT={account_j};"
+        # 프로필 탐색 (id 또는 label 매칭)
+        "const raw=localStorage.getItem('awms_id_profiles');"
+        "const profiles=raw?JSON.parse(raw):[];"
+        "const prof=profiles.find(p=>p.id===TARGET_ACCOUNT||p.label===TARGET_ACCOUNT);"
+        "if(!prof)return {ok:false,err:'프로필 없음: '+TARGET_ACCOUNT};"
+        "const cid=prof.id, cpw=prof.pw||'';"
+        # localStorage 기록 (아이디 전환 — 이후 세션체크에서 인식)
+        "localStorage.setItem('helper_cred_id',cid);"
+        "if(cpw) localStorage.setItem('helper_cred_pw',cpw);"
+        # awmsEval 존재 확인
+        "if(typeof awmsEval!=='function') return {ok:false,err:'awmsEval 미정의'};"
+        # awms 로그인 폼 강제 입력 — awmsEval 경유 (awms.kdn.com 컨텍스트)
+        # awmsEval 은 Promise 반환 (session.js 참조)
+        "const fillResult=await awmsEval("
+        "  `(()=>{try{"
+        "    var idEl=document.getElementById('id'),"
+        "        pwEl=document.getElementById('pw'),"
+        "        btn=document.getElementById('btnLogin');"
+        "    if(!idEl||!pwEl) return 'no-form';"
+        "    var sid=${JSON.stringify(cid)}, spw=${JSON.stringify(cpw)};"
+        "    idEl.value=sid;"
+        "    idEl.dispatchEvent(new Event('input',{bubbles:true}));"
+        "    idEl.dispatchEvent(new Event('change',{bubbles:true}));"
+        "    if(spw){"
+        "      pwEl.value=spw;"
+        "      pwEl.dispatchEvent(new Event('input',{bubbles:true}));"
+        "      pwEl.dispatchEvent(new Event('change',{bubbles:true}));"
+        "    }"
+        "    if(btn) btn.click();"
+        "    return 'clicked:id='+sid;"
+        "  }catch(e){return 'err:'+String(e&&e.message||e);}"
+        "  })()`"
+        ");"
+        "return {ok:true,account:cid,fill:fillResult};"
+        "})()"
+    )
+
+    # 화면 깨우기
+    import subprocess
+    try:
+        subprocess.run(
+            ["adb", "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
+            timeout=5, capture_output=True,
+        )
+    except Exception:
+        pass
+
+    result = _cdp_eval_queue(expr, await_promise=True, timeout=20)
+    if not result.get("ok"):
+        raise HTTPException(status_code=500, detail=result.get("err", "CDP 실패"))
+
+    val = result.get("value") or {}
+    if isinstance(val, str):
+        # awmsEval 반환이 JSON 문자열인 경우
+        try:
+            val = json.loads(val)
+        except Exception:
+            val = {"raw": val}
+
+    if not val.get("ok"):
+        return {
+            "ok": False,
+            "msg": val.get("err", "로그인 폼 입력 실패"),
+            "fill": val.get("fill"),
+            "account": req.account,
+        }
+
+    return {
+        "ok": True,
+        "msg": "폰에서 OTP 입력하세요",
+        "account": val.get("account", req.account),
+        "fill": val.get("fill"),
+    }
+
+
+@app.get("/transmit/session")
+def get_transmit_session(dataset: str = Query(...)):
+    """폰 계기큐 현재 awms 로그인 상태 확인 (조회 전용, 실행 안전).
+
+    _lookupSeal() 을 eval 해 LV_CONS_NO 응답 여부로 로그인 판정.
+    로그인돼 있으면 appIndexVm.sessionInfo.USER_ID 도 추출해 반환.
+    """
+    # _lookupSeal() 은 awms-saverow.js 에서 정의된 전역 함수 (계기큐 localhost 컨텍스트)
+    # awmsEval 경유 없이 계기큐 UI 컨텍스트에서 직접 호출 가능.
+    expr = (
+        "(async()=>{"
+        "try{"
+        "  if(typeof _lookupSeal!=='function') return {ok:false,err:'_lookupSeal 미정의'};"
+        "  const seal=await _lookupSeal();"
+        "  const logged_in=!!(seal&&seal.LV_CONS_NO);"
+        "  let acct='';"
+        "  try{"
+        "    if(typeof awmsEval==='function'){"
+        "      acct=await awmsEval("
+        "        \"(function(){try{return appIndexVm&&appIndexVm.sessionInfo&&appIndexVm.sessionInfo.USER_ID||'';}catch(e){return '';}})()\""
+        "      );"
+        "    }"
+        "  }catch(ae){}"
+        "  return {ok:true,logged_in:logged_in,cons_no:seal?seal.LV_CONS_NO||'':'',account:acct||''};"
+        "}catch(e){"
+        "  return {ok:false,logged_in:false,err:String(e&&e.message||e)};"
+        "}"
+        "})()"
+    )
+
+    # 화면 깨우기
+    import subprocess
+    try:
+        subprocess.run(
+            ["adb", "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
+            timeout=5, capture_output=True,
+        )
+    except Exception:
+        pass
+
+    result = _cdp_eval_queue(expr, await_promise=True, timeout=30)
+    if not result.get("ok"):
+        raise HTTPException(status_code=500, detail=result.get("err", "CDP 실패"))
+
+    val = result.get("value") or {}
+    if isinstance(val, str):
+        try:
+            val = json.loads(val)
+        except Exception:
+            val = {"raw": val}
+
+    return {
+        "dataset": dataset,
+        "logged_in": bool(val.get("logged_in")),
+        "cons_no": val.get("cons_no", ""),
+        "account": val.get("account", ""),
+        "err": val.get("err"),
+    }
 
 
 # ── 헬스체크 ─────────────────────────────────────────────────────────────────────

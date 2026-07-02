@@ -36,6 +36,7 @@ function _friendlyError(rawMsg) {
 }
 
 let _db = null;
+let _monitorSubscribed = false;  // transmit_monitor 구독 중복 방지 가드
 let _queue = [];  // {addr, meter, rep, status:'pending'|'err'|'done', err?, site, draft, quarantine}
 let _completedNewMeters = new Set();  // syncCompleted에서 채움 (awms 완료 28) — 현 계정·전차수
 let _awmsDraftMeters = new Set();     // awms 임시저장(WORK_STEP=25) — 실패로 표시, 전체올리기 제외
@@ -83,10 +84,86 @@ function _fmtReadings(rep) {
     return rep.removal_value != null ? `주간 <b>${escapeHtml(rep.removal_value)}</b>` : '-';
 }
 
+// ─────────────────────────────────────────────
+// _ensureMonitorBanner — 맥 전송 모니터 배너 DOM 보장 (없으면 생성)
+//   .container 위(부모 노드 앞)에 삽입 — _ensureTabBar의 firstChild 삽입과 충돌 없도록 컨테이너 밖에 배치
+// ─────────────────────────────────────────────
+function _ensureMonitorBanner() {
+    if (document.getElementById('tx-monitor-banner')) return;
+    const banner = document.createElement('div');
+    banner.id = 'tx-monitor-banner';
+    banner.style.cssText = 'display:none;position:sticky;top:0;z-index:9000;'
+        + 'background:#1d4ed8;color:#fff;font-size:13px;font-weight:700;'
+        + 'padding:9px 14px;text-align:center;letter-spacing:.01em;'
+        + 'box-shadow:0 2px 6px rgba(0,0,0,.25);';
+    // .container 위에 삽입, 없으면 body 첫 자식 앞
+    const container = document.querySelector('.container');
+    if (container && container.parentNode) {
+        container.parentNode.insertBefore(banner, container);
+    } else {
+        document.body.insertBefore(banner, document.body.firstChild);
+    }
+    return banner;
+}
+
+// transmit_monitor/jongno 콜백 처리
+function _onMonitorValue(snap) {
+    try {
+        const data = snap ? snap.val() : null;
+        let banner = document.getElementById('tx-monitor-banner');
+        if (!banner) banner = _ensureMonitorBanner();
+        if (!banner) return;
+
+        if (!data || data.status === null || data.status === undefined) {
+            banner.style.display = 'none';
+            return;
+        }
+
+        const done  = data.done  != null ? Number(data.done)  : 0;
+        const total = data.total != null ? Number(data.total) : 0;
+        const mid   = escapeHtml(String(data.current_mid  != null ? data.current_mid  : ''));
+        const seal  = escapeHtml(String(data.current_seal != null ? data.current_seal : ''));
+
+        if (data.status === 'running') {
+            banner.style.background = '#1d4ed8';
+            banner.textContent = '맥 전송중: ' + done + '/' + total
+                + (mid  ? ', 현재 계기 ' + mid  : '')
+                + (seal ? ' (봉인 ' + seal + ')' : '');
+            banner.style.display = 'block';
+        } else if (data.status === 'done') {
+            banner.style.background = '#059669';
+            banner.textContent = '전송완료 ' + done + '건';
+            banner.style.display = 'block';
+            // 3초 후 자동 숨김
+            setTimeout(function () {
+                const b = document.getElementById('tx-monitor-banner');
+                if (b) b.style.display = 'none';
+            }, 3000);
+        } else {
+            // 알 수 없는 status — 숨김
+            banner.style.display = 'none';
+        }
+    } catch (e) {
+        if (typeof log === 'function') log('transmit_monitor 콜백 오류: ' + e.message, 'warn');
+    }
+}
+
 function initFb() {
     const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
     _db = firebase.database(app);
     log('Firebase 연결 [JS:remote-r4 찾기진단] ' + firebaseConfig.databaseURL.split('/').pop(), 'ok');
+
+    // transmit_monitor/jongno 구독 (중복 방지)
+    if (!_monitorSubscribed) {
+        _monitorSubscribed = true;
+        _ensureMonitorBanner();
+        _db.ref('transmit_monitor/jongno').on(
+            'value',
+            _onMonitorValue,
+            function (err) { log('transmit_monitor 구독 오류(rules 미허용 가능): ' + err.message, 'warn'); }
+        );
+        log('transmit_monitor/jongno 구독 시작', 'ok');
+    }
 }
 
 // ─────────────────────────────────────────────
