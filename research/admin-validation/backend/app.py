@@ -3890,6 +3890,9 @@ def post_transmit_run(req: TransmitRunReq):
             "progress": 0,
             "logs": [],
             "accounts": {},
+            "cons_no": "",          # 공사번호 — _run 시작 시 채움
+            "seal_start": "",       # 첫 번째 계정 봉인 시작번호 (요약 표시용)
+            "seal_current": "",     # 진행 중 최신 봉인번호 (완료건 기준)
             "started_at": datetime.now(KST).isoformat(),
             "finished_at": None,
         }
@@ -3908,6 +3911,15 @@ def post_transmit_run(req: TransmitRunReq):
                 j["ok_count"] = ok
                 j["fail_count"] = fail
                 j["progress"] = int(done / total * 100) if total else 100
+
+    def _update_seal_current(seal_no: str):
+        """완료/검증 성공 시 현재 봉인번호 갱신 (상단 요약 표시용)."""
+        if not seal_no:
+            return
+        with _TRANSMIT_JOBS_LOCK:
+            j = _TRANSMIT_JOBS.get(job_id)
+            if j is not None:
+                j["seal_current"] = seal_no
 
     def _run():
         from firebase_admin import db as fb_db
@@ -3951,6 +3963,11 @@ def post_transmit_run(req: TransmitRunReq):
                 j = _TRANSMIT_JOBS.get(job_id)
                 if j is not None:
                     j["accounts"] = acct_meta
+                    j["cons_no"] = cons_no
+                    # 첫 번째 계정의 시작 봉인번호 (요약 표시: "봉인 <시작>~<현재>")
+                    first_acct = next(iter(acct_meta), None)
+                    if first_acct:
+                        j["seal_start"] = str(acct_meta[first_acct]["start"])
 
             # addr 역탐색 인덱스: mid → addr (replacement_list 키 직접 확인)
             mid_addr_idx: Dict[str, str] = {}
@@ -3990,9 +4007,15 @@ def post_transmit_run(req: TransmitRunReq):
                 seal = mid_seal.get(mid, {})
                 acct = seal.get("account", a.get("account", ""))
 
+                # 공통 로그 필드 — try 진입 전 미리 확보 (실패 경로에서도 사용)
+                addr = str(a.get("addr", "")).strip() or mid_addr_idx.get(mid, "")
+                _rep = (raw.get(addr) or {}).get("replacement_list", {}).get(mid) or {}
+                _old_mid = mid
+                _new_mid = str(_rep.get("new_meter_id", "") or "")
+                _seq     = _rep.get("daily_seq", "")
+
                 try:
-                    # addr 확보 (요청에 있으면 우선, 없으면 역탐색)
-                    addr = str(a.get("addr", "")).strip() or mid_addr_idx.get(mid, "")
+                    # addr 확보 확인
                     if not addr:
                         raise ValueError(f"addr 역탐색 실패: mid={mid} (workStatus에 없음)")
 
@@ -4027,10 +4050,13 @@ def post_transmit_run(req: TransmitRunReq):
                     if remote_result.get("wired") and not remote_result.get("live"):
                         ok_count += 1
                         _append_log({
-                            "ts": now_ms, "mid": mid, "account": acct,
+                            "ts": now_ms, "mid": _old_mid, "account": acct,
                             "seal": seal.get("seal_no", ""), "ok": True,
-                            "msg": f"배선검증 OK(실전송 아님, AWMS_LIVE_SEND=1 필요) probe={remote_result.get('probe')}",
+                            "seq": _seq, "old_mid": _old_mid, "new_mid": _new_mid,
+                            "phase": "검증",
+                            "msg": "배선검증 OK(실전송 아님, AWMS_LIVE_SEND=1 필요)",
                         })
+                        _update_seal_current(seal.get("seal_no", ""))
                         _update_progress(idx + 1, ok_count, fail_count)
                         continue
 
@@ -4050,16 +4076,21 @@ def post_transmit_run(req: TransmitRunReq):
 
                     ok_count += 1
                     _append_log({
-                        "ts": now_ms, "mid": mid, "account": acct,
+                        "ts": now_ms, "mid": _old_mid, "account": acct,
                         "seal": seal.get("seal_no", ""), "ok": True,
+                        "seq": _seq, "old_mid": _old_mid, "new_mid": _new_mid,
+                        "phase": "완료",
                         "msg": f"전송완료 seal={seal.get('seal_no','')} addr={addr}",
                     })
+                    _update_seal_current(seal.get("seal_no", ""))
 
                 except Exception as item_err:
                     fail_count += 1
                     _append_log({
-                        "ts": int(time.time() * 1000), "mid": mid, "account": acct,
+                        "ts": int(time.time() * 1000), "mid": _old_mid, "account": acct,
                         "seal": seal.get("seal_no", ""), "ok": False,
+                        "seq": _seq, "old_mid": _old_mid, "new_mid": _new_mid,
+                        "phase": "실패", "reason": str(item_err),
                         "msg": str(item_err),
                     })
 
@@ -4076,6 +4107,7 @@ def post_transmit_run(req: TransmitRunReq):
                 _append_log({
                     "ts": int(time.time() * 1000), "mid": "", "account": acct2,
                     "seal": str(last_seal), "ok": True,
+                    "phase": "시스템",
                     "msg": f"최종봉인 서버저장 예정(폰 리모컨 T11): account={acct2} last_seal={last_seal}",
                 })
 
@@ -4095,6 +4127,7 @@ def post_transmit_run(req: TransmitRunReq):
             _append_log({
                 "ts": int(time.time() * 1000), "mid": "", "account": "",
                 "seal": "", "ok": False,
+                "phase": "시스템", "reason": traceback.format_exc(),
                 "msg": f"잡 오류: {traceback.format_exc()}",
             })
             with _TRANSMIT_JOBS_LOCK:
