@@ -490,9 +490,17 @@ def _saveact_core(body):
     #   마스터·슬레이브 동일 DCU_ID. 변대주 빈값이면 미주입(기존 빈 DCU_ID 유지=무해).
     bdju = str(body.get("bdju", "")).strip()
     dcu_id = (bdju + "00") if (bdju and master_suffix in ("10", "20", "90")) else ""
+    # 함체유형(영준님 2026-07-02): 단독+슬0→단독형(10, 대표계기·함내수 빈칸) / 단독+슬有→집합형단독(40) / 집합→그대로(20)
+    ham = str(body.get("ham", "")).strip()
+    if ham == "단독" and len(slaves) == 0:
+        fclty, mb_id, mb_cnt = "10", "", ""            # 단독형: MB_METER_ID/MB_CNT 빈칸
+    elif ham == "단독":
+        fclty, mb_id, mb_cnt = "40", mb, n             # 집합형(단독)
+    else:
+        fclty, mb_id, mb_cnt = "20", mb, n             # 집합 그대로(정본 기본)
     # 마스터
-    mf = _common(mb, mac, m_instM, mb, n, m_inst_s, bungi="")
-    mf["MODEM_DIV"] = "10"; mf["WORK_DIV"] = work_div
+    mf = _common(mb, mac, m_instM, mb_id, mb_cnt, m_inst_s, bungi="")
+    mf["MODEM_DIV"] = "10"; mf["WORK_DIV"] = work_div; mf["FCLTY_DIV"] = fclty
     if dcu_id: mf["DCU_ID"] = dcu_id
     res_m = saveact_post(mf, _photos_to_files(m.get("photos", {}), tmpd))
     fid3 = res_m.get("atchFileId3", ""); fid4 = res_m.get("atchFileId4", "")
@@ -506,6 +514,7 @@ def _saveact_core(body):
         s_bungi = "무선" if (master_suffix == "92" and s_instM == "HW4050") else "0.5"
         sf = _common(s["meterNo"], mac, s_instM, mb, n, s_inst_s, bungi=s_bungi)
         sf["MODEM_DIV"] = "20"; sf["WORK_DIV"] = "M1010"   # 슬레이브는 항상 신설(마스터만 기설 M1030)
+        sf["FCLTY_DIV"] = fclty                            # 슬레이브도 함체유형 동일(단독+슬有=40 / 집합=20)
         if dcu_id: sf["DCU_ID"] = dcu_id                   # 변대주 DCU_ID = 마스터와 동일(그룹 공유)
         photos = {"ATCH_FILE_ID_3": fid3, "ATCH_FILE_ID_4": fid4}
         sp = _photos_to_files(s.get("photos", {}), tmpd)

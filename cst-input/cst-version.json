@@ -1,5 +1,5 @@
 {
-  "versionName": "2.1.7",
+  "versionName": "2.1.8",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "PLC계열(KS-PLC/HPGP/K-DCU) 신설 시 변대주번호 입력칸 → DCU_ID=변대주+00 전송(마스터·슬레이브)"
+  "notes": "마스터 사진칸 크게 + 함체유형(단독/집합) 선택. 단독+슬0=단독형(대표계기·함내수 빈칸), 단독+슬有=집합형단독. PLC 신설 변대주번호→DCU_ID"
 }
