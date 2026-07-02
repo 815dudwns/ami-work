@@ -3419,11 +3419,198 @@ _TRANSMIT_JOBS_LOCK = threading.Lock()
 
 
 def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
-    """맥→폰 계기큐 리모컨 전송 (실제 배선은 T11/폰검증).
-    STUB — 실제 폰 리모컨 전송 미배선(T11). 성공 흉내 + 로그만.
-    실제 awms(계기팀 mob/mtr) 호출은 절대 여기서 하지 않는다."""
-    print(f"[transmit][stub] dataset={dataset} mid={mid} payload_keys={list(payload.keys())}", flush=True)
-    return {"ok": True, "stub": True, "awms_response": None}
+    """맥→폰 계기큐 리모컨 — CDP 배선 구현 (T11).
+
+    기본(AWMS_LIVE_SEND != '1'): 연결검증 표현식만 실행, registerReplacement 호출 안 함.
+    실등록 모드(AWMS_LIVE_SEND=1 또는 payload.get('live')): 실등록 표현식 실행.
+
+    실제 awms(계기팀 mob/mtr) HTTP 호출은 절대 여기서 하지 않는다.
+    계기큐 UI 타깃(https://localhost/, title 'AWMS Queue')에만 eval.
+    """
+    import subprocess
+    import websocket as _ws_mod
+
+    CDP_PORT = 9222
+    PKG = "com.youngjun.awmsqueue"
+
+    # 화면 깨우기 (freeze 방지, 실패 무시)
+    try:
+        subprocess.run(
+            ["adb", "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
+            timeout=5, capture_output=True,
+        )
+    except Exception:
+        pass
+
+    # pid 탐색
+    try:
+        r = subprocess.run(
+            ["adb", "shell", "pidof", PKG],
+            timeout=5, capture_output=True, text=True,
+        )
+        pid_raw = (r.stdout or "").strip().split()
+        if not pid_raw:
+            return {"ok": False, "err": f"계기큐 프로세스 없음(pidof {PKG})"}
+        pid = pid_raw[0].strip()
+    except Exception as e:
+        return {"ok": False, "err": f"pid 조회 실패: {e}"}
+
+    # 소켓명 동적 탐색 (/proc/net/unix의 @ 제거)
+    default_sock = f"webview_devtools_remote_{pid}"
+    try:
+        r2 = subprocess.run(
+            ["adb", "shell", "cat", "/proc/net/unix"],
+            timeout=5, capture_output=True, text=True,
+        )
+        sock_name = default_sock
+        for line in r2.stdout.splitlines():
+            if f"webview_devtools_remote_{pid}" in line:
+                # 마지막 필드가 소켓 경로, @ 접두사 제거
+                parts = line.strip().split()
+                if parts:
+                    raw_name = parts[-1].lstrip("@")
+                    if raw_name:
+                        sock_name = raw_name
+                break
+    except Exception:
+        sock_name = default_sock
+
+    # adb forward 설정
+    try:
+        subprocess.run(
+            ["adb", "forward", f"tcp:{CDP_PORT}", f"localabstract:{sock_name}"],
+            timeout=5, capture_output=True, check=True,
+        )
+    except Exception as e:
+        return {"ok": False, "err": f"adb forward 실패: {e}"}
+
+    ws_url = None
+    try:
+        # /json 에서 계기큐 UI 타깃 선택 (awms.kdn.com 타깃 아님)
+        try:
+            raw_json = urllib.request.urlopen(
+                f"http://localhost:{CDP_PORT}/json", timeout=5
+            ).read()
+            targets = json.loads(raw_json)
+        except Exception as e:
+            return {"ok": False, "err": f"/json 조회 실패: {e}"}
+
+        for t in targets:
+            url_t = t.get("url", "")
+            title_t = t.get("title", "")
+            if t.get("type") == "page" and (
+                "localhost" in url_t or title_t == "AWMS Queue"
+            ) and "awms.kdn.com" not in url_t:
+                ws_url = t.get("webSocketDebuggerUrl")
+                break
+
+        if not ws_url:
+            return {
+                "ok": False,
+                "err": "계기큐 UI 타깃 없음 (https://localhost/ 페이지 미발견)",
+                "targets": [{"url": t.get("url"), "title": t.get("title")} for t in targets],
+            }
+
+        # 실등록 모드 여부 — 기본 False
+        live_mode = (os.environ.get("AWMS_LIVE_SEND", "") == "1") or bool(payload.get("live"))
+
+        if live_mode:
+            # 실등록 표현식 (AWMS_LIVE_SEND=1 또는 payload.live=True 일 때만)
+            addr_j = json.dumps(payload.get("addr", ""))
+            meter_j = json.dumps(str(payload.get("mid", "")))
+            account_j = json.dumps(payload.get("account", ""))
+            cons_no_j = json.dumps(payload.get("cons_no", ""))
+            seal_no_j = json.dumps(str(payload.get("seal_no", "")))
+            seal_no2_j = json.dumps(str(payload.get("seal_no2", "")))
+            expr = (
+                "(async()=>{"
+                f"const ADDR={addr_j};"
+                f"const METER={meter_j};"
+                f"const ACCOUNT={account_j};"
+                f"const CONS_NO={cons_no_j};"
+                f"const SEAL_NO={seal_no_j};"
+                f"const SEAL_NO2={seal_no2_j};"
+                "const it=(window._queue||[]).find(i=>i.addr===ADDR&&i.meter===METER);"
+                "if(!it)return {ok:false,err:'not-in-queue'};"
+                "try{"
+                "const r=await window.registerReplacement({"
+                "addr:it.addr,meter:it.meter,rep:it.rep,"
+                "injectedSeal:{seal_no:SEAL_NO,seal_no2:SEAL_NO2},"
+                "injectedConsNo:CONS_NO,injectedAccount:ACCOUNT"
+                "});"
+                "return {ok:true,awms_seal:r&&r.awms_seal}"
+                "}catch(e){return {ok:false,err:String(e&&e.message||e)}}"
+                "})()"
+            )
+        else:
+            # 연결검증 표현식 — registerReplacement 호출 없음
+            expr = (
+                "JSON.stringify({"
+                "rr:typeof window.registerReplacement,"
+                "ro:typeof window.runOne,"
+                "q:(window._queue||[]).length,"
+                "url:location.href,"
+                "title:document.title"
+                "})"
+            )
+
+        # CDP Runtime.evaluate
+        try:
+            ws = _ws_mod.create_connection(
+                ws_url, timeout=30, max_size=None, suppress_origin=True
+            )
+            msg = json.dumps({
+                "id": 1,
+                "method": "Runtime.evaluate",
+                "params": {
+                    "expression": expr,
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                    "userGesture": True,
+                },
+            })
+            ws.send(msg)
+            eval_result = None
+            while True:
+                r_raw = json.loads(ws.recv())
+                if r_raw.get("id") == 1:
+                    ws.close()
+                    res = r_raw.get("result", {})
+                    if "exceptionDetails" in res:
+                        return {
+                            "ok": False,
+                            "err": f"JS 예외: {res['exceptionDetails']}",
+                        }
+                    eval_result = res.get("result", {}).get("value")
+                    break
+        except Exception as e:
+            return {"ok": False, "err": f"CDP eval 실패: {e}"}
+
+        if live_mode:
+            # 실등록 모드: eval_result = {ok, awms_seal} or {ok:false, err}
+            if isinstance(eval_result, dict):
+                return {"ok": bool(eval_result.get("ok")), "awms_seal": eval_result.get("awms_seal"), "live": True}
+            return {"ok": False, "err": f"실등록 응답 비정상: {eval_result}", "live": True}
+        else:
+            # 연결검증 모드: eval_result = JSON 문자열
+            if isinstance(eval_result, str):
+                try:
+                    probe = json.loads(eval_result)
+                except Exception:
+                    probe = {"raw": eval_result}
+            else:
+                probe = eval_result or {}
+            return {"ok": True, "wired": True, "probe": probe}
+
+    finally:
+        # forward 반드시 정리
+        try:
+            subprocess.run(
+                ["adb", "forward", "--remove", f"tcp:{CDP_PORT}"],
+                timeout=5, capture_output=True,
+            )
+        except Exception:
+            pass
 
 
 def _get_transmit_fa_app(ds: dict):
@@ -3578,7 +3765,19 @@ def post_transmit_run(req: TransmitRunReq):
                     if not remote_result.get("ok"):
                         raise ValueError(f"리모컨 전송 실패: {remote_result}")
 
-                    # Firebase DB 기록 — replacement_list/{mid} 에 awms_seal + awms_synced 머지
+                    # 연결검증 모드(wired-only, 실등록 아님): awms에 실제 등록 안 됨 →
+                    # DB에 awms_synced=True(전송완료) 기록 금지. 실전송은 AWMS_LIVE_SEND=1(live) 필요.
+                    if remote_result.get("wired") and not remote_result.get("live"):
+                        ok_count += 1
+                        _append_log({
+                            "ts": now_ms, "mid": mid, "account": acct,
+                            "seal": seal.get("seal_no", ""), "ok": True,
+                            "msg": f"배선검증 OK(실전송 아님, AWMS_LIVE_SEND=1 필요) probe={remote_result.get('probe')}",
+                        })
+                        _update_progress(idx + 1, ok_count, fail_count)
+                        continue
+
+                    # Firebase DB 기록 — replacement_list/{mid} 에 awms_seal + awms_synced 머지 (실등록 성공분만)
                     rl_ref = fb_db.reference(ws_path, app=fa_app) \
                         .child(addr).child("replacement_list").child(mid)
                     rl_ref.update({
