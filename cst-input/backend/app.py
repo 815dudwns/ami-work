@@ -486,9 +486,14 @@ def _saveact_core(body):
         master_suffix = auto[-2:]                        # 슬레이브 상속용 (LTE도 70/92로 확정된 끝2자리)
     # 작업구분: 신설=M1010(기본) / 기설=M1030 (ami-queue-design.md — 리스트밖 계기를 마스터로 쓰면 기설)
     work_div = "M1030" if str(body.get("mode", "")).strip() == "existing" else "M1010"
+    # 변대주 → DCU_ID: PLC계열(10 ks-plc/20 hpgp/90 k-dcu)에서만 DCU_ID=변대주번호(0000A000)+"00" (영준님 2026-07-02).
+    #   마스터·슬레이브 동일 DCU_ID. 변대주 빈값이면 미주입(기존 빈 DCU_ID 유지=무해).
+    bdju = str(body.get("bdju", "")).strip()
+    dcu_id = (bdju + "00") if (bdju and master_suffix in ("10", "20", "90")) else ""
     # 마스터
     mf = _common(mb, mac, m_instM, mb, n, m_inst_s, bungi="")
     mf["MODEM_DIV"] = "10"; mf["WORK_DIV"] = work_div
+    if dcu_id: mf["DCU_ID"] = dcu_id
     res_m = saveact_post(mf, _photos_to_files(m.get("photos", {}), tmpd))
     fid3 = res_m.get("atchFileId3", ""); fid4 = res_m.get("atchFileId4", "")
     results = [{"role": "master", "meterNo": mb, "resp": res_m}]
@@ -501,6 +506,7 @@ def _saveact_core(body):
         s_bungi = "무선" if (master_suffix == "92" and s_instM == "HW4050") else "0.5"
         sf = _common(s["meterNo"], mac, s_instM, mb, n, s_inst_s, bungi=s_bungi)
         sf["MODEM_DIV"] = "20"; sf["WORK_DIV"] = "M1010"   # 슬레이브는 항상 신설(마스터만 기설 M1030)
+        if dcu_id: sf["DCU_ID"] = dcu_id                   # 변대주 DCU_ID = 마스터와 동일(그룹 공유)
         photos = {"ATCH_FILE_ID_3": fid3, "ATCH_FILE_ID_4": fid4}
         sp = _photos_to_files(s.get("photos", {}), tmpd)
         if sp.get("ATCH_FILE_ID_5_SRC"):
