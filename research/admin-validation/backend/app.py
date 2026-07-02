@@ -53,8 +53,11 @@ _ADMIN_DIR   = _BACKEND_DIR.parent
 
 if str(_OCR_POC_DIR) not in sys.path:
     sys.path.insert(0, str(_OCR_POC_DIR))
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
 
 import daily_cycle  # noqa: E402 — sys.path 삽입 후
+import validation_rules  # noqa: E402 — on-read 검침 status 재판정(같은 backend 폴더)
 
 # ── 설정 파일 ────────────────────────────────────────────────────────────────────
 _CONFIG_PATH = _ADMIN_DIR / "dataset_config.json"
@@ -343,6 +346,10 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
             row["photo_url"] = rp.get(fid) or None
             lrp = rec.get("removal_lcd_photos") or {}
             row["lcd_photo_url"] = lrp.get(fid) or None
+            # ★ on-read 검침 status 재판정(2026-07-02): CSV에 굳은 worker_missing/판정을
+            #   workStatus 최신 검침값으로 다시 계산 → 작업자가 나중에 넣은 값 즉시 반영.
+            #   (human/human_skip/kepco는 validation_rules가 보존)
+            validation_rules.apply_onread(row, rec.get("removal_values") or {})
         # 서버(검증=daily_cycle)가 YOLO로 크롭한 LCD가 /tmp/daily_cycle에 있으면 그걸 표시(폰 크롭 없어도)
         row["lcd_crop_ts"] = None
         try:
@@ -361,6 +368,7 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         row["replaced_at"]      = replaced_at_map.get(mid)
         row["awms_synced"]      = bool(awms_synced_map.get(mid))
         row["awms_seal"]        = awms_seal_map.get(mid)
+        row["cha"]              = rec.get("cha") if rec else None  # 3b 차수 필터
 
     for row in results.get("meter_ids", []):
         row["photo_url"] = None
@@ -369,6 +377,13 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         rec = ts_mid_map.get((ts, mid)) or mid_rec_map.get(mid)  # ts 어긋난 수정건은 mid 단독 폴백
         if rec:
             row["photo_url"] = rec.get("new_meter_photo") or None
+            # ★ 2단계 단일진실(2026-07-02): 신설번호를 workStatus 최신으로 덮음
+            #   → 스왑·작업자변경 즉시 반영(CSV daily_meterid 수동교정 불필요).
+            #   CSV의 vision_result/google_result(OCR)는 그대로 대조에 쓰이고,
+            #   프론트 rowBucketRefined가 new_meter_id 기준으로 검증상태 재판정한다.
+            _nm = rec.get("new_meter_id")
+            if _nm:
+                row["new_meter_id"] = _nm
         row["remark"]           = remark_map.get(mid)
         row["meter_state"]      = meter_state_map.get(mid)
         row["new_meter_mfg_ym"] = new_mfg_ym_map.get(mid)
@@ -380,6 +395,7 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         row["replaced_at"]      = replaced_at_map.get(mid)
         row["awms_synced"]      = bool(awms_synced_map.get(mid))
         row["awms_seal"]        = awms_seal_map.get(mid)
+        row["cha"]              = rec.get("cha") if rec else None  # 3b 차수 필터
 
     for row in results.get("removal_ids", []):
         row["photo_url"] = None
@@ -401,6 +417,7 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         row["replaced_at"]      = replaced_at_map.get(mid)
         row["awms_synced"]      = bool(awms_synced_map.get(mid))
         row["awms_seal"]        = awms_seal_map.get(mid)
+        row["cha"]              = rec.get("cha") if rec else None  # 3b 차수 필터
 
 
 def _merge_unverified(results: dict, dataset: str, date: Optional[str]) -> None:
@@ -3522,26 +3539,73 @@ def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
             cons_no_j = json.dumps(payload.get("cons_no", ""))
             seal_no_j = json.dumps(str(payload.get("seal_no", "")))
             seal_no2_j = json.dumps(str(payload.get("seal_no2", "")))
-            expr = (
-                "(async()=>{"
-                f"const ADDR={addr_j};"
-                f"const METER={meter_j};"
-                f"const ACCOUNT={account_j};"
-                f"const CONS_NO={cons_no_j};"
-                f"const SEAL_NO={seal_no_j};"
-                f"const SEAL_NO2={seal_no2_j};"
-                "const it=(window._queue||[]).find(i=>i.addr===ADDR&&i.meter===METER);"
-                "if(!it)return {ok:false,err:'not-in-queue'};"
-                "try{"
-                "const r=await window.registerReplacement({"
-                "addr:it.addr,meter:it.meter,rep:it.rep,"
-                "injectedSeal:{seal_no:SEAL_NO,seal_no2:SEAL_NO2},"
-                "injectedConsNo:CONS_NO,injectedAccount:ACCOUNT"
-                "});"
-                "return {ok:true,awms_seal:r&&r.awms_seal}"
-                "}catch(e){return {ok:false,err:String(e&&e.message||e)}}"
-                "})()"
-            )
+
+            # rep_override: 맥이 Firebase에서 가져온 rep dict (선택적).
+            #   photo_override: {field: "data:image/jpeg;base64,..."} — 저용량 사진 주입 (선택적).
+            #   rep_override가 있으면 폰 _queue.find 대신 맥 rep을 사용하고,
+            #   photo_override 필드를 해당 rep 사진 필드에 덮어쓴 뒤 registerReplacement 호출.
+            #   없으면 기존 폰 _queue.find 경로 유지.
+            rep_override = payload.get("rep_override")  # dict or None
+            photo_override = payload.get("photo_override") or {}  # {field: data:URL}
+
+            if rep_override is not None:
+                # rep_override에 photo_override 사진 필드 치환
+                rep_merged = dict(rep_override)
+                # removal_photos는 photo_override에 {removal_photos_whme_day: url} 형태로 옴
+                # → rep.removal_photos 딕셔너리의 해당 키를 치환
+                for field, data_url in photo_override.items():
+                    if field.startswith("removal_photos_"):
+                        sub_key = field[len("removal_photos_"):]
+                        rp = dict(rep_merged.get("removal_photos") or {})
+                        rp[sub_key] = data_url
+                        rep_merged["removal_photos"] = rp
+                    else:
+                        rep_merged[field] = data_url
+
+                rep_j = json.dumps(rep_merged)
+                # live eval 표현식 — rep_override 경로 (폰 _queue 무관)
+                # ★ 이 표현식은 문자열로 준비만. 실행은 live_mode 게이트 통과 시만.
+                expr = (
+                    "(async()=>{"
+                    f"const ADDR={addr_j};"
+                    f"const METER={meter_j};"
+                    f"const ACCOUNT={account_j};"
+                    f"const CONS_NO={cons_no_j};"
+                    f"const SEAL_NO={seal_no_j};"
+                    f"const SEAL_NO2={seal_no2_j};"
+                    f"const REP_OVR={rep_j};"
+                    "try{"
+                    "const r=await window.registerReplacement({"
+                    "addr:ADDR,meter:METER,rep:REP_OVR,"
+                    "injectedSeal:{seal_no:SEAL_NO,seal_no2:SEAL_NO2},"
+                    "injectedConsNo:CONS_NO,injectedAccount:ACCOUNT"
+                    "});"
+                    "return {ok:true,awms_seal:r&&r.awms_seal,src:'rep_override'}"
+                    "}catch(e){return {ok:false,err:String(e&&e.message||e),src:'rep_override'}}"
+                    "})()"
+                )
+            else:
+                # 기존 경로: 폰 _queue.find로 rep 탐색
+                expr = (
+                    "(async()=>{"
+                    f"const ADDR={addr_j};"
+                    f"const METER={meter_j};"
+                    f"const ACCOUNT={account_j};"
+                    f"const CONS_NO={cons_no_j};"
+                    f"const SEAL_NO={seal_no_j};"
+                    f"const SEAL_NO2={seal_no2_j};"
+                    "const it=(window._queue||[]).find(i=>i.addr===ADDR&&i.meter===METER);"
+                    "if(!it)return {ok:false,err:'not-in-queue'};"
+                    "try{"
+                    "const r=await window.registerReplacement({"
+                    "addr:it.addr,meter:it.meter,rep:it.rep,"
+                    "injectedSeal:{seal_no:SEAL_NO,seal_no2:SEAL_NO2},"
+                    "injectedConsNo:CONS_NO,injectedAccount:ACCOUNT"
+                    "});"
+                    "return {ok:true,awms_seal:r&&r.awms_seal,src:'queue'}"
+                    "}catch(e){return {ok:false,err:String(e&&e.message||e),src:'queue'}}"
+                    "})()"
+                )
         else:
             # 연결검증 표현식 — registerReplacement 호출 없음
             expr = (
@@ -3637,6 +3701,13 @@ class TransmitRunReq(BaseModel):
     dataset: str
     # [{"mid", "addr"(opt), "account", "three"(opt bool), "meter_no"(opt), "cntr_clas_cd"(opt)}]
     assignments: list
+    # rep_override: 맥이 Firebase에서 공급한 rep dict (선택적). 없으면 폰 _queue.find 경로.
+    rep_override: dict | None = None
+    # photo_override: {field: "data:image/jpeg;base64,..."} — 저용량 사진 주입 (선택적).
+    #   field 예시: "old_meter_photo", "new_meter_photo", "removal_photos_whme_day"
+    photo_override: dict | None = None
+    # live: True 시 실등록 활성화 (AWMS_LIVE_SEND=1 환경변수와 동일 효과, 요청당 제어 가능)
+    live: bool = False
 
 
 @app.post("/transmit/run")
@@ -3751,7 +3822,7 @@ def post_transmit_run(req: TransmitRunReq):
                     if not addr:
                         raise ValueError(f"addr 역탐색 실패: mid={mid} (workStatus에 없음)")
 
-                    # 리모컨 전송 (STUB)
+                    # 리모컨 전송 (기본=연결검증, AWMS_LIVE_SEND=1 or live=true 시 실등록)
                     payload = {
                         "mid": mid,
                         "addr": addr,
@@ -3760,6 +3831,13 @@ def post_transmit_run(req: TransmitRunReq):
                         "seal_no": seal.get("seal_no", ""),
                         "seal_no2": seal.get("seal_no2", ""),
                     }
+                    # rep_override/photo_override: 요청에 있으면 전달 (맥 → 폰 사진 주입 경로)
+                    if req.rep_override is not None:
+                        payload["rep_override"] = req.rep_override
+                    if req.photo_override:
+                        payload["photo_override"] = req.photo_override
+                    if req.live:
+                        payload["live"] = True
                     remote_result = _remote_register(req.dataset, mid, payload)
 
                     if not remote_result.get("ok"):
