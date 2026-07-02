@@ -3533,6 +3533,9 @@ def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
 
         if live_mode:
             # 실등록 표현식 (AWMS_LIVE_SEND=1 또는 payload.live=True 일 때만)
+            # ★ 폰이 Firebase _db에서 rep를 직접 읽어 사진필드(Storage URL) 그대로 사용.
+            #   맥에서 사진을 주입하거나 _queue를 경유하지 않는다.
+            #   (검증패턴 /tmp/live_register.py 이식 — 사진주입 3줄만 제거)
             addr_j = json.dumps(payload.get("addr", ""))
             meter_j = json.dumps(str(payload.get("mid", "")))
             account_j = json.dumps(payload.get("account", ""))
@@ -3540,72 +3543,33 @@ def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
             seal_no_j = json.dumps(str(payload.get("seal_no", "")))
             seal_no2_j = json.dumps(str(payload.get("seal_no2", "")))
 
-            # rep_override: 맥이 Firebase에서 가져온 rep dict (선택적).
-            #   photo_override: {field: "data:image/jpeg;base64,..."} — 저용량 사진 주입 (선택적).
-            #   rep_override가 있으면 폰 _queue.find 대신 맥 rep을 사용하고,
-            #   photo_override 필드를 해당 rep 사진 필드에 덮어쓴 뒤 registerReplacement 호출.
-            #   없으면 기존 폰 _queue.find 경로 유지.
-            rep_override = payload.get("rep_override")  # dict or None
-            photo_override = payload.get("photo_override") or {}  # {field: data:URL}
-
-            if rep_override is not None:
-                # rep_override에 photo_override 사진 필드 치환
-                rep_merged = dict(rep_override)
-                # removal_photos는 photo_override에 {removal_photos_whme_day: url} 형태로 옴
-                # → rep.removal_photos 딕셔너리의 해당 키를 치환
-                for field, data_url in photo_override.items():
-                    if field.startswith("removal_photos_"):
-                        sub_key = field[len("removal_photos_"):]
-                        rp = dict(rep_merged.get("removal_photos") or {})
-                        rp[sub_key] = data_url
-                        rep_merged["removal_photos"] = rp
-                    else:
-                        rep_merged[field] = data_url
-
-                rep_j = json.dumps(rep_merged)
-                # live eval 표현식 — rep_override 경로 (폰 _queue 무관)
-                # ★ 이 표현식은 문자열로 준비만. 실행은 live_mode 게이트 통과 시만.
-                expr = (
-                    "(async()=>{"
-                    f"const ADDR={addr_j};"
-                    f"const METER={meter_j};"
-                    f"const ACCOUNT={account_j};"
-                    f"const CONS_NO={cons_no_j};"
-                    f"const SEAL_NO={seal_no_j};"
-                    f"const SEAL_NO2={seal_no2_j};"
-                    f"const REP_OVR={rep_j};"
-                    "try{"
-                    "const r=await window.registerReplacement({"
-                    "addr:ADDR,meter:METER,rep:REP_OVR,"
-                    "injectedSeal:{seal_no:SEAL_NO,seal_no2:SEAL_NO2},"
-                    "injectedConsNo:CONS_NO,injectedAccount:ACCOUNT"
-                    "});"
-                    "return {ok:true,awms_seal:r&&r.awms_seal,src:'rep_override'}"
-                    "}catch(e){return {ok:false,err:String(e&&e.message||e),src:'rep_override'}}"
-                    "})()"
-                )
-            else:
-                # 기존 경로: 폰 _queue.find로 rep 탐색
-                expr = (
-                    "(async()=>{"
-                    f"const ADDR={addr_j};"
-                    f"const METER={meter_j};"
-                    f"const ACCOUNT={account_j};"
-                    f"const CONS_NO={cons_no_j};"
-                    f"const SEAL_NO={seal_no_j};"
-                    f"const SEAL_NO2={seal_no2_j};"
-                    "const it=(window._queue||[]).find(i=>i.addr===ADDR&&i.meter===METER);"
-                    "if(!it)return {ok:false,err:'not-in-queue'};"
-                    "try{"
-                    "const r=await window.registerReplacement({"
-                    "addr:it.addr,meter:it.meter,rep:it.rep,"
-                    "injectedSeal:{seal_no:SEAL_NO,seal_no2:SEAL_NO2},"
-                    "injectedConsNo:CONS_NO,injectedAccount:ACCOUNT"
-                    "});"
-                    "return {ok:true,awms_seal:r&&r.awms_seal,src:'queue'}"
-                    "}catch(e){return {ok:false,err:String(e&&e.message||e),src:'queue'}}"
-                    "})()"
-                )
+            # ★ 이 표현식은 코드로만 준비. 실행은 live_mode 게이트 통과 시만.
+            expr = (
+                "(async()=>{"
+                f"const ADDR={addr_j};"
+                f"const METER={meter_j};"
+                f"const ACCOUNT={account_j};"
+                f"const CONS_NO={cons_no_j};"
+                f"const SEAL_NO={seal_no_j};"
+                f"const SEAL_NO2={seal_no2_j};"
+                # 폰 _db에서 rep 직접 로드 (workStatus/jongno/<addr>/replacement_list/<meter>)
+                "const path='workStatus/jongno/'+ADDR+'/replacement_list/'+METER;"
+                "const snap=await _db.ref(path).once('value');"
+                "const rep=snap.val();"
+                "if(!rep)return {ok:false,err:'rep-not-found:'+path};"
+                # 사진필드는 Storage URL 그대로 (재압축 주입 없음)
+                "try{"
+                "const r=await registerReplacement("
+                "{addr:ADDR,meter:METER,rep},"
+                "{injectedSeal:{seal_no:SEAL_NO,seal_no2:SEAL_NO2},"
+                "injectedConsNo:CONS_NO,injectedAccount:ACCOUNT}"
+                ");"
+                "return {ok:true,result:r};"
+                "}catch(e){"
+                "return {ok:false,err:String(e&&e.message||e)};"
+                "}"
+                "})()"
+            )
         else:
             # 연결검증 표현식 — registerReplacement 호출 없음
             expr = (
@@ -3619,9 +3583,10 @@ def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
             )
 
         # CDP Runtime.evaluate
+        # timeout=240: live 등록은 awms 서버 왕복이 최대 수분 걸릴 수 있음
         try:
             ws = _ws_mod.create_connection(
-                ws_url, timeout=30, max_size=None, suppress_origin=True
+                ws_url, timeout=240, max_size=None, suppress_origin=True
             )
             msg = json.dumps({
                 "id": 1,
@@ -3651,9 +3616,24 @@ def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
             return {"ok": False, "err": f"CDP eval 실패: {e}"}
 
         if live_mode:
-            # 실등록 모드: eval_result = {ok, awms_seal} or {ok:false, err}
+            # 실등록 모드: eval_result = {ok:true, result: r} or {ok:false, err:...}
+            # r(registerReplacement 반환값)에서 status/"ok" or awms_seal 존재 여부로 성공 판정
             if isinstance(eval_result, dict):
-                return {"ok": bool(eval_result.get("ok")), "awms_seal": eval_result.get("awms_seal"), "live": True}
+                if not eval_result.get("ok"):
+                    return {
+                        "ok": False,
+                        "err": eval_result.get("err"),
+                        "live": True,
+                        "raw": eval_result,
+                    }
+                result = eval_result.get("result") or {}
+                ok = (result.get("status") == "ok") or bool(result.get("awms_seal"))
+                return {
+                    "ok": ok,
+                    "live": True,
+                    "awms_seal": result.get("awms_seal"),
+                    "raw": result,
+                }
             return {"ok": False, "err": f"실등록 응답 비정상: {eval_result}", "live": True}
         else:
             # 연결검증 모드: eval_result = JSON 문자열
@@ -3873,7 +3853,7 @@ def post_transmit_run(req: TransmitRunReq):
                     _append_log({
                         "ts": now_ms, "mid": mid, "account": acct,
                         "seal": seal.get("seal_no", ""), "ok": True,
-                        "msg": f"전송완료(stub) seal={seal.get('seal_no','')} addr={addr}",
+                        "msg": f"전송완료 seal={seal.get('seal_no','')} addr={addr}",
                     })
 
                 except Exception as item_err:
