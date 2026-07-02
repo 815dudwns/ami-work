@@ -3263,6 +3263,136 @@ def get_audit(
     }
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# awms 전송 (계기큐 맥 이식) — 전송탭
+#   설계: research/admin-validation/전송탭_설계.md
+#   컨트롤 = 검증관리자(맥), 실행 = 계기큐(폰) 리모컨. 여기는 봉인계산·설정·배정·진행.
+#   봉인 중복방지: 진실원천 = DB 기록 최대 봉인 +1 (설정 시작값과 max 취함) → 중단/재개 안전.
+# ══════════════════════════════════════════════════════════════════════════════
+_TRANSMIT_CONFIG_PATH = Path(__file__).resolve().parent / "transmit_config.json"
+_TRANSMIT_CFG_LOCK = threading.Lock()
+
+
+def _load_transmit_config() -> dict:
+    try:
+        return json.loads(_TRANSMIT_CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_transmit_config(cfg: dict) -> None:
+    with _TRANSMIT_CFG_LOCK:
+        _TRANSMIT_CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+# 삼상 판별 폴백 — 계약종별 900+ = 삼상 / 계기번호 3~4자리 45·46·47·55 = 삼상.
+# (계기큐 awms-saverow.js _isThreePhase와 동일 규칙: 계약종별 우선, 없으면 계기번호)
+_THREE_PHASE_METER_CODES = {"45", "46", "47", "55"}
+
+
+def _is_three_phase(meter_no: str, cntr_clas_cd) -> bool:
+    try:
+        c = int(str(cntr_clas_cd))
+        if c > 0:
+            return c >= 900
+    except Exception:
+        pass
+    s = "".join(ch for ch in str(meter_no) if ch.isdigit())
+    code = s[2:4] if len(s) >= 4 else ""
+    return code in _THREE_PHASE_METER_CODES
+
+
+def _db_seal_max(raw: dict, account: str) -> int:
+    """workStatus 전체에서 특정 account(아이디)가 기록한 봉인번호(awms_seal.seal_no/seal_no2)의 최대값.
+    중복봉인 방지의 진실원천 — 다음 봉인 = 이 값 +1 (전송 중단 후 재개해도 이미 제출한 번호 재사용 안 함)."""
+    mx = 0
+    if not isinstance(raw, dict):
+        return 0
+    for _addr, av in raw.items():
+        if not isinstance(av, dict):
+            continue
+        for _mid, rec in (av.get("replacement_list") or {}).items():
+            if not isinstance(rec, dict):
+                continue
+            s = rec.get("awms_seal")
+            if not isinstance(s, dict) or s.get("account") != account:
+                continue
+            for k in ("seal_no", "seal_no2"):
+                v = s.get(k)
+                if v is not None and str(v).isdigit():
+                    mx = max(mx, int(v))
+    return mx
+
+
+def _allocate_seals(items: list, start_seal: int):
+    """순서대로 봉인번호 배정. 단상 +1, 삼상 +2(연속: N, N+1). items=[{mid, three}].
+    반환: ({mid: {seal_no, seal_no2}}, next_start)"""
+    cur = int(start_seal)
+    out = {}
+    for it in items:
+        if it.get("three"):
+            out[it["mid"]] = {"seal_no": str(cur), "seal_no2": str(cur + 1)}
+            cur += 2
+        else:
+            out[it["mid"]] = {"seal_no": str(cur), "seal_no2": ""}
+            cur += 1
+    return out, cur
+
+
+class TransmitConfigReq(BaseModel):
+    dataset: str
+    cons_no: str = ""          # 공사번호(차수) — 조회 고정값 저장해두고 그대로 주입
+    accounts: list = []        # [{"id": "mdp2504271", "start_seal": 3966855}] (아이디별 시작 봉인)
+
+
+@app.get("/transmit/config")
+def get_transmit_config(dataset: str = Query(...)):
+    return _load_transmit_config().get(dataset, {"dataset": dataset, "cons_no": "", "accounts": []})
+
+
+@app.post("/transmit/config")
+def post_transmit_config(req: TransmitConfigReq):
+    cfg = _load_transmit_config()
+    cfg[req.dataset] = {"dataset": req.dataset, "cons_no": req.cons_no, "accounts": req.accounts}
+    _save_transmit_config(cfg)
+    return {"ok": True, "config": cfg[req.dataset]}
+
+
+class TransmitPlanReq(BaseModel):
+    dataset: str
+    # [{"mid", "account", "three"(opt bool), "cntr_clas_cd"(opt), "meter_no"(opt)}]
+    assignments: list
+
+
+@app.post("/transmit/plan")
+def post_transmit_plan(req: TransmitPlanReq):
+    """봉인 배정 미리보기(dry-run, 실전송 없음). 계정별 시작 = max(DB기록 최대+1, 설정 시작값).
+    프론트가 전송 전 봉인번호를 확인·검토하는 용도."""
+    cfg = _load_transmit_config().get(req.dataset, {})
+    starts = {a.get("id"): int(a.get("start_seal") or 0) for a in cfg.get("accounts", [])}
+    raw = _get_ws_raw(req.dataset) or {}
+
+    by_acct: Dict[str, list] = {}
+    for a in req.assignments:
+        acct = a.get("account") or ""
+        three = a.get("three")
+        if three is None:
+            three = _is_three_phase(a.get("meter_no", ""), a.get("cntr_clas_cd"))
+        by_acct.setdefault(acct, []).append({"mid": a["mid"], "three": bool(three)})
+
+    plan: Dict[str, dict] = {}
+    accounts_meta: Dict[str, dict] = {}
+    for acct, items in by_acct.items():
+        start = max(_db_seal_max(raw, acct) + 1, starts.get(acct, 0) or 1)
+        alloc, nxt = _allocate_seals(items, start)
+        for mid, v in alloc.items():
+            plan[mid] = {**v, "account": acct}
+        accounts_meta[acct] = {"start": start, "next_after": nxt, "count": len(items)}
+
+    return {"dataset": req.dataset, "cons_no": cfg.get("cons_no", ""),
+            "plan": plan, "accounts": accounts_meta}
+
+
 # ── 헬스체크 ─────────────────────────────────────────────────────────────────────
 @app.get("/")
 def root():
