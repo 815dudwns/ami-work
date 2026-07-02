@@ -3389,6 +3389,56 @@ def post_transmit_config(req: TransmitConfigReq):
     return {"ok": True, "config": cfg[req.dataset]}
 
 
+# ── GET /transmit/busilist ────────────────────────────────────────────────────
+@app.get("/transmit/busilist")
+def get_transmit_busilist(dataset: str = Query(..., description="dataset id")):
+    """계기큐 컨텍스트에서 awms getBusiList 조회 → 공사목록 반환.
+
+    CDP로 폰 계기큐 localhost 페이지에서 _awmsGet(AWMS_API + '/mobMtr1000/getBusiList?DEPT1=' + DEFAULT_AWMS.HDQR_CD)
+    를 실행한다. 계기큐가 폰에서 실행 중이고 adb 연결돼 있어야 한다.
+
+    반환: {list: [{cons_no, name, seqno}]}
+      - cons_no : CONS_NO    (공사번호, 등록/전송 시 사용)
+      - name    : CONS_OVVW_CTT (공사명, 드롭다운 표시용)
+      - seqno   : WHM_SEQNO  (차수순번)
+    """
+    cfg = _load_config()
+    if dataset not in cfg.get("datasets", {}):
+        raise HTTPException(status_code=404, detail=f"dataset '{dataset}' 없음")
+
+    expr = (
+        "_awmsGet(AWMS_API + '/mobMtr1000/getBusiList?DEPT1=' + DEFAULT_AWMS.HDQR_CD)"
+        ".then(r => JSON.stringify(r))"
+    )
+    result = _cdp_eval_queue(expr, await_promise=True, timeout=15)
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail=f"CDP 조회 실패: {result.get('err')}")
+
+    raw_val = result.get("value")
+    try:
+        if isinstance(raw_val, str):
+            items = json.loads(raw_val)
+        else:
+            items = raw_val
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"응답 파싱 실패: {e} / raw={raw_val!r}")
+
+    if not isinstance(items, list):
+        raise HTTPException(status_code=502, detail=f"예상치 못한 응답 형식: {type(items).__name__}")
+
+    busi_list = [
+        {
+            "cons_no": str(it.get("CONS_NO", "")).strip(),
+            "name": str(it.get("CONS_OVVW_CTT", "")).strip(),
+            "seqno": it.get("WHM_SEQNO"),
+        }
+        for it in items
+        if isinstance(it, dict)
+    ]
+
+    return {"list": busi_list}
+
+
 class TransmitPlanReq(BaseModel):
     dataset: str
     # [{"mid", "account", "three"(opt bool), "cntr_clas_cd"(opt), "meter_no"(opt)}]
