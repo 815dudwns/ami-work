@@ -12,8 +12,8 @@
 | 앱(호칭) | 버전 위치 | 현재 버전 | 갱신일 |
 |---|---|---|---|
 | **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` / APK | `v0626b-아이디선택` / APK 오버레이fetch | 2026-06-26 |
-| **아미큐**(통신큐·통신팀) | `ami-queue` `versionName` / `ami-queue-www/app.js` `APP_VER` | `1.0` / `v0614f-여러그룹` | 2026-06-14 |
-| **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260627.3` / `v20260627.3` (관리자 메뉴: 리포트 삭제·검침값검증→데이터검증 포털, VALIDATE_PORTAL_URL 상수 추가 / 메뉴 기본펼침: 테마 접고 지도표시만) | 2026-06-28 |
+| **아미큐**(통신큐·통신팀) | `cst-app` `versionName`(네이티브) / `cst-input/cst-version.json`(자동업뎃) | `2.1.8` (PLC 신설 변대주번호→DCU_ID=변대주+"00" / 마스터 사진칸 확대 / 함체유형 단독·집합: 단독+슬0=단독형 대표계기·함내수 빈칸, 단독+슬有=집합형단독40, 집합=20) | 2026-07-02 |
+| **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260702.3` / `v20260702.3` (명륜 팀 할당 편집도구 전면 제거=map.js _ta IIFE·버튼·패널 삭제, myungroon=배분 뷰어로 축소. 계정잠금·팀색·팀필터·team-assign.json 유지. 재배정='중구작업'(meter_updatedByName~중구) 종로47→중구, 종로1211/중구1365) | 2026-07-02 |
 | **종로 보조앱**(jongno-snap) | `snap.html` 설정 버전라벨 / APK | `v20260618.2` (동시업로드 temp유출 픽스) / versionCode 78 | 2026-06-18 |
 | **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260624a` | 2026-06-24 |
 | **헬퍼**(awms-helper) | `versionName` / inject | `1.0.77` / inject `v80` | 2026-06-28 |

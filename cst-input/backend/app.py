@@ -490,14 +490,13 @@ def _saveact_core(body):
     #   마스터·슬레이브 동일 DCU_ID. 변대주 빈값이면 미주입(기존 빈 DCU_ID 유지=무해).
     bdju = str(body.get("bdju", "")).strip()
     dcu_id = (bdju + "00") if (bdju and master_suffix in ("10", "20", "90")) else ""
-    # 함체유형(영준님 2026-07-02): 단독+슬0→단독형(10, 대표계기·함내수 빈칸) / 단독+슬有→집합형단독(40) / 집합→그대로(20)
+    # 함체유형(영준님 2026-07-02, 40 안 됨 → 집합과 동일 20): 단독+슬0만 단독형(10, 대표계기·함내수 빈칸).
+    #   단독+슬有 = 집합과 동일(20, 대표계기·함내수 그대로). 집합 = 그대로(20).
     ham = str(body.get("ham", "")).strip()
     if ham == "단독" and len(slaves) == 0:
         fclty, mb_id, mb_cnt = "10", "", ""            # 단독형: MB_METER_ID/MB_CNT 빈칸
-    elif ham == "단독":
-        fclty, mb_id, mb_cnt = "40", mb, n             # 집합형(단독)
     else:
-        fclty, mb_id, mb_cnt = "20", mb, n             # 집합 그대로(정본 기본)
+        fclty, mb_id, mb_cnt = "20", mb, n             # 단독+슬有 · 집합 = 그대로(정본 기본 20)
     # 마스터
     mf = _common(mb, mac, m_instM, mb_id, mb_cnt, m_inst_s, bungi="")
     mf["MODEM_DIV"] = "10"; mf["WORK_DIV"] = work_div; mf["FCLTY_DIV"] = fclty

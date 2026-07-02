@@ -210,6 +210,7 @@ datapush_queue/{id}: {
 - **saveAct 필드 = `DCU_ID`**. 값 = **변대주번호(0000A000) + "00"**. 예: 변대주 `9926G874` → DCU_ID `9926G87400`. **마스터·슬레이브 둘 다** 같은 DCU_ID.
 - 용어 정리: awms 조회컬럼 "변대주"(=`TR_FEED_NM`/`TR_FEED`, "현저간 18L8R2")는 실은 **전주번호**(원하는 게 아님). 원하는 건 **변대주번호=0000A000**. (awms 폼 form0113=DCU_ID / form0105=TR_POLE_NO=전주 / form0111=TR_FEED_NM.)
 - 변대주번호는 **신설이라 awms getDetail엔 없을 수 있음** → 자동채움은 awms 아닌 **site-data**에서: **동행 YES** → 계기번호==종로 workStatus `new_meter_id` → 종로 site-data `변대주`(9926G874). **동행 NO** → 계기번호==ami-work site-data 계기번호 → 변대주번호(ami-work `DCUID` 앞8자 등, 라이브 재확인). QR=보조앱 파싱 재사용.
-- **자동채움 우선순위(영준님 2026-07-02)**: ①마스터 계기번호로 조회 → 있으면 채움 ②없으면 슬레이브 계기번호 순회 조회 → 첫 매칭 채움 ③다 없으면 **빈칸(수동입력)**. (변대주는 그룹 공유값이라 마스터·슬레이브 중 site-data에 있는 계기 걸로.)
+- **자동채움 우선순위(영준님 2026-07-02)**: ①마스터 계기번호로 조회 → 있으면 채움 ②없으면 슬레이브 계기번호 순회 조회 → 첫 매칭 채움 ③다 없으면 **빈칸(수동입력)**. (변대주는 그룹 공유값이라 마스터·슬레이브 중 데이터에 있는 계기 걸로.)
+- **★동행 매칭은 workStatus(임시저장 포함)로**(영준님 2026-07-02): 종로 site-data `new_meter_no`는 **0건**(신설이 임시저장이라 site-data 미동기). 신설번호(new_meter_id)는 **workStatus/jongno replacement_list에만** 있고 **임시저장/draft도 포함**. 따라서 동행 자동채움 = 아미큐 계기번호 == workStatus replacement_list `new_meter_id`(draft 포함) → 그 항목의 old_meter_id/주소로 종로 site-data `변대주`(0000A000) 조회. site-data new_meter_no로 매칭 금지(비어있음).
 - **구현 순서**: Part1(설정=PLC계열(suffix 10/20/90)+신설 시 마지막단계 변대주 텍스트박스 → body 실어 백엔드 → app.py SACT 빌더 `DCU_ID=변대주+"00"` → 더미 saveAct result:1 검증) → Part2(동행분기 자동채움 + QR). 라이브 write는 result:1 실증 후.
 - 범위: 앱 `cst-app`(CollectViewModel/CollectScreen 변대주 상태·UI·body) + 백엔드 `cst-input/backend/app.py`(SACT DCU_ID). 빌드=gradlew assembleDebug+install(폰 필요).
