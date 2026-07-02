@@ -337,6 +337,89 @@ def api_config_set(body: dict = Body(...)):
     return CONFIG
 
 
+# ── 변대주번호 자동조회 (아미큐 자동채움, 영준님 2026-07-02) ──────────
+# 동행(WITH_YN=Y): 계기번호==종로 workStatus new_meter_id(임시저장 포함) → 종로 site-data '변대주'(0000A000)
+# 일반(그외):       계기번호==ami-work site-data 계기번호 → 'DCUID' 앞 8자(0000A000)
+_JONGNO_SD = ROOT.parent / "jongno-combined" / "data" / "jongno-site-data.json"
+_AMIWORK_SD = ROOT / "data" / "site-data.json"
+_JONGNO_WS_URL = "https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/workStatus/jongno.json"
+_bdju_cache = {"jsd": None, "asd": None, "ws": None, "ws_ts": 0.0}
+
+
+def _decode_jongno_key(k: str) -> str:
+    for a, b in (("__DOT__", "."), ("__HASH__", "#"), ("__DOLLAR__", "$"),
+                 ("__SLASH__", "/"), ("__LBRACKET__", "["), ("__RBRACKET__", "]")):
+        k = k.replace(a, b)
+    return k
+
+
+def _load_sd(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _jongno_ws():
+    now = time.time()
+    if _bdju_cache["ws"] is None or now - _bdju_cache["ws_ts"] > 180:   # 3분 캐시
+        try:
+            with urllib.request.urlopen(_JONGNO_WS_URL, timeout=60) as r:
+                _bdju_cache["ws"] = json.load(r); _bdju_cache["ws_ts"] = now
+        except Exception:
+            if _bdju_cache["ws"] is None:
+                _bdju_cache["ws"] = {}
+    return _bdju_cache["ws"]
+
+
+def _bdju_donghang(mid: str) -> str:
+    ws = _jongno_ws()
+    if _bdju_cache["jsd"] is None:
+        _bdju_cache["jsd"] = _load_sd(_JONGNO_SD)
+    for k, v in ws.items():
+        if not isinstance(v, dict):
+            continue
+        rl = v.get("replacement_list") or {}
+        if not isinstance(rl, dict):
+            continue
+        for oldid, r in rl.items():
+            if isinstance(r, dict) and str(r.get("new_meter_id", "")) == mid:
+                addr = _decode_jongno_key(k).strip()
+                for m in _bdju_cache["jsd"]:
+                    if str(m.get("계기번호")) == str(oldid) or str(m.get("주소", "")).strip() == addr:
+                        b = str(m.get("변대주") or "").strip()
+                        if b:
+                            return b
+    return ""
+
+
+def _bdju_ilban(mid: str) -> str:
+    if _bdju_cache["asd"] is None:
+        _bdju_cache["asd"] = _load_sd(_AMIWORK_SD)
+    for m in _bdju_cache["asd"]:
+        if str(m.get("계기번호")) == mid:
+            d = str(m.get("DCUID") or "").strip()
+            return d[:8] if len(d) >= 8 else ""
+    return ""
+
+
+@app.get("/api/bdju")
+def api_bdju(meters: str = ""):
+    """변대주번호(0000A000) 자동조회. meters=쉼표구분(마스터,슬레이브…), 마스터 우선 첫 매칭 반환.
+    동행(WITH_YN=Y)=종로 우선 / 일반=ami-work 우선. 못 찾으면 반대 소스도 시도."""
+    mids = [x.strip() for x in meters.split(",") if x.strip()]
+    donghang = str(CONFIG.get("WITH_YN", "")).strip() == "Y"
+    primary, secondary = (_bdju_donghang, _bdju_ilban) if donghang else (_bdju_ilban, _bdju_donghang)
+    for mid in mids:
+        if len(mid) < 10:
+            continue
+        b = primary(mid) or secondary(mid)
+        if b:
+            return {"bdju": b, "meter": mid, "donghang": donghang}
+    return {"bdju": "", "donghang": donghang}
+
+
 OCR_SWIFT = ROOT / "research" / "ocr_poc" / "visionocr_batch.swift"
 
 

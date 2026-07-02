@@ -1,5 +1,5 @@
 {
-  "versionName": "2.1.8",
+  "versionName": "2.1.9",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "마스터 사진칸 크게 + 함체유형(단독/집합) 선택. 단독+슬0=단독형(대표계기·함내수 빈칸), 단독+슬有=집합형단독. PLC 신설 변대주번호→DCU_ID"
+  "notes": "변대주번호 자동채움(동행=종로 신설번호→변대주 / 일반=아미맵 DCUID). PLC 신설 시 DONE에서 자동조회, 실패 시 직접입력"
 }
