@@ -492,17 +492,17 @@ def _saveact_core(body):
     dcu_id = (bdju + "00") if (bdju and master_suffix in ("10", "20", "90")) else ""
     # 함체유형(영준님 2026-07-02): 단독+슬0→단독형(10, 대표계기·함내수 빈칸) / 단독+슬有→집합형단독(40) / 집합→그대로(20)
     ham = str(body.get("ham", "")).strip()
-    if ham == "단독" and len(slaves) == 0:
-        fclty, mb_id, mb_cnt = "10", "", ""            # 단독형: MB_METER_ID/MB_CNT 빈칸
-    elif ham == "단독":
-        fclty, mb_id, mb_cnt = "40", mb, n             # 집합형(단독) — 단독인데 슬레이브 있음
-    else:
-        fclty, mb_id, mb_cnt = "20", mb, n             # 집합 그대로(정본 기본 20)
+    solo_blank = (ham == "단독" and len(slaves) == 0)   # 단독형: 대표계기·함내수 빈칸
+    fclty = "10" if solo_blank else ("40" if ham == "단독" else "20")
     # 마스터
-    mf = _common(mb, mac, m_instM, mb_id, mb_cnt, m_inst_s, bungi="")
+    mf = _common(mb, mac, m_instM, mb, n, m_inst_s, bungi="")
     mf["MODEM_DIV"] = "10"; mf["WORK_DIV"] = work_div; mf["FCLTY_DIV"] = fclty
+    if solo_blank:
+        # 빈값 ""은 awms Java parseInt 폭발(→500/실패). 빈칸=키 자체를 omit ([[awms_saveact_500_fix]] 패턴)
+        mf.pop("MB_METER_ID", None); mf.pop("MB_CNT", None)
     if dcu_id: mf["DCU_ID"] = dcu_id
     res_m = saveact_post(mf, _photos_to_files(m.get("photos", {}), tmpd))
+    print(f"[saveact] master {mb} ham={ham or '집합'} fclty={fclty} → {res_m}", flush=True)  # 진단 로그
     fid3 = res_m.get("atchFileId3", ""); fid4 = res_m.get("atchFileId4", "")
     results = [{"role": "master", "meterNo": mb, "resp": res_m}]
     yield {"type": "item", "role": "master", "meterNo": mb, "idx": 1, "total": n,
@@ -521,6 +521,7 @@ def _saveact_core(body):
         if sp.get("ATCH_FILE_ID_5_SRC"):
             photos["ATCH_FILE_ID_5_SRC"] = sp["ATCH_FILE_ID_5_SRC"]
         res_s = saveact_post(sf, photos)
+        print(f"[saveact] slave {s['meterNo']} fclty={fclty} → {res_s}", flush=True)  # 진단 로그
         results.append({"role": "slave", "meterNo": s["meterNo"], "resp": res_s})
         yield {"type": "item", "role": "slave", "meterNo": s["meterNo"], "idx": i + 2, "total": n,
                "ok": bool(res_s.get("result") == 1)}
