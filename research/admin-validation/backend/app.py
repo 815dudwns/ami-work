@@ -199,6 +199,8 @@ def _build_photo_map(dataset: str, date: Optional[str]) -> dict:
     draft_map: Dict[str, Any] = {}              # mid → 임시저장(미완료) 여부 (계기 단위, 주소 meter_state 아님)
     worker_map: Dict[str, str] = {}             # mid → worker (작업자 필드, 도입전 kepco 판정용)
     replaced_at_map: Dict[str, Any] = {}        # mid → replaced_at (ms, 도입전 경계 판정용)
+    awms_synced_map: Dict[str, bool] = {}       # mid → awms_synced (전송완료 여부)
+    awms_seal_map: Dict[str, Any] = {}          # mid → awms_seal dict (봉인번호·계정 기록)
     # mid 단독 폴백: 같은 날 mid가 유일할 때만 채택 (ts15가 어긋난 수정건 보정용).
     # 중복 mid는 모호하므로 폴백에서 제외(_AMBIG로 표시 후 최종 제거).
     _mid_recs: Dict[str, list] = {}             # mid → [rec, ...] (그날)
@@ -241,6 +243,8 @@ def _build_photo_map(dataset: str, date: Optional[str]) -> dict:
             validated_map[mid] = bool(rec.get("validated"))   # 검증완료 플래그
             worker_map[mid] = rec.get("worker", "") or ""     # 작업자 (도입전 kepco 판정용)
             replaced_at_map[mid] = ra                          # 작업일시 ms (도입전 경계 판정용)
+            awms_synced_map[mid] = bool(rec.get("awms_synced"))   # awms 전송완료 여부
+            awms_seal_map[mid] = rec.get("awms_seal") or None     # 봉인번호·계정 기록 (없으면 None)
             # 임시저장(미완료) = draft 플래그 또는 신설계기번호/철거검침값 누락 (daily_summary와 동일 규칙)
             draft_map[mid] = bool(
                 rec.get("draft") is True
@@ -265,6 +269,8 @@ def _build_photo_map(dataset: str, date: Optional[str]) -> dict:
         "draft_map": draft_map,
         "worker_map": worker_map,
         "replaced_at_map": replaced_at_map,
+        "awms_synced_map": awms_synced_map,
+        "awms_seal_map": awms_seal_map,
     }
 
 
@@ -320,6 +326,8 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
     draft_map       = maps.get("draft_map", {})
     worker_map      = maps.get("worker_map", {})
     replaced_at_map = maps.get("replaced_at_map", {})
+    awms_synced_map = maps.get("awms_synced_map", {})
+    awms_seal_map   = maps.get("awms_seal_map", {})
 
     for row in results.get("meter_values", []):
         row["photo_url"] = None
@@ -351,6 +359,8 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         row["is_draft"]         = bool(draft_map.get(mid))
         row["worker"]           = worker_map.get(mid, "")
         row["replaced_at"]      = replaced_at_map.get(mid)
+        row["awms_synced"]      = bool(awms_synced_map.get(mid))
+        row["awms_seal"]        = awms_seal_map.get(mid)
 
     for row in results.get("meter_ids", []):
         row["photo_url"] = None
@@ -368,6 +378,8 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         row["is_draft"]         = bool(draft_map.get(mid))
         row["worker"]           = worker_map.get(mid, "")
         row["replaced_at"]      = replaced_at_map.get(mid)
+        row["awms_synced"]      = bool(awms_synced_map.get(mid))
+        row["awms_seal"]        = awms_seal_map.get(mid)
 
     for row in results.get("removal_ids", []):
         row["photo_url"] = None
@@ -387,6 +399,8 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         row["is_draft"]         = bool(draft_map.get(mid))
         row["worker"]           = worker_map.get(mid, "")
         row["replaced_at"]      = replaced_at_map.get(mid)
+        row["awms_synced"]      = bool(awms_synced_map.get(mid))
+        row["awms_seal"]        = awms_seal_map.get(mid)
 
 
 def _merge_unverified(results: dict, dataset: str, date: Optional[str]) -> None:
@@ -3391,6 +3405,264 @@ def post_transmit_plan(req: TransmitPlanReq):
 
     return {"dataset": req.dataset, "cons_no": cfg.get("cons_no", ""),
             "plan": plan, "accounts": accounts_meta}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# awms 전송 실행 — /transmit/run + /transmit/job/{job_id}
+#   STUB: 실제 awms(계기팀 mob/mtr) HTTP 호출 없음. 폰 리모컨 배선은 T11.
+#   봉인 계산·Firebase DB 기록만 실수행.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# 전송 잡 저장소 — 검증 잡(_JOBS/_RUNNING_JOB)과 완전 분리 (MPS 단일프로세스 게이트 불필요)
+_TRANSMIT_JOBS: Dict[str, dict] = {}
+_TRANSMIT_JOBS_LOCK = threading.Lock()
+
+
+def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
+    """맥→폰 계기큐 리모컨 전송 (실제 배선은 T11/폰검증).
+    STUB — 실제 폰 리모컨 전송 미배선(T11). 성공 흉내 + 로그만.
+    실제 awms(계기팀 mob/mtr) 호출은 절대 여기서 하지 않는다."""
+    print(f"[transmit][stub] dataset={dataset} mid={mid} payload_keys={list(payload.keys())}", flush=True)
+    return {"ok": True, "stub": True, "awms_response": None}
+
+
+def _get_transmit_fa_app(ds: dict):
+    """전송용 Firebase 앱 핸들 획득. set_validated 패턴 재사용."""
+    import firebase_admin
+    from firebase_admin import credentials as fb_creds
+    rtdb_base = ds.get("rtdb_review_url", "").rstrip("/")
+    cred_path = ds.get("cred", "")
+    existing = firebase_admin._apps.get("[DEFAULT]")
+    if existing is not None and existing.options and existing.options.get("databaseURL"):
+        return existing
+    for nm in ("admin_verdict", "admin_apply"):
+        named = firebase_admin._apps.get(nm)
+        if named is not None:
+            return named
+    if cred_path and Path(cred_path).exists():
+        cred = fb_creds.Certificate(cred_path)
+    else:
+        cred = fb_creds.ApplicationDefault()
+    return firebase_admin.initialize_app(cred, {"databaseURL": rtdb_base}, name="admin_apply")
+
+
+class TransmitRunReq(BaseModel):
+    dataset: str
+    # [{"mid", "addr"(opt), "account", "three"(opt bool), "meter_no"(opt), "cntr_clas_cd"(opt)}]
+    assignments: list
+
+
+@app.post("/transmit/run")
+def post_transmit_run(req: TransmitRunReq):
+    """awms 전송 실행 — 백그라운드 잡. job_id 즉시 반환, GET /transmit/job/{id}로 폴링.
+    실제 awms 호출 없음(STUB). 봉인 배정·Firebase DB 기록·잡 진행 로그만 실수행."""
+    cfg = _load_config()
+    ds = cfg.get("datasets", {}).get(req.dataset)
+    if ds is None:
+        raise HTTPException(status_code=404, detail=f"dataset '{req.dataset}' 없음")
+    if not req.assignments:
+        raise HTTPException(status_code=400, detail="assignments 비어있음")
+
+    job_id = str(uuid.uuid4())[:8]
+    total = len(req.assignments)
+
+    with _TRANSMIT_JOBS_LOCK:
+        _TRANSMIT_JOBS[job_id] = {
+            "status": "running",
+            "total": total,
+            "done": 0,
+            "ok_count": 0,
+            "fail_count": 0,
+            "progress": 0,
+            "logs": [],
+            "accounts": {},
+            "started_at": datetime.now(KST).isoformat(),
+            "finished_at": None,
+        }
+
+    def _append_log(msg_dict: dict):
+        with _TRANSMIT_JOBS_LOCK:
+            j = _TRANSMIT_JOBS.get(job_id)
+            if j is not None:
+                j["logs"].append(msg_dict)
+
+    def _update_progress(done: int, ok: int, fail: int):
+        with _TRANSMIT_JOBS_LOCK:
+            j = _TRANSMIT_JOBS.get(job_id)
+            if j is not None:
+                j["done"] = done
+                j["ok_count"] = ok
+                j["fail_count"] = fail
+                j["progress"] = int(done / total * 100) if total else 100
+
+    def _run():
+        from firebase_admin import db as fb_db
+        ok_count = 0
+        fail_count = 0
+
+        try:
+            # 전송 설정 로드 (공사번호·계정별 시작 봉인)
+            t_cfg = _load_transmit_config().get(req.dataset, {})
+            cons_no = t_cfg.get("cons_no", "")
+            starts = {a.get("id"): int(a.get("start_seal") or 0)
+                      for a in t_cfg.get("accounts", [])}
+
+            # workStatus 전체 트리 — 봉인 최대값 조회 + addr 역탐색에 사용 (1회만)
+            raw = _get_ws_raw(req.dataset) or {}
+
+            # 계정별 그룹핑 + 삼상 판정 (루프 전 일괄)
+            by_acct: Dict[str, list] = {}
+            for a in req.assignments:
+                acct = a.get("account") or ""
+                three = a.get("three")
+                if three is None:
+                    three = _is_three_phase(
+                        a.get("meter_no", "") or "",
+                        a.get("cntr_clas_cd") or 0,
+                    )
+                by_acct.setdefault(acct, []).append({"mid": a["mid"], "three": bool(three)})
+
+            # 계정별 봉인 배정 (루프 전 일괄 — DB seal_max는 전송 전 1회만 읽음)
+            mid_seal: Dict[str, dict] = {}   # mid → {seal_no, seal_no2, account}
+            acct_meta: Dict[str, dict] = {}  # account → {start, next_after}
+            for acct, items in by_acct.items():
+                db_max = _db_seal_max(raw, acct)
+                start = max(db_max + 1, starts.get(acct, 0) or 1)
+                alloc, nxt = _allocate_seals(items, start)
+                for mid, seal in alloc.items():
+                    mid_seal[mid] = {**seal, "account": acct}
+                acct_meta[acct] = {"start": start, "next_after": nxt}
+
+            with _TRANSMIT_JOBS_LOCK:
+                j = _TRANSMIT_JOBS.get(job_id)
+                if j is not None:
+                    j["accounts"] = acct_meta
+
+            # addr 역탐색 인덱스: mid → addr (replacement_list 키 직접 확인)
+            mid_addr_idx: Dict[str, str] = {}
+            if isinstance(raw, dict):
+                for addr, av in raw.items():
+                    if not isinstance(av, dict):
+                        continue
+                    for m in (av.get("replacement_list") or {}):
+                        mid_addr_idx[str(m)] = addr
+
+            # Firebase 앱 초기화 (전송 루프 전 1회)
+            fa_app = _get_transmit_fa_app(ds)
+            ws_path = ds.get("ws_path", "workStatus/jongno")
+
+            # 건별 전송 루프
+            for idx, a in enumerate(req.assignments):
+                mid = str(a.get("mid", "")).strip()
+                now_ms = int(time.time() * 1000)
+                seal = mid_seal.get(mid, {})
+                acct = seal.get("account", a.get("account", ""))
+
+                try:
+                    # addr 확보 (요청에 있으면 우선, 없으면 역탐색)
+                    addr = str(a.get("addr", "")).strip() or mid_addr_idx.get(mid, "")
+                    if not addr:
+                        raise ValueError(f"addr 역탐색 실패: mid={mid} (workStatus에 없음)")
+
+                    # 리모컨 전송 (STUB)
+                    payload = {
+                        "mid": mid,
+                        "addr": addr,
+                        "account": acct,
+                        "cons_no": cons_no,
+                        "seal_no": seal.get("seal_no", ""),
+                        "seal_no2": seal.get("seal_no2", ""),
+                    }
+                    remote_result = _remote_register(req.dataset, mid, payload)
+
+                    if not remote_result.get("ok"):
+                        raise ValueError(f"리모컨 전송 실패: {remote_result}")
+
+                    # Firebase DB 기록 — replacement_list/{mid} 에 awms_seal + awms_synced 머지
+                    rl_ref = fb_db.reference(ws_path, app=fa_app) \
+                        .child(addr).child("replacement_list").child(mid)
+                    rl_ref.update({
+                        "awms_seal": {
+                            "account": acct,
+                            "seal_no": seal.get("seal_no", ""),
+                            "seal_no2": seal.get("seal_no2", ""),
+                            "cons_no": cons_no,
+                        },
+                        "awms_synced": True,
+                        "awms_synced_at": now_ms,
+                    })
+
+                    ok_count += 1
+                    _append_log({
+                        "ts": now_ms, "mid": mid, "account": acct,
+                        "seal": seal.get("seal_no", ""), "ok": True,
+                        "msg": f"전송완료(stub) seal={seal.get('seal_no','')} addr={addr}",
+                    })
+
+                except Exception as item_err:
+                    fail_count += 1
+                    _append_log({
+                        "ts": int(time.time() * 1000), "mid": mid, "account": acct,
+                        "seal": seal.get("seal_no", ""), "ok": False,
+                        "msg": str(item_err),
+                    })
+
+                _update_progress(idx + 1, ok_count, fail_count)
+
+            # 전송 완료 후 — 계정별 최종 봉인 서버저장 예정 (폰 리모컨 T11 배선 후)
+            for acct2, meta in acct_meta.items():
+                last_seal = meta["next_after"] - 1
+                print(
+                    f"[transmit] 최종봉인 서버저장 예정(폰 리모컨 T11): "
+                    f"account={acct2} last_seal={last_seal}",
+                    flush=True,
+                )
+                _append_log({
+                    "ts": int(time.time() * 1000), "mid": "", "account": acct2,
+                    "seal": str(last_seal), "ok": True,
+                    "msg": f"최종봉인 서버저장 예정(폰 리모컨 T11): account={acct2} last_seal={last_seal}",
+                })
+
+            with _TRANSMIT_JOBS_LOCK:
+                j = _TRANSMIT_JOBS.get(job_id)
+                if j is not None:
+                    j.update({
+                        "status": "done",
+                        "finished_at": datetime.now(KST).isoformat(),
+                    })
+
+        except Exception as job_err:
+            # 잡 레벨 예외 (설정 로드 실패 등)
+            _append_log({
+                "ts": int(time.time() * 1000), "mid": "", "account": "",
+                "seal": "", "ok": False,
+                "msg": f"잡 오류: {traceback.format_exc()}",
+            })
+            with _TRANSMIT_JOBS_LOCK:
+                j = _TRANSMIT_JOBS.get(job_id)
+                if j is not None:
+                    j.update({
+                        "status": "error",
+                        "finished_at": datetime.now(KST).isoformat(),
+                    })
+        finally:
+            # workStatus 캐시 무효화 — awms_synced 기록이 다음 /results에 즉시 반영되도록
+            _invalidate_ws_raw(req.dataset)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    return {"job_id": job_id, "status": "running", "total": total}
+
+
+@app.get("/transmit/job/{job_id}")
+def get_transmit_job(job_id: str):
+    """전송 잡 상태 조회. status: running / done / error"""
+    with _TRANSMIT_JOBS_LOCK:
+        job = _TRANSMIT_JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"transmit job '{job_id}' 없음")
+    return job
 
 
 # ── 헬스체크 ─────────────────────────────────────────────────────────────────────
