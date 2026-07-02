@@ -1,0 +1,3274 @@
+#!/usr/bin/env python3
+"""
+admin-validation Phase 1 — 로컬 FastAPI 백엔드
+
+실행법:
+  research/ocr_poc/venv_parseq/bin/uvicorn app:app --host 127.0.0.1 --port 8765 --reload
+  (README.md 참조)
+
+엔드포인트:
+  GET  /datasets             — 자료 목록
+  POST /validate             — 검증 실행 (백그라운드 잡)
+  GET  /jobs/{job_id}        — 잡 상태 조회
+  GET  /results              — 결과 CSV 반환
+  POST /suggest              — Claude 비전으로 판독 제안
+  POST /verdict              — 판정 기록 저장 (RTDB ocr_review/daily_val_{date}/{ts})
+  POST /apply                — 판정값 자동 적용 (종로 DB PATCH + audit 로그, dry_run 지원)
+  GET  /site                 — 계기 site 마스터 조회
+  GET  /daily_summary        — 당일 누락 점검
+  GET  /dates                — 작업 날짜 목록
+  GET  /search               — 계기번호/고객번호 전역 검색 (모든 날짜, 부분일치)
+  GET  /report               — 날짜별 검증 집계 보고 (status별 카운트+건 리스트)
+  GET  /audit                — 변경 이력 조회 (admin_validate/audit, 최신순)
+
+Phase 3(인증)은 미구현(TODO 주석).
+"""
+
+import contextlib
+import io
+import json
+import os
+import sys
+import threading
+import time
+import traceback
+import urllib.request
+import uuid
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+
+# ── sys.path: daily_cycle.py import를 위해 ocr_poc 폴더 추가 ────────────────────
+# app.py 위치: research/admin-validation/backend/app.py
+# daily_cycle.py 위치: research/ocr_poc/daily_cycle.py
+_BACKEND_DIR = Path(__file__).parent
+_OCR_POC_DIR = _BACKEND_DIR.parent.parent / "ocr_poc"
+_ADMIN_DIR   = _BACKEND_DIR.parent
+
+if str(_OCR_POC_DIR) not in sys.path:
+    sys.path.insert(0, str(_OCR_POC_DIR))
+
+import daily_cycle  # noqa: E402 — sys.path 삽입 후
+
+# ── 설정 파일 ────────────────────────────────────────────────────────────────────
+_CONFIG_PATH = _ADMIN_DIR / "dataset_config.json"
+
+def _load_config() -> dict:
+    return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+
+
+def _dataset_ocr_ctx(dataset: str):
+    """드라이런 등 격리 데이터셋의 OCR 컨텍스트 (ws_url, out_dir). 기본=(None,None)=공유."""
+    ds = (_load_config().get("datasets", {}).get(dataset) or {})
+    csv_dir = ds.get("csv_dir")
+    if csv_dir:
+        return ds.get("db_url"), csv_dir   # 샌드박스 ws 읽고 별도 CSV에 쓰기
+    return None, None
+
+
+# ── 사진 URL 매핑 캐시 ───────────────────────────────────────────────────────────
+# (dataset, date) → {
+#   "ts_mid_map":       {(ts15, mid): record},
+#   "remark_map":       {mid: remark_str},        ← 계기레벨 비고
+#   "meter_state_map":  {mid: meter_state_str},   ← 주소레벨 meter_state (mid 기준 pre-join)
+#   "fetched_at": float
+# }
+# TTL: 60초. 캐시 갱신 시 전체 날짜의 replacement_list를 한 번만 읽음.
+_PHOTO_CACHE: Dict[str, dict] = {}   # key = f"{dataset}:{date}"
+_PHOTO_CACHE_LOCK = threading.Lock()
+_PHOTO_CACHE_TTL = 60.0              # 초
+
+
+# ── workStatus 전체 트리 공유 캐시 (백그라운드 워밍) ──────────────────────────────
+# _build_photo_map(/results)·daily_summary가 동일한 workStatus/jongno 전체 트리(약 5.9MB)를
+# 매 요청마다 싱가포르에서 8초씩 blocking 조회하던 것을 하나의 공유 캐시로 통합.
+# TTL 초과 시 stale을 즉시 반환하고 갱신은 백그라운드 스레드가 수행 → 사용자 요청이 8초 fetch에
+# 절대 걸리지 않음(첫 요청/무효화 직후만 blocking). 판정·검증 반복 시 체감 즉시.
+_WS_RAW_CACHE: Dict[str, dict] = {}      # dataset -> {"raw": dict, "fetched_at": float}
+_WS_RAW_LOCK = threading.Lock()
+_WS_RAW_TTL = 45.0                        # 초 (초과 시 백그라운드 갱신 트리거)
+_WS_RAW_REFRESHING: set = set()          # 갱신 진행중 dataset (중복 스레드 방지)
+
+
+def _fetch_ws_raw(dataset: str) -> Optional[dict]:
+    """workStatus 전체 트리를 firebase_admin으로 blocking 조회 (캐시 미사용, 순수 fetch)."""
+    cfg = _load_config()
+    ds = cfg.get("datasets", {}).get(dataset, {})
+    cred_path = ds.get("cred", "")
+    rtdb_base = ds.get("rtdb_review_url", "").rstrip("/")
+    if not rtdb_base:
+        return None
+    import firebase_admin
+    from firebase_admin import credentials as fb_creds, db as fb_db
+    named = firebase_admin._apps.get("ws_reader")
+    if named is None:
+        existing = firebase_admin._apps.get("[DEFAULT]")
+        if existing is not None and existing.options and existing.options.get("databaseURL"):
+            named = existing
+        elif cred_path and Path(cred_path).exists():
+            named = firebase_admin.initialize_app(
+                fb_creds.Certificate(cred_path), {"databaseURL": rtdb_base}, name="ws_reader")
+        else:
+            named = firebase_admin.initialize_app(
+                fb_creds.ApplicationDefault(), {"databaseURL": rtdb_base}, name="ws_reader")
+    ref = fb_db.reference(ds.get("ws_path", "workStatus/jongno"), app=named)
+    return ref.get()
+
+
+def _refresh_ws_raw_bg(dataset: str) -> None:
+    """백그라운드 스레드로 raw 캐시 갱신 (dataset당 동시 1개만)."""
+    with _WS_RAW_LOCK:
+        if dataset in _WS_RAW_REFRESHING:
+            return
+        _WS_RAW_REFRESHING.add(dataset)
+
+    def _worker():
+        try:
+            raw = _fetch_ws_raw(dataset)
+            if isinstance(raw, dict):
+                with _WS_RAW_LOCK:
+                    _WS_RAW_CACHE[dataset] = {"raw": raw, "fetched_at": time.monotonic()}
+        except Exception as e:
+            print(f"[ws_raw] 백그라운드 갱신 실패({dataset}): {e}", flush=True)
+        finally:
+            with _WS_RAW_LOCK:
+                _WS_RAW_REFRESHING.discard(dataset)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+def _get_ws_raw(dataset: str) -> Optional[dict]:
+    """workStatus 전체 트리 반환. 캐시 우선 + 백그라운드 워밍.
+    - 신선한 캐시: 즉시 반환
+    - TTL 초과: stale 즉시 반환 + 백그라운드 갱신 트리거 (요청 blocking 없음)
+    - 캐시 없음: 1회 blocking 조회 (서버 기동 후 첫 요청 or 무효화 직후만)
+    """
+    now = time.monotonic()
+    with _WS_RAW_LOCK:
+        ent = _WS_RAW_CACHE.get(dataset)
+    if ent is not None:
+        if (now - ent["fetched_at"]) > _WS_RAW_TTL:
+            _refresh_ws_raw_bg(dataset)
+        return ent["raw"]
+    raw = _fetch_ws_raw(dataset)
+    if isinstance(raw, dict):
+        with _WS_RAW_LOCK:
+            _WS_RAW_CACHE[dataset] = {"raw": raw, "fetched_at": time.monotonic()}
+    return raw
+
+
+def _invalidate_ws_raw(dataset: str) -> None:
+    """쓰기(validate 등 workStatus 변경) 후 raw 캐시 강제 무효화 → 다음 요청이 최신 조회."""
+    with _WS_RAW_LOCK:
+        _WS_RAW_CACHE.pop(dataset, None)
+
+
+def _build_photo_map(dataset: str, date: Optional[str]) -> dict:
+    """
+    firebase_admin SDK로 workStatus/jongno를 읽어 date 기준 replacement_list 레코드를
+    {(ts15, mid): record} 딕셔너리로 반환하고, 추가로 아래 두 맵도 함께 빌드:
+
+    - remark_map      : {mid: remark}     — replacement_list[mid].remark (계기레벨)
+    - meter_state_map : {mid: meter_state} — addr_val.meter_state (주소레벨, mid별 pre-join)
+
+    ts15: kst_str(replaced_at) = 'YYYYMMDD_HHMMSS' (15자)
+          (meter_values CSV의 ts = ts15 + '_' + fid)
+
+    date가 None인 경우 전체 레코드를 반환 (부담이 크므로 캐시 TTL이 특히 중요).
+    서비스 계정 cred 없으면 빈 dict 반환 (크래시 없음).
+    반환: {"ts_mid_map": ..., "remark_map": ..., "meter_state_map": ...}
+    """
+    # workStatus 전체 트리 = 공유 캐시(_get_ws_raw)에서. daily_summary와 동일 소스라 fetch 1회 공유.
+    raw = _get_ws_raw(dataset)
+    if not isinstance(raw, dict):
+        return {"ts_mid_map": {}, "remark_map": {}, "meter_state_map": {}}
+
+    ts_mid_map: Dict[tuple, dict] = {}
+    remark_map: Dict[str, Any] = {}             # mid → remark (str or None)
+    meter_state_map: Dict[str, Any] = {}        # mid → meter_state (str or None)
+    new_mfg_ym_map: Dict[str, Any] = {}         # mid → new_meter_mfg_ym (str or None)
+    old_mfg_ym_map: Dict[str, Any] = {}         # mid → old_meter_mfg_ym (str or None)
+    addr_map: Dict[str, Any] = {}               # mid → addr (스왑 의심 탐지: 같은 주소 묶기)
+    validated_map: Dict[str, Any] = {}          # mid → validated (검증완료 플래그)
+    draft_map: Dict[str, Any] = {}              # mid → 임시저장(미완료) 여부 (계기 단위, 주소 meter_state 아님)
+    worker_map: Dict[str, str] = {}             # mid → worker (작업자 필드, 도입전 kepco 판정용)
+    replaced_at_map: Dict[str, Any] = {}        # mid → replaced_at (ms, 도입전 경계 판정용)
+    # mid 단독 폴백: 같은 날 mid가 유일할 때만 채택 (ts15가 어긋난 수정건 보정용).
+    # 중복 mid는 모호하므로 폴백에서 제외(_AMBIG로 표시 후 최종 제거).
+    _mid_recs: Dict[str, list] = {}             # mid → [rec, ...] (그날)
+
+    # date가 지정된 경우 해당 날짜만. None이면 전체.
+    target_date_str: Optional[str] = None
+    if date:
+        target_date_str = f"{date[:4]}-{date[4:6]}-{date[6:]}"  # YYYY-MM-DD
+
+    KST = timezone(timedelta(hours=9))
+
+    for addr, addr_val in raw.items():
+        if not isinstance(addr_val, dict):
+            continue
+        # 주소레벨 meter_state (없으면 None)
+        addr_meter_state = addr_val.get("meter_state") or None
+        for mid, rec in (addr_val.get("replacement_list") or {}).items():
+            if not isinstance(rec, dict):
+                continue
+            ra = rec.get("replaced_at")
+            if not ra:
+                continue
+            # 날짜 필터 (date 지정 시)
+            if target_date_str:
+                rec_date = datetime.fromtimestamp(ra / 1000, KST).strftime("%Y-%m-%d")
+                if rec_date != target_date_str:
+                    continue
+            # ts15 = kst_str(ra) = YYYYMMDD_HHMMSS
+            ts15 = daily_cycle.kst_str(ra)
+            ts_mid_map[(ts15, mid)] = rec
+            _mid_recs.setdefault(mid, []).append(rec)
+            # remark: 계기레벨 비고 (없으면 None)
+            remark_map[mid] = rec.get("remark") or None
+            # meter_state: 주소레벨 (mid 키로 pre-join)
+            meter_state_map[mid] = addr_meter_state
+            # 제조년월: 신설/철거 계기 (없으면 None)
+            new_mfg_ym_map[mid] = rec.get("new_meter_mfg_ym") or None
+            old_mfg_ym_map[mid] = rec.get("old_meter_mfg_ym") or None
+            addr_map[mid] = addr
+            validated_map[mid] = bool(rec.get("validated"))   # 검증완료 플래그
+            worker_map[mid] = rec.get("worker", "") or ""     # 작업자 (도입전 kepco 판정용)
+            replaced_at_map[mid] = ra                          # 작업일시 ms (도입전 경계 판정용)
+            # 임시저장(미완료) = draft 플래그 또는 신설계기번호/철거검침값 누락 (daily_summary와 동일 규칙)
+            draft_map[mid] = bool(
+                rec.get("draft") is True
+                or not rec.get("new_meter_id")
+                or not rec.get("removal_values")
+            )
+
+    # mid 단독 폴백: 유일한 mid만 채택 (중복은 모호 → 제외)
+    mid_rec_map: Dict[str, dict] = {
+        m: recs[0] for m, recs in _mid_recs.items() if len(recs) == 1
+    }
+
+    return {
+        "ts_mid_map": ts_mid_map,
+        "mid_rec_map": mid_rec_map,
+        "remark_map": remark_map,
+        "meter_state_map": meter_state_map,
+        "new_mfg_ym_map": new_mfg_ym_map,
+        "old_mfg_ym_map": old_mfg_ym_map,
+        "addr_map": addr_map,
+        "validated_map": validated_map,
+        "draft_map": draft_map,
+        "worker_map": worker_map,
+        "replaced_at_map": replaced_at_map,
+    }
+
+
+def _get_photo_map(dataset: str, date: Optional[str]) -> dict:
+    """캐시된 photo_map 반환. TTL 초과 시 재조회.
+    반환: {"ts_mid_map": ..., "remark_map": ..., "meter_state_map": ...}
+    """
+    cache_key = f"{dataset}:{date or 'ALL'}"
+    now = time.monotonic()
+    with _PHOTO_CACHE_LOCK:
+        entry = _PHOTO_CACHE.get(cache_key)
+        if entry and (now - entry["fetched_at"]) < _PHOTO_CACHE_TTL:
+            # fetched_at 제외한 맵 반환
+            return {k: v for k, v in entry.items() if k != "fetched_at"}
+
+    # 캐시 미스 또는 TTL 초과 → 재조회
+    maps = _build_photo_map(dataset, date)
+    with _PHOTO_CACHE_LOCK:
+        _PHOTO_CACHE[cache_key] = {**maps, "fetched_at": time.monotonic()}
+    return maps
+
+
+def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None:
+    """
+    results 딕셔너리의 각 행에 photo_url / remark / meter_state 필드를
+    인플레이스(in-place)로 추가.
+
+    - meter_values 행: ts = YYYYMMDD_HHMMSS_fid → ts[:15]=ts15, fid 컬럼 사용
+      photo_url = removal_photos[fid]
+    - meter_ids 행: ts = YYYYMMDD_HHMMSS → photo_url = new_meter_photo
+    - removal_ids 행: ts = YYYYMMDD_HHMMSS → photo_url = old_meter_photo
+
+    remark      : replacement_list[mid].remark  (계기레벨, 없으면 null)
+    meter_state : addr.meter_state              (주소레벨 원문값, 없으면 null)
+
+    매칭 실패 시 각 필드 None (크래시 없음).
+    """
+    try:
+        maps = _get_photo_map(dataset, date)
+    except Exception as e:
+        print(f"[attach_photo_urls] photo_map 획득 실패: {e}", flush=True)
+        # 실패해도 각 필드=None으로 채워 크래시 없이 반환
+        maps = {"ts_mid_map": {}, "remark_map": {}, "meter_state_map": {}}
+
+    ts_mid_map      = maps.get("ts_mid_map", {})
+    mid_rec_map     = maps.get("mid_rec_map", {})
+    remark_map      = maps.get("remark_map", {})
+    meter_state_map = maps.get("meter_state_map", {})
+    new_mfg_ym_map  = maps.get("new_mfg_ym_map", {})
+    old_mfg_ym_map  = maps.get("old_mfg_ym_map", {})
+    addr_map        = maps.get("addr_map", {})
+    validated_map   = maps.get("validated_map", {})
+    draft_map       = maps.get("draft_map", {})
+    worker_map      = maps.get("worker_map", {})
+    replaced_at_map = maps.get("replaced_at_map", {})
+
+    for row in results.get("meter_values", []):
+        row["photo_url"] = None
+        row["lcd_photo_url"] = None      # YOLO로 잘라낸 LCD 크롭(있으면) — 검침값 검수 확대용
+        ts_full = str(row.get("ts", ""))
+        mid = str(row.get("mid", ""))
+        fid = str(row.get("fid", ""))
+        # ts_full = YYYYMMDD_HHMMSS_<fid>  → ts15 = 앞 15자
+        ts15 = ts_full[:15]
+        rec = ts_mid_map.get((ts15, mid)) or mid_rec_map.get(mid)  # ts 어긋난 수정건은 mid 단독 폴백
+        if rec:
+            rp = rec.get("removal_photos") or {}
+            row["photo_url"] = rp.get(fid) or None
+            lrp = rec.get("removal_lcd_photos") or {}
+            row["lcd_photo_url"] = lrp.get(fid) or None
+        # 서버(검증=daily_cycle)가 YOLO로 크롭한 LCD가 /tmp/daily_cycle에 있으면 그걸 표시(폰 크롭 없어도)
+        row["lcd_crop_ts"] = None
+        try:
+            if (daily_cycle.TMP / f"{ts_full}_lcd.jpg").exists():
+                row["lcd_crop_ts"] = ts_full
+        except Exception:
+            pass
+        row["remark"]           = remark_map.get(mid)
+        row["meter_state"]      = meter_state_map.get(mid)
+        row["new_meter_mfg_ym"] = new_mfg_ym_map.get(mid)
+        row["old_meter_mfg_ym"] = old_mfg_ym_map.get(mid)
+        row["addr"]             = addr_map.get(mid)
+        row["validated"]        = bool(validated_map.get(mid))
+        row["is_draft"]         = bool(draft_map.get(mid))
+        row["worker"]           = worker_map.get(mid, "")
+        row["replaced_at"]      = replaced_at_map.get(mid)
+
+    for row in results.get("meter_ids", []):
+        row["photo_url"] = None
+        ts = str(row.get("ts", ""))
+        mid = str(row.get("mid", ""))
+        rec = ts_mid_map.get((ts, mid)) or mid_rec_map.get(mid)  # ts 어긋난 수정건은 mid 단독 폴백
+        if rec:
+            row["photo_url"] = rec.get("new_meter_photo") or None
+        row["remark"]           = remark_map.get(mid)
+        row["meter_state"]      = meter_state_map.get(mid)
+        row["new_meter_mfg_ym"] = new_mfg_ym_map.get(mid)
+        row["old_meter_mfg_ym"] = old_mfg_ym_map.get(mid)
+        row["addr"]             = addr_map.get(mid)
+        row["validated"]        = bool(validated_map.get(mid))
+        row["is_draft"]         = bool(draft_map.get(mid))
+        row["worker"]           = worker_map.get(mid, "")
+        row["replaced_at"]      = replaced_at_map.get(mid)
+
+    for row in results.get("removal_ids", []):
+        row["photo_url"] = None
+        ts_full = str(row.get("ts", ""))
+        mid = str(row.get("mid", ""))
+        # removal_ids ts = YYYYMMDD_HHMMSS_rm (ts15 = 앞 15자 = ts_full[:-3])
+        ts15 = ts_full[:15]
+        rec = ts_mid_map.get((ts15, mid)) or mid_rec_map.get(mid)  # ts 어긋난 수정건은 mid 단독 폴백
+        if rec:
+            row["photo_url"] = rec.get("old_meter_photo") or None
+        row["remark"]           = remark_map.get(mid)
+        row["meter_state"]      = meter_state_map.get(mid)
+        row["new_meter_mfg_ym"] = new_mfg_ym_map.get(mid)
+        row["old_meter_mfg_ym"] = old_mfg_ym_map.get(mid)
+        row["addr"]             = addr_map.get(mid)
+        row["validated"]        = bool(validated_map.get(mid))
+        row["is_draft"]         = bool(draft_map.get(mid))
+        row["worker"]           = worker_map.get(mid, "")
+        row["replaced_at"]      = replaced_at_map.get(mid)
+
+
+def _merge_unverified(results: dict, dataset: str, date: Optional[str]) -> None:
+    """OCR(CSV)에 없는 workStatus 작업 레코드를 status='unverified'로 results에 합침.
+    → 검증 실행 전에도 그날 작업 목록이 다 보이고, 검증상태만 '미검증'으로 표시."""
+    try:
+        maps = _get_photo_map(dataset, date)
+    except Exception as e:
+        print(f"[merge_unverified] photo_map 실패: {e}", flush=True)
+        return
+    ts_mid_map = maps.get("ts_mid_map", {})
+    if not ts_mid_map:
+        return
+    # 이미 CSV(OCR)에 있는 (ts15, mid)
+    covered = set()
+    for r in results.get("removal_ids", []):
+        covered.add((str(r.get("ts", ""))[:15], str(r.get("mid", ""))))
+    mv = results.setdefault("meter_values", [])
+    mi = results.setdefault("meter_ids", [])
+    ri = results.setdefault("removal_ids", [])
+    for (ts15, mid), rec in ts_mid_map.items():
+        if (ts15, mid) in covered:
+            continue
+        if not rec.get("new_meter_id"):   # 작업 안 된(신설번호 없는) 건 제외
+            continue
+        try:
+            mtype = daily_cycle.meter_type(mid)
+        except Exception:
+            mtype = ""
+        worker = rec.get("worker", "")
+        _is_import = worker in ("KEPCO_IMPORT", "AWMS_IMPORT")
+        if _is_import:
+            _status = "kepco"
+            _isdraft = False
+        else:
+            _status = "unverified"
+            _isdraft = bool(
+                rec.get("draft") is True
+                or not rec.get("new_meter_id")
+                or not rec.get("removal_values")
+            )
+        ri.append({"ts": f"{ts15}_rm", "mid": mid, "old_meter_id": mid,
+                   "vision_result": "", "google_result": "", "status": _status,
+                   "is_draft": _isdraft, "addr": maps.get("addr_map", {}).get(mid)})
+        mi.append({"ts": ts15, "mid": mid, "new_meter_id": str(rec.get("new_meter_id", "")),
+                   "vision_result": "", "google_result": "", "status": _status,
+                   "is_draft": _isdraft, "addr": maps.get("addr_map", {}).get(mid)})
+        for fid, val in (rec.get("removal_values") or {}).items():
+            mv.append({"ts": f"{ts15}_{fid}", "fid": fid, "mid": mid, "type": mtype,
+                       "worker_val": str(val), "parseq": "", "final": "", "status": _status})
+
+
+# ── site 데이터 캐시 ─────────────────────────────────────────────────────────────
+# dataset별 {index: {계기번호→record}, mtime: float}
+# 파일 mtime 변경 시 자동 갱신.
+_SITE_CACHE: Dict[str, dict] = {}
+_SITE_CACHE_LOCK = threading.Lock()
+
+
+def _load_site_index(dataset: str) -> Dict[str, dict]:
+    """
+    dataset_config의 site_data_path를 읽어 계기번호→레코드 dict 반환.
+    mtime 기반 캐시. 파일 없으면 빈 dict 반환.
+    """
+    cfg = _load_config()
+    ds = cfg.get("datasets", {}).get(dataset, {})
+    site_path_str = ds.get("site_data_path", "")
+    if not site_path_str:
+        return {}
+
+    site_path = Path(site_path_str)
+    if not site_path.exists():
+        print(f"[site] 파일 없음: {site_path}", flush=True)
+        return {}
+
+    current_mtime = site_path.stat().st_mtime
+
+    with _SITE_CACHE_LOCK:
+        cached = _SITE_CACHE.get(dataset)
+        if cached and cached.get("mtime") == current_mtime:
+            return cached["index"]
+
+    # 캐시 미스 또는 mtime 변경 → 재로드
+    try:
+        records = json.loads(site_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"[site] 로드 실패: {e}", flush=True)
+        return {}
+
+    if not isinstance(records, list):
+        print(f"[site] 형식 오류: 배열이 아님", flush=True)
+        return {}
+
+    index: Dict[str, dict] = {}
+    for rec in records:
+        mid = str(rec.get("계기번호", "")).strip()
+        if mid:
+            index[mid] = rec
+
+    with _SITE_CACHE_LOCK:
+        _SITE_CACHE[dataset] = {"index": index, "mtime": current_mtime}
+
+    print(f"[site] 로드 완료: {len(index)}건 (dataset={dataset})", flush=True)
+    return index
+
+
+def _get_cust_no(site_index: Dict[str, dict], mid: str) -> Optional[str]:
+    """mid로 고객번호 조회. 없으면 None."""
+    rec = site_index.get(str(mid).strip())
+    if rec is None:
+        return None
+    return str(rec.get("고객번호", "")).strip() or None
+
+
+# ── 잡 저장소 ────────────────────────────────────────────────────────────────────
+# dict: job_id -> {status, log, summary, dataset, date, started_at, finished_at}
+_JOBS: Dict[str, dict] = {}
+
+# MPS + shared-CSV 동시 실행 크래시 방지 — 검증 잡은 1개만 허용
+# 메모리: feedback_mps_single_process.md (EasyOCR/torch MPS는 프로세스당 1개)
+_JOB_LOCK = threading.Lock()
+_RUNNING_JOB: Optional[str] = None   # 현재 실행 중인 job_id (없으면 None)
+_JOBS_LOCK  = threading.Lock()        # _JOBS dict 동시 접근 보호
+
+KST = timezone(timedelta(hours=9))
+
+# 검증 시스템 도입일 — 2026-06-17 00:00:00 KST (unix ms)
+# 이 시각 이전 실작업분은 사람판정 기회 없이 validated=True가 되어 있으므로
+# _overlay_verdicts 이후 status='kepco'(준공반영)로 재분류한다.
+ADOPTION_DATE_MS: int = int(datetime(2026, 6, 17, tzinfo=KST).timestamp() * 1000)
+
+# ── FastAPI 앱 ───────────────────────────────────────────────────────────────────
+app = FastAPI(title="admin-validation API", version="1.0.0")
+
+# CORS: 로컬 브라우저(프론트 Phase 2)에서 호출 허용
+# TODO(Phase 3): 인증 미들웨어 추가 시 여기 조정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8080", "http://127.0.0.1:8080",
+                   "http://localhost:5500", "http://127.0.0.1:5500",
+                   "https://815dudwns.github.io",  # github 배포본(jongno-combined/admin-validate.html)
+                   "null"],  # file:// 로컬 HTML 열었을 때 Origin: null 허용
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# gzip: 폰 셀룰러 대역폭·속도 (JSON 응답 10~16배 압축). CORS 뒤에 등록.
+# minimum_size=500: 작은 응답(job status 등)은 압축 오버헤드가 손해라 제외.
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
+
+# ── 요청/응답 모델 ───────────────────────────────────────────────────────────────
+class ValidateRequest(BaseModel):
+    dataset: str
+    date: str  # YYYYMMDD
+    only_mids: Optional[List[str]] = None   # 순번 범위 검증 — 이 철거번호들만 OCR (None=전체)
+
+class SuggestRequest(BaseModel):
+    dataset: str
+    date: str
+    ts: str
+    fid: str
+    photo_url: str
+    meter_type: Optional[str] = None
+    worker_val: Optional[str] = None
+
+class VerdictRequest(BaseModel):
+    dataset: str
+    date: str
+    ts: str
+    verdict_type: str  # "value" | "custom" | "reason"
+    text: str          # 값(value/custom) 또는 불가사유(reason)
+    fid: Optional[str] = None
+    mid: Optional[str] = None
+
+
+# ── 1. GET /datasets ─────────────────────────────────────────────────────────────
+@app.get("/datasets")
+def get_datasets():
+    """
+    dataset_config.json의 자료 목록 반환.
+    id, description, default 여부.
+    """
+    cfg = _load_config()
+    datasets = cfg.get("datasets", {})
+    default = cfg.get("default", "")
+    result = []
+    for ds_id, info in datasets.items():
+        result.append({
+            "id": ds_id,
+            "description": info.get("description", ""),
+            "is_default": (ds_id == default),
+        })
+    return {"datasets": result}
+
+
+# ── 2. POST /validate ────────────────────────────────────────────────────────────
+@app.post("/validate")
+def post_validate(req: ValidateRequest):
+    """
+    검증 실행 — 백그라운드 스레드로 run_daily() 호출.
+    동시 실행 금지(MPS + CSV race): 진행 중이면 409 반환.
+    """
+    global _RUNNING_JOB
+
+    # 데이터셋 존재 확인
+    cfg = _load_config()
+    if req.dataset not in cfg.get("datasets", {}):
+        raise HTTPException(status_code=404, detail=f"dataset '{req.dataset}' 없음")
+
+    # YYYYMMDD 형식 검증
+    try:
+        datetime.strptime(req.date, "%Y%m%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date는 YYYYMMDD 형식")
+
+    print(f"[validate] dataset={req.dataset} date={req.date} "
+          f"only_mids={len(req.only_mids) if req.only_mids else '없음(전건)'}", flush=True)
+
+    with _JOB_LOCK:
+        if _RUNNING_JOB is not None:
+            running_info = _JOBS.get(_RUNNING_JOB, {})
+            raise HTTPException(
+                status_code=409,
+                detail=f"이미 실행 중인 잡이 있습니다: {_RUNNING_JOB} "
+                       f"(dataset={running_info.get('dataset')}, "
+                       f"date={running_info.get('date')}). "
+                       f"GET /jobs/{_RUNNING_JOB} 으로 상태 확인."
+            )
+        job_id = str(uuid.uuid4())[:8]
+        _RUNNING_JOB = job_id
+
+    with _JOBS_LOCK:
+        _JOBS[job_id] = {
+            "status": "running",
+            "log": "",
+            "summary": None,
+            "dataset": req.dataset,
+            "date": req.date,
+            "started_at": datetime.now(KST).isoformat(),
+            "finished_at": None,
+        }
+
+    def _run():
+        global _RUNNING_JOB
+        # 라이브 로그 — print() 한 줄마다 _JOBS[job_id]["log"] 갱신(폴링이 진행상황 실시간 표시)
+        class _LiveLog(io.TextIOBase):
+            def __init__(self):
+                self._parts = []
+            def write(self, s):
+                if s:
+                    self._parts.append(s)
+                    with _JOBS_LOCK:
+                        j = _JOBS.get(job_id)
+                        if j is not None:
+                            j["log"] = "".join(self._parts)
+                return len(s) if s else 0
+            def getvalue(self):
+                return "".join(self._parts)
+        log_buf = _LiveLog()
+        try:
+            # stdout 리다이렉트 — run_daily()가 print()만으로 진행상황 출력
+            _ws_url, _out_dir = _dataset_ocr_ctx(req.dataset)
+            with contextlib.redirect_stdout(log_buf):
+                daily_cycle.run_daily(date=req.date, ws_url=_ws_url, out_dir=_out_dir,
+                                      no_sync=bool(_out_dir), only_mids=req.only_mids)
+
+            log_text = log_buf.getvalue()
+            # 완료 후 결과 요약 (CSV 읽기)
+            results = daily_cycle.get_results(req.date, out_dir=_out_dir)
+            def _count(rows, status):
+                return sum(1 for r in rows if r.get("status") == status)
+            mv = results["meter_values"]
+            mi = results["meter_ids"]
+            ri = results["removal_ids"]
+            summary = {
+                "meter_values": {
+                    "total": len(mv),
+                    "auto":  _count(mv, "auto"),
+                    "need_human": _count(mv, "need_human"),
+                    "human": _count(mv, "human"),
+                    "human_skip": _count(mv, "human_skip"),
+                },
+                "meter_ids": {
+                    "total": len(mi),
+                    "auto":  _count(mi, "auto"),
+                    "need_human": _count(mi, "need_human"),
+                },
+                "removal_ids": {
+                    "total": len(ri),
+                    "auto":  _count(ri, "auto"),
+                    "need_human": _count(ri, "need_human"),
+                },
+            }
+            with _JOBS_LOCK:
+                _JOBS[job_id].update({
+                    "status": "done",
+                    "log": log_text,
+                    "summary": summary,
+                    "finished_at": datetime.now(KST).isoformat(),
+                })
+        except Exception:
+            log_text = log_buf.getvalue() + "\n\n" + traceback.format_exc()
+            with _JOBS_LOCK:
+                _JOBS[job_id].update({
+                    "status": "error",
+                    "log": log_text,
+                    "finished_at": datetime.now(KST).isoformat(),
+                })
+        finally:
+            with _JOB_LOCK:
+                _RUNNING_JOB = None
+            # 검증이 workStatus(validated 플래그 등)를 변경했을 수 있으므로 공유 캐시 무효화
+            # → 검증 직후 조회가 stale 없이 최신을 받음(백그라운드 워밍 45초 대기 회피)
+            _invalidate_ws_raw(req.dataset)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    return {"job_id": job_id, "status": "running"}
+
+
+# ── 3. GET /jobs/{job_id} ────────────────────────────────────────────────────────
+@app.post("/stop_validate")
+def post_stop_validate():
+    """실행 중인 검증 잡 멈춤 — daily_cycle CANCEL 플래그 세팅(루프가 다음 항목 전에 중단)."""
+    daily_cycle.CANCEL = True
+    return {"ok": True, "running_job": _RUNNING_JOB}
+
+
+@app.get("/jobs/{job_id}")
+def get_job(job_id: str):
+    """잡 진행 상태 조회. status: running / done / error"""
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"job '{job_id}' 없음")
+    return job
+
+
+# ── 정합성 체크 (데일리 3단계) ──────────────────────────────────────────────────
+# 대상: meter_values 행. daily_cycle OCR 대조와 별개 레이어.
+# 규칙 단일 소스: research/ocr_poc/OCR_검증규칙.md §2(FIELD_STANDARD)·§5(스왑가드).
+#
+# check1 — 검침값 자릿수 위반
+#   확실한 위반만 플래그. 애매한 자릿수 차이는 OCR 대조에 맡김.
+#   · 빈값/0 이상: worker_val이 비었거나 '0'
+#   · 날짜패턴: 20xxxxxx(8자리) 형태 숫자 — 날짜 혼입 의심
+#   · E/EA whme_day: intpart 길이가 int_d+2(7)이상인 경우만(5vs6 플래그 금지 — seq51 교훈)
+#   · G dm_mt_day: numval >= 10000 (정상범위 0~10000, _dm_recon_match 가드와 동일 가드)
+#   · G whme/var: int_d=None → 빈값/0/날짜패턴만
+#
+# check2 — 단상/삼상 위상 불일치
+#   비대칭: "단상인데 dm_mt_day/var_day 값 존재"만 고신뢰 플래그.
+#   "삼상인데 4종 미달"은 draft/미완료 노이즈 가능 → 생략.
+#   siteData 미조인 시 type 필드(E/EA=단상, G45/46/47·Amigo55=삼상)로 폴백.
+#
+# check3 — dm_mt_day↔var_day 스왑 의심
+#   daily_cycle.detect_dm_var_swap 재사용(modify 금지). 두 행 모두 있을 때만.
+#   status='swap_suspect' 와 중복 신호일 수 있음(이 쪽은 규칙체크 레이어).
+
+import re as _re
+
+
+_DATE_PAT = _re.compile(r'^20\d{6}$')  # YYYYMMDD 날짜패턴 (8자리)
+
+# 타입 코드 → 단상/삼상 (메모리 meter_phase_classification 기준)
+# siteData 조인 실패 시 type 필드 폴백용
+_PHASE_BY_TYPE: Dict[str, str] = {
+    'E':     '단상',
+    'EA':    '단상',
+    # G 타입은 계기번호 3~4번째 자리가 25/26/27=단상 / 45/46/47=삼상
+    # Amigo 53=단상, 55=삼상 → type 문자열만으론 확정 불가 → None(폴백 불가)
+    'G':     None,
+    'Amigo': None,
+}
+
+# G 계기 단상/삼상: 계기번호[2:4] 기준
+_G_SINGLE_CODES = {'25', '26', '27', '53'}   # 단상
+_G_THREE_CODES  = {'45', '46', '47', '55'}   # 삼상
+
+
+def _phase_of_row(row: dict, site_idx: Dict[str, dict]) -> Optional[str]:
+    """
+    행의 단상/삼상 판정. 우선순위: siteData '단상삼상' → type/mid 폴백.
+    판정 불가 → None (체크 스킵).
+    """
+    mid = str(row.get('mid', '')).strip()
+    # 1순위: siteData
+    if site_idx:
+        rec = site_idx.get(mid)
+        if rec:
+            v = rec.get('단상삼상', '')
+            if v in ('단상', '삼상'):
+                return v
+
+    # 2순위: type 필드 폴백
+    mtype = str(row.get('type', '')).strip()
+    if mtype in ('E', 'EA'):
+        return '단상'
+    if mtype == 'G':
+        # 계기번호 3~4번째 코드
+        code = mid[2:4] if len(mid) >= 4 else ''
+        if code in _G_SINGLE_CODES:
+            return '단상'
+        if code in _G_THREE_CODES:
+            return '삼상'
+        return None
+    return None
+
+
+# ── 명륜 팀배분: 중구팀 배정 계기 제외용 ──────────────────────────────────────────
+# 명륜 권역(동그룹='명륜')은 종로팀/중구팀으로 나뉨(동행시공). 통계는 종로팀만 — 중구팀은 제외.
+# 소스: site_data_path와 같은 폴더의 myeongryun-team-assign.json {"종로":[...],"중구":[...]}.
+_TEAM_EXCLUDE_CACHE: Dict[str, dict] = {}
+
+
+def _load_junggu_exclude(dataset: str) -> set:
+    """명륜 중구팀 배정 계기번호 집합. 파일 mtime 캐시. 없으면 빈 set."""
+    cfg = _load_config()
+    ds = cfg.get("datasets", {}).get(dataset, {})
+    site_path = ds.get("site_data_path", "")
+    if not site_path:
+        return set()
+    team_path = Path(site_path).parent / "myeongryun-team-assign.json"
+    if not team_path.exists():
+        return set()
+    mtime = team_path.stat().st_mtime
+    cached = _TEAM_EXCLUDE_CACHE.get(dataset)
+    if cached and cached.get("mtime") == mtime:
+        return cached["set"]
+    s: set = set()
+    try:
+        data = json.loads(team_path.read_text(encoding="utf-8"))
+        for no in (data.get("중구") or []):
+            s.add(str(no).strip())
+    except Exception as e:
+        print(f"[team_exclude] 로드 실패: {e}", flush=True)
+    _TEAM_EXCLUDE_CACHE[dataset] = {"mtime": mtime, "set": s}
+    return s
+
+
+def _phase_of_site(rec: dict) -> str:
+    """site-data 레코드의 단상/삼상. 단상삼상 필드 우선, 없으면 계기번호[2:4] 폴백."""
+    v = rec.get('단상삼상', '')
+    if v in ('단상', '삼상'):
+        return v
+    mid = str(rec.get('계기번호', ''))
+    code = mid[2:4] if len(mid) >= 4 else ''
+    if code in _G_SINGLE_CODES or code in ('17', '19'):
+        return '단상'
+    if code in _G_THREE_CODES:
+        return '삼상'
+    return '미상'
+
+
+def _check1_digit(row: dict) -> list:
+    """
+    자릿수 위반 체크. 확실한 위반만 반환: [{type, detail}]
+    """
+    issues = []
+    fid    = str(row.get('fid', '')).strip()
+    mtype  = str(row.get('type', '')).strip()
+    wval   = str(row.get('worker_val', '')).strip()
+
+    if not wval:
+        issues.append({'type': 'digit_empty', 'detail': f'{fid}: 검침값 빈값'})
+        return issues
+
+    # 정수부만 추출
+    ip = _re.sub(r'[^0-9]', '', wval.split('.')[0])
+
+    # 빈값/0 이상: 정수부가 '0' 또는 숫자 없음
+    if ip == '' or ip == '0':
+        issues.append({'type': 'digit_zero', 'detail': f'{fid}: 검침값 0 또는 숫자 없음 (worker_val={wval!r})'})
+        return issues
+
+    # 날짜 패턴: 정수부 전체가 8자리이고 20XXXXXX 꼴
+    if _DATE_PAT.match(ip):
+        issues.append({'type': 'digit_date_pattern', 'detail': f'{fid}: 날짜처럼 보이는 값 (worker_val={wval!r})'})
+        return issues
+
+    # E/EA whme_day: int_d=5. 7자리 이상만 플래그 (5vs6 금지)
+    if mtype in ('E', 'EA') and fid == 'whme_day':
+        if len(ip) >= 7:
+            issues.append({'type': 'digit_overflow', 'detail': f'{fid}: E계기 정수부 {len(ip)}자리 (기준 5자리, 7이상만 플래그, worker_val={wval!r})'})
+
+    # G dm_mt_day: >= 10000 이면 확실 위반 (정상범위 0~10000)
+    elif mtype == 'G' and fid == 'dm_mt_day':
+        try:
+            nv = float(_re.sub(r'[^0-9.]', '', wval) or 'nan')
+            if nv >= 10000:
+                issues.append({'type': 'digit_overflow', 'detail': f'{fid}: 최대전력 {nv} >= 10000 (정상범위 초과, worker_val={wval!r})'})
+        except Exception:
+            pass
+
+    # G whme/var: int_d=None → 빈값/0/날짜패턴만 (이미 위에서 처리됨, 자릿수 체크 없음)
+
+    return issues
+
+
+def _attach_consistency(results: dict, site_idx: Dict[str, dict]) -> None:
+    """
+    meter_values 각 행에 consistency 필드를 인플레이스로 추가.
+    {ok: bool, issues: [{type, detail}]}
+
+    check1: 자릿수 위반 (행 단위)
+    check2: 단상인데 dm_mt/var 값 존재 (그룹 단위 → 해당 행에만)
+    check3: dm_mt↔var 스왑 의심 (그룹 단위 → dm_mt·var 행에만)
+    """
+    mv = results.get('meter_values', [])
+    if not mv:
+        return
+
+    # ── 그룹핑: (ts[:15], mid) → {fid: row} ─────────────────────────────────────
+    groups: Dict[tuple, Dict[str, dict]] = {}
+    for row in mv:
+        ts_full = str(row.get('ts', ''))
+        mid     = str(row.get('mid', ''))
+        key     = (ts_full[:15], mid)
+        if key not in groups:
+            groups[key] = {}
+        fid = str(row.get('fid', ''))
+        groups[key][fid] = row
+
+    # ── 각 행에 초기 consistency 부착 ────────────────────────────────────────────
+    for row in mv:
+        row['consistency'] = {'ok': True, 'issues': []}
+
+    # ── check1: 자릿수 위반 (행 단위) ─────────────────────────────────────────────
+    for row in mv:
+        issues = _check1_digit(row)
+        if issues:
+            row['consistency']['ok'] = False
+            row['consistency']['issues'].extend(issues)
+
+    # ── check2 + check3: 그룹 단위 ───────────────────────────────────────────────
+    for (ts15, mid), fid_map in groups.items():
+        # -- check2: 단상인데 dm_mt_day·var_day 값 존재 --
+        # 대표 행(아무 fid나)에서 위상 판정
+        any_row = next(iter(fid_map.values()))
+        phase = _phase_of_row(any_row, site_idx)
+
+        if phase == '단상':
+            for suspect_fid in ('dm_mt_day', 'var_day'):
+                if suspect_fid in fid_map:
+                    s_row = fid_map[suspect_fid]
+                    wval  = str(s_row.get('worker_val', '')).strip()
+                    if wval and wval != '0':
+                        issue = {
+                            'type':   'phase_mismatch',
+                            'detail': (f'단상 계기({mid})에 {suspect_fid} 값 존재 '
+                                       f'(worker_val={wval!r}) — 삼상 전용 필드'),
+                        }
+                        s_row['consistency']['ok'] = False
+                        s_row['consistency']['issues'].append(issue)
+
+        # -- check3: dm_mt↔var 스왑 의심 --
+        dm_row  = fid_map.get('dm_mt_day')
+        var_row = fid_map.get('var_day')
+        if dm_row is not None and var_row is not None:
+            try:
+                is_swap, reverse_confirmed, _correction = daily_cycle.detect_dm_var_swap(
+                    dm_row, var_row
+                )
+            except Exception:
+                is_swap = False
+
+            if is_swap:
+                swap_detail = (
+                    f'dm_mt_day↔var_day 사진 스왑 의심 (mid={mid}, '
+                    f'reverse_confirmed={reverse_confirmed}) — '
+                    f'dm_mt worker={dm_row.get("worker_val")}, '
+                    f'var worker={var_row.get("worker_val")}'
+                )
+                swap_issue = {'type': 'swap_suspect', 'detail': swap_detail}
+                for affected in (dm_row, var_row):
+                    affected['consistency']['ok'] = False
+                    affected['consistency']['issues'].append(swap_issue)
+
+
+def _overlay_verdicts(results: dict, dataset: str, date: Optional[str]) -> None:
+    """
+    RTDB ocr_review/daily_val_{date} 판정값을 results에 실시간 오버레이.
+
+    CSV(daily_state.csv)에 sync_review_daily가 아직 반영되지 않아도
+    /results 응답에서 즉시 반영되도록 보장한다.
+
+    - verdict type=value/custom → final=변환값, status='human'
+    - verdict type=reason       → final='불가',  status='human_skip'
+    - validated==true 행도 'human'으로 상향 (workStatus 반영분 보장)
+
+    변환: fid별 소수 분기는 daily_cycle._apply_verdicts_daily 와 동일 규칙
+      (dm_mt_day만 numval, 나머지 intpart — 표시값과 sync후 CSV값이 일치하도록)
+
+    네트워크 실패 시 무시(크래시 없음, CSV값 그대로 유지).
+    """
+    if not date:
+        return   # 전체 누적 모드에서는 날짜별 verdict 노드를 가져올 수 없으므로 스킵
+
+    cfg = _load_config()
+    ds = cfg.get("datasets", {}).get(dataset, {})
+    rtdb_base = ds.get("rtdb_review_url", "").rstrip("/")
+    if not rtdb_base:
+        return
+
+    store_key = f"daily_val_{date}"
+    url = f"{rtdb_base}/ocr_review/{store_key}.json"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as r:
+            verdicts: dict = json.loads(r.read()) or {}
+    except Exception as e:
+        print(f"[overlay_verdicts] RTDB 조회 실패(무시): {e}", flush=True)
+        verdicts = {}
+
+    if not isinstance(verdicts, dict) or not verdicts:
+        # verdict 없어도 validated 플래그는 _attach_photo_urls에서 이미 부착됨 → 하단에서 처리
+        pass
+    else:
+        # meter_values 행에 오버레이
+        for row in results.get("meter_values", []):
+            ts_key = str(row.get("ts", ""))   # YYYYMMDD_HHMMSS_fid
+            vd = verdicts.get(ts_key)
+            if not vd or not isinstance(vd, dict):
+                continue
+            vtype = vd.get("type", "")
+            vtext = str(vd.get("text", ""))
+            fid   = str(row.get("fid", ""))
+            mtype = str(row.get("type", ""))
+            if vtype in ("value", "custom"):
+                # dm_mt_day는 소수(numval), 나머지는 정수부(intpart) — daily_cycle과 동일 규칙
+                try:
+                    new_final = (daily_cycle.numval(vtext)
+                                 if daily_cycle.field_decimal(fid, mtype)
+                                 else daily_cycle.intpart(vtext))
+                except Exception:
+                    new_final = vtext
+                row["final"]  = new_final
+                row["status"] = "human"
+            elif vtype == "reason":
+                row["final"]  = "불가"
+                row["status"] = "human_skip"
+
+        # meter_ids / removal_ids: verdict는 검침값(meter_values)에만 해당
+        # ts 매칭이 달라 verdict 키 형식(YYYYMMDD_HHMMSS_fid)과 다르므로 별도 처리 불필요
+
+    # ★ validated==true → status='human' 상향은 제거함 (2026-07-02, 영준님 지적).
+    #   사유: autoValidatePassed()가 '자동통과(auto)'건에도 validated 도장을 찍는데,
+    #   이를 human으로 상향하면 니드휴먼(사람 검토)을 안 거친 건이 '확인완료'로 오표시됐다.
+    #   사람이 실제 판정한 건은 위쪽 verdict 처리(value/custom→human, reason→human_skip)로만 human이 됨.
+    #   validated 플래그는 _attach_photo_urls가 row["validated"]로 그대로 부착 → 프론트가
+    #   g.validated / isVerified(pass=항상 검증완료)로 '검증완료' 배지를 유지한다.
+    #   결과: 니드휴먼 안 간 통과건 = '자동통과' 배지(+검증완료✓), 사람판정건만 '확인완료'.
+
+    # ── 도입 전 실작업 / import 건 → status='kepco'(준공반영) 재분류 ─────────────────
+    # 검증 시스템 도입일(2026-06-17 00:00 KST) 이전 작업분은 사람판정 기회가 없었으므로
+    # validated=True → human 상향이 거짓 표시가 된다. 여기서 kepco로 교정한다.
+    # 우선순위(행마다 위에서 아래로 체크):
+    #   1. worker in IMPORT 목록 → 항상 kepco (날짜 무관)
+    #   2. worker가 빈 문자열   → 정체불명, 건드리지 않음
+    #   3. replaced_at < ADOPTION_DATE_MS → 도입 전 실작업 → kepco
+    _IMPORT_WORKERS = {"KEPCO_IMPORT", "AWMS_IMPORT"}
+
+    def _maybe_kepco(row: dict) -> None:
+        """행 status를 kepco로 교정해야 하면 인플레이스 수정."""
+        worker = row.get("worker", "") or ""
+        if worker in _IMPORT_WORKERS:
+            row["status"] = "kepco"
+            return
+        if not worker:
+            return  # 빈 worker = 정체불명, 건드리지 않음
+        ra = row.get("replaced_at")
+        if ra is not None and ra < ADOPTION_DATE_MS:
+            row["status"] = "kepco"
+
+    for row in results.get("meter_values", []):
+        _maybe_kepco(row)
+    for row in results.get("meter_ids", []):
+        _maybe_kepco(row)
+    for row in results.get("removal_ids", []):
+        _maybe_kepco(row)
+
+
+# ── 4. GET /results ──────────────────────────────────────────────────────────────
+@app.get("/results")
+def get_results(
+    dataset: str = Query(default="jongno", description="dataset id"),
+    date: str    = Query(default=None,     description="YYYYMMDD (없으면 전체 누적)"),
+):
+    """
+    검증 결과 CSV 행 반환 (네트워크 없음, 읽기 전용).
+    dataset 파라미터는 추후 다중 자료 확장용으로 받되, v1은 jongno 단일.
+    """
+    cfg = _load_config()
+    if dataset not in cfg.get("datasets", {}):
+        raise HTTPException(status_code=404, detail=f"dataset '{dataset}' 없음")
+
+    if date:
+        try:
+            datetime.strptime(date, "%Y%m%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date는 YYYYMMDD 형식")
+
+    _ocr_db_url, _ocr_out_dir = _dataset_ocr_ctx(dataset)
+    # csv_dir이 없는 dataset(예: guro)은 out_dir=None → daily_cycle BASE(jongno 전용 경로)를
+    # 그대로 읽어 종로 OCR 판정이 누수된다. dataset별 csv_dir이 명시되지 않은 경우
+    # 기본(default) dataset이 아니면 빈 CSV 결과를 사용해 종로 CSV 누수를 차단한다.
+    _default_dataset = cfg.get("default", "jongno")
+    if _ocr_out_dir is None and dataset != _default_dataset:
+        # OCR CSV 없는 dataset — 빈 결과에서 시작 (_merge_unverified가 workStatus로 채움)
+        results: dict = {"meter_values": [], "meter_ids": [], "removal_ids": []}
+    else:
+        results = daily_cycle.get_results(date, out_dir=_ocr_out_dir)
+
+    # OCR 안 된 작업 레코드도 "미검증"으로 목록에 합침 (검증 전에도 데이터는 다 보이게)
+    _merge_unverified(results, dataset, date)
+
+    # 사진 URL 매핑 — Firebase RTDB에서 replacement_list.removal_photos / new_meter_photo / old_meter_photo 부착
+    # 서비스계정 cred 사용 (공개 rules 의존 금지). 매칭 실패 행은 photo_url=null, 크래시 없음.
+    _attach_photo_urls(results, dataset, date)
+
+    # 고객번호 조인 — site_data를 mid(계기번호)로 조인해 cust_no 필드 추가.
+    # meter_values/meter_ids/removal_ids 모두 mid 컬럼이 철거계기번호(교체 전 계기).
+    # new_meter_id는 신설 계기라 site 마스터에 없음 → mid로만 조인.
+    site_idx = _load_site_index(dataset)
+    if site_idx:
+        for row in results.get("meter_values", []):
+            row["cust_no"] = _get_cust_no(site_idx, row.get("mid", ""))
+        for row in results.get("meter_ids", []):
+            row["cust_no"] = _get_cust_no(site_idx, row.get("mid", ""))
+        for row in results.get("removal_ids", []):
+            row["cust_no"] = _get_cust_no(site_idx, row.get("mid", ""))
+            # 스왑(오할당) 신호: 철거사진 OCR(vision_result)이 site-data에 실재하는 "다른" 계기 →
+            # 작업은 맞고 할당만 틀림(함체 순서대로 작업했으나 작업번호 매칭 오류).
+            # site-data에 있음=진짜 다른 계기(스왑), 없음=단순 OCR 오독. 검침값 무관.
+            voc = _re.sub(r"\D", "", str(row.get("vision_result") or ""))
+            mid_s = str(row.get("mid", "")).strip()
+            row["ocr_in_site"] = (len(voc) == 11 and voc in site_idx)
+            row["ocr_swap_suspect"] = (row["ocr_in_site"] and voc != mid_s)
+
+    # 정합성 체크 (데일리 3단계) — OCR 대조와 별개 레이어.
+    # meter_values 각 행에 consistency {ok, issues} 부착.
+    # check1: 자릿수 위반 / check2: 단상/삼상 위상 불일치 / check3: dm_mt↔var 스왑 의심
+    _attach_consistency(results, site_idx)
+
+    # RTDB verdict 실시간 오버레이 — CSV sync_review 없이도 새로고침 후 검증완료 유지.
+    # _attach_photo_urls(validated 플래그) 이후에 호출해야 validated 상향이 정상 동작.
+    _overlay_verdicts(results, dataset, date)
+
+    return {
+        "dataset": dataset,
+        "date": date,
+        **results,
+    }
+
+
+# ── 5. POST /suggest ─────────────────────────────────────────────────────────────
+@app.post("/suggest")
+async def post_suggest(req: SuggestRequest):
+    """
+    need_human 건에 대해 Claude 비전으로 판독 제안.
+
+    ANTHROPIC_API_KEY 환경변수가 있으면 실제 Claude 호출,
+    없으면 {available: false}로 폴백(크래시 없음).
+
+    사진 URL을 base64로 인코딩해 Claude에 전달.
+    반환: {available, suggestion, confidence, reasoning}
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return {"available": False, "reason": "ANTHROPIC_API_KEY 환경변수 미설정"}
+
+    try:
+        import anthropic  # noqa: F401 (설치 확인용)
+    except ImportError:
+        return {"available": False, "reason": "anthropic 패키지 미설치 (pip install anthropic)"}
+
+    # 사진 다운로드 → base64
+    try:
+        import base64
+        import httpx as _httpx  # noqa: F401 (이미 requirements에 있음)
+
+        async with __import__("httpx").AsyncClient(timeout=20.0) as client:
+            resp = await client.get(req.photo_url)
+            if resp.status_code != 200:
+                return {"available": False,
+                        "reason": f"사진 다운로드 실패 (HTTP {resp.status_code})"}
+            img_bytes = resp.content
+            content_type = resp.headers.get("content-type", "image/jpeg")
+            if ";" in content_type:
+                content_type = content_type.split(";")[0].strip()
+            img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+    except Exception as e:
+        return {"available": False, "reason": f"사진 다운로드 오류: {e}"}
+
+    # 프롬프트 구성
+    fid_labels = {
+        "whme_day":   "주간 유효전력 (정수, 5-6자리)",
+        "whme_mngt":  "야간 유효전력 (정수, 5-6자리)",
+        "dm_mt_day":  "최대전력 (소수 포함, 예: 31.99 형식 6자리)",
+        "var_day":    "무효전력 (정수, 5-6자리)",
+    }
+    fid_hint = fid_labels.get(req.fid, req.fid)
+    worker_hint = f"\n작업자가 입력한 값은 '{req.worker_val}' 입니다." if req.worker_val else ""
+    prompt = (
+        f"이 사진은 전기 계기(미터)의 LCD 검침값 사진입니다.\n"
+        f"읽어야 할 필드: {fid_hint}{worker_hint}\n"
+        f"LCD에 표시된 숫자를 정확히 읽어서 아래 형식으로 답하세요:\n\n"
+        f"값: <숫자만>\n"
+        f"신뢰도: <높음/중간/낮음>\n"
+        f"근거: <판독 근거 한 문장>\n\n"
+        f"숫자를 읽을 수 없으면: 값: 판독불가 로 답하세요."
+    )
+
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=api_key)
+
+        model = "claude-sonnet-4-6"
+        message = client.messages.create(
+            model=model,
+            max_tokens=256,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": content_type,
+                            "data": img_b64,
+                        },
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+        )
+
+        raw_text = message.content[0].text.strip()
+
+        # 응답 파싱 (키: 값 형태)
+        suggestion = confidence = reasoning = None
+        for line in raw_text.splitlines():
+            if line.startswith("값:"):
+                suggestion = line.split(":", 1)[1].strip()
+            elif line.startswith("신뢰도:"):
+                confidence = line.split(":", 1)[1].strip()
+            elif line.startswith("근거:"):
+                reasoning = line.split(":", 1)[1].strip()
+
+        return {
+            "available": True,
+            "suggestion": suggestion,
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "raw": raw_text,
+            "model": model,
+        }
+
+    except Exception as e:
+        return {
+            "available": False,
+            "reason": f"Claude API 호출 오류: {e}",
+        }
+
+
+# ── 6. POST /verdict ─────────────────────────────────────────────────────────────
+@app.post("/verdict")
+def post_verdict(req: VerdictRequest):
+    """
+    판정 결과를 RTDB ocr_review/daily_val_{date}/{ts} 에 저장.
+
+    verdict_type: "value" | "custom" | "reason"
+    - value/custom: text = 판독값(숫자 문자열)
+    - reason: text = 불가 사유
+
+    주의: 실제 removal_values DB 반영(--apply)은 Phase 4에서 구현. 여기서 하지 않음.
+
+    TODO(Phase 3): 저장 전 세션/역할 인증 확인.
+    """
+    if req.verdict_type not in ("value", "custom", "reason"):
+        raise HTTPException(
+            status_code=400,
+            detail="verdict_type은 'value', 'custom', 'reason' 중 하나"
+        )
+
+    # 날짜 검증
+    try:
+        datetime.strptime(req.date, "%Y%m%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date는 YYYYMMDD 형식")
+
+    # 데이터셋 설정 로드 → RTDB URL + 서비스 계정 키
+    cfg = _load_config()
+    ds = cfg.get("datasets", {}).get(req.dataset)
+    if ds is None:
+        raise HTTPException(status_code=404, detail=f"dataset '{req.dataset}' 없음")
+
+    rtdb_base = ds.get("rtdb_review_url", "").rstrip("/")
+    cred_path = ds.get("cred", "")
+    if not rtdb_base:
+        raise HTTPException(status_code=500, detail="dataset에 rtdb_review_url 없음")
+
+    store_key = f"daily_val_{req.date}"
+    rtdb_path  = f"ocr_review/{store_key}/{req.ts}"
+
+    # 저장 페이로드
+    payload: Dict[str, Any] = {
+        "type":       req.verdict_type,
+        "text":       req.text,
+        "saved_at":   datetime.now(KST).isoformat(),
+    }
+    if req.fid:
+        payload["fid"] = req.fid
+    if req.mid:
+        payload["mid"] = req.mid
+
+    # firebase_admin SDK로 RTDB PATCH
+    # daily_cycle이 이미 storageBucket으로 default app 초기화했을 수 있음.
+    # → databaseURL이 누락된 기존 app을 감지해, 필요하면 named app 생성.
+    try:
+        import firebase_admin
+        from firebase_admin import credentials, db as fb_db
+
+        db_url = rtdb_base  # 예: https://ami-jongno-default-rtdb...
+
+        def _get_app_with_db():
+            """databaseURL이 설정된 firebase_admin app 반환."""
+            # 기존 default app 확인
+            existing = firebase_admin._apps.get("[DEFAULT]")
+            if existing is not None:
+                # options에 databaseURL이 있으면 재사용
+                opts = existing.options
+                if opts and opts.get("databaseURL"):
+                    return existing
+                # databaseURL 없음 → named app 사용
+            named = firebase_admin._apps.get("admin_verdict")
+            if named is not None:
+                return named
+            # named app 신규 생성
+            if cred_path and Path(cred_path).exists():
+                cred = credentials.Certificate(cred_path)
+            else:
+                cred = credentials.ApplicationDefault()
+            return firebase_admin.initialize_app(
+                cred,
+                {"databaseURL": db_url},
+                name="admin_verdict",
+            )
+
+        fa_app = _get_app_with_db()
+        ref = fb_db.reference(rtdb_path, app=fa_app)
+        ref.set(payload)
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"RTDB 저장 실패: {e}"
+        )
+
+    return {
+        "saved": True,
+        "path": rtdb_path,
+        "payload": payload,
+    }
+
+
+# ── 7. GET /site ─────────────────────────────────────────────────────────────────
+@app.get("/site")
+def get_site(
+    dataset: str = Query(default="jongno", description="dataset id"),
+    mid: str     = Query(...,              description="계기번호(11자리, 하이픈없음)"),
+):
+    """
+    계기번호로 site 마스터 레코드(36필드) 반환.
+    검증 모달 '현장 정보' 섹션용.
+    없으면 {found: false} 반환 (크래시 없음).
+    """
+    cfg = _load_config()
+    if dataset not in cfg.get("datasets", {}):
+        raise HTTPException(status_code=404, detail=f"dataset '{dataset}' 없음")
+
+    site_idx = _load_site_index(dataset)
+    mid_clean = str(mid).strip()
+    rec = site_idx.get(mid_clean)
+
+    if rec is None:
+        return {"found": False, "mid": mid_clean}
+
+    return {"found": True, "mid": mid_clean, "site": rec}
+
+
+# ── 8. GET /daily_summary ────────────────────────────────────────────────────────
+@app.get("/daily_summary")
+def get_daily_summary(
+    dataset: str = Query(default="jongno", description="dataset id"),
+    date: str    = Query(...,              description="YYYYMMDD"),
+):
+    """
+    당일 누락 점검 (데일리 검증 1단계).
+
+    workStatus/jongno replacement_list에서 당일(replaced_at 기준 KST) 레코드를 수집해
+    아래를 집계해 반환:
+      - total         : 총 작업 건수 (AWMS_IMPORT 제외 작업자 레코드)
+      - complete      : 완료 건수 (new_meter_id + removal_values 모두 있고 draft != True)
+      - draft         : 임시저장 건수 (draft=True 또는 new_meter_id/removal_values 누락)
+      - seq_gaps      : daily_seq 연번 구멍 목록 (daily_seq가 있는 레코드 기준, 정렬)
+      - missing_photo_count : 사진 누락 건수 (old_meter_photo 또는 new_meter_photo 없음)
+      - unverified_mids : 검증 결과(get_results)에 없는 계기번호 목록
+      - detail        : 누락 항목 있는 레코드 상세 리스트
+
+    daily_cycle.py 수정 없이 app.py에서 직접 처리.
+    임시저장 판단 기준: draft==True 또는 new_meter_id/removal_values 중 하나라도 없음.
+    """
+    cfg = _load_config()
+    if dataset not in cfg.get("datasets", {}):
+        raise HTTPException(status_code=404, detail=f"dataset '{dataset}' 없음")
+
+    try:
+        datetime.strptime(date, "%Y%m%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date는 YYYYMMDD 형식")
+
+    # ── replacement_list 직접 조회 (photo_map 캐시 재사용 불가 — AWMS_IMPORT 포함 전체 필요) ──
+    ds = cfg.get("datasets", {}).get(dataset, {})
+    # workStatus 전체 트리 = 공유 캐시(_get_ws_raw). /results(_build_photo_map)와 fetch 1회 공유.
+    # (AWMS_IMPORT 포함 전체 트리를 그대로 받아 아래에서 date/집계 필터)
+    raw = _get_ws_raw(dataset)
+
+    if not isinstance(raw, dict):
+        return {
+            "dataset": dataset, "date": date,
+            "total": 0, "complete": 0, "draft": 0,
+            "seq_gaps": [], "missing_photo_count": 0,
+            "unverified_mids": [], "detail": [],
+        }
+
+    # KST 날짜 필터 문자열 (YYYY-MM-DD)
+    target_date_str = f"{date[:4]}-{date[4:6]}-{date[6:]}"
+
+    # ── 당일 레코드 수집 ──────────────────────────────────────────────────────────
+    # AWMS_IMPORT 레코드는 작업자 실작업 데이터가 아님 → 제외
+    records: list = []
+    for addr, addr_val in raw.items():
+        if not isinstance(addr_val, dict):
+            continue
+        for mid, rec in (addr_val.get("replacement_list") or {}).items():
+            if not isinstance(rec, dict):
+                continue
+            ra = rec.get("replaced_at")
+            if not ra:
+                continue
+            # 날짜 필터 (KST)
+            rec_date = datetime.fromtimestamp(ra / 1000, KST).strftime("%Y-%m-%d")
+            if rec_date != target_date_str:
+                continue
+            # AWMS_IMPORT(한전 자동동기화) 제외 — 실작업자 데이터만
+            if rec.get("worker") == "AWMS_IMPORT":
+                continue
+            # KEPCO_IMPORT(한전 준공 import) 제외 — 구로 준공물, 검증 대상 아님
+            if dataset == "guro" and rec.get("worker") == "KEPCO_IMPORT":
+                continue
+            records.append(rec)
+
+    total = len(records)
+
+    # ── 완료 / 임시저장 분류 ─────────────────────────────────────────────────────
+    # 임시저장 = draft==True 또는 new_meter_id/removal_values 중 하나라도 없음
+    complete_list: list = []
+    draft_list:    list = []
+    for rec in records:
+        is_draft = (
+            rec.get("draft") is True
+            or not rec.get("new_meter_id")
+            or not rec.get("removal_values")
+        )
+        if is_draft:
+            draft_list.append(rec)
+        else:
+            complete_list.append(rec)
+
+    # ── daily_seq 연번 구멍 ───────────────────────────────────────────────────────
+    # daily_seq가 있는 레코드 기준. 없는 레코드(AWMS_IMPORT 제외됐으므로 미입력 임시저장 등)는 별도 경고.
+    seqs = sorted([
+        rec["daily_seq"] for rec in records
+        if isinstance(rec.get("daily_seq"), int)
+    ])
+    seq_gaps: list = []
+    if seqs:
+        expected = list(range(seqs[0], seqs[-1] + 1))
+        seq_gaps = [s for s in expected if s not in set(seqs)]
+
+    # ── 사진 누락 집계 ────────────────────────────────────────────────────────────
+    # old_meter_photo 또는 new_meter_photo 없는 완료 레코드 (임시저장은 당연히 없음 → 완료만)
+    missing_photo_count = 0
+    for rec in complete_list:
+        has_old_photo = bool(rec.get("old_meter_photo"))
+        has_new_photo = bool(rec.get("new_meter_photo"))
+        if not has_old_photo or not has_new_photo:
+            missing_photo_count += 1
+
+    # ── 검증 미포함 계기번호 ──────────────────────────────────────────────────────
+    # get_results(date) ts15|mid 집합 vs workStatus mid 집합 차집합
+    try:
+        ocr_results = daily_cycle.get_results(date, out_dir=_dataset_ocr_ctx(dataset)[1])
+        verified_mids: set = set()
+        for row in ocr_results.get("meter_values", []):
+            verified_mids.add(str(row.get("mid", "")))
+        for row in ocr_results.get("meter_ids", []):
+            verified_mids.add(str(row.get("mid", "")))
+        for row in ocr_results.get("removal_ids", []):
+            verified_mids.add(str(row.get("mid", "")))
+    except Exception:
+        verified_mids = set()
+
+    # workStatus mid = old_meter_id (철거계기 = 기준 키)
+    ws_mids = set(
+        str(rec.get("old_meter_id", ""))
+        for rec in records
+        if rec.get("old_meter_id")
+    )
+    unverified_mids = sorted(ws_mids - verified_mids)
+
+    # ── 상세 (누락 항목이 있는 레코드만) ─────────────────────────────────────────
+    detail: list = []
+    for rec in records:
+        missing_items: list = []
+
+        is_draft = (
+            rec.get("draft") is True
+            or not rec.get("new_meter_id")
+            or not rec.get("removal_values")
+        )
+        if is_draft:
+            missing_items.append("임시저장(미완료)")
+
+        if not rec.get("old_meter_photo"):
+            missing_items.append("철거사진 없음")
+        if not rec.get("new_meter_photo"):
+            missing_items.append("신설사진 없음")
+
+        old_mid = str(rec.get("old_meter_id", ""))
+        if old_mid and old_mid in set(unverified_mids):
+            missing_items.append("OCR 검증 미포함")
+
+        if missing_items:
+            detail.append({
+                "daily_seq":    rec.get("daily_seq"),
+                "old_meter_id": old_mid,
+                "new_meter_id": str(rec.get("new_meter_id", "")),
+                "worker":       str(rec.get("worker", "")),
+                "worker_name":  str(rec.get("worker_name", "")),
+                "missing":      missing_items,
+            })
+
+    # daily_seq 기준 정렬 (없는 건 맨 뒤)
+    detail.sort(key=lambda x: (x["daily_seq"] is None, x["daily_seq"] or 0))
+
+    return {
+        "dataset":              dataset,
+        "date":                 date,
+        "total":                total,
+        "complete":             len(complete_list),
+        "draft":                len(draft_list),
+        "seq_list":             seqs,
+        "seq_gaps":             seq_gaps,
+        "missing_photo_count":  missing_photo_count,
+        "unverified_mids":      unverified_mids,
+        "detail":               detail,
+    }
+
+
+# ── 8b. GET /kepco_summary ───────────────────────────────────────────────────────
+@app.get("/kepco_summary")
+def get_kepco_summary(
+    dataset: str = Query(default="guro", description="dataset id (guro 또는 jongno)"),
+):
+    """
+    KEPCO_IMPORT(한전 준공물) 레코드를 날짜별(KST replaced_at 기준)로 집계해 반환.
+
+    반환 형식:
+      { "dataset": "guro",
+        "total": N,
+        "records": [
+          { "date": "2025-12-09", "count": 235,
+            "items": [
+              { "cust_no": "01-4005-2742", "addr": "서울특별시 구로구 ...",
+                "old_meter_id": "35170359106", "new_meter_id": "05530177155", "cha": "1차" }
+            ]
+          }, ...
+        ]
+      }
+
+    records는 date 오름차순 정렬.
+    """
+    cfg = _load_config()
+    if dataset not in cfg.get("datasets", {}):
+        raise HTTPException(status_code=404, detail=f"dataset '{dataset}' 없음")
+
+    ds = cfg.get("datasets", {}).get(dataset, {})
+    cred_path = ds.get("cred", "")
+    rtdb_base = ds.get("rtdb_review_url", "").rstrip("/")
+    if not rtdb_base:
+        raise HTTPException(status_code=500, detail="dataset에 rtdb_review_url 없음")
+
+    try:
+        import firebase_admin
+        from firebase_admin import credentials as fb_creds, db as fb_db
+
+        def _get_kepco_app():
+            named = firebase_admin._apps.get("daily_summary")
+            if named is not None:
+                return named
+            existing = firebase_admin._apps.get("[DEFAULT]")
+            if existing is not None:
+                opts = existing.options
+                if opts and opts.get("databaseURL"):
+                    return existing
+            if cred_path and Path(cred_path).exists():
+                cred = fb_creds.Certificate(cred_path)
+            else:
+                cred = fb_creds.ApplicationDefault()
+            return firebase_admin.initialize_app(
+                cred,
+                {"databaseURL": rtdb_base},
+                name="daily_summary",
+            )
+
+        fa_app = _get_kepco_app()
+        ref = fb_db.reference(ds.get("ws_path", "workStatus/jongno"), app=fa_app)
+        raw = ref.get()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB 조회 실패: {e}")
+
+    if not isinstance(raw, dict):
+        return {"dataset": dataset, "total": 0, "records": []}
+
+    # KEPCO_IMPORT 레코드만 수집해 날짜별 그룹화
+    from collections import defaultdict
+    groups: dict = defaultdict(list)  # date_str -> list of items
+
+    for addr, addr_val in raw.items():
+        if not isinstance(addr_val, dict):
+            continue
+        for mid, rec in (addr_val.get("replacement_list") or {}).items():
+            if not isinstance(rec, dict):
+                continue
+            if rec.get("worker") != "KEPCO_IMPORT":
+                continue
+            ra = rec.get("replaced_at")
+            if not ra:
+                continue
+            # KST(Asia/Seoul) 기준 날짜 변환 — UTC 절대 금지
+            date_str = datetime.fromtimestamp(ra / 1000, KST).strftime("%Y-%m-%d")
+            groups[date_str].append({
+                "cust_no":      rec.get("cust_no"),
+                "addr":         addr,
+                "old_meter_id": rec.get("old_meter_id"),
+                "new_meter_id": rec.get("new_meter_id"),
+                "cha":          rec.get("cha"),
+            })
+
+    # date 오름차순 정렬
+    sorted_dates = sorted(groups.keys())
+    records_out = [
+        {
+            "date":  date_key,
+            "count": len(groups[date_key]),
+            "items": groups[date_key],
+        }
+        for date_key in sorted_dates
+    ]
+    total = sum(r["count"] for r in records_out)
+
+    return {
+        "dataset": dataset,
+        "total":   total,
+        "records": records_out,
+    }
+
+
+# ── 9. GET /dates ────────────────────────────────────────────────────────────────
+@app.get("/dates")
+def get_dates(
+    dataset: str = Query(default="jongno", description="dataset id"),
+):
+    """
+    replacement_list의 replaced_at(ms)을 KST 기준 YYYYMMDD로 변환해
+    작업 데이터가 존재하는 날짜 목록(정렬)을 반환.
+
+    날짜 피커에서 "작업 있는 날만 강조/선택" 용도.
+    workStatus 전체를 캐시(_PHOTO_CACHE "dataset:ALL")에서 재사용해 추가 네트워크 없음.
+
+    반환 예: {"dataset":"jongno","dates":["20260623","20260625",...]}
+    """
+    cfg = _load_config()
+    if dataset not in cfg.get("datasets", {}):
+        raise HTTPException(status_code=404, detail=f"dataset '{dataset}' 없음")
+
+    # date=None으로 전체 캐시 재사용 (캐시 키: "dataset:ALL")
+    try:
+        maps = _get_photo_map(dataset, None)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB 조회 실패: {e}")
+
+    ts_mid_map = maps.get("ts_mid_map", {})
+
+    # ts15 = YYYYMMDD_HHMMSS → 앞 8자리가 날짜
+    date_set: set = set()
+    for (ts15, _mid) in ts_mid_map.keys():
+        if len(ts15) >= 8:
+            date_set.add(ts15[:8])
+
+    return {
+        "dataset": dataset,
+        "dates": sorted(date_set),
+    }
+
+
+# ── 10. POST /apply ──────────────────────────────────────────────────────────────
+# 허용 field 집합 (읽기 4종 + 계기번호 2종)
+_READING_FIELDS = {"whme_day", "whme_mngt", "dm_mt_day", "var_day"}
+_METER_ID_FIELDS = {"old_meter_id", "new_meter_id"}
+_ALLOWED_FIELDS = _READING_FIELDS | _METER_ID_FIELDS
+
+
+def _num(x) -> Any:
+    """
+    검침값 타입 정규화 — DB에 number로 저장하고, skip 비교도 같은 타입으로.
+    "17591" → 17591 (int), "31.90" → 31.9 (float, 소수 trailing-zero 제거).
+    정수로 표현 가능한 float는 int로 변환 (17591.0 → 17591).
+    변환 실패 시 원본 반환 (안전 폴백, 400은 빈값에서 이미 걸림).
+    """
+    try:
+        f = float(str(x).strip())
+        return int(f) if f == int(f) else f
+    except (ValueError, TypeError):
+        return x
+
+
+class ApplyRequest(BaseModel):
+    dataset: str
+    mid: str          # 철거계기번호(11자리, 하이픈 없음)
+    field: str        # whme_day / whme_mngt / dm_mt_day / var_day / old_meter_id / new_meter_id
+    verdict_value: str
+    actor: str        # 판정자 (예: "admin", "영준")
+    dry_run: bool = True   # 기본 True — 명시적으로 False 전달해야 실제 쓰기
+
+
+@app.post("/apply")
+def post_apply(req: ApplyRequest):
+    """
+    판정값을 종로 Firebase(ami-jongno)에 자동 적용한다.
+
+    안전장치:
+      1. live 재조회 (캐시 사용 금지) — fresh snapshot으로 현재값 확인
+      2. current == verdict_value 이면 skip(멱등) — 이미 동일 값이면 쓰지 않음
+      3. verdict_value 빈값 거부 (400)
+      4. dry_run=true: 실제 쓰기 없이 would_change/current_value/new_value 반환
+      5. dry_run=false + 변경 있을 때만: 해당 field만 PATCH + audit 로그 append
+
+    audit 로그 경로: ami-jongno RTDB admin_validate/audit/{push_key}
+      {ts, actor, addr, mid, field, old, new}
+
+    awms는 절대 건드리지 않음 (종로 DB만).
+    """
+    # ── 입력 검증 ─────────────────────────────────────────────────────────────────
+
+    # field 허용 목록 확인
+    if req.field not in _ALLOWED_FIELDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"field '{req.field}' 불가. 허용: {sorted(_ALLOWED_FIELDS)}"
+        )
+
+    # verdict_value 빈값 거부
+    if not req.verdict_value or not req.verdict_value.strip():
+        raise HTTPException(status_code=400, detail="verdict_value 빈값 불가")
+
+    # mid 기본 형식 확인 (비어있으면 거부)
+    mid_clean = str(req.mid).strip()
+    if not mid_clean:
+        raise HTTPException(status_code=400, detail="mid(계기번호) 빈값 불가")
+
+    # 데이터셋 설정 로드
+    cfg = _load_config()
+    ds = cfg.get("datasets", {}).get(req.dataset)
+    if ds is None:
+        raise HTTPException(status_code=404, detail=f"dataset '{req.dataset}' 없음")
+
+    rtdb_base = ds.get("rtdb_review_url", "").rstrip("/")
+    cred_path = ds.get("cred", "")
+    if not rtdb_base:
+        raise HTTPException(status_code=500, detail="dataset에 rtdb_review_url 없음")
+
+    # ── firebase app 확보 (/verdict 패턴 재사용) ──────────────────────────────────
+    try:
+        import firebase_admin
+        from firebase_admin import credentials as fb_creds, db as fb_db
+
+        def _get_apply_app():
+            """databaseURL이 설정된 firebase_admin app 반환 (admin_verdict와 공유 우선)."""
+            # 기존 default app 확인
+            existing = firebase_admin._apps.get("[DEFAULT]")
+            if existing is not None:
+                opts = existing.options
+                if opts and opts.get("databaseURL"):
+                    return existing
+            # named app "admin_verdict" 재사용 (이미 초기화돼 있으면)
+            named = firebase_admin._apps.get("admin_verdict")
+            if named is not None:
+                return named
+            # "admin_apply" 신규 named app 생성
+            existing_apply = firebase_admin._apps.get("admin_apply")
+            if existing_apply is not None:
+                return existing_apply
+            if cred_path and Path(cred_path).exists():
+                cred = fb_creds.Certificate(cred_path)
+            else:
+                cred = fb_creds.ApplicationDefault()
+            return firebase_admin.initialize_app(
+                cred,
+                {"databaseURL": rtdb_base},
+                name="admin_apply",
+            )
+
+        fa_app = _get_apply_app()
+
+        # ── 1. live 재조회 (캐시 금지 — 안전장치 핵심) ─────────────────────────
+        ws_ref = fb_db.reference(ds.get("ws_path","workStatus/jongno"), app=fa_app)
+        raw = ws_ref.get()
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB 조회 실패: {e}")
+
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=500, detail="workStatus/jongno 데이터 없음")
+
+    # ── mid로 addr 탐색 ───────────────────────────────────────────────────────────
+    found_addr: Optional[str] = None
+    found_rec: Optional[dict] = None
+
+    for addr, addr_val in raw.items():
+        if not isinstance(addr_val, dict):
+            continue
+        rep_list = addr_val.get("replacement_list") or {}
+        if mid_clean in rep_list:
+            rec = rep_list[mid_clean]
+            if isinstance(rec, dict):
+                found_addr = addr
+                found_rec = rec
+                break
+
+    if found_addr is None or found_rec is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"mid '{mid_clean}' 을(를) workStatus/jongno 에서 찾을 수 없음"
+        )
+
+    # ── 현재값 읽기 (field 분기) ──────────────────────────────────────────────────
+    if req.field in _READING_FIELDS:
+        # 검침값: removal_values 하위 필드
+        current_raw = (found_rec.get("removal_values") or {}).get(req.field)
+    else:
+        # 계기번호: replacement_list[mid] 직접 필드
+        current_raw = found_rec.get(req.field)
+
+    # ── 2. 멱등 skip 판정 ─────────────────────────────────────────────────────────
+    # 검침값 4종: _num() 정규화 비교 (DB=int/float vs 입력값 문자열, 타입 불일치 방지)
+    # 계기번호 2종: str 비교 (선두 0 보존 필요 — int 변환 금지)
+    if req.field in _READING_FIELDS:
+        is_same = _num(current_raw) == _num(req.verdict_value)
+    else:
+        is_same = str(current_raw).strip() == req.verdict_value.strip()
+
+    if is_same:
+        return {
+            "applied": False,
+            "skip": True,
+            "reason": "이미 동일 값 — 변경 없음",
+            "addr": found_addr,
+            "mid": mid_clean,
+            "field": req.field,
+            "current_value": current_raw,
+            "new_value": req.verdict_value,
+        }
+
+    # ── 3. dry_run=true: 미리보기만 반환 ─────────────────────────────────────────
+    if req.dry_run:
+        return {
+            "applied": False,
+            "dry_run": True,
+            "would_change": True,
+            "addr": found_addr,
+            "mid": mid_clean,
+            "field": req.field,
+            "current_value": current_raw,
+            "new_value": req.verdict_value,
+        }
+
+    # ── 4. 실제 쓰기 (dry_run=false, 변경있을 때만) ──────────────────────────────
+    # 검침값 4종: DB 타입(number)에 맞게 _num() 정규화 후 저장 (문자열→숫자 타입 드리프트 방지)
+    # 계기번호 2종: 문자열 그대로 저장 (선두 0 보존)
+    write_value: Any = _num(req.verdict_value) if req.field in _READING_FIELDS else req.verdict_value
+
+    try:
+        if req.field in _READING_FIELDS:
+            # 검침값: .../replacement_list/{mid}/removal_values/{field} 만 set
+            leaf_ref = fb_db.reference(
+                "workStatus/jongno",
+                app=fa_app
+            ).child(found_addr).child("replacement_list").child(mid_clean) \
+             .child("removal_values").child(req.field)
+        else:
+            # 계기번호: .../replacement_list/{mid}/{field} 만 set
+            leaf_ref = fb_db.reference(
+                "workStatus/jongno",
+                app=fa_app
+            ).child(found_addr).child("replacement_list").child(mid_clean) \
+             .child(req.field)
+
+        leaf_ref.set(write_value)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB 쓰기 실패: {e}")
+
+    # ── 5. audit 로그 append (push = 고유 push_key, 덮어쓰기 없음) ────────────────
+    now_kst = datetime.now(KST)
+    audit_payload: Dict[str, Any] = {
+        "ts":      now_kst.isoformat(),
+        "action":  "apply",          # apply / rollback 구분 (구버전 로그는 action 없음 → apply로 간주)
+        "actor":   req.actor,
+        "addr":    found_addr,
+        "mid":     mid_clean,
+        "field":   req.field,
+        "old":     current_raw,
+        "new":     write_value,
+        "dataset": req.dataset,
+    }
+    with _PHOTO_CACHE_LOCK:
+        _PHOTO_CACHE.clear()   # 쓰기 반영 위해 결과 캐시 무효화
+        _WS_RAW_CACHE.clear()  # raw 트리 캐시도 무효화(stale 방지)
+    audit_saved = False
+    audit_key: Optional[str] = None
+    try:
+        audit_ref = fb_db.reference("admin_validate/audit", app=fa_app)
+        new_ref = audit_ref.push(audit_payload)
+        audit_key = new_ref.key   # 롤백 연결용 push key
+        audit_saved = True
+    except Exception as e:
+        # audit 실패는 경고만 — 이미 쓰기는 완료됐으므로 에러 아님
+        print(f"[apply] audit 로그 저장 실패: {e}", flush=True)
+
+    return {
+        "applied": True,
+        "dry_run": False,
+        "audit_saved": audit_saved,
+        "audit_key": audit_key,         # 되돌리기(/rollback)에 전달
+        "addr": found_addr,
+        "mid": mid_clean,
+        "field": req.field,
+        "current_value": current_raw,   # skip/dry-run과 키 통일
+        "new_value": write_value,
+        "actor": req.actor,
+        "ts": now_kst.isoformat(),
+    }
+
+
+# ── 10b. POST /rollback ───────────────────────────────────────────────────────────
+def _val_is_empty(v: Any) -> bool:
+    """None / 공백문자열을 빈값으로 판정."""
+    return v is None or (isinstance(v, str) and v.strip() == "")
+
+
+def _vals_equal(a: Any, b: Any, field: str) -> bool:
+    """field 타입에 맞춰 값 동등 비교 (검침값=숫자정규화, 계기번호=문자열, 빈값 통일)."""
+    if _val_is_empty(a) and _val_is_empty(b):
+        return True
+    if _val_is_empty(a) != _val_is_empty(b):
+        return False
+    if field in _READING_FIELDS:
+        return _num(a) == _num(b)
+    return str(a).strip() == str(b).strip()
+
+
+class RollbackRequest(BaseModel):
+    dataset: str
+    audit_key: str    # 되돌릴 audit 로그의 push key (admin_validate/audit/{key})
+    actor: str        # 실행자
+
+
+@app.post("/rollback")
+def post_rollback(req: RollbackRequest):
+    """
+    이전 /apply 변경을 되돌린다 — audit 로그의 old 값을 leaf에 복원.
+
+    안전장치 (3-way 가드, live 재조회):
+      1. audit 로그에서 addr/mid/field/old/new 읽음 (action='rollback'은 재롤백 거부)
+      2. live 현재값 재조회
+      3. current == new(이 audit가 쓴 값)  → 진행(old 복원)
+         current == old                    → skip "이미 되돌려짐"(멱등·더블클릭 안전)
+         그 외                              → 409 "이후 다른 변경 있음, 수동 확인"
+      4. old가 빈값이면 leaf 삭제(set None), 아니면 저장된 타입 그대로 복원(_num/str 강제 안 함)
+      5. rollback audit 로그 append (action='rollback', ref_audit_key)
+
+    awms는 절대 건드리지 않음 (종로 DB만).
+    """
+    cfg = _load_config()
+    ds = cfg.get("datasets", {}).get(req.dataset)
+    if ds is None:
+        raise HTTPException(status_code=404, detail=f"dataset '{req.dataset}' 없음")
+
+    rtdb_base = ds.get("rtdb_review_url", "").rstrip("/")
+    cred_path = ds.get("cred", "")
+    if not rtdb_base:
+        raise HTTPException(status_code=500, detail="dataset에 rtdb_review_url 없음")
+
+    try:
+        import firebase_admin
+        from firebase_admin import credentials as fb_creds, db as fb_db
+
+        def _get_apply_app():
+            existing = firebase_admin._apps.get("[DEFAULT]")
+            if existing is not None:
+                opts = existing.options
+                if opts and opts.get("databaseURL"):
+                    return existing
+            named = firebase_admin._apps.get("admin_verdict")
+            if named is not None:
+                return named
+            existing_apply = firebase_admin._apps.get("admin_apply")
+            if existing_apply is not None:
+                return existing_apply
+            if cred_path and Path(cred_path).exists():
+                cred = fb_creds.Certificate(cred_path)
+            else:
+                cred = fb_creds.ApplicationDefault()
+            return firebase_admin.initialize_app(
+                cred, {"databaseURL": rtdb_base}, name="admin_apply",
+            )
+
+        fa_app = _get_apply_app()
+
+        # ── 1. audit 로그 읽기 ────────────────────────────────────────────────────
+        audit_entry = fb_db.reference("admin_validate/audit", app=fa_app) \
+            .child(req.audit_key).get()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"audit 조회 실패: {e}")
+
+    if not isinstance(audit_entry, dict):
+        raise HTTPException(status_code=404, detail=f"audit_key '{req.audit_key}' 없음")
+
+    # 재롤백 금지 (롤백 로그는 되돌리지 않음 — 체인 방지)
+    if audit_entry.get("action") == "rollback":
+        raise HTTPException(status_code=400, detail="롤백 로그는 다시 되돌릴 수 없습니다")
+
+    # ── 스왑 되돌리기: 두 레코드 full 스냅샷을 원자적으로 복원 ──────────────────────
+    if audit_entry.get("action") == "swap":
+        addr  = audit_entry.get("addr")
+        mid_a = str(audit_entry.get("mid_a", "")).strip()
+        mid_b = str(audit_entry.get("mid_b", "")).strip()
+        snap_a = audit_entry.get("snapshot_a")
+        snap_b = audit_entry.get("snapshot_b")
+        if not addr or not mid_a or not mid_b or not isinstance(snap_a, dict) or not isinstance(snap_b, dict):
+            raise HTTPException(status_code=400, detail="스왑 audit 로그 손상(addr/mid/snapshot 확인)")
+        try:
+            rl_ref = fb_db.reference(ds.get("ws_path","workStatus/jongno"), app=fa_app) \
+                .child(addr).child("replacement_list")
+            cur = rl_ref.get() or {}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"현재값 조회 실패: {e}")
+        cur_a = cur.get(mid_a) or {}
+        cur_b = cur.get(mid_b) or {}
+        # 멱등: 이미 스냅샷(=스왑 전) 상태로 돌아가 있으면 skip
+        if (_vals_equal(cur_a.get("new_meter_id"), snap_a.get("new_meter_id"), "new_meter_id") and
+                _vals_equal(cur_b.get("new_meter_id"), snap_b.get("new_meter_id"), "new_meter_id")):
+            return {"rolled_back": False, "skip": True,
+                    "reason": "이미 되돌려진 상태 — 변경 없음",
+                    "addr": addr, "mid_a": mid_a, "mid_b": mid_b}
+        # 충돌 가드: 현재가 스왑 직후 상태(서로 교환됨)여야 안전하게 되돌림
+        post_ok = (_vals_equal(cur_a.get("new_meter_id"), snap_b.get("new_meter_id"), "new_meter_id") and
+                   _vals_equal(cur_b.get("new_meter_id"), snap_a.get("new_meter_id"), "new_meter_id"))
+        if not post_ok:
+            raise HTTPException(status_code=409,
+                detail="이후 다른 변경이 있어 스왑 되돌리기 불가. 수동 확인 필요.")
+        try:
+            rl_ref.update({mid_a: snap_a, mid_b: snap_b})  # 두 레코드 원자 복원
+            with _PHOTO_CACHE_LOCK:
+                _PHOTO_CACHE.clear()
+                _WS_RAW_CACHE.clear()  # raw 트리 캐시도 무효화(stale 방지)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"스왑 복원 실패: {e}")
+        now_kst = datetime.now(KST)
+        try:
+            fb_db.reference("admin_validate/audit", app=fa_app).push({
+                "ts": now_kst.isoformat(), "action": "rollback", "actor": req.actor,
+                "addr": addr, "mid_a": mid_a, "mid_b": mid_b,
+                "field": "(스왑 되돌리기)", "dataset": req.dataset,
+                "ref_audit_key": req.audit_key,
+            })
+        except Exception as e:
+            print(f"[rollback-swap] audit 저장 실패: {e}", flush=True)
+        return {"rolled_back": True, "swap": True,
+                "addr": addr, "mid_a": mid_a, "mid_b": mid_b,
+                "actor": req.actor, "ts": now_kst.isoformat()}
+
+    addr  = audit_entry.get("addr")
+    mid   = str(audit_entry.get("mid", "")).strip()
+    field = audit_entry.get("field")
+    old_v = audit_entry.get("old")   # 복원 대상 (apply 이전 값)
+    new_v = audit_entry.get("new")   # apply가 쓴 값
+
+    if not addr or not mid or field not in _ALLOWED_FIELDS:
+        raise HTTPException(status_code=400, detail="audit 로그가 손상됨(addr/mid/field 확인)")
+
+    # ── 2. live 현재값 재조회 ─────────────────────────────────────────────────────
+    try:
+        base = fb_db.reference(ds.get("ws_path","workStatus/jongno"), app=fa_app) \
+            .child(addr).child("replacement_list").child(mid)
+        if field in _READING_FIELDS:
+            leaf_ref = base.child("removal_values").child(field)
+        else:
+            leaf_ref = base.child(field)
+        current_raw = leaf_ref.get()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"현재값 조회 실패: {e}")
+
+    # ── 3. 3-way 가드 ─────────────────────────────────────────────────────────────
+    if _vals_equal(current_raw, old_v, field):
+        return {
+            "rolled_back": False,
+            "skip": True,
+            "reason": "이미 되돌려진 상태 — 변경 없음",
+            "addr": addr, "mid": mid, "field": field,
+            "current_value": current_raw, "restore_to": old_v,
+        }
+    if not _vals_equal(current_raw, new_v, field):
+        raise HTTPException(
+            status_code=409,
+            detail=(f"이후 다른 변경이 있어 자동 롤백 불가 (현재값={current_raw!r}, "
+                    f"이 변경이 쓴 값={new_v!r}). 수동 확인 필요."),
+        )
+
+    # ── 4. old 복원 (빈값이면 leaf 삭제, 아니면 저장 타입 그대로) ──────────────────
+    try:
+        if _val_is_empty(old_v):
+            leaf_ref.delete()    # apply가 채운 필드였음 → 원래대로 비움 (set(None)은 firebase-admin에서 불가)
+            restored = None
+        else:
+            leaf_ref.set(old_v)  # 저장된 타입 그대로 — _num/str 강제 안 함(선두0 드리프트 방지)
+            restored = old_v
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB 복원 실패: {e}")
+
+    # ── 5. rollback audit 로그 append ─────────────────────────────────────────────
+    now_kst = datetime.now(KST)
+    rb_payload: Dict[str, Any] = {
+        "ts":            now_kst.isoformat(),
+        "action":        "rollback",
+        "actor":         req.actor,
+        "addr":          addr,
+        "mid":           mid,
+        "field":         field,
+        "old":           current_raw,   # 롤백 직전값(=apply가 썼던 값)
+        "new":           restored,      # 복원한 값(=원래 old)
+        "dataset":       req.dataset,
+        "ref_audit_key": req.audit_key, # 어떤 apply를 되돌렸는지
+    }
+    with _PHOTO_CACHE_LOCK:
+        _PHOTO_CACHE.clear()   # 쓰기 반영 위해 결과 캐시 무효화
+        _WS_RAW_CACHE.clear()  # raw 트리 캐시도 무효화(stale 방지)
+    audit_saved = False
+    try:
+        fb_db.reference("admin_validate/audit", app=fa_app).push(rb_payload)
+        audit_saved = True
+    except Exception as e:
+        print(f"[rollback] audit 로그 저장 실패: {e}", flush=True)
+
+    return {
+        "rolled_back": True,
+        "audit_saved": audit_saved,
+        "addr": addr, "mid": mid, "field": field,
+        "previous_value": current_raw,   # 되돌리기 전(apply가 쓴 값)
+        "restored_value": restored,      # 복원된 값
+        "actor": req.actor,
+        "ts": now_kst.isoformat(),
+    }
+
+
+# ── 10c. POST /swap (스왑 교정: 두 칸 작업데이터 통째 교환) ─────────────────────────
+# SWAP = 작업자가 넣은 작업 결과(이 칸에 잘못 할당된 것). 두 키 사이에 통째 교환.
+_SWAP_FIELDS = {
+    "new_meter_id", "new_meter_photo", "new_meter_photo_thumb", "new_meter_mfg_ym",
+    "old_meter_photo", "old_meter_photo_thumb",
+    "removal_values", "removal_value", "removal_photos",
+    "removal_lcd_photos", "removal_lcd_regions", "removal_lcd_flags",
+    "daily_seq", "replaced_at", "draft", "remark", "worker", "worker_name",
+    "last_edited_at", "last_edited_by", "extra_data", "quarantine",
+}
+# STAY(절대 안 옮김): old_meter_id(키), 계약전력/계약종별/cntr_*(계약), awms_cons_*/awms_reg_id(작업대상 식별자),
+#   source/imported_at(import 메타), 그 외 _SWAP_FIELDS에 없는 모든 필드.
+# awms 동기화결과: 스왑 후 무효 → 통째 제거 + awms_synced=False (재등록 필요 표시. 자동 awms수정 안 함).
+_AWMS_RESULT_FIELDS = {"awms_response", "awms_synced", "awms_synced_at", "awms_error", "awms_error_at"}
+
+
+class SwapRequest(BaseModel):
+    dataset: str
+    addr: str
+    mid_a: str
+    mid_b: str
+    actor: str
+    # 드리프트 가드: 탐지/표시 시점에 각 칸에 있던 신설번호. live가 이와 다르면 거부(이미 수정된 건 보호).
+    expect_a_new: Optional[str] = None
+    expect_b_new: Optional[str] = None
+
+
+@app.post("/swap")
+def post_swap(req: SwapRequest):
+    """
+    같은 주소의 두 칸(mid_a, mid_b) 작업 데이터를 통째로 맞바꾼다 (할당 오류 정정).
+
+    안전장치:
+      1. live 재조회 (캐시 금지). 두 칸 모두 존재해야 함.
+      2. 드리프트 가드: 현재 new_meter_id == expect(탐지시점) 이어야 진행.
+         다르면 409 (이미 수정된 건/외부 편집 보호 — 92·93처럼 종로맵서 고친 건 재손상 방지).
+      3. 개별 수정 가드: 두 mid 중 portal /apply 이력 있으면 409 (edit-then-swap 꼬임 방지).
+      4. _SWAP_FIELDS만 교환, 나머지(키·계약·awms식별자)는 제자리.
+         awms 동기화결과는 제거 + awms_synced=False (awms 재등록 필요 표시).
+      5. 단일 update()로 원자 교환. audit action='swap' + 두 레코드 full 스냅샷(되돌리기용).
+
+    awms 자동수정은 안 함 (종로 DB만).
+    """
+    mid_a = str(req.mid_a).strip()
+    mid_b = str(req.mid_b).strip()
+    addr  = str(req.addr).strip()
+    if not addr or not mid_a or not mid_b:
+        raise HTTPException(status_code=400, detail="addr/mid_a/mid_b 필수")
+    if mid_a == mid_b:
+        raise HTTPException(status_code=400, detail="같은 계기는 스왑 불가")
+
+    cfg = _load_config()
+    ds = cfg.get("datasets", {}).get(req.dataset)
+    if ds is None:
+        raise HTTPException(status_code=404, detail=f"dataset '{req.dataset}' 없음")
+    rtdb_base = ds.get("rtdb_review_url", "").rstrip("/")
+    cred_path = ds.get("cred", "")
+    if not rtdb_base:
+        raise HTTPException(status_code=500, detail="dataset에 rtdb_review_url 없음")
+
+    try:
+        import firebase_admin
+        from firebase_admin import credentials as fb_creds, db as fb_db
+
+        def _get_apply_app():
+            existing = firebase_admin._apps.get("[DEFAULT]")
+            if existing is not None:
+                opts = existing.options
+                if opts and opts.get("databaseURL"):
+                    return existing
+            for nm in ("admin_verdict", "admin_apply"):
+                named = firebase_admin._apps.get(nm)
+                if named is not None:
+                    return named
+            if cred_path and Path(cred_path).exists():
+                cred = fb_creds.Certificate(cred_path)
+            else:
+                cred = fb_creds.ApplicationDefault()
+            return firebase_admin.initialize_app(
+                cred, {"databaseURL": rtdb_base}, name="admin_apply",
+            )
+
+        fa_app = _get_apply_app()
+        rl_ref = fb_db.reference(ds.get("ws_path","workStatus/jongno"), app=fa_app) \
+            .child(addr).child("replacement_list")
+        cur = rl_ref.get() or {}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB 조회 실패: {e}")
+
+    rec_a = cur.get(mid_a)
+    rec_b = cur.get(mid_b)
+    if not isinstance(rec_a, dict) or not isinstance(rec_b, dict):
+        raise HTTPException(status_code=404,
+            detail=f"두 계기({mid_a}, {mid_b})가 '{addr}'에 모두 있어야 합니다.")
+
+    # ── 2. 드리프트 가드 (live == 탐지시점) ──────────────────────────────────────
+    if req.expect_a_new is not None and not _vals_equal(rec_a.get("new_meter_id"), req.expect_a_new, "new_meter_id"):
+        raise HTTPException(status_code=409,
+            detail=(f"데이터가 이미 변경됨, 재검증 필요 ({mid_a} 현재 신설={rec_a.get('new_meter_id')!r}, "
+                    f"탐지시점={req.expect_a_new!r})."))
+    if req.expect_b_new is not None and not _vals_equal(rec_b.get("new_meter_id"), req.expect_b_new, "new_meter_id"):
+        raise HTTPException(status_code=409,
+            detail=(f"데이터가 이미 변경됨, 재검증 필요 ({mid_b} 현재 신설={rec_b.get('new_meter_id')!r}, "
+                    f"탐지시점={req.expect_b_new!r})."))
+
+    # ── 3. 개별 수정(apply) 이력 가드 — edit-then-swap 꼬임 방지 ──────────────────
+    try:
+        all_audit = fb_db.reference("admin_validate/audit", app=fa_app).get() or {}
+        edited = set()
+        for _k, _e in all_audit.items():
+            if isinstance(_e, dict) and _e.get("action") == "apply" and str(_e.get("mid", "")) in (mid_a, mid_b):
+                edited.add(str(_e.get("mid")))
+        if edited:
+            raise HTTPException(status_code=409,
+                detail=(f"개별 값 수정 이력이 있어 스왑 불가({', '.join(sorted(edited))}). "
+                        f"먼저 그 수정을 되돌린 뒤 스왑하세요(꼬임 방지)."))
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[swap] apply 이력 확인 실패(무시하고 진행 안 함): {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"수정 이력 확인 실패: {e}")
+
+    # ── 4. 스왑 레코드 구성 (_SWAP_FIELDS만 교환) ────────────────────────────────
+    import copy
+    new_a = copy.deepcopy(rec_a)
+    new_b = copy.deepcopy(rec_b)
+    for f in _SWAP_FIELDS:
+        va = rec_a.get(f)
+        vb = rec_b.get(f)
+        if vb is None:
+            new_a.pop(f, None)
+        else:
+            new_a[f] = vb
+        if va is None:
+            new_b.pop(f, None)
+        else:
+            new_b[f] = va
+    # awms 동기화결과 무효화 (재등록 필요)
+    for f in _AWMS_RESULT_FIELDS:
+        new_a.pop(f, None)
+        new_b.pop(f, None)
+    new_a["awms_synced"] = False
+    new_b["awms_synced"] = False
+    # 키(철거번호)는 제자리
+    new_a["old_meter_id"] = mid_a
+    new_b["old_meter_id"] = mid_b
+
+    # ── 5. 원자 교환 + audit(full 스냅샷) ────────────────────────────────────────
+    try:
+        rl_ref.update({mid_a: new_a, mid_b: new_b})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"스왑 쓰기 실패: {e}")
+
+    now_kst = datetime.now(KST)
+    audit_key = None
+    with _PHOTO_CACHE_LOCK:
+        _PHOTO_CACHE.clear()   # 쓰기 반영 위해 결과 캐시 무효화
+        _WS_RAW_CACHE.clear()  # raw 트리 캐시도 무효화(stale 방지)
+    audit_saved = False
+    try:
+        ref = fb_db.reference("admin_validate/audit", app=fa_app).push({
+            "ts": now_kst.isoformat(), "action": "swap", "actor": req.actor,
+            "addr": addr, "mid_a": mid_a, "mid_b": mid_b,
+            "field": "(스왑 교정)", "dataset": req.dataset,
+            "snapshot_a": rec_a, "snapshot_b": rec_b,   # 스왑 전 full 레코드 (되돌리기용)
+        })
+        audit_key = ref.key
+        audit_saved = True
+    except Exception as e:
+        print(f"[swap] audit 저장 실패: {e}", flush=True)
+
+    return {
+        "swapped": True, "audit_saved": audit_saved, "audit_key": audit_key,
+        "addr": addr, "mid_a": mid_a, "mid_b": mid_b,
+        "awms_resync_needed": bool(rec_a.get("awms_synced") or rec_b.get("awms_synced")),
+        "actor": req.actor, "ts": now_kst.isoformat(),
+    }
+
+
+# ── 10c-2. POST /set_validated (검증완료 플래그 — awms 큐 자격) ─────────────────────
+class SetValidatedRequest(BaseModel):
+    dataset: str
+    mids: list           # 철거계기번호 목록 (그 범위/배치)
+    actor: str
+    validated: bool = True
+
+
+@app.post("/set_validated")
+def post_set_validated(req: SetValidatedRequest):
+    """
+    검증완료 플래그를 종로 DB 레코드에 건별로 기록/해제.
+    workStatus/jongno/{addr}/replacement_list/{mid}/ 에 validated/validated_at/validated_by.
+    (나중에 계기큐가 validated=true 인 것만 awms 큐로 올림. 게이트는 계기큐 쪽 별도 작업.)
+
+    - mids: 검증완료 처리할 철거계기번호 목록 (프론트가 범위 1~30의 mid들을 모아 전달).
+    - validated=false면 플래그 해제.
+    - live 조회 후 주소별로 묶어 atomic update. audit action='validate'.
+    """
+    if not req.mids:
+        raise HTTPException(status_code=400, detail="mids 비어있음")
+    cfg = _load_config()
+    ds = cfg.get("datasets", {}).get(req.dataset)
+    if ds is None:
+        raise HTTPException(status_code=404, detail=f"dataset '{req.dataset}' 없음")
+    rtdb_base = ds.get("rtdb_review_url", "").rstrip("/")
+    cred_path = ds.get("cred", "")
+    if not rtdb_base:
+        raise HTTPException(status_code=500, detail="dataset에 rtdb_review_url 없음")
+
+    mid_set = {str(m).strip() for m in req.mids if str(m).strip()}
+    try:
+        import firebase_admin
+        from firebase_admin import credentials as fb_creds, db as fb_db
+
+        def _get_apply_app():
+            existing = firebase_admin._apps.get("[DEFAULT]")
+            if existing is not None and existing.options and existing.options.get("databaseURL"):
+                return existing
+            for nm in ("admin_verdict", "admin_apply"):
+                named = firebase_admin._apps.get(nm)
+                if named is not None:
+                    return named
+            if cred_path and Path(cred_path).exists():
+                cred = fb_creds.Certificate(cred_path)
+            else:
+                cred = fb_creds.ApplicationDefault()
+            return firebase_admin.initialize_app(cred, {"databaseURL": rtdb_base}, name="admin_apply")
+
+        fa_app = _get_apply_app()
+        ws_ref = fb_db.reference(ds.get("ws_path","workStatus/jongno"), app=fa_app)
+        raw = ws_ref.get() or {}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB 조회 실패: {e}")
+
+    now_kst = datetime.now(KST)
+    ts_iso = now_kst.isoformat()
+    updated = []
+    # 주소별 묶어 atomic update
+    _work_daykey = ""   # 변경이력 작업일 (레코드 replaced_at KST)
+    for addr, av in raw.items():
+        if not isinstance(av, dict):
+            continue
+        rl = av.get("replacement_list") or {}
+        patch = {}
+        for mid in rl:
+            if str(mid).strip() in mid_set:
+                if req.validated:
+                    patch[f"{mid}/validated"] = True
+                    patch[f"{mid}/validated_at"] = int(now_kst.timestamp() * 1000)
+                    patch[f"{mid}/validated_by"] = req.actor
+                else:
+                    patch[f"{mid}/validated"] = False
+                updated.append(str(mid))
+                if not _work_daykey:
+                    _work_daykey = _daykey_from_rec(rl.get(mid))
+        if patch:
+            try:
+                ws_ref.child(addr).child("replacement_list").update(patch)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"쓰기 실패({addr}): {e}")
+
+    # audit
+    try:
+        fb_db.reference("admin_validate/audit", app=fa_app).push({
+            "ts": ts_iso, "action": "validate", "actor": req.actor,
+            "field": "(검증완료)", "dataset": req.dataset,
+            "validated": req.validated, "count": len(updated),
+            "mids": updated[:200], "work_date": _work_daykey,
+        })
+    except Exception as e:
+        print(f"[set_validated] audit 실패: {e}", flush=True)
+
+    with _PHOTO_CACHE_LOCK:           # 쓰기 반영 위해 결과 캐시 무효화
+        _PHOTO_CACHE.clear()
+        _WS_RAW_CACHE.clear()  # raw 트리 캐시도 무효화(stale 방지)
+
+    not_found = sorted(mid_set - set(updated))
+    return {
+        "ok": True, "validated": req.validated,
+        "updated_count": len(updated), "updated": updated,
+        "not_found": not_found, "actor": req.actor, "ts": ts_iso,
+    }
+
+
+def _daykey_from_rec(rec):
+    """레코드 replaced_at(ms) → KST 작업일 YYYYMMDD. 없으면 빈문자열."""
+    try:
+        ra = (rec or {}).get("replaced_at")
+        if ra:
+            return datetime.fromtimestamp(int(ra) / 1000, KST).strftime("%Y%m%d")
+    except Exception:
+        pass
+    return ""
+
+
+class ResetDryrunRequest(BaseModel):
+    dataset: str
+
+
+@app.post("/reset_dryrun")
+def post_reset_dryrun(req: ResetDryrunRequest):
+    """
+    드라이런(샌드박스) 초기화 — 데이터셋 전체의 검증완료 플래그(validated/validated_at/validated_by) 일괄 삭제.
+    ★안전장치: ws_path에 'dryrun'이 포함된 데이터셋만 허용 (prod 종로는 절대 안 지움).
+    """
+    cfg = _load_config()
+    ds = cfg.get("datasets", {}).get(req.dataset)
+    if ds is None:
+        raise HTTPException(status_code=404, detail=f"dataset '{req.dataset}' 없음")
+    ws_path = ds.get("ws_path", "workStatus/jongno")
+    if "dryrun" not in ws_path:
+        raise HTTPException(status_code=403, detail=f"드라이런 전용 — '{ws_path}'는 초기화 불가(prod 보호)")
+    rtdb_base = ds.get("rtdb_review_url", "").rstrip("/")
+    cred_path = ds.get("cred", "")
+
+    try:
+        import firebase_admin
+        from firebase_admin import credentials as fb_creds, db as fb_db
+
+        def _get_app():
+            existing = firebase_admin._apps.get("[DEFAULT]")
+            if existing is not None and existing.options and existing.options.get("databaseURL"):
+                return existing
+            for nm in ("admin_verdict", "admin_apply"):
+                named = firebase_admin._apps.get(nm)
+                if named is not None:
+                    return named
+            if cred_path and Path(cred_path).exists():
+                cred = fb_creds.Certificate(cred_path)
+            else:
+                cred = fb_creds.ApplicationDefault()
+            return firebase_admin.initialize_app(cred, {"databaseURL": rtdb_base}, name="admin_apply")
+
+        fa_app = _get_app()
+        ws_ref = fb_db.reference(ws_path, app=fa_app)
+        raw = ws_ref.get() or {}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB 조회 실패: {e}")
+
+    cleared = 0
+    for addr, av in raw.items():
+        if not isinstance(av, dict):
+            continue
+        rl = av.get("replacement_list") or {}
+        patch = {}
+        for mid, r in rl.items():
+            if not isinstance(r, dict):
+                continue
+            if "validated" in r or "validated_at" in r or "validated_by" in r:
+                patch[f"{mid}/validated"] = None
+                patch[f"{mid}/validated_at"] = None
+                patch[f"{mid}/validated_by"] = None
+                cleared += 1
+        if patch:
+            try:
+                ws_ref.child(addr).child("replacement_list").update(patch)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"쓰기 실패({addr}): {e}")
+
+    # OCR 결과 CSV도 비움 → 검증상태(자동통과/확인필요)까지 전부 미검증으로 되돌림
+    csv_removed = 0
+    csv_dir = ds.get("csv_dir", "")
+    if csv_dir:
+        for fn in ("daily_state.csv", "daily_meterid.csv", "daily_removal_meterid.csv"):
+            p = Path(csv_dir) / fn
+            try:
+                if p.exists():
+                    p.unlink()
+                    csv_removed += 1
+            except Exception as e:
+                print(f"[reset_dryrun] CSV 삭제 실패 {p}: {e}", flush=True)
+
+    with _PHOTO_CACHE_LOCK:
+        _PHOTO_CACHE.clear()
+        _WS_RAW_CACHE.clear()  # raw 트리 캐시도 무효화(stale 방지)
+    return {"ok": True, "cleared": cleared, "csv_removed": csv_removed, "ws_path": ws_path}
+
+
+# ── 10d. GET /stats (공사 진행도·권역·단상삼상·기간별) ──────────────────────────────
+@app.get("/stats")
+def get_stats(
+    dataset: str        = Query(default="jongno", description="dataset id"),
+    exclude_groups: str = Query(default="", description="진행도 분모에서 뺄 동그룹(콤마구분). 중구는 종로 준공리스트에 없어 자동 제외."),
+):
+    """
+    공사 진행도 통계. 분모 = site-data(준공리스트) 전체, exclude_groups 동그룹 제외(중구는 site-data에 없어 자동제외).
+    완료 = 해당 계기번호로 workStatus/jongno에 작업기록(new_meter_id 있음)이 존재.
+
+    반환:
+      total_target/total_done/total_remain/rate,
+      by_region: [{region, target, done, remain, rate, 단상_t,단상_d, 삼상_t,삼상_d}]  (동그룹별),
+      by_phase: {단상:{target,done}, 삼상:{target,done}},
+      by_day:   [{date(YYYYMMDD), count}]  (in-scope 완료 일별, 오름차순) — 주/월 집계는 프론트에서.
+    """
+    cfg = _load_config()
+    ds = cfg.get("datasets", {}).get(dataset)
+    if ds is None:
+        raise HTTPException(status_code=404, detail=f"dataset '{dataset}' 없음")
+    excluded = {g.strip() for g in exclude_groups.split(",") if g.strip()}
+
+    site_idx = _load_site_index(dataset)
+    if not site_idx:
+        raise HTTPException(status_code=500, detail="site-data 없음")
+
+    # ── workStatus 읽어 '작업된 철거번호' 집합 + 작업일시 ────────────────────────
+    rtdb_base = ds.get("rtdb_review_url", "").rstrip("/")
+    cred_path = ds.get("cred", "")
+    worked: Dict[str, Any] = {}   # 철거번호 → replaced_at(ms)
+    try:
+        import firebase_admin
+        from firebase_admin import credentials as fb_creds, db as fb_db
+
+        def _get_stats_app():
+            for nm in ("photo_reader", "admin_apply", "admin_verdict"):
+                ex = firebase_admin._apps.get(nm)
+                if ex is not None:
+                    return ex
+            existing = firebase_admin._apps.get("[DEFAULT]")
+            if existing is not None and existing.options and existing.options.get("databaseURL"):
+                return existing
+            if cred_path and Path(cred_path).exists():
+                cred = fb_creds.Certificate(cred_path)
+            else:
+                cred = fb_creds.ApplicationDefault()
+            return firebase_admin.initialize_app(cred, {"databaseURL": rtdb_base}, name="photo_reader")
+
+        fa_app = _get_stats_app()
+        raw = fb_db.reference(ds.get("ws_path","workStatus/jongno"), app=fa_app).get() or {}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"workStatus 조회 실패: {e}")
+
+    junggu_worked_addrs: set = set()   # meter_updatedByName='중구작업' 표시 주소(중구가 직접 작업)
+    for addr, av in raw.items():
+        if not isinstance(av, dict):
+            continue
+        if "중구" in str(av.get("meter_updatedByName", "")):
+            junggu_worked_addrs.add(addr.strip())
+        for mid, rec in (av.get("replacement_list") or {}).items():
+            if isinstance(rec, dict) and rec.get("new_meter_id"):
+                worked[str(mid)] = rec.get("replaced_at")
+
+    # ── 집계 ──────────────────────────────────────────────────────────────────────
+    KST = timezone(timedelta(hours=9))
+    regions: Dict[str, dict] = {}
+    by_phase = {"단상": {"target": 0, "done": 0}, "삼상": {"target": 0, "done": 0}}
+    day_counts: Dict[str, int] = {}
+    total_t = total_d = 0
+
+    junggu_set = _load_junggu_exclude(dataset)   # 명륜 중구팀 배정분
+    for mid, rec in site_idx.items():
+        grp = rec.get("동그룹") or "(미분류)"
+        if grp in excluded:
+            continue
+        if mid in junggu_set:        # 명륜 중구팀 배정분 제외(동행시공 중구 몫)
+            continue
+        if str(rec.get("주소", "")).strip() in junggu_worked_addrs:  # 중구가 직접 작업표시한 주소 제외
+            continue
+        ph = _phase_of_site(rec)
+        done = mid in worked
+        R = regions.setdefault(grp, {"region": grp, "target": 0, "done": 0,
+                                     "단상_t": 0, "단상_d": 0, "삼상_t": 0, "삼상_d": 0})
+        R["target"] += 1
+        total_t += 1
+        if ph in ("단상", "삼상"):
+            R[ph + "_t"] += 1
+            by_phase[ph]["target"] += 1
+        if done:
+            R["done"] += 1
+            total_d += 1
+            if ph in ("단상", "삼상"):
+                R[ph + "_d"] += 1
+                by_phase[ph]["done"] += 1
+            ra = worked.get(mid)
+            if ra:
+                try:
+                    dk = datetime.fromtimestamp(int(ra) / 1000, KST).strftime("%Y%m%d")
+                    day_counts[dk] = day_counts.get(dk, 0) + 1
+                except Exception:
+                    pass
+
+    region_list = sorted(regions.values(), key=lambda r: r["target"], reverse=True)
+    for r in region_list:
+        r["remain"] = r["target"] - r["done"]
+        r["rate"] = round(r["done"] / r["target"] * 100, 1) if r["target"] else 0.0
+
+    by_day = [{"date": d, "count": c} for d, c in sorted(day_counts.items())]
+
+    return {
+        "dataset": dataset,
+        "excluded_groups": sorted(excluded),
+        "total_target": total_t,
+        "total_done": total_d,
+        "total_remain": total_t - total_d,
+        "rate": round(total_d / total_t * 100, 1) if total_t else 0.0,
+        "by_region": region_list,
+        "by_phase": by_phase,
+        "by_day": by_day,
+    }
+
+
+# ── 10e. GET /daily_stats (날짜별: 총작업·단상·삼상·추가계기·앱작성완료) ───────────
+# 종로맵 통계모달과 동일 정의: 작업=replaced_at, 단상삼상=신설계기 phaseOf,
+#   추가계기=added_meters.added_at, 앱작성완료=ami-work awmsDoneMeters에 계기번호 포함.
+_AWMS_DONE_URL = "https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app/awmsDoneMeters.json"
+_AWMS_DONE_CACHE: Dict[str, Any] = {"set": None, "at": 0.0}
+_AWMS_DONE_TTL = 300.0
+
+
+def _phase_of_mid(mid: Any) -> str:
+    """계기번호 3~4자리로 단상/삼상 (종로 phaseOf와 동일)."""
+    s = str(mid or "")
+    code = s[2:4] if len(s) >= 4 else ""
+    if code in {"17", "19", "25", "26", "27", "53"}:
+        return "단상"
+    if code in {"45", "46", "47", "55"}:
+        return "삼상"
+    return "미상"
+
+
+def _load_awms_done() -> set:
+    """ami-work RTDB awmsDoneMeters(계기큐 awms등록 완료 계기번호 집합) 캐시 로드. 실패 시 빈 set."""
+    now = time.monotonic()
+    if _AWMS_DONE_CACHE["set"] is not None and (now - _AWMS_DONE_CACHE["at"]) < _AWMS_DONE_TTL:
+        return _AWMS_DONE_CACHE["set"]
+    s: set = set()
+    try:
+        import urllib.request
+        with urllib.request.urlopen(_AWMS_DONE_URL, timeout=10) as r:
+            data = json.loads(r.read().decode())
+        if isinstance(data, dict):
+            for k, v in data.items():
+                # {계기번호: true} 또는 {push: 계기번호} 양쪽 방어
+                if v is True or v == 1:
+                    s.add(str(k).strip())
+                elif isinstance(v, str):
+                    s.add(v.strip())
+                else:
+                    s.add(str(k).strip())
+        elif isinstance(data, list):
+            for v in data:
+                if v:
+                    s.add(str(v).strip())
+    except Exception as e:
+        print(f"[awmsDone] 로드 실패: {e}", flush=True)
+    _AWMS_DONE_CACHE["set"] = s
+    _AWMS_DONE_CACHE["at"] = now
+    return s
+
+
+@app.get("/daily_stats")
+def get_daily_stats(
+    dataset: str = Query(default="jongno", description="dataset id"),
+    days: int    = Query(default=60, description="최근 N일만 (0=전체)"),
+):
+    """날짜별 작업 통계: [{date, total, 단상, 삼상, 추가계기, 앱작성완료}] 최신순."""
+    cfg = _load_config()
+    ds = cfg.get("datasets", {}).get(dataset)
+    if ds is None:
+        raise HTTPException(status_code=404, detail=f"dataset '{dataset}' 없음")
+    rtdb_base = ds.get("rtdb_review_url", "").rstrip("/")
+    cred_path = ds.get("cred", "")
+
+    try:
+        import firebase_admin
+        from firebase_admin import credentials as fb_creds, db as fb_db
+
+        def _get_app():
+            for nm in ("photo_reader", "admin_apply", "admin_verdict"):
+                ex = firebase_admin._apps.get(nm)
+                if ex is not None:
+                    return ex
+            existing = firebase_admin._apps.get("[DEFAULT]")
+            if existing is not None and existing.options and existing.options.get("databaseURL"):
+                return existing
+            if cred_path and Path(cred_path).exists():
+                cred = fb_creds.Certificate(cred_path)
+            else:
+                cred = fb_creds.ApplicationDefault()
+            return firebase_admin.initialize_app(cred, {"databaseURL": rtdb_base}, name="photo_reader")
+
+        raw = fb_db.reference(ds.get("ws_path","workStatus/jongno"), app=_get_app()).get() or {}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"workStatus 조회 실패: {e}")
+
+    awms_done = _load_awms_done()
+    junggu_set = _load_junggu_exclude(dataset)   # 명륜 중구팀 제외
+    KST = timezone(timedelta(hours=9))
+
+    def _dk(ms):
+        try:
+            return datetime.fromtimestamp(int(ms) / 1000, KST).strftime("%Y%m%d")
+        except Exception:
+            return None
+
+    agg: Dict[str, dict] = {}
+
+    def _row(dk):
+        return agg.setdefault(dk, {"date": dk, "total": 0, "단상": 0, "삼상": 0,
+                                   "추가계기": 0, "앱작성완료": 0})
+
+    for addr, av in raw.items():
+        if not isinstance(av, dict):
+            continue
+        addr_is_junggu = "중구" in str(av.get("meter_updatedByName", ""))  # 중구가 직접 작업표시한 주소
+        for mid, rec in (av.get("replacement_list") or {}).items():
+            if not isinstance(rec, dict):
+                continue
+            if str(mid).strip() in junggu_set or addr_is_junggu:   # 명륜 중구팀 배정분/중구작업 주소 제외
+                continue
+            ra = rec.get("replaced_at")
+            dk = _dk(ra)
+            if not dk:
+                continue
+            r = _row(dk)
+            r["total"] += 1
+            ph = _phase_of_mid(rec.get("new_meter_id") or mid)
+            if ph in ("단상", "삼상"):
+                r[ph] += 1
+            new_id = str(rec.get("new_meter_id") or "").strip()
+            old_id = str(mid).strip()
+            if (new_id and new_id in awms_done) or (old_id in awms_done):
+                r["앱작성완료"] += 1
+        # 추가계기 (added_meters.added_at)
+        for amid, a in (av.get("added_meters") or {}).items():
+            if not isinstance(a, dict):
+                continue
+            dk = _dk(a.get("added_at"))
+            if not dk:
+                continue
+            _row(dk)["추가계기"] += 1
+
+    rows = sorted(agg.values(), key=lambda x: x["date"], reverse=True)
+    if days and days > 0:
+        rows = rows[:days]
+    return {"dataset": dataset, "by_date": rows}
+
+
+# ── 10f. GET /lcd_crop (검증 때 서버가 YOLO 크롭한 LCD 이미지 서빙) ──────────────────
+@app.get("/lcd_crop")
+def get_lcd_crop(ts: str = Query(..., description="meter_values 행의 ts (YYYYMMDD_HHMMSS_fid)")):
+    """daily_cycle이 검증 때 /tmp/daily_cycle/{ts}_lcd.jpg 로 만든 LCD 크롭을 서빙 (need_human 확대용)."""
+    import re
+    if not re.match(r'^[0-9A-Za-z_]+$', ts):   # 경로 traversal 방지
+        raise HTTPException(status_code=400, detail="잘못된 ts")
+    path = daily_cycle.TMP / f"{ts}_lcd.jpg"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="크롭 없음")
+    return FileResponse(str(path), media_type="image/jpeg")
+
+
+# ── 11. GET /search ──────────────────────────────────────────────────────────────
+_SEARCH_LIMIT = 200
+
+
+@app.get("/search")
+def get_search(
+    dataset: str = Query(default="jongno", description="dataset id"),
+    q: str       = Query(...,              description="계기번호(old/new) 또는 고객번호 부분 일치"),
+):
+    """
+    계기번호(old/new) · 고객번호를 전체(모든 날짜) workStatus/jongno에서 검색한다.
+
+    - 부분 일치(숫자 substring). 고객번호는 하이픈 제거 후 비교.
+    - 각 매칭 건마다 반환: {mid, date(YYYYMMDD KST), addr, matched_field, value}
+    - 결과 상한 200건 + 초과 시 truncated: true.
+    - siteData 인덱스(캐시)로 고객번호 조인.
+    """
+    cfg = _load_config()
+    if dataset not in cfg.get("datasets", {}):
+        raise HTTPException(status_code=404, detail=f"dataset '{dataset}' 없음")
+
+    q_clean = str(q).strip()
+    if not q_clean:
+        raise HTTPException(status_code=400, detail="q(검색어) 빈값 불가")
+
+    # 고객번호 비교용: 하이픈 제거
+    q_no_hyphen = q_clean.replace("-", "")
+
+    # workStatus/jongno 전체 조회 (fresh, 날짜 미지정)
+    ds = cfg.get("datasets", {}).get(dataset, {})
+    cred_path = ds.get("cred", "")
+    rtdb_base = ds.get("rtdb_review_url", "").rstrip("/")
+    if not rtdb_base:
+        raise HTTPException(status_code=500, detail="dataset에 rtdb_review_url 없음")
+
+    try:
+        import firebase_admin
+        from firebase_admin import credentials as fb_creds, db as fb_db
+
+        def _get_search_app():
+            named = firebase_admin._apps.get("admin_apply")
+            if named is not None:
+                return named
+            named_v = firebase_admin._apps.get("admin_verdict")
+            if named_v is not None:
+                return named_v
+            existing = firebase_admin._apps.get("[DEFAULT]")
+            if existing is not None:
+                opts = existing.options
+                if opts and opts.get("databaseURL"):
+                    return existing
+            named_new = firebase_admin._apps.get("admin_search")
+            if named_new is not None:
+                return named_new
+            if cred_path and Path(cred_path).exists():
+                cred = fb_creds.Certificate(cred_path)
+            else:
+                cred = fb_creds.ApplicationDefault()
+            return firebase_admin.initialize_app(
+                cred,
+                {"databaseURL": rtdb_base},
+                name="admin_search",
+            )
+
+        fa_app = _get_search_app()
+        ws_ref = fb_db.reference(ds.get("ws_path","workStatus/jongno"), app=fa_app)
+        raw = ws_ref.get()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB 조회 실패: {e}")
+
+    if not isinstance(raw, dict):
+        return {"dataset": dataset, "q": q_clean, "results": [], "truncated": False}
+
+    # siteData 인덱스 (캐시) — 고객번호 조인용
+    site_idx = _load_site_index(dataset)
+
+    hits: list = []
+    truncated = False
+
+    for addr, addr_val in raw.items():
+        if not isinstance(addr_val, dict):
+            continue
+        for mid, rec in (addr_val.get("replacement_list") or {}).items():
+            if not isinstance(rec, dict):
+                continue
+            ra = rec.get("replaced_at")
+            date_kst = (
+                datetime.fromtimestamp(ra / 1000, KST).strftime("%Y%m%d")
+                if ra else ""
+            )
+
+            # 매칭 대상 필드 목록 구성 (field_name, value_str)
+            candidates: list = []
+
+            # 철거계기번호 (replacement_list 키 = mid)
+            candidates.append(("old_meter_id", str(mid)))
+
+            # 신설계기번호
+            new_mid = str(rec.get("new_meter_id", "")).strip()
+            if new_mid:
+                candidates.append(("new_meter_id", new_mid))
+
+            # 고객번호 (siteData 조인)
+            cust_no = _get_cust_no(site_idx, mid)
+            if cust_no:
+                candidates.append(("cust_no", cust_no))
+
+            for matched_field, value in candidates:
+                # 고객번호는 하이픈 제거 후 비교
+                cmp_val = value.replace("-", "") if matched_field == "cust_no" else value
+                if q_clean in cmp_val or q_no_hyphen in cmp_val:
+                    hits.append({
+                        "mid":           mid,
+                        "date":          date_kst,
+                        "addr":          addr,
+                        "matched_field": matched_field,
+                        "value":         value,
+                    })
+                    if len(hits) >= _SEARCH_LIMIT:
+                        truncated = True
+                        break
+            if truncated:
+                break
+        if truncated:
+            break
+
+    return {
+        "dataset":   dataset,
+        "q":         q_clean,
+        "results":   hits,
+        "count":     len(hits),
+        "truncated": truncated,
+    }
+
+
+# ── 12. GET /report ───────────────────────────────────────────────────────────────
+# status 분류 라벨 (화면 용어 매핑)
+_STATUS_LABEL = {
+    "auto":        "자동통과",
+    "need_human":  "확인필요",
+    "human":       "확인완료",
+    "human_skip":  "확인완료",   # human_skip도 사람이 완료한 것으로 통합
+    "swap_suspect": "정합성의심",
+    "no_photo":    "사진없음",
+    "dl_err":      "다운로드오류",
+    "google":      "자동통과(Google)",
+    "pass2":       "자동통과(2차)",
+}
+
+# status → 분류 그룹 (집계용)
+def _status_group(status: str) -> str:
+    """status → 보고 집계 그룹 이름."""
+    # 2차 자동통과(google=구글 명판확인, pass2=검침값 2차해소)도 자동통과로 합산
+    if status in ("auto", "google", "pass2"):
+        return "자동통과"
+    if status in ("human", "human_skip"):
+        return "확인완료"
+    if status in ("need_human", "need_sonnet", "worker_missing"):
+        return "확인필요"
+    if status == "swap_suspect":
+        return "정합성의심"
+    if status in ("no_photo", "dl_err"):
+        return "OCR미판독"
+    return status  # 알 수 없는 상태는 raw 값으로
+
+
+@app.get("/report")
+def get_report(
+    dataset: str = Query(default="jongno", description="dataset id"),
+    date: str    = Query(...,              description="YYYYMMDD"),
+):
+    """
+    그날 검증 결과를 status별 카운트 + 건 리스트로 집계해 반환 (JSON만, 엑셀 생성 없음).
+
+    분류:
+      자동통과   — status: auto / google
+      확인완료   — status: human / human_skip
+      확인필요   — status: need_human
+      정합성의심 — status: swap_suspect
+      OCR미판독  — status: no_photo / dl_err
+
+    각 분류에 건 리스트 포함: {mid, matched_field(fid/tracker), value, status}
+    트랙별(meter_values/meter_ids/removal_ids) 및 전체 집계 모두 반환.
+    """
+    cfg = _load_config()
+    if dataset not in cfg.get("datasets", {}):
+        raise HTTPException(status_code=404, detail=f"dataset '{dataset}' 없음")
+
+    try:
+        datetime.strptime(date, "%Y%m%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date는 YYYYMMDD 형식")
+
+    results = daily_cycle.get_results(date, out_dir=_dataset_ocr_ctx(dataset)[1])
+
+    def _classify_rows(rows: list, track: str) -> dict:
+        """
+        rows(CSV 행 목록)를 status별로 분류·집계.
+        반환: {group_name: {count: int, items: [{mid, field, worker_val, status}]}, ...}
+        """
+        groups: Dict[str, dict] = {}
+        for row in rows:
+            status = str(row.get("status", "")).strip()
+            group  = _status_group(status)
+            if group not in groups:
+                groups[group] = {"count": 0, "items": []}
+            groups[group]["count"] += 1
+            item: Dict[str, Any] = {
+                "mid":        str(row.get("mid", "")),
+                "status":     status,
+                "status_label": _STATUS_LABEL.get(status, status),
+                "track":      track,
+            }
+            # 트랙별 식별 필드 추가
+            if track == "meter_values":
+                item["fid"]        = str(row.get("fid", ""))
+                item["worker_val"] = str(row.get("worker_val", ""))
+                item["final"]      = str(row.get("final", ""))
+            elif track == "meter_ids":
+                item["new_meter_id"]  = str(row.get("new_meter_id", ""))
+                item["vision_result"] = str(row.get("vision_result", ""))
+            elif track == "removal_ids":
+                item["old_meter_id"]  = str(row.get("old_meter_id", ""))
+                item["vision_result"] = str(row.get("vision_result", ""))
+            groups[group]["items"].append(item)
+        return groups
+
+    mv_groups = _classify_rows(results.get("meter_values", []),  "meter_values")
+    mi_groups = _classify_rows(results.get("meter_ids", []),     "meter_ids")
+    ri_groups = _classify_rows(results.get("removal_ids", []),   "removal_ids")
+
+    # 전체 합산 카운트
+    all_groups: Dict[str, dict] = {}
+    for g_map in (mv_groups, mi_groups, ri_groups):
+        for gname, gdata in g_map.items():
+            if gname not in all_groups:
+                all_groups[gname] = {"count": 0, "items": []}
+            all_groups[gname]["count"]  += gdata["count"]
+            all_groups[gname]["items"]  += gdata["items"]
+
+    total = sum(g["count"] for g in all_groups.values())
+
+    return {
+        "dataset":      dataset,
+        "date":         date,
+        "total":        total,
+        "summary":      {k: v["count"] for k, v in all_groups.items()},
+        "by_track": {
+            "meter_values":  {"total": len(results.get("meter_values", [])),  "groups": mv_groups},
+            "meter_ids":     {"total": len(results.get("meter_ids", [])),     "groups": mi_groups},
+            "removal_ids":   {"total": len(results.get("removal_ids", [])),   "groups": ri_groups},
+        },
+        "all_groups":   all_groups,
+    }
+
+
+# ── 13. GET /audit ────────────────────────────────────────────────────────────────
+@app.get("/audit")
+def get_audit(
+    dataset: str         = Query(default="jongno", description="dataset id"),
+    date: Optional[str]  = Query(default=None,     description="YYYYMMDD (없으면 전체)"),
+    scope: Optional[str] = Query(default=None,     description="day/week/month/all — date 대신 범위 지정"),
+    from_date: Optional[str] = Query(default=None, description="YYYYMMDD 범위 시작 (scope 대신 직접 지정)"),
+    to_date: Optional[str]   = Query(default=None, description="YYYYMMDD 범위 끝 (scope 대신 직접 지정)"),
+):
+    """
+    /apply가 쌓는 ami-jongno RTDB admin_validate/audit/* 변경 이력을 반환.
+
+    각 항목: {ts, actor, addr, mid, field, old, new, dataset}
+    필터 우선순위: date(단일) > from_date/to_date(범위) > scope(day/week/month/all) > 전체
+    결과는 최신순(ts 내림차순) 정렬.
+    """
+    cfg = _load_config()
+    if dataset not in cfg.get("datasets", {}):
+        raise HTTPException(status_code=404, detail=f"dataset '{dataset}' 없음")
+
+    if date:
+        try:
+            datetime.strptime(date, "%Y%m%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date는 YYYYMMDD 형식")
+
+    # scope/from_date/to_date → _date_range (YYYYMMDD, YYYYMMDD) 또는 None(전체)
+    # date 단일이 지정된 경우는 _date_range를 사용하지 않고 기존 target_date_prefix 유지
+    _date_from: Optional[str] = None
+    _date_to:   Optional[str] = None
+
+    if not date:
+        now_kst = datetime.now(KST)
+        if scope == "day":
+            _date_from = _date_to = now_kst.strftime("%Y%m%d")
+        elif scope == "week":
+            week_start = now_kst - timedelta(days=now_kst.weekday())   # 이번 주 월요일
+            _date_from = week_start.strftime("%Y%m%d")
+            _date_to   = now_kst.strftime("%Y%m%d")
+        elif scope == "month":
+            _date_from = now_kst.strftime("%Y%m01")
+            _date_to   = now_kst.strftime("%Y%m%d")
+        elif scope == "all" or scope is None:
+            pass   # 전체 — 필터 없음
+        # from_date / to_date 직접 지정 (scope보다 우선)
+        if from_date:
+            _date_from = from_date.replace("-", "")[:8]
+        if to_date:
+            _date_to = to_date.replace("-", "")[:8]
+
+    ds = cfg.get("datasets", {}).get(dataset, {})
+    cred_path = ds.get("cred", "")
+    rtdb_base = ds.get("rtdb_review_url", "").rstrip("/")
+    if not rtdb_base:
+        raise HTTPException(status_code=500, detail="dataset에 rtdb_review_url 없음")
+
+    # firebase app 확보 (admin_apply / admin_verdict 재사용 우선)
+    try:
+        import firebase_admin
+        from firebase_admin import credentials as fb_creds, db as fb_db
+
+        def _get_audit_app():
+            for app_name in ("admin_apply", "admin_verdict", "[DEFAULT]"):
+                existing = firebase_admin._apps.get(app_name)
+                if existing is not None:
+                    opts = existing.options if app_name != "[DEFAULT]" else (existing.options if hasattr(existing, "options") else None)
+                    if opts and opts.get("databaseURL"):
+                        return existing
+            named = firebase_admin._apps.get("admin_search")
+            if named is not None:
+                return named
+            named_audit = firebase_admin._apps.get("admin_audit")
+            if named_audit is not None:
+                return named_audit
+            if cred_path and Path(cred_path).exists():
+                cred = fb_creds.Certificate(cred_path)
+            else:
+                cred = fb_creds.ApplicationDefault()
+            return firebase_admin.initialize_app(
+                cred,
+                {"databaseURL": rtdb_base},
+                name="admin_audit",
+            )
+
+        fa_app = _get_audit_app()
+        audit_ref = fb_db.reference("admin_validate/audit", app=fa_app)
+        raw = audit_ref.get()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"audit 조회 실패: {e}")
+
+    if not isinstance(raw, dict):
+        return {
+            "dataset": dataset,
+            "date":    date,
+            "count":   0,
+            "logs":    [],
+        }
+
+    # 날짜 필터 (ts의 앞 10자 = YYYY-MM-DD)
+    target_date_prefix: Optional[str] = None
+    if date:
+        target_date_prefix = f"{date[:4]}-{date[4:6]}-{date[6:]}"  # YYYY-MM-DD
+
+    logs: list = []
+    for push_key, entry in raw.items():
+        if not isinstance(entry, dict):
+            continue
+        # ★ dataset 필터 — 테스트DB(jongno_dryrun) 등 다른 데이터셋 판정이 섞이지 않게.
+        # dataset 필드 없는 구버전 레코드는 현재 조회 dataset으로 간주(폴백).
+        if (entry.get("dataset") or dataset) != dataset:
+            continue
+        ts_str = str(entry.get("ts", ""))
+        if target_date_prefix:
+            # 단일 날짜 필터: 작업일(work_date, YYYYMMDD) 우선 매칭, 없으면 변경시각(ts) 날짜로 폴백
+            wd = str(entry.get("work_date", ""))
+            ts_daykey = ts_str[:10].replace("-", "")
+            if not (wd == date or ts_daykey == date):
+                continue
+        elif _date_from or _date_to:
+            # 범위 필터: work_date 우선, 없으면 ts 날짜
+            wd = str(entry.get("work_date", ""))
+            ts_daykey = ts_str[:10].replace("-", "")
+            daykey = wd if wd else ts_daykey
+            if _date_from and daykey < _date_from:
+                continue
+            if _date_to and daykey > _date_to:
+                continue
+        logs.append({
+            "push_key": push_key,
+            "ts":       ts_str,
+            "action":   entry.get("action", "apply"),  # 구버전 로그(action 없음)는 apply로 간주
+            "actor":    entry.get("actor", ""),
+            "addr":     entry.get("addr", ""),
+            "mid":      entry.get("mid", ""),
+            "field":    entry.get("field", ""),
+            "old":      entry.get("old"),
+            "new":      entry.get("new"),
+            "ref_audit_key": entry.get("ref_audit_key"),  # rollback이 되돌린 원본 apply 키
+            "dataset":  entry.get("dataset", dataset),
+            "work_date": str(entry.get("work_date", "")),  # 그 계기 작업일(YYYYMMDD) — 아래서 보충
+        })
+
+    # ── 각 이력에 그 계기의 '작업일' 보충 ─────────────────────────────────
+    # 이력 행 클릭 시 '판정일'이 아니라 '작업일'로 검증탭을 로드해야 그 계기 모달이 항상 뜸.
+    # (검증수정 이력은 그 작업분을 검증해 생긴 것이므로 작업분은 반드시 존재)
+    if any(not l["work_date"] for l in logs):
+        try:
+            ws_ref = fb_db.reference(ds.get("ws_path", "workStatus/jongno"), app=fa_app)
+            ws = ws_ref.get() or {}
+            mid2wd: Dict[str, str] = {}
+            for _addr, _rec in ws.items():
+                if not isinstance(_rec, dict):
+                    continue
+                _rl = _rec.get("replacement_list") or {}
+                _items = _rl.values() if isinstance(_rl, dict) else _rl
+                for _r in _items:
+                    if isinstance(_r, dict):
+                        _ra = _r.get("replaced_at")
+                        _m = str(_r.get("old_meter_id") or "")
+                        if _m and _ra:
+                            mid2wd[_m] = datetime.fromtimestamp(_ra / 1000, KST).strftime("%Y%m%d")
+            for l in logs:
+                if not l["work_date"]:
+                    l["work_date"] = mid2wd.get(str(l.get("mid", "")), "")
+        except Exception as e:
+            print(f"[audit] work_date 보충 실패: {e}", flush=True)
+
+    # 최신순 정렬 (ts 내림차순)
+    logs.sort(key=lambda x: x["ts"], reverse=True)
+
+    return {
+        "dataset":   dataset,
+        "date":      date,
+        "scope":     scope,
+        "from_date": _date_from,
+        "to_date":   _date_to,
+        "count":     len(logs),
+        "logs":      logs,
+    }
+
+
+# ── 헬스체크 ─────────────────────────────────────────────────────────────────────
+@app.get("/")
+def root():
+    return {"service": "admin-validation API", "version": "1.0.0",
+            "phase": "Phase 1 (로컬 FastAPI)"}
+
+@app.get("/health")
+def health():
+    return {"ok": True, "time": datetime.now(KST).isoformat()}
