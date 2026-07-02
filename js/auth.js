@@ -26,7 +26,11 @@ const ACCOUNTS = [
     { id: 'user21', pw: '1111', name: '이기순', role: 'user' },  // 노원 부조장 (이용택 짝)
     { id: 'user22', pw: '1111', name: '김윤준', role: 'user' },
     { id: 'user23', pw: '1111', name: '이현규', role: 'user' },
+    { id: 'user24', pw: '1111', name: '김춘동', role: 'user' },
     // 종로 부조장 = 우영준(영준님 본인) = admin 계정으로 겸임 (별도 user 발급 안 함)
+    // --- validator 계정 (데이터검증 사장님·직원용) ---
+    // ★ 영준님이 실제 계정으로 교체할 것 (id/pw/name 모두)
+    { id: 'validator01', pw: '9999', name: '검증담당자', role: 'validator' },
 ];
 
 const AUTH_KEY = 'ami_auth';
