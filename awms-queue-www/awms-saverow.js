@@ -120,12 +120,27 @@ function _isThreePhase(meterNo, cntrClasCd) {
 
 // ---- 신설 payload (getDetail 301키 베이스 + 오버라이드, WORK_STEP=25 유지) ----
 //   awms-poster.js _buildNewPayloadFromDetail 이식 — 가지치기 금지
-function _buildNewPayloadFromDetail(newMeterNo, detail, sealVal, consTgtSeqno, mtrlInfo, mfgYm, P, sealKnd, three, fields, ndDigits) {
+//   [2026-07-02] usingInjected / injectedSeal 파라미터 추가:
+//     - usingInjected=true: injectedSeal.seal_no를 그대로 사용 (+1 없음), 삼상이면 seal_no2·NQNT=2 적용
+//     - usingInjected=false (기본 폴백): 기존 로직 그대로 (sealInt+1, NO2='', NQNT='1')
+//   [TODO] 폴백 삼상도 봉인 2개 원하면 _sealPlusOne +2 동반수정 필요 (현재는 폴백=1개 유지)
+function _buildNewPayloadFromDetail(newMeterNo, detail, sealVal, consTgtSeqno, mtrlInfo, mfgYm, P, sealKnd, three, fields, ndDigits, usingInjected, injectedSeal) {
     if (three == null) three = _isThreePhase(newMeterNo, String(detail.CNTR_CLAS_CD || ''));
     const sealInt = parseInt(String(sealVal).trim(), 10);
-    // 봉인번호 = 봉인조회값(마지막 사용) +1 (awms 화면 기준 3966854). 봉인번호2 미사용 — 모든 계기 1개 (영준님 지시)
-    const sealNo = String(sealInt + 1);
-    const sealNo2 = '';
+
+    let sealNo, sealNo2, sealNqnt;
+    if (usingInjected && injectedSeal) {
+        // 주입 모드: 미리 계산된 값 사용 (app.py _seal_alloc 기준, +1 없음)
+        sealNo   = String(injectedSeal.seal_no || sealVal).trim();
+        // 삼상이면 seal_no2 사용. 주입된 seal_no2가 비었으면 seal_no+1로 폴백
+        sealNo2  = three ? (String(injectedSeal.seal_no2 || '').trim() || String(parseInt(sealNo, 10) + 1)) : '';
+        sealNqnt = three ? '2' : '1';
+    } else {
+        // 폴백 모드: 기존 로직 그대로 (봉인조회값 +1, 단상/삼상 무관 1개 — 영준님 지시)
+        sealNo   = String(sealInt + 1);
+        sealNo2  = '';
+        sealNqnt = '1';
+    }
 
     // getDetail 301키 베이스 복사 (null→'', 정수 float→int str)
     const payload = {};
@@ -149,8 +164,8 @@ function _buildNewPayloadFromDetail(newMeterNo, detail, sealVal, consTgtSeqno, m
         EX_WORK_STEP: '25',                       // 임시저장 불러옴 표시 → 봉인+inc 트리거
         CSL_METR_TRML_SEAL_KND_CD: sealKnd || 'A',   // 봉인종류(단자) = 스틱II녹색(A)
         CSL_METR_TRML_SEAL_NO: sealNo,
-        CSL_METR_TRML_SEAL_NO2: sealNo2,          // 항상 빈값 (봉인 1개 — 영준님 지시)
-        CSL_METR_TRML_SEAL_KND_NQNT: '1',           // 봉인수량 1 고정
+        CSL_METR_TRML_SEAL_NO2: sealNo2,          // 단상·폴백=빈값, 삼상+주입식=seal_no2
+        CSL_METR_TRML_SEAL_KND_NQNT: sealNqnt,    // 단상·폴백=1, 삼상+주입식=2
         CONS_TGT_SEQNO: consTgtSeqno,             // 철거 saveRow 응답 → 1행 연결
         ACT_DATE: P.act,
         CMS_LAY_YMD: P.ymd, CTS_LAY_YMD: P.ymd, CREMO_CHRG_APLY_ST_YMD: P.ymd,
@@ -617,8 +632,17 @@ async function _sealPlusOne(consNo, sealVal, three) {
 // registerReplacement — app.js runOne/runAll 단일 진입점
 //   풀플로우: 철거5000(+철거전사진) → 신설4000(+철거후사진) → 봉인설정+1
 //   최종 임시저장(WORK_STEP=25) 유지 → awms에서 수동완료 (영준님 지시)
+//
+//   [주입식 확장 2026-07-02]
+//   두 번째 인자 opts 또는 job.injectedSeal / rep.injectedSeal 필드로 봉인·공사번호 주입 가능.
+//   - opts.injectedSeal  : {seal_no:str, seal_no2:str, nqnt:'1'|'2'} — 미리 계산된 봉인값
+//   - opts.injectedConsNo: 공사번호(차수) 고정값. 주입 시 _lookupSeal() 조회 생략.
+//   - opts.injectedAccount: 봉인 기록용 계정 id (awms_seal.account 필드)
+//   주입값 없으면 기존 _lookupSeal() 폴백 — 기존 호출부(opts 없는 단일 객체 호출)는 100% 동일 동작.
 // =====================================================================
-async function registerReplacement({ addr, meter, rep }) {
+async function registerReplacement(job, opts) {
+    // 하위호환: 기존 호출부는 registerReplacement({addr,meter,rep}) 단일 객체 형태
+    const { addr, meter, rep } = job;
     if (!(window.AwmsQ && window.AwmsQ.callAwms)) {
         throw new Error('AwmsQ 브릿지 없음 — 실기기에서만 동작');
     }
@@ -635,11 +659,28 @@ async function registerReplacement({ addr, meter, rep }) {
     const newPhoto      = rep.new_meter_photo || '';    // 철거후 사진
     const P             = _kstParts();
 
-    // 1) 조회 3종
-    const sealInfo = await _lookupSeal();
-    const sealVal  = sealInfo.METR_SEAL_VAL;
-    L(`[saverow] 봉인조회 LV_CONS_NO=${sealInfo.LV_CONS_NO || '(없음)'} 계기봉인번호=${sealVal || '(없음)'}`);
-    if (!sealVal) throw new Error('계기봉인번호(METR_SEAL_VAL) 없음 — awms 로그인 확인');
+    // 주입 파라미터 추출 (opts 또는 job/rep 직접 필드 모두 허용)
+    const _opts          = opts || {};
+    const injectedSeal   = _opts.injectedSeal   || job.injectedSeal   || (rep && rep.injectedSeal)   || null;
+    const injectedConsNo = _opts.injectedConsNo  || job.injectedConsNo  || (rep && rep.injectedConsNo)  || '';
+    const injectedAccount= _opts.injectedAccount || job.injectedAccount || (rep && rep.injectedAccount) || '';
+    // 주입식이면 조회 생략, 폴백이면 기존 _lookupSeal() 그대로
+    const usingInjected  = !!(injectedSeal && injectedConsNo);
+
+    // 1) 봉인·공사번호: 주입식이면 조회 생략, 폴백이면 기존 getMainList 조회
+    let sealInfo, sealVal;
+    if (usingInjected) {
+        // 주입 모드: injectedSeal.seal_no가 "쓸 값 그대로" (js fallback의 +1 없음)
+        sealVal  = String(injectedSeal.seal_no).trim();
+        // sealInfo 합성 객체 — _buildDemolitionPayload·sealKnd 파이프 변경 없이 통과
+        sealInfo = { LV_CONS_NO: injectedConsNo, TRML_SEAL_KND_CD: 'A', METR_SEAL_VAL: sealVal };
+        L(`[saverow] 봉인 주입: seal_no=${sealVal} cons_no=${injectedConsNo}` + (injectedSeal.seal_no2 ? ` seal_no2=${injectedSeal.seal_no2}` : ''));
+    } else {
+        sealInfo = await _lookupSeal();
+        sealVal  = sealInfo.METR_SEAL_VAL;
+        L(`[saverow] 봉인조회 LV_CONS_NO=${sealInfo.LV_CONS_NO || '(없음)'} 계기봉인번호=${sealVal || '(없음)'}`);
+        if (!sealVal) throw new Error('계기봉인번호(METR_SEAL_VAL) 없음 — awms 로그인 확인');
+    }
 
     const customerInfo = await _lookupCustomerInfo(meter);
     L(`[saverow] 고객조회 CUST_NO=${customerInfo.CUST_NO || '(없음)'} 계약종별=${customerInfo.CNTR_CLAS_CD || '(없음)'} 제조월=${customerInfo.PRDC_YM || '-'}`);
@@ -725,19 +766,24 @@ async function registerReplacement({ addr, meter, rep }) {
 
     // 5) 신설 saveRow (mobMtr4000) + 철거후 사진 (WORK_STEP=25 유지)
     const sealKnd = sealInfo.TRML_SEAL_KND_CD || 'A';
-    const newPayload = _buildNewPayloadFromDetail(newMeter, detail, sealVal, consTgtSeqno, mtrlInfo, mfgYm, P, sealKnd, three, _fields, ndDigits);
+    const newPayload = _buildNewPayloadFromDetail(newMeter, detail, sealVal, consTgtSeqno, mtrlInfo, mfgYm, P, sealKnd, three, _fields, ndDigits, usingInjected, injectedSeal);
     const newEntries = Object.entries(newPayload).map(([k, v]) => [k, v == null ? '' : String(v)]);
     L(`[saverow] 신설4000 POST 신설계기=${newMeter} 제조월=${newPayload.CREMO_PRDC_YM} 봉인번호=${newPayload.CSL_METR_TRML_SEAL_NO}${newPayload.CSL_METR_TRML_SEAL_NO2 ? '/' + newPayload.CSL_METR_TRML_SEAL_NO2 : ''}`);
     const res4 = await awmsEval(_saveRowExpr(newEntries, AWMS_API + '/mobMtr4000/saveRow', newPhotos));
     L(`[saverow] 신설4000 응답: ok=${res4.ok} 사진=${res4.photoNote} body=${String(res4.body || '').slice(0, 100)}`);
     if (!res4.ok) throw new Error('신설 saveRow 실패: ' + String(res4.body || '').slice(0, 200));
 
-    // 6) 봉인설정 +1 (다음 계기 유니크)
-    try {
-        const s = await _sealPlusOne(consNo, sealVal, three);
-        L(`[saverow] 봉인설정 +${s.inc} (${sealVal} → ${s.newSeal}) status=${s.res.status}`, 'ok');
-    } catch (e) {
-        L(`[saverow] 봉인설정 +1 실패(무시): ${e.message}`, 'warn');
+    // 6) 봉인설정 서버저장 — 폴백 모드만 건별 +1 저장. 주입 모드는 상위 컨트롤러(app.py)가 마지막 건 후 1회 저장.
+    if (!usingInjected) {
+        try {
+            const s = await _sealPlusOne(consNo, sealVal, three);
+            L(`[saverow] 봉인설정 +${s.inc} (${sealVal} → ${s.newSeal}) status=${s.res.status}`, 'ok');
+        } catch (e) {
+            L(`[saverow] 봉인설정 +1 실패(무시): ${e.message}`, 'warn');
+        }
+    } else {
+        // 주입 모드: 봉인 서버저장 생략 (최종저장은 전송 완료 후 상위가 담당 — 설계 §D)
+        L(`[saverow] 봉인서버저장 생략(주입 모드 — 상위 컨트롤러 담당)`, 'ok');
     }
 
     // 7) [2026-06-09] 완료(28): 신설 25 레코드를 28로 재전송. (CDP로 UI 완료흐름 실측 — 정답 확정)
@@ -777,9 +823,19 @@ async function registerReplacement({ addr, meter, rep }) {
         L(`[saverow] 완료28 재전송 오류(무시): ${e.message}`, 'warn');
     }
 
+    // awms_seal: markSynced가 Firebase에 기록하는 봉인 정보
+    //   account/seal_no/seal_no2/cons_no — app.py _db_seal_max / awms_seal_map과 필드명 일치
+    //   페이로드에 실제 기록된 값(newPayload)을 사용 — _lookupSeal raw값과 다를 수 있음(+1 여부)
+    const awmsSeal = {
+        account: injectedAccount || '',
+        seal_no:  newPayload.CSL_METR_TRML_SEAL_NO  || '',
+        seal_no2: newPayload.CSL_METR_TRML_SEAL_NO2 || '',
+        cons_no:  consNo || '',
+    };
     return {
         mode: 'full', consTgtSeqno, newMeter, workStep: doneStep,
         seal: newPayload.CSL_METR_TRML_SEAL_NO, status: 'ok',
+        awms_seal: awmsSeal,
     };
 }
 

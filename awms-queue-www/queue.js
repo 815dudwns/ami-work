@@ -673,6 +673,12 @@ async function markSynced(addr, meter, awmsResp) {
         awms_response: awmsResp || null,
         awms_error: null,
     };
+    // 봉인 DB 저장 — registerReplacement가 awms_seal을 리턴한 경우만 기록 (폴백·주입 공통)
+    //   구조: {account, seal_no, seal_no2, cons_no} — app.py _db_seal_max·awms_seal_map과 필드명 일치
+    //   주입 모드에서는 app.py 전송 흐름도 동일 구조로 기록하므로 같은 mid에 두 번 쓰일 수 있음 — 마지막 쓰기 우선(무해)
+    if (awmsResp && awmsResp.awms_seal) {
+        upd.awms_seal = awmsResp.awms_seal;
+    }
     await _db.ref(`workStatus/jongno/${addr}/replacement_list/${meter}`).update(upd);
 }
 
