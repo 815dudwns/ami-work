@@ -17,7 +17,7 @@
 | **종로 보조앱**(jongno-snap) | `snap.html` 설정 버전라벨 / APK | `v20260618.2` (동시업로드 temp유출 픽스) / versionCode 78 | 2026-06-18 |
 | **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260624a` | 2026-06-24 |
 | **헬퍼**(awms-helper) | `versionName` / inject | `1.0.77` / inject `v80` | 2026-06-28 |
-| **OTP수집기**(awms-otp-collector) | `versionName` | `1.0.0` | 2026-06-13 |
+| **OTP수집기**(awms-otp-collector) | `versionName` | `1.0.1` (OTP수집 후 카톡종료가 최근앱'모두닫기'로 타앱까지 죽이던 것 제거 — 카톡 백그라운드만 정리. ★네이티브라 자동배포X, APK URL수동설치) | 2026-07-03 |
 | **awms-bridge-inject**(리모컨·헬퍼/아미큐/계기큐 공용) | `awms-bridge-inject.js` `VER` | `v80` | 2026-06-20 |
 | **명륜 팀배분**(myungroon) | `jongno-combined/myungroon.html` `myungroon_app_version` / 메뉴라벨 | `20260624.1` / `명륜 팀배분 v20260624.1` | 2026-06-24 |
 
