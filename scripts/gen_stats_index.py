@@ -27,13 +27,27 @@ DB_URL = "https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.a
 if not firebase_admin._apps:
     firebase_admin.initialize_app(credentials.Certificate(str(CRED)), {"databaseURL": DB_URL})
 
-val = db.reference("siteData/charger4eleccar").get()
-if isinstance(val, list):
-    items = [x for x in val if x]
-elif isinstance(val, dict):
-    items = list(val.values())
-else:
-    items = []
+def to_items(v):
+    if isinstance(v, list):
+        return [x for x in v if x]
+    if isinstance(v, dict):
+        return list(v.values())
+    return []
+
+# 분모 = 완료 포함 누적(영준님 지시 2026-07-04): 현재 작업대상 siteData
+#   + 완료 아카이브 전체(재구성 시 site-data에서 뺀 완료분) + 재방문 데이터셋.
+# 완료분을 빼면 지사별 누적 완료 실적이 stats에서 사라지므로 분모에 되살린다.
+# ★ 로컬 최신 파일 기준(2026-07-04): Firebase siteData(26588)엔 신규 14,516이 미반영이라
+#   로컬이 정확. site-data.json(작업대상=미완료+신규) + 완료 아카이브(들) 합산.
+import glob
+items = to_items(json.loads((ROOT / "data" / "site-data.json").read_text(encoding="utf-8")))
+for _f in sorted(glob.glob(str(ROOT / "data" / "site-data-completed-archive-*.json"))):
+    items += to_items(json.loads(Path(_f).read_text(encoding="utf-8")))
+
+# 재방문(별도 데이터셋, 로컬 정적파일 — Firebase siteData엔 없음)
+_rw = ROOT / "data" / "rework-data.json"
+if _rw.exists():
+    items += to_items(json.loads(_rw.read_text(encoding="utf-8")))
 
 index = [
     {

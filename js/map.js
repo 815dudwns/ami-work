@@ -41,6 +41,7 @@ const DATASETS = [
     { file: './data/site-data.json', category: '실효', label: null,  uiLabel: '실효계기' },
     { file: './data/skt-data.json',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
     { file: './data/tou-data.json',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
+    { file: './data/rework-data.json', category: '재방문', label: '재', uiLabel: '재방문' },
 ];
 
 // 위치 추적 관련 상태
@@ -301,7 +302,7 @@ function populateCategoryFilter() {
 
 // 카테고리 필터 — 체크된 카테고리만 표시 (localStorage 저장)
 function getSelectedCategories() {
-    const ALL = ['실효', 'skt', 'tou'];
+    const ALL = ['실효', 'skt', 'tou', '재방문'];
     const saved = localStorage.getItem('ami_selected_categories');
     if (saved) try {
         const set = new Set(JSON.parse(saved));
@@ -430,6 +431,7 @@ function createMarker(position, address, meters, category, addresses) {
     const meterCount = meters.length + addedCount;
     const isSkt = category === 'skt';
     const isTou = category === 'tou';
+    const isRevisit = category === '재방문';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
     let color = isApproximate ? 'yellow' : 'green';
@@ -439,14 +441,16 @@ function createMarker(position, address, meters, category, addresses) {
     if (state === 'complete') color = 'gray';
     else if (state === 'hold') color = 'blue';
     else if (state === 'fail') color = 'red';
-    // SKT는 라벨 'SK', TOU는 'TOU', 일반은 개수 (approximate+pending이면 '?')
+    // SKT는 라벨 'SK', TOU는 'TOU', 재방문은 '재', 일반은 개수 (approximate+pending이면 '?')
     let markerLabel;
     if (isSkt) markerLabel = 'SK';
     else if (isTou) markerLabel = 'TOU';
+    else if (isRevisit) markerLabel = '재';
     else markerLabel = (isApproximate && state === 'pending') ? '?' : meterCount;
-    // TOU는 항목 단위 rework (해당 주소에 rework가 1건 이상이면 '재' 표시)
+    // TOU는 항목 단위 rework (해당 주소에 rework가 1건 이상이면 '재' 표시).
+    // 재방문 데이터셋은 라벨이 이미 '재'라 뱃지 생략.
     const touHasRework = isTou && meters.some(m => m.tou_type === 'rework');
-    const isRework = aggregateRework(addrList) || touHasRework;
+    const isRework = !isRevisit && (aggregateRework(addrList) || touHasRework);
 
     const markerContent = `
         <div class="custom-marker ${color}">
@@ -490,6 +494,7 @@ function updateMarkerColor(address) {
     const isApproximate = marker.meters.some(m => m.좌표정확도 === 'approximate');
     const isSkt = marker.category === 'skt';
     const isTou = marker.category === 'tou';
+    const isRevisit = marker.category === '재방문';
 
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
@@ -508,12 +513,13 @@ function updateMarkerColor(address) {
     if (labelEl) {
         if (isSkt) labelEl.textContent = 'SK';
         else if (isTou) labelEl.textContent = 'TOU';
+        else if (isRevisit) labelEl.textContent = '재';
         else labelEl.textContent = (isApproximate && state === 'pending') ? '?' : totalCount;
     }
 
-    // 재작업 라벨 동기화 (TOU는 항목 단위 rework 체크)
+    // 재작업 라벨 동기화 (TOU는 항목 단위 rework 체크). 재방문은 라벨이 이미 '재'라 뱃지 생략.
     const touHasRework = isTou && marker.meters.some(m => m.tou_type === 'rework');
-    const isRework = aggregateRework(addrList) || touHasRework;
+    const isRework = !isRevisit && (aggregateRework(addrList) || touHasRework);
     let fracEl = marker.element.querySelector('.marker-fraction');
     if (isRework) {
         if (!fracEl) {

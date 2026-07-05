@@ -529,6 +529,17 @@ function renderMetersList() {
             if (meter.app_작업자)
                 subParts.push(`작업자 ${meter.app_작업자}`);
         }
+        // 8) 재방문 전용 필드 (category=재방문): 완료했으나 LP 미수신 = 모뎀 재등록 필요
+        if (meter.category === '재방문') {
+            subParts.push('<span style="color:#dc2626;font-weight:700;">재방문·LP미수신</span>');
+            // 통신방식 옛→현 (교체하며 바뀐 경우 표시, 아니면 현재 방식만)
+            if (meter.통신방식_전 && meter.통신방식 && meter.통신방식_전 !== meter.통신방식)
+                subParts.push(`통신 ${meter.통신방식_전}→${meter.통신방식}`);
+            else if (meter.통신방식)
+                subParts.push(`통신 ${meter.통신방식}`);
+            if (meter.DCUID)     subParts.push(`DCU ${meter.DCUID}`);
+            if (meter.변대주)     subParts.push(`변대주 ${meter.변대주}`);
+        }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
         const details = detailParts.join(', ');
 
