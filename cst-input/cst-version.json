@@ -1,5 +1,5 @@
 {
-  "versionName": "2.1.9",
+  "versionName": "2.2.0",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "변대주번호 자동채움(동행=종로 신설번호→변대주 / 일반=아미맵 DCUID). PLC 신설 시 DONE에서 자동조회, 실패 시 직접입력"
+  "notes": "통신방식 auto여도 드롭다운 항상 표시(강제변경 가능) / 계기번호 11자리+MAC형식 검증(QR/수동) / saveAct후 /api/verify 등록확인(미확인시 큐유지 재확인) / 이력 탭 신설(전송완료 세대 날짜별 목록)"
 }

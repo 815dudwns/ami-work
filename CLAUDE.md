@@ -12,8 +12,8 @@
 | 앱(호칭) | 버전 위치 | 현재 버전 | 갱신일 |
 |---|---|---|---|
 | **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` / APK | `v0626b-아이디선택` / APK 오버레이fetch | 2026-06-26 |
-| **아미큐**(통신큐·통신팀) | `cst-app` `versionName`(네이티브) / `cst-input/cst-version.json`(자동업뎃) | `2.1.8` (PLC 신설 변대주번호→DCU_ID=변대주+"00" / 마스터 사진칸 확대 / 함체유형 단독·집합: 단독+슬0=단독형 대표계기·함내수 빈칸, 단독+슬有=집합형단독40, 집합=20) | 2026-07-02 |
-| **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260702.4` / `v20260702.4` (사진압축 800 배포=photo-uploader.js?v=20260702-800) | 2026-07-03 |
+| **아미큐**(통신큐·통신팀) | `cst-app` `versionName`(네이티브) / `cst-input/cst-version.json`(자동업뎃) | `2.2.0` (통신방식 auto여도 드롭다운 항상 표시+강제변경 / 계기번호 11자리+MAC형식 검증 / saveAct후 /api/verify 등록확인 / 이력 탭 신설) | 2026-07-06 |
+| **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260702.4` / `v20260706.1` (workStatus 미러 localStorage→IndexedDB 이전=iOS 5MB quota로 불가버튼 죽던 근본해결. +불가 setItem throw 핫픽스 safeSetItem·큐실패시 Firebase 직접전송. firebase/detail/map.js ?v=20260706b) | 2026-07-06 |
 | **종로 보조앱**(jongno-snap) | `snap.html` 설정 버전라벨 / APK | `v20260618.2` (동시업로드 temp유출 픽스) / versionCode 78 | 2026-06-18 |
 | **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260624a` | 2026-06-24 |
 | **헬퍼**(awms-helper) | `versionName` / inject | `1.0.77` / inject `v80` | 2026-06-28 |
