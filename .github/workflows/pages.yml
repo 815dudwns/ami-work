@@ -23,8 +23,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: 배포 artifact에서 .git 제외 (.git 대용량 → deploy 타임아웃 방지)
-        run: rm -rf .git
+      - name: 배포 artifact에서 대용량 제외 (.git·APK → Pages sync 타임아웃 방지)
+        # APK는 raw.githubusercontent.com(git raw)으로 받으므로 Pages artifact에 불필요.
+        # .git + APK 93MB 제외 → artifact 122MB→~30MB, "Deployment failed, try again later" 해결.
+        run: |
+          rm -rf .git
+          find . -name '*.apk' -delete
+          rm -rf research worker design scripts
+          find . -name '*.py' -delete
+          find . -name '*.xlsx' -delete
+          rm -f ami_data_coords.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
