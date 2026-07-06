@@ -431,7 +431,6 @@ function createMarker(position, address, meters, category, addresses) {
     const meterCount = meters.length + addedCount;
     const isSkt = category === 'skt';
     const isTou = category === 'tou';
-    const isRevisit = category === '재방문';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
     let color = isApproximate ? 'yellow' : 'green';
@@ -441,16 +440,14 @@ function createMarker(position, address, meters, category, addresses) {
     if (state === 'complete') color = 'gray';
     else if (state === 'hold') color = 'blue';
     else if (state === 'fail') color = 'red';
-    // SKT는 라벨 'SK', TOU는 'TOU', 재방문은 '재', 일반은 개수 (approximate+pending이면 '?')
+    // SKT는 라벨 'SK', TOU는 'TOU', 일반은 개수 (approximate+pending이면 '?')
     let markerLabel;
     if (isSkt) markerLabel = 'SK';
     else if (isTou) markerLabel = 'TOU';
-    else if (isRevisit) markerLabel = '재';
     else markerLabel = (isApproximate && state === 'pending') ? '?' : meterCount;
-    // TOU는 항목 단위 rework (해당 주소에 rework가 1건 이상이면 '재' 표시).
-    // 재방문 데이터셋은 라벨이 이미 '재'라 뱃지 생략.
+    // rework(재)면 숫자 위에 '재' 뱃지. 재방문 데이터셋은 rework=true라 개수+'재'로 표시.
     const touHasRework = isTou && meters.some(m => m.tou_type === 'rework');
-    const isRework = !isRevisit && (aggregateRework(addrList) || touHasRework);
+    const isRework = aggregateRework(addrList) || touHasRework;
 
     const markerContent = `
         <div class="custom-marker ${color}">
@@ -494,7 +491,6 @@ function updateMarkerColor(address) {
     const isApproximate = marker.meters.some(m => m.좌표정확도 === 'approximate');
     const isSkt = marker.category === 'skt';
     const isTou = marker.category === 'tou';
-    const isRevisit = marker.category === '재방문';
 
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
@@ -513,13 +509,12 @@ function updateMarkerColor(address) {
     if (labelEl) {
         if (isSkt) labelEl.textContent = 'SK';
         else if (isTou) labelEl.textContent = 'TOU';
-        else if (isRevisit) labelEl.textContent = '재';
         else labelEl.textContent = (isApproximate && state === 'pending') ? '?' : totalCount;
     }
 
-    // 재작업 라벨 동기화 (TOU는 항목 단위 rework 체크). 재방문은 라벨이 이미 '재'라 뱃지 생략.
+    // 재작업 라벨 동기화 (TOU는 항목 단위 rework 체크). 재방문은 rework=true라 숫자+'재'.
     const touHasRework = isTou && marker.meters.some(m => m.tou_type === 'rework');
-    const isRework = !isRevisit && (aggregateRework(addrList) || touHasRework);
+    const isRework = aggregateRework(addrList) || touHasRework;
     let fracEl = marker.element.querySelector('.marker-fraction');
     if (isRework) {
         if (!fracEl) {
