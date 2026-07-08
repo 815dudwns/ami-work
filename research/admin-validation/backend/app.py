@@ -203,6 +203,7 @@ def _build_photo_map(dataset: str, date: Optional[str]) -> dict:
     worker_map: Dict[str, str] = {}             # mid → worker (작업자 필드, 도입전 kepco 판정용)
     replaced_at_map: Dict[str, Any] = {}        # mid → replaced_at (ms, 도입전 경계 판정용)
     awms_synced_map: Dict[str, bool] = {}       # mid → awms_synced (전송완료 여부)
+    awms_synced_manual_map: Dict[str, bool] = {}  # mid → 수동 마킹 여부 (되돌리기 가능/실전송 구분)
     awms_seal_map: Dict[str, Any] = {}          # mid → awms_seal dict (봉인번호·계정 기록)
     # mid 단독 폴백: 같은 날 mid가 유일할 때만 채택 (ts15가 어긋난 수정건 보정용).
     # 중복 mid는 모호하므로 폴백에서 제외(_AMBIG로 표시 후 최종 제거).
@@ -247,6 +248,7 @@ def _build_photo_map(dataset: str, date: Optional[str]) -> dict:
             worker_map[mid] = rec.get("worker", "") or ""     # 작업자 (도입전 kepco 판정용)
             replaced_at_map[mid] = ra                          # 작업일시 ms (도입전 경계 판정용)
             awms_synced_map[mid] = bool(rec.get("awms_synced"))   # awms 전송완료 여부
+            awms_synced_manual_map[mid] = bool(rec.get("awms_synced_manual"))  # 수동 마킹 여부
             awms_seal_map[mid] = rec.get("awms_seal") or None     # 봉인번호·계정 기록 (없으면 None)
             # 임시저장(미완료) = draft 플래그 또는 신설계기번호/철거검침값 누락 (daily_summary와 동일 규칙)
             draft_map[mid] = bool(
@@ -273,6 +275,7 @@ def _build_photo_map(dataset: str, date: Optional[str]) -> dict:
         "worker_map": worker_map,
         "replaced_at_map": replaced_at_map,
         "awms_synced_map": awms_synced_map,
+        "awms_synced_manual_map": awms_synced_manual_map,
         "awms_seal_map": awms_seal_map,
     }
 
@@ -330,6 +333,7 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
     worker_map      = maps.get("worker_map", {})
     replaced_at_map = maps.get("replaced_at_map", {})
     awms_synced_map = maps.get("awms_synced_map", {})
+    awms_synced_manual_map = maps.get("awms_synced_manual_map", {})
     awms_seal_map   = maps.get("awms_seal_map", {})
 
     for row in results.get("meter_values", []):
@@ -367,6 +371,7 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         row["worker"]           = worker_map.get(mid, "")
         row["replaced_at"]      = replaced_at_map.get(mid)
         row["awms_synced"]      = bool(awms_synced_map.get(mid))
+        row["awms_synced_manual"] = bool(awms_synced_manual_map.get(mid))
         row["awms_seal"]        = awms_seal_map.get(mid)
         row["cha"]              = rec.get("cha") if rec else None  # 3b 차수 필터
 
@@ -394,6 +399,7 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         row["worker"]           = worker_map.get(mid, "")
         row["replaced_at"]      = replaced_at_map.get(mid)
         row["awms_synced"]      = bool(awms_synced_map.get(mid))
+        row["awms_synced_manual"] = bool(awms_synced_manual_map.get(mid))
         row["awms_seal"]        = awms_seal_map.get(mid)
         row["cha"]              = rec.get("cha") if rec else None  # 3b 차수 필터
 
@@ -416,6 +422,7 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         row["worker"]           = worker_map.get(mid, "")
         row["replaced_at"]      = replaced_at_map.get(mid)
         row["awms_synced"]      = bool(awms_synced_map.get(mid))
+        row["awms_synced_manual"] = bool(awms_synced_manual_map.get(mid))
         row["awms_seal"]        = awms_seal_map.get(mid)
         row["cha"]              = rec.get("cha") if rec else None  # 3b 차수 필터
 
@@ -2615,6 +2622,7 @@ def get_stats(
     rtdb_base = ds.get("rtdb_review_url", "").rstrip("/")
     cred_path = ds.get("cred", "")
     worked: Dict[str, Any] = {}   # 철거번호 → replaced_at(ms)
+    failed_set: set = set()       # 철거번호 → 개별불가(failedMeters) 표시
     try:
         import firebase_admin
         from firebase_admin import credentials as fb_creds, db as fb_db
@@ -2647,6 +2655,9 @@ def get_stats(
         for mid, rec in (av.get("replacement_list") or {}).items():
             if isinstance(rec, dict) and rec.get("new_meter_id"):
                 worked[str(mid)] = rec.get("replaced_at")
+        # 개별불가(failedMeters) — 완료율(진행률) 분자에만 포함, 교체건수엔 미포함
+        for fmid in (av.get("failedMeters") or {}).keys():
+            failed_set.add(str(fmid))
 
     # ── 집계 ──────────────────────────────────────────────────────────────────────
     KST = timezone(timedelta(hours=9))
@@ -2654,6 +2665,7 @@ def get_stats(
     by_phase = {"단상": {"target": 0, "done": 0}, "삼상": {"target": 0, "done": 0}}
     day_counts: Dict[str, int] = {}
     total_t = total_d = 0
+    total_failed = total_resolved = 0   # 불가건수 / 해결(교체+불가)건수 — 완료율용
 
     junggu_set = _load_junggu_exclude(dataset)   # 명륜 중구팀 배정분
     for mid, rec in site_idx.items():
@@ -2666,13 +2678,20 @@ def get_stats(
             continue
         ph = _phase_of_site(rec)
         done = mid in worked
-        R = regions.setdefault(grp, {"region": grp, "target": 0, "done": 0,
+        # 해결 = 교체완료 OR 개별불가(완료율 분자에만 포함, 교체건수엔 미포함)
+        resolved = done or (mid in failed_set)
+        R = regions.setdefault(grp, {"region": grp, "target": 0, "done": 0, "resolved": 0,
                                      "단상_t": 0, "단상_d": 0, "삼상_t": 0, "삼상_d": 0})
         R["target"] += 1
         total_t += 1
         if ph in ("단상", "삼상"):
             R[ph + "_t"] += 1
             by_phase[ph]["target"] += 1
+        if resolved:
+            R["resolved"] += 1
+            total_resolved += 1
+            if not done:
+                total_failed += 1
         if done:
             R["done"] += 1
             total_d += 1
@@ -2691,6 +2710,9 @@ def get_stats(
     for r in region_list:
         r["remain"] = r["target"] - r["done"]
         r["rate"] = round(r["done"] / r["target"] * 100, 1) if r["target"] else 0.0
+        r.setdefault("resolved", 0)
+        # 완료율 = (교체+불가)/대상 — 불가 포함
+        r["resolved_rate"] = round(r["resolved"] / r["target"] * 100, 1) if r["target"] else 0.0
 
     by_day = [{"date": d, "count": c} for d, c in sorted(day_counts.items())]
 
@@ -2701,6 +2723,10 @@ def get_stats(
         "total_done": total_d,
         "total_remain": total_t - total_d,
         "rate": round(total_d / total_t * 100, 1) if total_t else 0.0,
+        # 완료율(불가 포함) — 교체건수(total_done)는 순수 교체 그대로
+        "total_failed": total_failed,
+        "total_resolved": total_resolved,
+        "resolved_rate": round(total_resolved / total_t * 100, 1) if total_t else 0.0,
         "by_region": region_list,
         "by_phase": by_phase,
         "by_day": by_day,
@@ -4160,6 +4186,99 @@ def get_transmit_job(job_id: str):
     if job is None:
         raise HTTPException(status_code=404, detail=f"transmit job '{job_id}' 없음")
     return job
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 수동 일괄 전송완료 마킹 — POST /transmit/mark
+#   ★awms 조회·폰 없이 Firebase awms_synced 플래그만 쓴다(읽기/쓰기 안전, 되돌리기 가능).
+#   배경(영준님 2026-07-03): awms 계정이 여러 곳에 흩어져 조회 대조 불가 + 종로는 데이터관리
+#   연습 단계. 이미 awms에 들어간(전송완료) 건을 사람이 아는 대로 일괄 전송완료로 찍고,
+#   실패분만 제외한다. 실awms 등록(/transmit/run 라이브)과 별개 — 수동 마킹은 awms_synced_manual=True.
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TransmitMarkReq(BaseModel):
+    dataset: str
+    mids: list                 # 철거계기번호(old meter) 목록 — replacement_list 키
+    synced: bool = True        # True=전송완료 마킹 / False=되돌리기(미전송)
+    cons_no: str = ""          # (선택) 공사번호 — 전송완료탭 표시용
+    account: str = ""          # (선택) 계정 id — 전송완료탭 표시용
+
+
+@app.post("/transmit/mark")
+def post_transmit_mark(req: TransmitMarkReq):
+    """검증완료 계기를 수동으로 전송완료(awms_synced) 일괄 마킹/해제.
+
+    실제 awms 전송 없음 — 이미 awms에 등록된(전송완료) 건을 데이터관리자에서 반영하는 용도.
+    synced=True: awms_synced=True + awms_synced_manual=True(+선택 cons_no/account) 머지.
+    synced=False: 되돌리기 — 수동 마킹(awms_synced_manual)만 해제. 실전송(라이브) 기록은 보호(건드리지 않음).
+    반환: {ok, marked, skipped, not_found}
+    """
+    cfg = _load_config()
+    ds = cfg.get("datasets", {}).get(req.dataset)
+    if ds is None:
+        raise HTTPException(status_code=404, detail=f"dataset '{req.dataset}' 없음")
+    mids = [str(m).strip() for m in (req.mids or []) if str(m).strip()]
+    if not mids:
+        raise HTTPException(status_code=400, detail="mids 비어있음")
+
+    raw = _get_ws_raw(req.dataset) or {}
+    # mid → addr 역탐색 인덱스 (replacement_list 키 직접 확인)
+    mid_addr: Dict[str, str] = {}
+    if isinstance(raw, dict):
+        for addr, av in raw.items():
+            if not isinstance(av, dict):
+                continue
+            for m in (av.get("replacement_list") or {}):
+                mid_addr[str(m)] = addr
+
+    from firebase_admin import db as fb_db
+    fa_app = _get_transmit_fa_app(ds)
+    ws_path = ds.get("ws_path", "workStatus/jongno")
+    now_ms = int(time.time() * 1000)
+
+    marked, skipped, not_found = [], [], []
+    for mid in mids:
+        addr = mid_addr.get(mid, "")
+        if not addr:
+            not_found.append(mid)
+            continue
+        rec = (raw.get(addr) or {}).get("replacement_list", {}).get(mid) or {}
+        rl_ref = fb_db.reference(ws_path, app=fa_app) \
+            .child(addr).child("replacement_list").child(mid)
+        if req.synced:
+            patch = {
+                "awms_synced": True,
+                "awms_synced_manual": True,
+                "awms_synced_at": now_ms,
+            }
+            # 선택 봉인/공사/계정 정보 — 있으면 표시용으로 채움(수동이라 봉인번호는 없음)
+            if req.cons_no or req.account:
+                seal = dict(rec.get("awms_seal") or {})
+                if req.account:
+                    seal["account"] = req.account
+                if req.cons_no:
+                    seal["cons_no"] = req.cons_no
+                seal.setdefault("seal_no", "")
+                seal.setdefault("seal_no2", "")
+                patch["awms_seal"] = seal
+            rl_ref.update(patch)
+            marked.append(mid)
+        else:
+            # 되돌리기 — 수동 마킹만 해제. 실전송(라이브: awms_synced_manual 없음) 기록은 보호.
+            if rec.get("awms_synced") and not rec.get("awms_synced_manual"):
+                skipped.append(mid)   # 실전송 기록 — 되돌리기 거부(보호)
+                continue
+            rl_ref.update({
+                "awms_synced": False,
+                "awms_synced_manual": None,   # 키 삭제
+                "awms_synced_at": None,
+            })
+            marked.append(mid)
+
+    _invalidate_ws_raw(req.dataset)
+    return {"ok": True, "synced": req.synced,
+            "marked": marked, "skipped": skipped, "not_found": not_found,
+            "counts": {"marked": len(marked), "skipped": len(skipped), "not_found": len(not_found)}}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
