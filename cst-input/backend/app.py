@@ -257,6 +257,9 @@ def _common(meter_no, mac, inst_m, mb_meter_id, mb_cnt, inst_s, bungi=""):
         "INSTR_NUM": meter_no, "INST_M": inst_m, "INST_S": inst_s,
         "MAC_MODEM": mac, "MODEM_MAC": mac, "MB_METER_ID": mb_meter_id, "MB_CNT": str(mb_cnt),
     })
+    # 동행시공여부: 아미큐 설정(WITH_YN) 반영 — 동행 Y / 일반(혼자) N.
+    #   _MASTER_BASE의 "Y" 하드코딩을 설정값으로 덮어씀(N 선택이 awms에 안 먹던 버그 수정).
+    d["MTR_WITH_YN"] = "Y" if str(CONFIG.get("WITH_YN", "")).strip() == "Y" else "N"
     return d
 
 
@@ -652,6 +655,105 @@ def api_commtype(mac: str = "", meterNo: str = ""):
     r = commtype_for(mac, meterNo)
     r["options"] = [{"v": v, "t": t} for v, t in COMM_SUFFIX_LABELS]
     return r
+
+
+# ── awms 등록 확인 (saveAct 직후 검증) ──────────────────────────────────
+@app.post("/api/verify")
+def api_verify(body: dict = Body(...)):
+    """saveAct result:1 직후 awms getMainList 재조회로 실제 등록 여부 확인.
+    body = {"meterNos": ["11자리",...], "mac": "...", "date": "YYYYMMDD"(옵션, 없으면 오늘 KST)}
+    return {"verified": bool, "found": [...], "missing": [...], "rows_checked": N}
+           또는 {"verified": false, "error": "..."}
+    """
+    import datetime
+    from zoneinfo import ZoneInfo
+
+    meter_nos = body.get("meterNos", [])
+    if not meter_nos:
+        raise HTTPException(400, "meterNos 필수")
+
+    # 날짜 결정: 파라미터 없으면 KST 오늘
+    date_str = str(body.get("date", "") or "").strip()
+    if date_str:
+        # 입력값 유효성 간단 검사
+        if not re.match(r'^\d{8}$', date_str):
+            raise HTTPException(400, "date 형식 오류 — YYYYMMDD(8자리)")
+    else:
+        date_str = datetime.datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d")
+
+    # 계기번호 정규화: zfill(11) + strip
+    def _norm(mid: str) -> str:
+        return str(mid or "").strip().zfill(11)
+
+    req_norms = [_norm(m) for m in meter_nos if str(m or "").strip()]
+    if not req_norms:
+        raise HTTPException(400, "유효한 계기번호 없음")
+
+    # 조회 날짜창: date 명시 시 단일일 / 미지정(일상 큐올림) 시 최근 3일.
+    #   getMainList strDate~endDate는 WORK_DATE(작업일) 기준인데 awms 서버 배정일이 등록일과
+    #   다를 수 있어(날짜경계·예약), 오늘 하루만 보면 등록됐는데 누락되던 오판 방지.
+    explicit_date = bool(str(body.get("date", "") or "").strip())
+    if explicit_date:
+        start_str = end_str = date_str
+    else:
+        _today = datetime.datetime.now(ZoneInfo("Asia/Seoul"))
+        start_str = (_today - datetime.timedelta(days=2)).strftime("%Y%m%d")
+        end_str = _today.strftime("%Y%m%d")
+
+    # getMainList 조회 (기존 _headers() 세션 재사용)
+    params = {
+        "FLAG": "M10",
+        "DEPT1": CONFIG["DEPT1"],
+        "DEPT2": CONFIG["DEPT2"],
+        "workStep": "25,28,29",
+        "pPageNo": "1",
+        "pRowCount": "5000",
+        "strDate": start_str,
+        "endDate": end_str,
+    }
+
+    # awms 반영지연(saveAct result:1 직후 DB 미반영) 대비 — 2초 간격 최대 3회 재조회,
+    #   요청 계기가 전부 확인되면 조기 종료([[awms_queue_getdetail_cha_bug]] 대기+재시도 패턴).
+    registered = set()
+    rows_checked = 0
+    for attempt in range(3):
+        try:
+            r = requests.get(f"{AWMS}/getMainList", params=params, headers=_headers(), timeout=30)
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(2); continue
+            return JSONResponse({"verified": False, "error": f"getMainList 요청 실패: {e}"})
+        if r.status_code != 200 or "json" not in r.headers.get("content-type", ""):
+            if attempt < 2:
+                time.sleep(2); continue
+            return JSONResponse({"verified": False, "error": f"getMainList HTTP {r.status_code} — 세션 만료 또는 서버 오류"})
+        try:
+            data = r.json()
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(2); continue
+            return JSONResponse({"verified": False, "error": f"응답 JSON 파싱 실패: {e}"})
+        rows = data if isinstance(data, list) else data.get("rows", data.get("list", []))
+        if not isinstance(rows, list):
+            if attempt < 2:
+                time.sleep(2); continue
+            return JSONResponse({"verified": False, "error": f"getMainList 응답 구조 미상: {list(data.keys()) if isinstance(data, dict) else type(data).__name__}"})
+        rows_checked = len(rows)
+        registered |= {_norm(row.get("INSTR_NUM", "")) for row in rows if isinstance(row, dict)}
+        if all(m in registered for m in req_norms):
+            break
+        if attempt < 2:
+            time.sleep(2)
+
+    found = [m for m in req_norms if m in registered]
+    missing = [m for m in req_norms if m not in registered]
+
+    return {
+        "verified": len(missing) == 0,
+        "found": found,
+        "missing": missing,
+        "rows_checked": rows_checked,
+    }
 
 
 # 정적 UI (마지막에 마운트)
