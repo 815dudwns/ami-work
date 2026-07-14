@@ -426,46 +426,92 @@ def api_bdju(meters: str = ""):
 OCR_SWIFT = ROOT / "research" / "ocr_poc" / "visionocr_batch.swift"
 
 
-# ── 계기번호 추출 = 데이터 검증 포털 방식 이식 (run_vision_batch.extract_meter) ──
-# 상단18%(LCD·MAC) 제외 + Amigo/11자리/하이픈 후보 + over-read 폴백(타입코드 유효 11자 윈도우)
-# + 선택: Amigo 우선 → 신뢰도 높은 것 → 동점이면 y중앙(0.5) 근접. 스펙문구 숫자 오인 방지.
+# ── 계기번호 추출 = E5 처방 적용 (ocr-meter 실측 2026-07-14) ──
+# 상단18%(LCD·MAC) 제외 + Amigo/하이픈/11자리 후보 + over-read 폴백(타입코드 유효 11자 윈도우)
+# + 선택: Amigo 우선 → 하이픈 후보 우선 → 라인내 11자리, max(conf, y중앙근접).
+# E5 변경 4가지:
+#   1. 타입코드 필터 강제: 모든 11자리 후보에 digits[2:4] in _METER_TYPE_CODES 검증
+#   2. 공백·하이픈 낀 11자리 정규화: 라인 digits가 정확히 11자리+타입유효면 채택
+#   3. 하이픈 끝 4자리 요구 완화: -(\d{4}) 제거 → (\d{6,7}) 로 (부가번호 잘려도 통과)
+#   4. 인접 1줄 결합 하이픈 앵커: y차≤0.05인 바로 아랫줄과 결합해서도 하이픈 탐색
+# 유지: 상단18%컷·Amigo 패턴 A\d{10}·over-read 폴백. E6(2줄+ digits 윈도우) 금지.
 _METER_11 = re.compile(r'\b(\d{11})\b')
 _AMIGO_PAT = re.compile(r'\b(A\d{10})\b', re.IGNORECASE)
-_METER_HYPHEN = re.compile(r'(\d{2})\s*[-]\s*(\d{2})\s*[-]\s*(\d{7})\s*[-]\s*(\d{4})')
+# E5 처방 3: 끝 4자리(-\d{4}) 삭제 → (\d{6,7}) 로 완화. 부가번호(-1607 등) 없어도 통과.
+_METER_HYPHEN = re.compile(r'(\d{2})\s*[-]\s*(\d{2})\s*[-]\s*(\d{6,7})')
 _AMIGO_HYPHEN = re.compile(r'A0\s*[-]\s*55\s*[-]\s*(\d{7,8})', re.IGNORECASE)
 _METER_TYPE_CODES = {'17', '19', '25', '26', '27', '45', '46', '47', '53', '55'}
 
 
+def _hyphen_search(text: str):
+    """하이픈 패턴 탐색 → 11자리 계기번호 목록 반환. 없으면 []."""
+    results = []
+    for m in _METER_HYPHEN.finditer(text):
+        merged = m.group(1) + m.group(2) + m.group(3)
+        mid = merged[:11]
+        if len(mid) == 11 and mid[2:4] in _METER_TYPE_CODES:
+            results.append(mid)
+    return results
+
+
 def _extract_meter_no(lines):
-    """[(y,conf,text)] → 계기번호. 검증 포털 extract_meter 이식."""
+    """[(y,conf,text)] → 계기번호. E5 처방 적용(ocr-meter 실측 2026-07-14).
+
+    채택 우선순위: Amigo → 하이픈 후보 → 라인내 11자리(타입코드 유효), max(conf, y중앙근접).
+    """
     lines = [(y, c, t) for y, c, t in lines if y > 0.18]   # 상단 18%(LCD표시·MAC) 제외
-    cand11, candA = [], []
-    for y, conf, text in lines:
-        for m in _METER_11.finditer(text):
-            cand11.append((y, conf, m.group(1)))
+    cand_hyphen, cand11, candA = [], [], []
+
+    for idx, (y, conf, text) in enumerate(lines):
+        # Amigo 패턴 (A\d{10})
         for m in _AMIGO_PAT.finditer(text):
             candA.append((y, conf, m.group(1).upper()))
-        for m in _METER_HYPHEN.finditer(text):
-            merged = m.group(1) + m.group(2) + m.group(3) + m.group(4)
-            if len(merged) >= 11:
-                cand11.append((y, conf, merged[:11]))
         for m in _AMIGO_HYPHEN.finditer(text):
             amigo = 'A055' + re.sub(r'[^0-9]', '', m.group(1))
             if len(amigo) == 11:
                 candA.append((y, conf, amigo.upper()))
+
+        # E5 처방 4: 인접 1줄(y차≤0.05) 결합 하이픈 탐색
+        # 현재 라인 단독 + 현재+다음줄 결합 둘 다 탐색
+        texts_to_search = [text]
+        if idx + 1 < len(lines):
+            ny, nc, nt = lines[idx + 1]
+            if abs(ny - y) <= 0.05:
+                texts_to_search.append(text + " " + nt)
+        for t2 in texts_to_search:
+            for mid in _hyphen_search(t2):
+                cand_hyphen.append((y, conf, mid))
+
+        # E5 처방 1+2: 라인내 11자리 — 타입코드 필터 강제
+        # 처방 2: 공백·하이픈 제거 후 정확히 11자리이면 채택
+        digits_only = re.sub(r'[\s\-]', '', text)
+        if re.match(r'^\d{11}$', digits_only) and digits_only[2:4] in _METER_TYPE_CODES:
+            cand11.append((y, conf, digits_only))
+        else:
+            # 처방 1: \b\d{11}\b 매치 후 타입코드 유효한 것만
+            for m in _METER_11.finditer(text):
+                w = m.group(1)
+                if w[2:4] in _METER_TYPE_CODES:
+                    cand11.append((y, conf, w))
+
+    # 하이픈 후보가 이미 있으면 라인내 11자리와 분리해 우선 처리
+    # (처방: 하이픈 후보 우선 → 없으면 라인내 11자리)
+    effective11 = cand_hyphen if cand_hyphen else cand11
+
     # over-read 폴백: 깨끗한 11자 후보 없으면 긴 숫자열(12+)에서 타입코드 유효 11자 윈도우 수집
-    if not cand11 and not candA:
+    if not effective11 and not candA:
         for y, conf, text in lines:
             for run in re.findall(r'\d{12,}', re.sub(r'[^0-9]', '', text)):
                 for i in range(len(run) - 10):
                     w = run[i:i + 11]
                     if w[2:4] in _METER_TYPE_CODES:
-                        cand11.append((y, conf, w))
+                        effective11.append((y, conf, w))
+
     if candA:
         return max(candA, key=lambda x: x[1])[2]
-    if cand11:
+    if effective11:
         # 신뢰도 우선, 동점이면 y중앙 근접 (명판=중앙, 스펙문구보다 우선)
-        return max(cand11, key=lambda x: (x[1], -abs(x[0] - 0.5)))[2]
+        return max(effective11, key=lambda x: (x[1], -abs(x[0] - 0.5)))[2]
     return ''
 
 
