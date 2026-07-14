@@ -75,8 +75,8 @@
 - 좌표채우기.py — 기존 데이터 중 좌표 null인 항목 보충
 
 ## 계정 정보
-- admin / 8414 / [[우영준]]
-- user01 / 1111 / 김민성 · user02 / 1111 / 이영길 · user03 / 1111 / 김상권 · user04 / 1111 / 김지호 · user05 / 1111 / 장성훈
+계정·비밀번호 정본 = `js/auth.js`(작업자 로그인 배열). 공개 문서에 평문 중복 두지 않음.
+계정 추가·변경 시 auth.js 갱신. (보안 주의: 현재 클라이언트 사이드 평문 인증 — 서버 인증 전환은 별도 과제)
 
 ## Firebase (상세 `core/Firebase.md`)
 - DB: https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app
