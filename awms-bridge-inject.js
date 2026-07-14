@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v83'; // v83: BARCODE 1D전용 scanBarcode 원복(명판 QR 오독으로 바코드 안읽힘 다발, QRCODE는 scan 유지, 구APK scan 폴백) — 12자리검증재시도는 미부활(무한루프 방지). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v84'; // v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -950,16 +950,15 @@ function parseValue(text) {
           var el = e.target && e.target.closest && e.target.closest('button,a,p,div,span,li');
           if (!el) return;
           var txt = (el.textContent || '').trim().toUpperCase();
-          if (txt === 'QRCODE' || txt === 'BARCODE') {
+          // QRCODE만 우리 구글 스캐너로 가로챔. BARCODE는 가로채지 않음 → awms 원래 바코드 스캐너 그대로(우리 스캐너 바코드 오독 다발로 원복). 영준님 2026-07-15.
+          if (txt === 'QRCODE') {
             e.preventDefault(); e.stopImmediatePropagation();
             var vm = getAwmsVM();
             window.__pendingVM = vm;
             window.__pendingField = vm ? (vm.vFlmnCl || '') : '';
             rec({ stage: 'intercept', txt: txt, field: window.__pendingField });
             closeFlmnModal();
-            // BARCODE = 1D전용(scanBarcode, QR제외) — 명판 QR 오독으로 바코드 안읽힘 다발 → 원복. QRCODE는 scan. 구APK(scanBarcode 미탑재)는 scan 폴백. 12자리검증재시도는 미부활(무한루프 방지). 영준님 2026-07-15.
-            if (txt === 'BARCODE' && window.AndroidScanner && window.AndroidScanner.scanBarcode) window.AndroidScanner.scanBarcode();
-            else if (window.AndroidScanner && window.AndroidScanner.scan) window.AndroidScanner.scan();
+            if (window.AndroidScanner && window.AndroidScanner.scan) window.AndroidScanner.scan();
             else alert('네이티브 스캐너 없음 (앱 업데이트 필요)');
           }
         } catch (err) {}
