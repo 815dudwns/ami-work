@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.0",
+  "versionName": "2.2.1",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "통신방식 auto여도 드롭다운 항상 표시(강제변경 가능) / 계기번호 11자리+MAC형식 검증(QR/수동) / saveAct후 /api/verify 등록확인(미확인시 큐유지 재확인) / 이력 탭 신설(전송완료 세대 날짜별 목록)"
+  "notes": "QR/맥 파싱을 헬퍼(convertForField) 로직으로 이식 — A053 Amigo 등 계기·맥 빈값·다음불가 해결(raw 그대로 parseValue, 빈값이면 raw 폴백, modemTo012 이식) / 통신방식 강제변경 / 계기번호11자리+MAC검증 / saveAct후 등록확인 / 이력 탭"
 }
