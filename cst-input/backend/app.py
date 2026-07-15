@@ -618,10 +618,10 @@ def _saveact_core(body):
         master_suffix = auto[-2:]                        # 슬레이브 상속용 (LTE도 70/92로 확정된 끝2자리)
     # 작업구분: 신설=M1010(기본) / 기설=M1030 (ami-queue-design.md — 리스트밖 계기를 마스터로 쓰면 기설)
     work_div = "M1030" if str(body.get("mode", "")).strip() == "existing" else "M1010"
-    # 변대주 → DCU_ID: PLC계열(10 ks-plc/20 hpgp/90 k-dcu)에서만 DCU_ID=변대주번호(DCUID 앞8자, 끝2 제외) 그대로 (영준님 2026-07-15 정정).
-    #   한전 입력값=변대주 전산화번호만(끝2자리 차수+번호는 화면식별용, 시스템입력 아님). +00 아님. 마스터·슬레이브 동일 DCU_ID. 빈값이면 미주입.
+    # 변대주 → DCU_ID: [신설(M1010)] + [PLC계열: 10 ks-plc/20 hpgp/90 k-dcu] + [변대주있음] 에서만 (영준님 2026-07-15).
+    #   DCU_ID = 변대주 전산화번호(DCUID 앞8자, 끝2 제외) 그대로. +00 아님. 기설(M1030)은 미입력. iot-plc(80)·IP-HPGP(85) 미사용. 마스터·슬레이브 동일.
     bdju = str(body.get("bdju", "")).strip()
-    dcu_id = bdju if (bdju and master_suffix in ("10", "20", "90")) else ""
+    dcu_id = bdju if (work_div == "M1010" and bdju and master_suffix in ("10", "20", "90")) else ""
     # 함체유형(영준님 2026-07-02): 단독+슬0→단독형(10, 대표계기·함내수 빈칸) / 단독+슬有→집합형단독(40) / 집합→그대로(20)
     ham = str(body.get("ham", "")).strip()
     solo_blank = (ham == "단독" and len(slaves) == 0)   # 단독형: 대표계기·함내수 빈칸
