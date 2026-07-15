@@ -633,8 +633,7 @@ def _saveact_core(body):
         # 빈값 ""은 awms Java parseInt 폭발(→500/실패). 빈칸=키 자체를 omit ([[awms_saveact_500_fix]] 패턴)
         mf.pop("MB_METER_ID", None); mf.pop("MB_CNT", None)
     if dcu_id:
-        mf["DCU_ID"] = dcu_id
-        mf["DCU_SIGONG_CD"] = "Y"   # ★DCU 시공함 — 'N'(기본)이면 awms가 DCU_ID 무시·저장안함(영준님 2026-07-15)
+        mf["DATA_NUM"] = dcu_id   # ★변대주 전산화번호 = awms 화면 '변대주' 칸(필드명 DATA_NUM). DCU_ID·차수는 awms 자동생성 (영준님 헬퍼 실측 2026-07-15: DCU_ID 아님)
     res_m = saveact_post(mf, _photos_to_files(m.get("photos", {}), tmpd))
     print(f"[saveact] master {mb} ham={ham or '집합'} fclty={fclty} → {res_m}", flush=True)  # 진단 로그
     fid3 = res_m.get("atchFileId3", ""); fid4 = res_m.get("atchFileId4", "")
@@ -650,8 +649,7 @@ def _saveact_core(body):
         sf["MODEM_DIV"] = "20"; sf["WORK_DIV"] = "M1010"   # 슬레이브는 항상 신설(마스터만 기설 M1030)
         sf["FCLTY_DIV"] = fclty                            # 슬레이브도 함체유형 동일(단독+슬有=40 / 집합=20)
         if dcu_id:
-            sf["DCU_ID"] = dcu_id                          # 변대주 DCU_ID = 마스터와 동일(그룹 공유)
-            sf["DCU_SIGONG_CD"] = "Y"                       # ★DCU 시공함 — N이면 awms가 무시
+            sf["DATA_NUM"] = dcu_id                         # 변대주 = 마스터와 동일(그룹 공유). 필드=DATA_NUM(DCU_ID 아님)
         photos = {"ATCH_FILE_ID_3": fid3, "ATCH_FILE_ID_4": fid4}
         sp = _photos_to_files(s.get("photos", {}), tmpd)
         if sp.get("ATCH_FILE_ID_5_SRC"):
