@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.2",
+  "versionName": "2.2.3",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "변대주 DCU_ID 안내문구 정정(+00 제거, 변대주 전산화번호 끝2제외 그대로). 신설+PLC(10/20/90) 조건, 마스터·슬레이브 공유. 동작변경 없음."
+  "notes": "바코드 Code 93 포맷 추가 — 모뎀맥 라벨(AC5E8C…) 스캔 지원. 기존 QR/CODE128/39 유지."
 }
