@@ -27,20 +27,30 @@ function commLabelOf(suf) { return suf ? (COMM_LABELS[suf] || suf) : ((CST.commA
 // 슬레이브 분기(백엔드 동일): 마스터 SMGW-C(92) & 슬레이브 아미고 → 무선, 그외 0.5
 function slaveBungi(sufMaster, slaveMeterNo) { return (sufMaster === '92' && isAmigo(slaveMeterNo)) ? '무선' : '0.5'; }
 
-// ── QR/바코드 파싱 (헬퍼 awms-parseValue.js 법칙 그대로) ──
-// 계기번호: parseValue().value (13/11/15자리·계기ID·* 제거 규칙 재사용)
-function parseMeterScan(raw) {
-  try { if (window.parseValue) { var p = parseValue(String(raw).replace(/\*/g, '')); if (p && p.value) return String(p.value); } } catch (e) {}
-  var m = String(raw || '').match(/\d{11}/); return m ? m[0] : String(raw || '').replace(/[^0-9A-Za-z]/g, '');
-}
-// 모뎀맥: parseValue → LTE(012+끝8) 변환, PLC hex는 원본 (inject macToSuffix 앞단과 동일)
-function parseMacScan(raw) {
-  var s = String(raw || '').replace(/\*/g, '').trim();
-  try { if (window.parseValue) { var p = parseValue(s); if (p && p.value) s = String(p.value); } } catch (e) {}
+// ── QR/바코드 파싱 (헬퍼 awms-bridge-inject.js convertForField·modemTo012 그대로 이식) ──
+// modemTo012: LTE 자재ID → 012+끝8, 이미 012형이면 그대로, PLC hex 등 = 원본 (헬퍼 L78-85)
+function modemTo012(v) {
+  var s = String(v || '').trim();
+  if (/^012\d{8}$/.test(s)) return s;                              // 이미 LTE 스캔값
   var d = s.replace(/\D/g, '');
   if (/^012\d{8}$/.test(d)) return d;
-  if (/G1S3/i.test(raw) && d.length >= 8) return '012' + d.slice(-8);
-  return s;
+  if (/G1S3/i.test(s) && d.length >= 8) return '012' + d.slice(-8); // LTE 자재ID(G1S3) → 012+끝8
+  return s;                                                         // PLC hex MAC 등 = 원본 그대로
+}
+// 계기번호: raw 그대로(전처리 없이) parseValue → value, 빈값이면 raw 폴백 (헬퍼 convertForField 계기 경로)
+function parseMeterScan(raw) {
+  var r = String(raw || '');
+  var p = (typeof parseValue === 'function') ? (parseValue(r) || {}) : {};
+  var value = (p.value != null && p.value !== '') ? p.value : r;
+  // 계기 QR("계기 ID" 포함) = value 그대로, 그외도 value(parseValue 결과 또는 raw 폴백)
+  return String(value);
+}
+// 모뎀맥: raw 그대로 parseValue → value, 빈값이면 raw 폴백 → modemTo012 (헬퍼 convertForField 모뎀 경로)
+function parseMacScan(raw) {
+  var r = String(raw || '');
+  var p = (typeof parseValue === 'function') ? (parseValue(r) || {}) : {};
+  var value = (p.value != null && p.value !== '') ? p.value : r;
+  return modemTo012(value);
 }
 
 function showStep(s) { ['master', 'slave', 'mac', 'confirm', 'done'].forEach(x => $('step-' + x).classList.toggle('hidden', x !== s)); }
@@ -223,22 +233,108 @@ function showDone() {
     html += '<br><br>슬레이브 없음';
   }
   $('doneSummary').innerHTML = html;
-  $('submitResult').textContent = '';
+  $('submitResult').innerHTML = '';
 }
+
+// 전송 진행 라벨: 마스터/슬레이브 idx 기반 한글표기
+function roleLabel(ev) { return ev.role === 'master' ? '마스터' : ('슬레이브 ' + (ev.idx - 1)); }
+// 진행 UI: n건 중 몇 건 완료(성공/실패 색). ev.type item마다 호출.
+function renderProgress(cur, total, ev) {
+  const pct = total ? Math.round((cur / total) * 100) : 0;
+  let line = ev ? (roleLabel(ev) + (ev.ok ? ' 등록 완료' : ' 등록 실패')) : '전송 준비 중…';
+  $('submitResult').innerHTML =
+    `<div style="font-weight:800;color:var(--ink,#eaf2fb);margin-bottom:6px;">전송 중… ${cur}/${total}</div>` +
+    `<div style="height:8px;border-radius:999px;background:var(--surface-2,#243244);overflow:hidden;margin-bottom:6px;">` +
+    `<div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--mint,#3ddc97),#2bb89a);transition:width .25s;"></div></div>` +
+    `<div style="font-size:13px;color:${ev && !ev.ok ? '#e06a5a' : 'var(--ink-2,#9fb2c6)'};">${line}</div>`;
+}
+// 세션만료(401) 시 재로그인 버튼까지 표시
+function showSubmitError(msg, sessionExpired) {
+  let html = `<div style="color:#e06a5a;font-weight:700;">${msg}</div>`;
+  if (sessionExpired) html += `<button id="btnReLogin" style="margin-top:10px;width:100%;padding:14px;border:none;border-radius:999px;` +
+    `background:linear-gradient(145deg,var(--mint,#3ddc97),#2bb89a);color:#04261f;font-size:16px;font-weight:800;">awms 다시 로그인</button>`;
+  $('submitResult').innerHTML = html;
+  if (sessionExpired) { const b = $('btnReLogin'); if (b) b.onclick = () => { if (window.awmsLogin) awmsLogin(); }; }
+}
+
+// 전송 결과 판정 + 표시 (스트림 done / classic 폴백 공용)
+function finishSubmit(results) {
+  const ok = (results || []).length && results.every(x => x.resp && x.resp.result === 1);
+  if (ok) {
+    $('submitResult').innerHTML = `<div style="color:var(--mint,#3ddc97);font-weight:800;font-size:16px;">전송 완료 — 전부 등록됨 (${results.length}건)</div>`;
+  } else {
+    const bad = (results || []).filter(x => !(x.resp && x.resp.result === 1))
+      .map(x => (x.role === 'master' ? '마스터' : '슬레이브') + ' ' + (x.meterNo || '') + ': ' + JSON.stringify(x.resp)).join('<br>');
+    $('submitResult').innerHTML = `<div style="color:#e06a5a;font-weight:700;">일부 실패 — 확인 필요</div>` +
+      `<div style="font-size:12px;color:var(--ink-2,#9fb2c6);margin-top:6px;">${bad || JSON.stringify(results)}</div>`;
+  }
+}
+
 $('btnSubmit').onclick = async () => {
-  $('btnSubmit').disabled = true; $('submitResult').textContent = '전송 중…';
+  $('btnSubmit').disabled = true;
+  const total = 1 + CST.slaves.length;
+  renderProgress(0, total, null);
   const body = {
     commSuffix: CST.commSuffix || '',   // 직접선택 시만 값 (자동판별이면 빈값→백엔드 자동)
     master: { meterNo: CST.master.meterNo, mac: CST.master.mac, instM: CST.master.instM, photos: CST.master.photos },
     slaves: CST.slaves.map(s => ({ meterNo: s.meterNo, photos: { 5: s.photo5 } })),
   };
+  const jsonBody = JSON.stringify(body);
   try {
-    const r = await (await apiFetch('/api/saveact', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
-    const ok = (r.results || []).length && r.results.every(x => x.resp && x.resp.result === 1);
-    $('submitResult').textContent = ok ? '전송 완료 — result:1 (전부 등록)' : '결과 확인: ' + JSON.stringify(r.results || r);
-  } catch (e) { $('submitResult').textContent = '전송 실패: ' + e.message; }
+    // 1) 진행표시판(NDJSON 스트림) 우선. 구백엔드(재시작 전)엔 404 → classic 폴백.
+    const r = await apiFetch('/api/saveact/stream', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/x-ndjson' }, body: jsonBody });
+    if (r.status === 404) { await submitClassic(jsonBody, total); return; }
+    if (!r.ok) { await handleSubmitHttpError(r); return; }
+    // 스트림 파싱 (건별 진행)
+    const reader = r.body.getReader(); const dec = new TextDecoder();
+    let buf = '', done = null, cur = 0, streamErr = null;
+    for (;;) {
+      const { value, done: d } = await reader.read();
+      if (value) buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+        if (!line) continue;
+        let ev; try { ev = JSON.parse(line); } catch (e) { continue; }
+        if (ev.type === 'item') { cur = ev.idx; renderProgress(cur, ev.total, ev); }
+        else if (ev.type === 'done') done = ev.results;
+        else if (ev.type === 'error') streamErr = ev.detail;
+      }
+      if (d) break;
+    }
+    // 마지막 개행 없는 잔여 줄 flush (advisor 지적 — awms엔 등록됐는데 화면만 멈추는 것 방지)
+    const tail = buf.trim();
+    if (tail) { try { const ev = JSON.parse(tail); if (ev.type === 'done') done = ev.results; else if (ev.type === 'error') streamErr = ev.detail; } catch (e) {} }
+    if (streamErr) { showSubmitError('전송 오류: ' + streamErr, /세션/.test(streamErr)); }
+    else if (done) finishSubmit(done);
+    else showSubmitError('전송 결과를 받지 못했어요 — awms에서 등록 여부 확인 필요', false);
+  } catch (e) {
+    // 스트림 자체 실패(구버전/네트워크) → classic 폴백 시도
+    try { await submitClassic(jsonBody, total); }
+    catch (e2) { showSubmitError('전송 실패: ' + (e2.message || e.message), false); }
+  }
   $('btnSubmit').disabled = false;
 };
+
+// 구백엔드 폴백: 진행표시 없이 한 번에 (결과만)
+async function submitClassic(jsonBody, total) {
+  renderProgress(0, total, null);
+  const r = await apiFetch('/api/saveact', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: jsonBody });
+  if (!r.ok) { await handleSubmitHttpError(r); $('btnSubmit').disabled = false; return; }
+  const j = await r.json();
+  finishSubmit(j.results || []);
+  $('btnSubmit').disabled = false;
+}
+
+// 401/400 등 HTTP 오류 → 사용자 문구 + (세션만료면) 재로그인 버튼
+async function handleSubmitHttpError(r) {
+  let detail = '';
+  try { const j = await r.json(); detail = j.detail || ''; } catch (e) {}
+  if (r.status === 401) showSubmitError('awms 세션이 만료됐어요 — 다시 로그인이 필요합니다.', true);
+  else showSubmitError('전송 실패 (' + r.status + ')' + (detail ? ' — ' + detail : ''), false);
+  $('btnSubmit').disabled = false;
+}
 
 // 키보드가 입력칸 가리는 문제: 포커스 시 해당 input을 화면 중앙으로 스크롤(키보드 애니메이션 후).
 ['macInput', 'confirmInput'].forEach(id => {
