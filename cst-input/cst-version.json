@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.0",
+  "versionName": "2.2.1",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "통신방식 auto여도 드롭다운 항상 표시(강제변경 가능) / 계기번호 11자리+MAC형식 검증(QR/수동) / saveAct후 /api/verify 등록확인(미확인시 큐유지 재확인) / 이력 탭 신설(전송완료 세대 날짜별 목록). ※웹(collect.js) 변경은 원격로드로 즉시 반영 — versionName은 APK 재빌드 시에만 올릴 것"
+  "notes": "계기번호 QR MID추출+Amigo(A053) A접두 허용 — 11자리아님 노란색·빈값 해결. 기존 숫자 11자리 계기 무회귀."
 }
