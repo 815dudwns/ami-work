@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.1",
+  "versionName": "2.2.2",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "계기번호 QR MID추출+Amigo(A053) A접두 허용 — 11자리아님 노란색·빈값 해결. 기존 숫자 11자리 계기 무회귀."
+  "notes": "변대주 DCU_ID 안내문구 정정(+00 제거, 변대주 전산화번호 끝2제외 그대로). 신설+PLC(10/20/90) 조건, 마스터·슬레이브 공유. 동작변경 없음."
 }
