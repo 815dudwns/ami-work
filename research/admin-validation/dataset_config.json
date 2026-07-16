@@ -5,7 +5,7 @@
       "db_url": "https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/workStatus/jongno.json",
       "rtdb_review_url": "https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app",
       "bucket": "ami-jongno.firebasestorage.app",
-      "cred": "/Users/woodelight/Downloads/ami-jongno-firebase-adminsdk-fbsvc-dfacd1e2ad.json",
+      "cred": "/Users/woodelight/.firebase-keys/ami-jongno-firebase-adminsdk-fbsvc-dfacd1e2ad.json",
       "site_data_path": "/Users/woodelight/Projects/jongno-combined/data/jongno-site-data.json",
       "ws_path": "workStatus/jongno"
     },
@@ -14,7 +14,7 @@
       "db_url": "https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/workStatus/guro.json",
       "rtdb_review_url": "https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app",
       "bucket": "ami-jongno.firebasestorage.app",
-      "cred": "/Users/woodelight/Downloads/ami-jongno-firebase-adminsdk-fbsvc-dfacd1e2ad.json",
+      "cred": "/Users/woodelight/.firebase-keys/ami-jongno-firebase-adminsdk-fbsvc-dfacd1e2ad.json",
       "site_data_path": "/Users/woodelight/Projects/jongno-combined/data/guro-site-data.json",
       "ws_path": "workStatus/guro"
     }

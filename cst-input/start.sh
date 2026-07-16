@@ -10,7 +10,8 @@ LOG="/tmp/cst-input-backend.log"
 TLOG="/tmp/cst-tunnel.log"
 
 # ── 1) 백엔드(uvicorn) ──
-if lsof -i ":${PORT}" -sTCP:LISTEN -t > /dev/null 2>&1; then
+# 생존체크는 curl (lsof는 맥 업데이트 후 매달릴 수 있어 스크립트 전체가 멈춤)
+if curl -s -m 2 -o /dev/null "http://127.0.0.1:${PORT}/" 2>/dev/null; then
     echo "[cst-input] 백엔드 이미 실행 중 (포트 ${PORT})"
 else
     echo "[cst-input] 백엔드 기동... http://127.0.0.1:${PORT}  로그: ${LOG}"
