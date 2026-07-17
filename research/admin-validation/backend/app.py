@@ -58,6 +58,8 @@ if str(_BACKEND_DIR) not in sys.path:
 
 import daily_cycle  # noqa: E402 — sys.path 삽입 후
 import validation_rules  # noqa: E402 — on-read 검침 status 재판정(같은 backend 폴더)
+import awms_mtr_direct as mtr_direct  # noqa: E402 — 맥 세션 직접 awms 등록 (전송탭 실행부)
+mtr_direct.load_session()  # 디스크 session_mtr.json → 메모리 복원
 
 # ── 설정 파일 ────────────────────────────────────────────────────────────────────
 _CONFIG_PATH = _ADMIN_DIR / "dataset_config.json"
@@ -3359,12 +3361,13 @@ def _is_three_phase(meter_no: str, cntr_clas_cd) -> bool:
     return code in _THREE_PHASE_METER_CODES
 
 
-def _db_seal_max(raw: dict, account: str) -> int:
-    """workStatus 전체에서 특정 account(아이디)가 기록한 봉인번호(awms_seal.seal_no/seal_no2)의 최대값.
-    중복봉인 방지의 진실원천 — 다음 봉인 = 이 값 +1 (전송 중단 후 재개해도 이미 제출한 번호 재사용 안 함)."""
-    mx = 0
+def _db_seal_max(raw: dict, account: str = "") -> tuple:
+    """workStatus 전체에서 기록된 봉인번호(awms_seal.seal_no/seal_no2)의 전역 최대값+자릿수.
+    ★봉인은 계정 무관 물리 시퀀스 (영준님 2026-07-17) — account 필터 없이 전역.
+    반환: (max_int, max_width). 다음 봉인 = max_int + 1 (중단 후 재개해도 번호 재사용 안 함)."""
+    mx, width = 0, 0
     if not isinstance(raw, dict):
-        return 0
+        return 0, 0
     for _addr, av in raw.items():
         if not isinstance(av, dict):
             continue
@@ -3372,47 +3375,224 @@ def _db_seal_max(raw: dict, account: str) -> int:
             if not isinstance(rec, dict):
                 continue
             s = rec.get("awms_seal")
-            if not isinstance(s, dict) or s.get("account") != account:
+            if not isinstance(s, dict):
                 continue
             for k in ("seal_no", "seal_no2"):
                 v = s.get(k)
                 if v is not None and str(v).isdigit():
                     mx = max(mx, int(v))
-    return mx
+                    width = max(width, len(str(v)))
+    return mx, width
 
 
-def _allocate_seals(items: list, start_seal: int):
-    """순서대로 봉인번호 배정. 단상 +1, 삼상 +2(연속: N, N+1). items=[{mid, three}].
+def _allocate_seals(items: list, start_seal: int, width: int = 0):
+    """순서대로 봉인번호 배정 (전역 시퀀스, 계정 무관). 단상 +1, 삼상 +2(연속: N, N+1).
+    ★자릿수 보존: width>0이면 zfill (예: '0111111' 7자리). items=[{mid, three}].
     반환: ({mid: {seal_no, seal_no2}}, next_start)"""
     cur = int(start_seal)
+
+    def _fmt(n: int) -> str:
+        return str(n).zfill(width) if width else str(n)
+
     out = {}
     for it in items:
         if it.get("three"):
-            out[it["mid"]] = {"seal_no": str(cur), "seal_no2": str(cur + 1)}
+            out[it["mid"]] = {"seal_no": _fmt(cur), "seal_no2": _fmt(cur + 1)}
             cur += 2
         else:
-            out[it["mid"]] = {"seal_no": str(cur), "seal_no2": ""}
+            out[it["mid"]] = {"seal_no": _fmt(cur), "seal_no2": ""}
             cur += 1
     return out, cur
 
 
+def _seal_state(raw: dict, t_cfg: dict) -> tuple:
+    """전역 봉인 상태: (다음 시작값 int, 자릿수 width).
+    시작 = max(DB 전역최대, config.seal_last) + 1. width = config.seal_width > config.seal_last 길이 > DB 기록 길이."""
+    db_max, db_width = _db_seal_max(raw)
+    cfg_last_s = str(t_cfg.get("seal_last") or "")
+    cfg_last = int(cfg_last_s) if cfg_last_s.isdigit() else 0
+    start = max(db_max, cfg_last) + 1
+    width = int(t_cfg.get("seal_width") or 0) or (len(cfg_last_s) if cfg_last_s.isdigit() else 0) or db_width
+    return start, width
+
+
 class TransmitConfigReq(BaseModel):
     dataset: str
-    cons_no: str = ""          # 공사번호(차수) — 조회 고정값 저장해두고 그대로 주입
-    accounts: list = []        # [{"id": "mdp2504271", "start_seal": 3966855}] (아이디별 시작 봉인)
+    cons_no: str = ""          # 등록 공사번호(차수) — 사업조회 목록에서 선택, 그대로 주입
+    seal_cons_no: str = ""     # 봉인 공사번호 — 별도 선택 가능 (등록차수와 다를 수 있음)
+    seal_last: str = ""        # ★전역 마지막 사용 봉인 (계정 무관 물리 시퀀스, zero-padding 원문 '0111111')
+    seal_width: int = 0        # 봉인 자릿수 (0이면 seal_last 길이로 유추)
+    accounts: list = []        # (구) 아이디별 시작 봉인 — 전역 시퀀스 전환으로 배정에는 미사용, 하위호환 보존
 
 
 @app.get("/transmit/config")
 def get_transmit_config(dataset: str = Query(...)):
-    return _load_transmit_config().get(dataset, {"dataset": dataset, "cons_no": "", "accounts": []})
+    return _load_transmit_config().get(
+        dataset,
+        {"dataset": dataset, "cons_no": "", "seal_cons_no": "",
+         "seal_last": "", "seal_width": 0, "accounts": []},
+    )
 
 
 @app.post("/transmit/config")
 def post_transmit_config(req: TransmitConfigReq):
     cfg = _load_transmit_config()
-    cfg[req.dataset] = {"dataset": req.dataset, "cons_no": req.cons_no, "accounts": req.accounts}
+    prev = cfg.get(req.dataset) or {}
+    cfg[req.dataset] = {
+        "dataset": req.dataset,
+        "cons_no": req.cons_no,
+        "seal_cons_no": req.seal_cons_no,
+        "seal_last": req.seal_last or prev.get("seal_last", ""),
+        "seal_width": req.seal_width or prev.get("seal_width", 0),
+        "accounts": req.accounts,
+    }
     _save_transmit_config(cfg)
     return {"ok": True, "config": cfg[req.dataset]}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 맥 세션 직접 (아미큐 패턴) — 세션 확보·확인·로그인 스냅샷
+#   실행부 awms_mtr_direct 모듈. 폰은 OTP 로그인과 세션 소스로만 쓰인다.
+# ══════════════════════════════════════════════════════════════════════════════
+
+_TRANSMIT_PUSH_SECRET = "mtr-validate-2026"
+
+
+class TransmitPushSessionReq(BaseModel):
+    secret: str
+    cookie: str = ""   # "JSESSIONID=..; rememberedId=..; XSRF-TOKEN=.." 형식
+    ua: str = ""
+
+
+@app.post("/transmit/push-session")
+def post_transmit_push_session(req: TransmitPushSessionReq):
+    """폰(무선)에서 세션쿠키 push — cst-input /api/session/push 이식."""
+    if req.secret != _TRANSMIT_PUSH_SECRET:
+        raise HTTPException(status_code=403, detail="secret 불일치")
+    kv = {}
+    for part in req.cookie.split(";"):
+        if "=" in part:
+            k, _, v = part.strip().partition("=")
+            kv[k.strip()] = v.strip()
+    js = kv.get("JSESSIONID")
+    if not js:
+        raise HTTPException(status_code=400, detail="cookie에 JSESSIONID 없음")
+    mtr_direct.set_session(
+        jsessionid=js,
+        remembered_id=kv.get("rememberedId"),
+        xsrf=kv.get("XSRF-TOKEN"),
+        ua=req.ua or None,
+    )
+    alive = mtr_direct.session_alive()
+    return {"ok": True, "alive": alive, "account": kv.get("rememberedId", "")}
+
+
+@app.get("/transmit/pull-session")
+def get_transmit_pull_session():
+    """USB: adb CDP로 폰 계기큐 awms 세션쿠키 추출 → 맥 SESSION 보관."""
+    try:
+        s = mtr_direct.pull_session_from_phone()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    alive = mtr_direct.session_alive()
+    return {"ok": True, "alive": alive, "account": s.get("rememberedId") or "", "ts": s.get("ts")}
+
+
+@app.get("/transmit/session-direct")
+def get_transmit_session_direct():
+    """맥 보관 세션의 생존 확인 (awms getMainList 재조회). 폰 불필요."""
+    has = bool(mtr_direct.SESSION.get("jsessionid"))
+    alive = mtr_direct.session_alive() if has else False
+    return {
+        "ok": True,
+        "has_session": has,
+        "alive": alive,
+        "account": mtr_direct.SESSION.get("rememberedId") or "",
+        "ts": mtr_direct.SESSION.get("ts") or 0,
+    }
+
+
+@app.post("/transmit/login-snapshot")
+def post_transmit_login_snapshot(dataset: str = Query(...), account: str = Query("")):
+    """첫 로그인 직후 1회: 봉인조회(getMainList 8000)+사업조회(getBusiList) →
+    transmit_config에 cons_no·계정 시작봉인 저장. 이후 전송 루프는 awms 조회 없이 이 값 사용."""
+    if not mtr_direct.session_alive():
+        raise HTTPException(status_code=502, detail="세션 없음/만료 — 먼저 세션을 가져오세요")
+    try:
+        snap = mtr_direct.fetch_login_snapshot()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"스냅샷 조회 실패: {e}")
+
+    acct = account or (mtr_direct.SESSION.get("rememberedId") or "")
+    cfg = _load_transmit_config()
+    ds_cfg = cfg.get(dataset) or {"dataset": dataset, "cons_no": "", "seal_cons_no": "",
+                                  "seal_last": "", "seal_width": 0, "accounts": []}
+    # getMainList(8000).LV_CONS_NO = 봉인 활성차수 → seal_cons_no 기본값.
+    # 등록 cons_no는 사업조회(busi_list) 드롭다운에서 사용자가 선택 (둘 다 선택 가능, 다를 수 있음).
+    if snap.get("cons_no"):
+        ds_cfg["seal_cons_no"] = snap["cons_no"]
+        if not ds_cfg.get("cons_no"):
+            ds_cfg["cons_no"] = snap["cons_no"]
+
+    # ★봉인 = 계정 무관 전역 물리 시퀀스. awms 계정별 설정값은 서로 어긋나 있을 수 있음.
+    #   시스템 기억(config.seal_last + DB 전역최대)이 진실 — awms 조회값과 비교해 불일치 알림.
+    awms_seal_s = str(snap.get("seal_val") or "")          # 원문 (zero-padding 보존, 예 '0111111')
+    raw = _get_ws_raw(dataset) or {}
+    db_max, db_width = _db_seal_max(raw)
+    sys_last_s = str(ds_cfg.get("seal_last") or "")
+    sys_last = max(int(sys_last_s) if sys_last_s.isdigit() else 0, db_max)
+    width = (int(ds_cfg.get("seal_width") or 0)
+             or (len(awms_seal_s) if awms_seal_s.isdigit() else 0)
+             or (len(sys_last_s) if sys_last_s.isdigit() else 0)
+             or db_width)
+
+    seal_mismatch = False
+    if awms_seal_s.isdigit():
+        if sys_last == 0:
+            # 최초: awms 값을 시스템 기억의 기준으로 채택
+            ds_cfg["seal_last"] = awms_seal_s
+            ds_cfg["seal_width"] = width or len(awms_seal_s)
+        elif int(awms_seal_s) != sys_last:
+            # 이 계정 awms 설정이 시스템 기억과 어긋남 → 프론트에서 [봉인 동기화] 안내
+            seal_mismatch = True
+            if not ds_cfg.get("seal_width"):
+                ds_cfg["seal_width"] = width
+    cfg[dataset] = ds_cfg
+    _save_transmit_config(cfg)
+
+    sys_last_out = str(sys_last).zfill(width) if (sys_last and width) else (str(sys_last) if sys_last else "")
+    return {
+        "ok": True,
+        "snapshot": snap,
+        "config": ds_cfg,
+        "seal_mismatch": seal_mismatch,
+        "seal_awms": awms_seal_s,      # 이 계정 awms 설정값
+        "seal_system": sys_last_out,   # 시스템 기억(전역 마지막 사용값)
+    }
+
+
+@app.post("/transmit/seal-sync")
+def post_transmit_seal_sync(dataset: str = Query(...)):
+    """[봉인 동기화] — 시스템 기억값(전역 마지막 사용 봉인)을 현재 세션 계정의 awms에 저장.
+    다른 아이디로 로그인해 봉인 설정이 어긋났을 때 사용."""
+    if not mtr_direct.session_alive():
+        raise HTTPException(status_code=502, detail="세션 없음/만료")
+    t_cfg = _load_transmit_config().get(dataset, {})
+    raw = _get_ws_raw(dataset) or {}
+    db_max, db_width = _db_seal_max(raw)
+    sys_last_s = str(t_cfg.get("seal_last") or "")
+    sys_last = max(int(sys_last_s) if sys_last_s.isdigit() else 0, db_max)
+    if not sys_last:
+        raise HTTPException(status_code=400, detail="시스템 기억 봉인값 없음 — 먼저 로그인 스냅샷 실행")
+    width = int(t_cfg.get("seal_width") or 0) or (len(sys_last_s) if sys_last_s.isdigit() else 0) or db_width
+    seal_s = str(sys_last).zfill(width) if width else str(sys_last)
+    seal_cons_no = t_cfg.get("seal_cons_no", "") or t_cfg.get("cons_no", "")
+    if not seal_cons_no:
+        raise HTTPException(status_code=400, detail="봉인 공사번호(seal_cons_no) 미설정")
+    res = mtr_direct.save_final_seal(seal_cons_no, seal_s)
+    return {"ok": bool(res.get("ok")), "saved_seal": seal_s,
+            "seal_cons_no": seal_cons_no, "status": res.get("status_code"),
+            "account": mtr_direct.SESSION.get("rememberedId") or ""}
 
 
 # ── GET /transmit/busilist ────────────────────────────────────────────────────
@@ -3473,31 +3653,28 @@ class TransmitPlanReq(BaseModel):
 
 @app.post("/transmit/plan")
 def post_transmit_plan(req: TransmitPlanReq):
-    """봉인 배정 미리보기(dry-run, 실전송 없음). 계정별 시작 = max(DB기록 최대+1, 설정 시작값).
+    """봉인 배정 미리보기(dry-run, 실전송 없음). ★전역 시퀀스(계정 무관 물리 봉인) —
+    시작 = max(DB 전역최대, config.seal_last) + 1, 자릿수(zfill) 보존.
     프론트가 전송 전 봉인번호를 확인·검토하는 용도."""
     cfg = _load_transmit_config().get(req.dataset, {})
-    starts = {a.get("id"): int(a.get("start_seal") or 0) for a in cfg.get("accounts", [])}
     raw = _get_ws_raw(req.dataset) or {}
 
-    by_acct: Dict[str, list] = {}
+    items = []
     for a in req.assignments:
-        acct = a.get("account") or ""
         three = a.get("three")
         if three is None:
             three = _is_three_phase(a.get("meter_no", ""), a.get("cntr_clas_cd"))
-        by_acct.setdefault(acct, []).append({"mid": a["mid"], "three": bool(three)})
+        items.append({"mid": a["mid"], "three": bool(three)})
 
-    plan: Dict[str, dict] = {}
-    accounts_meta: Dict[str, dict] = {}
-    for acct, items in by_acct.items():
-        start = max(_db_seal_max(raw, acct) + 1, starts.get(acct, 0) or 1)
-        alloc, nxt = _allocate_seals(items, start)
-        for mid, v in alloc.items():
-            plan[mid] = {**v, "account": acct}
-        accounts_meta[acct] = {"start": start, "next_after": nxt, "count": len(items)}
+    start, width = _seal_state(raw, cfg)
+    alloc, nxt = _allocate_seals(items, start, width)
+    acct = str(mtr_direct.SESSION.get("rememberedId") or "")  # 계정 = 세션 아이디 (기록용)
+    plan: Dict[str, dict] = {mid: {**v, "account": acct} for mid, v in alloc.items()}
+    meta = {"start": start, "next_after": nxt, "count": len(items), "width": width}
 
     return {"dataset": req.dataset, "cons_no": cfg.get("cons_no", ""),
-            "plan": plan, "accounts": accounts_meta}
+            "seal_cons_no": cfg.get("seal_cons_no", ""),
+            "plan": plan, "accounts": {acct: meta}, "seal": meta}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3890,6 +4067,10 @@ class TransmitRunReq(BaseModel):
     photo_override: dict | None = None
     # live: True 시 실등록 활성화 (AWMS_LIVE_SEND=1 환경변수와 동일 효과, 요청당 제어 가능)
     live: bool = False
+    # exec_mode: "direct"(기본, 맥 세션 직접) / "cdp"(구 폰 리모컨 폴백)
+    exec_mode: str = "direct"
+    # verify: 실등록 배치 후 awms 재조회 필드대조 (P4 사후검증, direct+live에서만 동작)
+    verify: bool = True
 
 
 @app.post("/transmit/run")
@@ -3953,37 +4134,39 @@ def post_transmit_run(req: TransmitRunReq):
         fail_count = 0
 
         try:
-            # 전송 설정 로드 (공사번호·계정별 시작 봉인)
+            # 전송 설정 로드 (공사번호·봉인 공사번호·전역 봉인 상태)
             t_cfg = _load_transmit_config().get(req.dataset, {})
             cons_no = t_cfg.get("cons_no", "")
-            starts = {a.get("id"): int(a.get("start_seal") or 0)
-                      for a in t_cfg.get("accounts", [])}
+            seal_cons_no = t_cfg.get("seal_cons_no", "") or cons_no  # 봉인차수 별도선택, 없으면 등록차수
+
+            # direct 모드 + 실등록이면 세션 선확인 (건별 실패 전에 잡 레벨에서 차단)
+            if req.exec_mode != "cdp" and req.live and not mtr_direct.session_alive():
+                raise RuntimeError("awms 세션 없음/만료 — [세션 가져오기] 후 재시도")
 
             # workStatus 전체 트리 — 봉인 최대값 조회 + addr 역탐색에 사용 (1회만)
             raw = _get_ws_raw(req.dataset) or {}
 
-            # 계정별 그룹핑 + 삼상 판정 (루프 전 일괄)
-            by_acct: Dict[str, list] = {}
+            # 삼상 판정 (루프 전 일괄) — ★봉인은 전역 시퀀스(계정 무관), 계정 = 세션 아이디
+            _session_acct = str(mtr_direct.SESSION.get("rememberedId") or "")
+            items = []
             for a in req.assignments:
-                acct = a.get("account") or ""
                 three = a.get("three")
                 if three is None:
                     three = _is_three_phase(
                         a.get("meter_no", "") or "",
                         a.get("cntr_clas_cd") or 0,
                     )
-                by_acct.setdefault(acct, []).append({"mid": a["mid"], "three": bool(three)})
+                items.append({"mid": a["mid"], "three": bool(three)})
 
-            # 계정별 봉인 배정 (루프 전 일괄 — DB seal_max는 전송 전 1회만 읽음)
+            # 전역 봉인 배정 (자릿수 zfill 보존, 단상+1/삼상+2 — DB+config는 전송 전 1회만 읽음)
+            seal_start, seal_width = _seal_state(raw, t_cfg)
+            alloc, seal_next_after = _allocate_seals(items, seal_start, seal_width)
             mid_seal: Dict[str, dict] = {}   # mid → {seal_no, seal_no2, account}
-            acct_meta: Dict[str, dict] = {}  # account → {start, next_after}
-            for acct, items in by_acct.items():
-                db_max = _db_seal_max(raw, acct)
-                start = max(db_max + 1, starts.get(acct, 0) or 1)
-                alloc, nxt = _allocate_seals(items, start)
-                for mid, seal in alloc.items():
-                    mid_seal[mid] = {**seal, "account": acct}
-                acct_meta[acct] = {"start": start, "next_after": nxt}
+            for mid, seal in alloc.items():
+                mid_seal[mid] = {**seal, "account": _session_acct}
+            acct_meta: Dict[str, dict] = {
+                (_session_acct or "세션없음"): {"start": seal_start, "next_after": seal_next_after}
+            }
 
             with _TRANSMIT_JOBS_LOCK:
                 j = _TRANSMIT_JOBS.get(job_id)
@@ -4026,6 +4209,9 @@ def post_transmit_run(req: TransmitRunReq):
 
             _push_monitor("running", 0, total)
 
+            # P4 사후검증(필드대조) 대상 수집 (direct 실등록 성공분)
+            _verify_items: list = []
+
             # 건별 전송 루프
             for idx, a in enumerate(req.assignments):
                 mid = str(a.get("mid", "")).strip()
@@ -4050,23 +4236,75 @@ def post_transmit_run(req: TransmitRunReq):
                                   current_mid=mid,
                                   current_seal=seal.get("seal_no", ""))
 
-                    # 리모컨 전송 (기본=연결검증, AWMS_LIVE_SEND=1 or live=true 시 실등록)
-                    payload = {
-                        "mid": mid,
-                        "addr": addr,
-                        "account": acct,
-                        "cons_no": cons_no,
-                        "seal_no": seal.get("seal_no", ""),
-                        "seal_no2": seal.get("seal_no2", ""),
-                    }
-                    # rep_override/photo_override: 요청에 있으면 전달 (맥 → 폰 사진 주입 경로)
-                    if req.rep_override is not None:
-                        payload["rep_override"] = req.rep_override
-                    if req.photo_override:
-                        payload["photo_override"] = req.photo_override
-                    if req.live:
-                        payload["live"] = True
-                    remote_result = _remote_register(req.dataset, mid, payload)
+                    # 실행부 분기: direct(기본, 맥 세션 직접) / cdp(구 폰 리모컨 폴백)
+                    if req.exec_mode == "cdp":
+                        payload = {
+                            "mid": mid,
+                            "addr": addr,
+                            "account": acct,
+                            "cons_no": cons_no,
+                            "seal_no": seal.get("seal_no", ""),
+                            "seal_no2": seal.get("seal_no2", ""),
+                        }
+                        # rep_override/photo_override: 요청에 있으면 전달 (맥 → 폰 사진 주입 경로)
+                        if req.rep_override is not None:
+                            payload["rep_override"] = req.rep_override
+                        if req.photo_override:
+                            payload["photo_override"] = req.photo_override
+                        if req.live:
+                            payload["live"] = True
+                        remote_result = _remote_register(req.dataset, mid, payload)
+                    elif not req.live:
+                        # direct 연결검증 모드: 실등록 없이 세션 생존만 확인 (wired)
+                        alive = mtr_direct.session_alive()
+                        remote_result = (
+                            {"ok": True, "wired": True, "live": False}
+                            if alive else
+                            {"ok": False, "err": "awms 세션 없음/만료 (직접모드 배선검증)"}
+                        )
+                    else:
+                        # direct 실등록: 맥이 awms mob/mtr 직접 호출 (철거→신설25→완료28+사진)
+                        d = mtr_direct.register_replacement_direct({
+                            "meter": mid,
+                            "addr": addr,
+                            "rep": req.rep_override if req.rep_override is not None else _rep,
+                            "injected": {
+                                "seal_no": seal.get("seal_no", ""),
+                                "seal_no2": seal.get("seal_no2", ""),
+                                "cons_no": cons_no,
+                                "account": acct,
+                            },
+                        })
+                        remote_result = {
+                            "ok": d.get("ok"),
+                            "live": True,
+                            "awms_seal": d.get("awms_seal"),
+                            "err": d.get("err"),
+                            "raw": d,
+                        }
+                        # 사후검증(P4)용 컨텍스트 수집
+                        if d.get("ok"):
+                            _verify_items.append({
+                                "meter": mid,
+                                "new_meter_id": _new_mid,
+                                "cons_no": d.get("consNo") or cons_no,
+                                "cntr_no": d.get("cntrNo") or "",
+                                "cons_tgt_seqno": d.get("consTgtSeqno") or "",
+                                "expect": {
+                                    "seal_no": seal.get("seal_no", ""),
+                                    "seal_no2": seal.get("seal_no2", ""),
+                                    "removal_values": _rep.get("removal_values") or {},
+                                    "mfg_ym": _rep.get("new_meter_mfg_ym") or "",
+                                },
+                            })
+                        # 모듈 상세로그 → 잡 로그에 병기 (건별 1줄, 28 미달 경고 포함)
+                        _append_log({
+                            "ts": now_ms, "mid": _old_mid, "account": acct,
+                            "seal": seal.get("seal_no", ""), "ok": bool(d.get("ok")),
+                            "seq": _seq, "old_mid": _old_mid, "new_mid": _new_mid,
+                            "phase": "상세",
+                            "msg": " | ".join((d.get("log") or [])[-6:]),
+                        })
 
                     if not remote_result.get("ok"):
                         raise ValueError(f"리모컨 전송 실패: {remote_result}")
@@ -4122,20 +4360,80 @@ def post_transmit_run(req: TransmitRunReq):
 
                 _update_progress(idx + 1, ok_count, fail_count)
 
-            # 전송 완료 후 — 계정별 최종 봉인 서버저장 예정 (폰 리모컨 T11 배선 후)
-            for acct2, meta in acct_meta.items():
-                last_seal = meta["next_after"] - 1
-                print(
-                    f"[transmit] 최종봉인 서버저장 예정(폰 리모컨 T11): "
-                    f"account={acct2} last_seal={last_seal}",
-                    flush=True,
-                )
+            # 전송 완료 후 — 계정별 최종 봉인 서버저장 (P3, direct 실등록에서만)
+            #   봉인은 시스템이 기억(단상+1/삼상+2 소모) → 배치 끝에 마지막 사용값을 awms에 1회 저장.
+            #   봉인 공사번호(seal_cons_no)는 등록 차수와 별도 선택값.
+            # 마지막 사용 봉인 (자릿수 zfill 보존)
+            last_seal_s = str(seal_next_after - 1).zfill(seal_width) if seal_width else str(seal_next_after - 1)
+            if req.exec_mode != "cdp" and req.live and ok_count > 0:
+                # 시스템 기억 갱신 — config.seal_last = 마지막 사용값 (전역, 계정 무관)
+                try:
+                    cfg_all = _load_transmit_config()
+                    ds_c = cfg_all.get(req.dataset) or {"dataset": req.dataset}
+                    ds_c["seal_last"] = last_seal_s
+                    ds_c["seal_width"] = seal_width or len(last_seal_s)
+                    cfg_all[req.dataset] = ds_c
+                    _save_transmit_config(cfg_all)
+                except Exception as cerr:
+                    print(f"[transmit] seal_last 저장 실패(무시): {cerr}", flush=True)
+                # awms 봉인 서버저장 1회 (세션 계정 앞으로)
+                sres = mtr_direct.save_final_seal(seal_cons_no, last_seal_s)
                 _append_log({
-                    "ts": int(time.time() * 1000), "mid": "", "account": acct2,
-                    "seal": str(last_seal), "ok": True,
+                    "ts": int(time.time() * 1000), "mid": "", "account": _session_acct,
+                    "seal": last_seal_s, "ok": bool(sres.get("ok")),
                     "phase": "시스템",
-                    "msg": f"최종봉인 서버저장 예정(폰 리모컨 T11): account={acct2} last_seal={last_seal}",
+                    "msg": (f"최종봉인 서버저장 {'OK' if sres.get('ok') else '실패(수동 보정/동기화 필요)'}: "
+                            f"seal_cons_no={seal_cons_no} last_seal={last_seal_s} "
+                            f"status={sres.get('status_code')} — 다른 아이디 사용 시 [봉인 동기화] 필요"),
                 })
+            else:
+                _append_log({
+                    "ts": int(time.time() * 1000), "mid": "", "account": _session_acct,
+                    "seal": last_seal_s, "ok": True,
+                    "phase": "시스템",
+                    "msg": f"최종봉인 서버저장 생략(검증모드/CDP): last_seal={last_seal_s}",
+                })
+
+            # P4 사후검증 — awms 재조회 필드대조. 통과건 = 전송완료 확정(이후 재조회 없음).
+            if req.exec_mode != "cdp" and req.live and req.verify and _verify_items:
+                _push_monitor("verifying", ok_count + fail_count, total)
+                try:
+                    vres = mtr_direct.verify_registration(_verify_items)
+                    for v in vres:
+                        if v.get("ok"):
+                            _append_log({
+                                "ts": int(time.time() * 1000), "mid": v.get("meter", ""),
+                                "account": "", "seal": "", "ok": True,
+                                "phase": "대조",
+                                "msg": "필드대조 통과 — 전송완료 확정",
+                            })
+                        else:
+                            mism = "; ".join(
+                                f"{m.get('field')}: 기대={m.get('expect')} 실제={m.get('got')}"
+                                for m in (v.get("mismatches") or [])
+                            )
+                            _append_log({
+                                "ts": int(time.time() * 1000), "mid": v.get("meter", ""),
+                                "account": "", "seal": "", "ok": False,
+                                "phase": "대조",
+                                "msg": f"필드 불일치: {mism}",
+                            })
+                            # Firebase에 불일치 기록 (awms_synced는 유지 — 등록 자체는 됨)
+                            try:
+                                v_addr = mid_addr_idx.get(str(v.get("meter", "")), "")
+                                if v_addr:
+                                    fb_db.reference(ws_path, app=fa_app) \
+                                        .child(v_addr).child("replacement_list") \
+                                        .child(str(v.get("meter", ""))) \
+                                        .update({"awms_verify_mismatch": v.get("mismatches")})
+                            except Exception:
+                                pass
+                except Exception as verr:
+                    _append_log({
+                        "ts": int(time.time() * 1000), "mid": "", "account": "",
+                        "seal": "", "ok": False, "phase": "대조",
+                        "msg": f"사후검증 실행 오류(전송 자체는 완료): {verr}",
+                    })
 
             with _TRANSMIT_JOBS_LOCK:
                 j = _TRANSMIT_JOBS.get(job_id)
@@ -4449,6 +4747,89 @@ def get_transmit_session(dataset: str = Query(...)):
         "account": val.get("account", ""),
         "err": val.get("err"),
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# P0 자동검증 워처 — 근무시간 1시간 1회 오늘 완료건 자동 검증
+#   지도앱에서 완료하면 포털 안 열어도 백엔드가 검증. 60초 폴링은 낭비라 1시간(영준님).
+#   _RUNNING_JOB 게이트 존중(수동 검증/전송 잡과 충돌 안 함). config auto_validate_watch=True로 켬.
+# ══════════════════════════════════════════════════════════════════════════════
+
+_WATCH_STATE: dict = {"last_run": {}}   # dataset → 마지막 자동검증 일시(ISO)
+_WATCH_WORK_HOURS = (8, 20)             # KST 08~20시만
+
+
+def _autovalidate_once(dataset: str) -> None:
+    """오늘(KST) 날짜 검증을 내부 실행. run_daily 직접 호출(HTTP 우회), _RUNNING_JOB 게이트 준수."""
+    global _RUNNING_JOB
+    today = datetime.now(KST).strftime("%Y%m%d")
+    with _JOB_LOCK:
+        if _RUNNING_JOB is not None:
+            print(f"[autoval] 다른 잡 실행 중 → 이번 주기 건너뜀 (dataset={dataset})", flush=True)
+            return
+        job_id = "auto-" + str(uuid.uuid4())[:6]
+        _RUNNING_JOB = job_id
+    try:
+        _ws_url, _out_dir = _dataset_ocr_ctx(dataset)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            daily_cycle.run_daily(date=today, ws_url=_ws_url, out_dir=_out_dir,
+                                  no_sync=bool(_out_dir), only_mids=None)
+        _WATCH_STATE["last_run"][dataset] = datetime.now(KST).isoformat()
+        print(f"[autoval] 완료 dataset={dataset} date={today}", flush=True)
+    except Exception:
+        print(f"[autoval] 오류(무시): {traceback.format_exc()}", flush=True)
+    finally:
+        with _JOB_LOCK:
+            _RUNNING_JOB = None
+        _invalidate_ws_raw(dataset)
+
+
+def _autovalidate_loop() -> None:
+    """1시간 주기 루프. config auto_validate_watch=True 인 dataset만, 근무시간에만 실행."""
+    # 기동 직후 60초 대기(서버 워밍업 후 시작)
+    time.sleep(60)
+    while True:
+        try:
+            hour = datetime.now(KST).hour
+            if _WATCH_WORK_HOURS[0] <= hour < _WATCH_WORK_HOURS[1]:
+                t_all = _load_transmit_config()
+                for ds, dcfg in t_all.items():
+                    if isinstance(dcfg, dict) and dcfg.get("auto_validate_watch"):
+                        _autovalidate_once(ds)
+        except Exception:
+            print(f"[autoval-loop] 오류(무시): {traceback.format_exc()}", flush=True)
+        time.sleep(3600)   # 1시간
+
+
+# 워처 스레드 기동 (모듈 로드 시 1회)
+_watch_thread = threading.Thread(target=_autovalidate_loop, daemon=True)
+_watch_thread.start()
+
+
+class AutoWatchReq(BaseModel):
+    dataset: str
+    enabled: bool
+
+
+@app.post("/transmit/auto-validate")
+def post_auto_validate(req: AutoWatchReq):
+    """P0 자동검증 워처 on/off (dataset별). config auto_validate_watch 저장."""
+    cfg = _load_transmit_config()
+    ds_c = cfg.get(req.dataset) or {"dataset": req.dataset}
+    ds_c["auto_validate_watch"] = bool(req.enabled)
+    cfg[req.dataset] = ds_c
+    _save_transmit_config(cfg)
+    return {"ok": True, "dataset": req.dataset, "enabled": bool(req.enabled),
+            "last_run": _WATCH_STATE["last_run"].get(req.dataset)}
+
+
+@app.get("/transmit/auto-validate")
+def get_auto_validate(dataset: str = Query(...)):
+    dcfg = _load_transmit_config().get(dataset, {})
+    return {"dataset": dataset, "enabled": bool(dcfg.get("auto_validate_watch")),
+            "last_run": _WATCH_STATE["last_run"].get(dataset),
+            "work_hours": _WATCH_WORK_HOURS}
 
 
 # ── 헬스체크 ─────────────────────────────────────────────────────────────────────
