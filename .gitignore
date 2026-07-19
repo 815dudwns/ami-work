@@ -31,3 +31,6 @@ sort-demo.html
 
 __pycache__/
 cst-input/backend/session.json
+
+# 실험 산출물 착지 공간 (git 제외)
+scratch/
