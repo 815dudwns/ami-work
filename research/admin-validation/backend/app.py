@@ -568,6 +568,7 @@ app.add_middleware(
     allow_origins=["http://localhost:8080", "http://127.0.0.1:8080",
                    "http://localhost:5500", "http://127.0.0.1:5500",
                    "https://815dudwns.github.io",  # github 배포본(jongno-combined/admin-validate.html)
+                   "https://localhost",  # Capacitor 폰 앱 origin (계기큐 모니터, P4 대비)
                    "null"],  # file:// 로컬 HTML 열었을 때 Origin: null 허용
     allow_methods=["*"],
     allow_headers=["*"],
@@ -3576,14 +3577,33 @@ def post_transmit_push_session(req: TransmitPushSessionReq):
     js = kv.get("JSESSIONID")
     if not js:
         raise HTTPException(status_code=400, detail="cookie에 JSESSIONID 없음")
+
+    # ★죽은(만료) 세션이 살아있는 기존 세션을 덮지 않도록: 저장 전 생존 확인.
+    #   폰이 awms 로그인 만료 상태로 push하면 JSESSIONID는 존재하지만 서버측 무효.
+    #   set_session(persist=False)로 메모리만 갱신 → session_alive() 판정 →
+    #   죽었으면 백업으로 메모리 복원 + 디스크 미저장(기존 세션 그대로 유지).
+    _backup = dict(mtr_direct.SESSION)
     mtr_direct.set_session(
         jsessionid=js,
         remembered_id=kv.get("rememberedId"),
         xsrf=kv.get("XSRF-TOKEN"),
         ua=req.ua or None,
+        persist=False,
     )
     alive = mtr_direct.session_alive()
-    return {"ok": True, "alive": alive, "account": kv.get("rememberedId", "")}
+    if alive:
+        mtr_direct.save_session()
+        return {"ok": True, "alive": True, "saved": True, "account": kv.get("rememberedId", "")}
+
+    mtr_direct.SESSION.clear()
+    mtr_direct.SESSION.update(_backup)
+    return {
+        "ok": True,
+        "alive": False,
+        "saved": False,
+        "reason": "dead session not saved (기존 세션 유지)",
+        "account": kv.get("rememberedId", ""),
+    }
 
 
 @app.get("/transmit/pull-session")
