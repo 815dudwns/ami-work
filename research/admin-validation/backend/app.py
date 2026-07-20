@@ -1111,14 +1111,11 @@ def _overlay_verdicts(results: dict, dataset: str, date: Optional[str]) -> None:
 
 
 # ── 4. GET /results ──────────────────────────────────────────────────────────────
-@app.get("/results")
-def get_results(
-    dataset: str = Query(default="jongno", description="dataset id"),
-    date: str    = Query(default=None,     description="YYYYMMDD (없으면 전체 누적)"),
-):
+def _compute_results(dataset: str, date: Optional[str]) -> dict:
     """
-    검증 결과 CSV 행 반환 (네트워크 없음, 읽기 전용).
-    dataset 파라미터는 추후 다중 자료 확장용으로 받되, v1은 jongno 단일.
+    /results 핵심 파이프라인 — dataset/date 검증 → CSV+workStatus 병합 → 사진/고객번호/정합성
+    부착 → verdict 오버레이까지 전부 적용한 results dict 반환.
+    GET /results 핸들러와 GET /monitor/* (조회 전용) 핸들러가 공유한다.
     """
     cfg = _load_config()
     if dataset not in cfg.get("datasets", {}):
@@ -1176,10 +1173,112 @@ def get_results(
     # _attach_photo_urls(validated 플래그) 이후에 호출해야 validated 상향이 정상 동작.
     _overlay_verdicts(results, dataset, date)
 
+    return results
+
+
+@app.get("/results")
+def get_results(
+    dataset: str = Query(default="jongno", description="dataset id"),
+    date: str    = Query(default=None,     description="YYYYMMDD (없으면 전체 누적)"),
+):
+    """
+    검증 결과 CSV 행 반환 (네트워크 없음, 읽기 전용).
+    dataset 파라미터는 추후 다중 자료 확장용으로 받되, v1은 jongno 단일.
+    """
+    results = _compute_results(dataset, date)
     return {
         "dataset": dataset,
         "date": date,
         **results,
+    }
+
+
+# ── 4b. GET /monitor/pending, /monitor/summary, /monitor/active-job ──────────────
+#   폰 계기큐 모니터 대시보드 폴링용 (전부 조회 전용, GET, 파괴적 동작·awms 전송 없음).
+#   /results 파이프라인(_compute_results)과 /report 집계 로직을 그대로 재사용한다.
+@app.get("/monitor/pending")
+def get_monitor_pending(
+    dataset: str = Query(default="jongno", description="dataset id"),
+    date: str    = Query(default=None,     description="YYYYMMDD (없으면 전체 누적)"),
+):
+    """
+    검증완료(validated=True)했지만 아직 awms 미전송(awms_synced=False)인 건 경량 목록.
+    meter_ids 트랙(계기 1건=1행) 기준 — addr/mid/new_meter_id/cha 4개 컬럼만 반환
+    (사진URL·verdict·정합성 등 무거운 필드는 제외).
+    """
+    results = _compute_results(dataset, date)
+    items = []
+    for row in results.get("meter_ids", []):
+        if row.get("validated") and not row.get("awms_synced"):
+            items.append({
+                "addr":         row.get("addr"),
+                "mid":          row.get("mid"),
+                "new_meter_id": row.get("new_meter_id"),
+                "cha":          row.get("cha"),
+            })
+    return {"dataset": dataset, "date": date, "count": len(items), "items": items}
+
+
+@app.get("/monitor/summary")
+def get_monitor_summary(
+    dataset: str = Query(default="jongno", description="dataset id"),
+    date: str    = Query(default=None,     description="YYYYMMDD (없으면 전체 누적)"),
+):
+    """
+    오늘 검증/전송 요약 카운트 (조회 전용).
+    verified/pending/sent는 meter_ids 트랙(계기 1건=1행) 기준 — validated/awms_synced는
+    mid 단위 플래그라 meter_values(필드별 여러행)로 세면 중복 카운트된다.
+    need_human_count는 GET /report의 all_groups["확인필요"]["count"]를 그대로 재사용
+    (/report는 date 필수라 date 미지정 시 오늘 KST 날짜로 대체).
+    """
+    results = _compute_results(dataset, date)
+    mi_rows = results.get("meter_ids", [])
+    verified_count = sum(1 for r in mi_rows if r.get("validated"))
+    sent_count     = sum(1 for r in mi_rows if r.get("awms_synced"))
+    pending_count  = sum(1 for r in mi_rows if r.get("validated") and not r.get("awms_synced"))
+
+    report_date = date or datetime.now(KST).strftime("%Y%m%d")
+    try:
+        report = get_report(dataset=dataset, date=report_date)
+        need_human_count = report.get("summary", {}).get("확인필요", 0)
+    except HTTPException:
+        need_human_count = 0
+
+    return {
+        "dataset":          dataset,
+        "date":             date,
+        "verified_count":   verified_count,
+        "pending_count":    pending_count,
+        "sent_count":       sent_count,
+        "need_human_count": need_human_count,
+    }
+
+
+@app.get("/monitor/active-job")
+def get_monitor_active_job(
+    dataset: str = Query(default="jongno",
+                          description="dataset id (현재 전송 잡은 전역 최신 1개만 추적 — 필터링에는 쓰이지 않음)"),
+):
+    """
+    최신 awms 전송 잡(/transmit/run)의 경량 진행상태 (조회 전용, 폴링용).
+    잡이 한 번도 생성된 적 없으면 {"job_id": null, "status": "idle"}.
+    """
+    with _TRANSMIT_JOBS_LOCK:
+        job_id = _LATEST_TRANSMIT_JOB_ID
+        job = _TRANSMIT_JOBS.get(job_id) if job_id else None
+    if job is None:
+        return {"job_id": None, "status": "idle"}
+    logs = job.get("logs") or []
+    return {
+        "job_id":       job_id,
+        "status":       job.get("status"),
+        "total":        job.get("total"),
+        "done":         job.get("done"),
+        "ok_count":     job.get("ok_count"),
+        "fail_count":   job.get("fail_count"),
+        "progress":     job.get("progress"),
+        "last_log":     logs[-1] if logs else None,
+        "seal_current": job.get("seal_current"),
     }
 
 
@@ -3686,6 +3785,8 @@ def post_transmit_plan(req: TransmitPlanReq):
 # 전송 잡 저장소 — 검증 잡(_JOBS/_RUNNING_JOB)과 완전 분리 (MPS 단일프로세스 게이트 불필요)
 _TRANSMIT_JOBS: Dict[str, dict] = {}
 _TRANSMIT_JOBS_LOCK = threading.Lock()
+# 폰 계기큐 모니터(GET /monitor/active-job)가 폴링할 "최신 전송 잡" id — 조회 전용 캐시.
+_LATEST_TRANSMIT_JOB_ID: Optional[str] = None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -4084,10 +4185,12 @@ def post_transmit_run(req: TransmitRunReq):
     if not req.assignments:
         raise HTTPException(status_code=400, detail="assignments 비어있음")
 
+    global _LATEST_TRANSMIT_JOB_ID
     job_id = str(uuid.uuid4())[:8]
     total = len(req.assignments)
 
     with _TRANSMIT_JOBS_LOCK:
+        _LATEST_TRANSMIT_JOB_ID = job_id  # 모니터(GET /monitor/active-job)용 최신 잡 추적
         _TRANSMIT_JOBS[job_id] = {
             "status": "running",
             "total": total,
@@ -4274,6 +4377,9 @@ def post_transmit_run(req: TransmitRunReq):
                                 "cons_no": cons_no,
                                 "account": acct,
                             },
+                            # ★영준님 방침(2026-07-20): 완료(28) 절대 금지 — 임시저장(25)까지만.
+                            #   하드코딩 True. 완료가 필요하면 이 코드를 명시적으로 바꿀 것.
+                            "no_complete": True,
                         })
                         remote_result = {
                             "ok": d.get("ok"),
@@ -4295,6 +4401,8 @@ def post_transmit_run(req: TransmitRunReq):
                                     "seal_no2": seal.get("seal_no2", ""),
                                     "removal_values": _rep.get("removal_values") or {},
                                     "mfg_ym": _rep.get("new_meter_mfg_ym") or "",
+                                    # 임시저장(25) 전용이므로 검증도 25 기대
+                                    "work_step": "25",
                                 },
                             })
                         # 모듈 상세로그 → 잡 로그에 병기 (건별 1줄, 28 미달 경고 포함)
