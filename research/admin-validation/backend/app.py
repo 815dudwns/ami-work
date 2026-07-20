@@ -1867,6 +1867,45 @@ def _num(x) -> Any:
         return x
 
 
+# ── mid→addr 인덱스 캐시 (B3: /apply egress 절감 — 2026-07-21 검증팀) ──────────────
+#   /apply 는 현재값(멱등 판정 대상)을 fresh 로 읽어야 하는데, 그동안 workStatus 전체 트리(~6MB)를
+#   매 호출 GET 해서 mid→addr 를 선형 탐색했다. mid→addr 매핑은 값 write(apply)로는 변하지 않고
+#   스왑에서만 변하므로, 매핑만 별도 인덱스(TTL 10분, apply write에 무효화하지 않음)로 캐시한다.
+#   /apply 는 인덱스로 addr 를 찾아 그 addr 서브트리만 fresh GET(수 KB) → 현재값 신선도(안전장치) 유지 +
+#   전체 트리(~6MB) 회피. 인덱스 미스/stale/신규 mid → 전체GET 폴백(기존 동작 100% 보존). 스왑 시 무효화.
+_MID_ADDR_IDX: Dict[str, dict] = {}    # dataset -> {"idx": {mid:addr}, "ts": monotonic}
+_MID_ADDR_IDX_TTL = 600.0
+_MID_ADDR_IDX_LOCK = threading.Lock()
+
+
+def _invalidate_mid_addr_index(dataset: Optional[str] = None) -> None:
+    with _MID_ADDR_IDX_LOCK:
+        if dataset is None:
+            _MID_ADDR_IDX.clear()
+        else:
+            _MID_ADDR_IDX.pop(dataset, None)
+
+
+def _lookup_addr_for_mid(dataset: str, mid: str, ws_ref) -> Optional[str]:
+    """인덱스로 mid의 addr 를 반환. 인덱스 유효+히트면 원격 GET 0.
+    만료/부재면 전체 트리 1회 GET 으로 재구축. fresh 인데 mid 없으면 None(→ 호출측 전체GET 폴백)."""
+    now = time.monotonic()
+    with _MID_ADDR_IDX_LOCK:
+        ent = _MID_ADDR_IDX.get(dataset)
+        if ent is not None and (now - ent["ts"]) < _MID_ADDR_IDX_TTL:
+            return ent["idx"].get(mid)
+    raw = ws_ref.get()
+    idx: Dict[str, str] = {}
+    if isinstance(raw, dict):
+        for addr, av in raw.items():
+            if isinstance(av, dict):
+                for m in (av.get("replacement_list") or {}):
+                    idx[str(m)] = addr
+    with _MID_ADDR_IDX_LOCK:
+        _MID_ADDR_IDX[dataset] = {"idx": idx, "ts": now}
+    return idx.get(mid)
+
+
 class ApplyRequest(BaseModel):
     dataset: str
     mid: str          # 철거계기번호(11자리, 하이픈 없음)
@@ -1955,30 +1994,48 @@ def post_apply(req: ApplyRequest):
 
         fa_app = _get_apply_app()
 
-        # ── 1. live 재조회 (캐시 금지 — 안전장치 핵심) ─────────────────────────
+        # ── 1. live 재조회 (현재값은 캐시 금지 — 안전장치 핵심) ─────────────────
+        #   B3(2026-07-21 검증팀): mid→addr 는 인덱스로 찾고, 현재값(멱등 판정 대상)은 해당 addr
+        #   서브트리만 캐시 없이 fresh GET → 신선도(안전장치) 유지 + 전체 트리(~6MB) 회피.
+        #   인덱스 미스/stale/신규 → 전체GET 폴백(기존 동작 100% 보존, 인덱스도 갱신).
         ws_ref = fb_db.reference(ds.get("ws_path","workStatus/jongno"), app=fa_app)
-        raw = ws_ref.get()
 
+        found_addr: Optional[str] = None
+        found_rec: Optional[dict] = None
+
+        addr_hint = _lookup_addr_for_mid(req.dataset, mid_clean, ws_ref)
+        if addr_hint:
+            sub = ws_ref.child(addr_hint).get()   # addr 서브트리만 fresh GET
+            if isinstance(sub, dict):
+                rec = (sub.get("replacement_list") or {}).get(mid_clean)
+                if isinstance(rec, dict):
+                    found_addr = addr_hint
+                    found_rec = rec
+
+        if found_addr is None:
+            # 폴백: 전체 트리 재조회 후 선형 탐색 + 인덱스 재구축(신규 mid / 인덱스 stale 대비)
+            raw = ws_ref.get()
+            if not isinstance(raw, dict):
+                raise HTTPException(status_code=500, detail="workStatus/jongno 데이터 없음")
+            idx: Dict[str, str] = {}
+            for addr, addr_val in raw.items():
+                if not isinstance(addr_val, dict):
+                    continue
+                rep_list = addr_val.get("replacement_list") or {}
+                for m in rep_list:
+                    idx[str(m)] = addr
+                if found_addr is None and mid_clean in rep_list:
+                    rec = rep_list[mid_clean]
+                    if isinstance(rec, dict):
+                        found_addr = addr
+                        found_rec = rec
+            with _MID_ADDR_IDX_LOCK:
+                _MID_ADDR_IDX[req.dataset] = {"idx": idx, "ts": time.monotonic()}
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB 조회 실패: {e}")
-
-    if not isinstance(raw, dict):
-        raise HTTPException(status_code=500, detail="workStatus/jongno 데이터 없음")
-
-    # ── mid로 addr 탐색 ───────────────────────────────────────────────────────────
-    found_addr: Optional[str] = None
-    found_rec: Optional[dict] = None
-
-    for addr, addr_val in raw.items():
-        if not isinstance(addr_val, dict):
-            continue
-        rep_list = addr_val.get("replacement_list") or {}
-        if mid_clean in rep_list:
-            rec = rep_list[mid_clean]
-            if isinstance(rec, dict):
-                found_addr = addr
-                found_rec = rec
-                break
 
     if found_addr is None or found_rec is None:
         raise HTTPException(
