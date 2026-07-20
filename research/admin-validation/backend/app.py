@@ -1906,6 +1906,37 @@ def _lookup_addr_for_mid(dataset: str, mid: str, ws_ref) -> Optional[str]:
     return idx.get(mid)
 
 
+def _unarchive_addr_if_needed(fa_app, ws_ref, ws_path: str, addr: str, addr_node: Any, dataset: str) -> Optional[dict]:
+    """주소가 P3 아카이브(stub)면 archive full 을 라이브로 복원(un-stub)하고 복원한 full dict 반환.
+    아카이브가 아니면 None.
+
+    계기팀 P3 계약(2026-07-21 확정): 아카이브된 주소는 라이브에 archived:true + archive_week 만 남고
+    removal_values(검침값)·removal_photos 등 무거운 필드는 archive/{ws_path}/{week}/{addr} 로 빠진다.
+    stub 에 부분 필드를 새로 쓰는 것은 금지 → /apply 는 값 쓰기 전에 반드시 full 을 복원(un-stub)해야 한다.
+    라이브 키 == archive 키(동일 인코딩)라 addr 를 그대로 archive 경로에 사용한다."""
+    if not (isinstance(addr_node, dict) and addr_node.get("archived") is True):
+        return None
+    from firebase_admin import db as fb_db
+    aw = addr_node.get("archive_week")
+    if not aw:
+        raise HTTPException(status_code=500,
+            detail=f"'{addr}' 이(가) archived 인데 archive_week 없음 — 복원 경로 특정 불가")
+    arch_ref = fb_db.reference("archive/" + ws_path, app=fa_app).child(str(aw)).child(addr)
+    full = arch_ref.get()
+    if not isinstance(full, dict):
+        raise HTTPException(status_code=500,
+            detail=f"archive 복원 실패: archive/{ws_path}/{aw}/{addr} 없음/손상 — apply 중단")
+    # 라이브 stub 플래그 제거(un-stub): addr 레벨 + per-meter 레벨
+    full.pop("archived", None)
+    full.pop("archive_week", None)
+    for _r in (full.get("replacement_list") or {}).values():
+        if isinstance(_r, dict):
+            _r.pop("archived", None)
+    ws_ref.child(addr).set(full)          # 라이브에 full 통째 되쓰기(un-stub)
+    _invalidate_mid_addr_index(dataset)   # 구조 변경 반영(다음 조회가 재구축)
+    return full
+
+
 class ApplyRequest(BaseModel):
     dataset: str
     mid: str          # 철거계기번호(11자리, 하이픈 없음)
@@ -2002,6 +2033,7 @@ def post_apply(req: ApplyRequest):
 
         found_addr: Optional[str] = None
         found_rec: Optional[dict] = None
+        found_node: Optional[dict] = None   # addr 서브트리(archived 판정용)
 
         addr_hint = _lookup_addr_for_mid(req.dataset, mid_clean, ws_ref)
         if addr_hint:
@@ -2011,6 +2043,7 @@ def post_apply(req: ApplyRequest):
                 if isinstance(rec, dict):
                     found_addr = addr_hint
                     found_rec = rec
+                    found_node = sub
 
         if found_addr is None:
             # 폴백: 전체 트리 재조회 후 선형 탐색 + 인덱스 재구축(신규 mid / 인덱스 stale 대비)
@@ -2029,8 +2062,24 @@ def post_apply(req: ApplyRequest):
                     if isinstance(rec, dict):
                         found_addr = addr
                         found_rec = rec
+                        found_node = addr_val
             with _MID_ADDR_IDX_LOCK:
                 _MID_ADDR_IDX[req.dataset] = {"idx": idx, "ts": time.monotonic()}
+
+        # ── un-archive: 주소가 P3 아카이브(stub)면 archive full 복원 후 진행 ──────────
+        #   계기팀 P3 계약(2026-07-21): stub 에는 removal_values(검침값)·removal_photos 등이 없으므로
+        #   여기서 archive/{ws_path}/{week}/{addr} full 을 라이브로 복원(un-stub)한 뒤에만 apply 한다.
+        #   (stub 에 부분 필드 새로쓰기 금지) archive_week 는 'YYYY-Www' 또는 'legacy' 등 문자열 그대로 경로 사용.
+        #   현재 라이브에 archived 주소가 없으면(P3 실행 전) 이 블록은 항상 스킵 → 기존 동작 100% 보존.
+        if found_node is not None and isinstance(found_node, dict) and found_node.get("archived") is True:
+            restored = _unarchive_addr_if_needed(
+                fa_app, ws_ref, ds.get("ws_path", "workStatus/jongno"),
+                found_addr, found_node, req.dataset)
+            if restored is not None:
+                found_rec = (restored.get("replacement_list") or {}).get(mid_clean)
+                if not isinstance(found_rec, dict):
+                    raise HTTPException(status_code=500,
+                        detail=f"un-archive 복원 후에도 mid '{mid_clean}' 을(를) 찾을 수 없음")
 
     except HTTPException:
         raise
