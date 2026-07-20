@@ -832,3 +832,20 @@ window.refreshQueue = refreshQueue;
     show();
 })();
 
+// ─────────────────────────────────────────────
+// 모니터 대시보드(monitor.js) 원격 로드 — index.html 로더 순서(config/session/queue/
+// awms-saverow/app) 밖에 있어 여기서 마지막에 이어 로드. 이렇게 해야 네이티브 index.html
+// (별도 프로젝트, APK 빌드 필요) 수정 없이 git push만으로 폰에 반영된다.
+// ─────────────────────────────────────────────
+(function () {
+    // 로컬 검증(index.html 로더 chain에 monitor를 app보다 먼저 넣어둔 경우)이면 이미 로드된 상태 —
+    // 중복 원격 fetch/재초기화 방지.
+    if (window.__monitorLoaded || document.getElementById('monitor-js-tag')) return;
+    var base = 'https://815dudwns.github.io/ami-work/awms-queue-www/';
+    var s = document.createElement('script');
+    s.id = 'monitor-js-tag';
+    s.src = base + 'monitor.js?t=' + Date.now();
+    s.onerror = function () { try { log('모니터 스크립트 원격 로드 실패', 'err'); } catch (e) {} };
+    document.head.appendChild(s);
+})();
+
