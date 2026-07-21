@@ -3238,6 +3238,10 @@ _STATUS_LABEL = {
     "dl_err":      "다운로드오류",
     "google":      "자동통과(Google)",
     "pass2":       "자동통과(2차)",
+    # crop_fail(크롭 실패 — 원본은 있으나 LCD 크롭 실패). 판정 대기로 승격(2026-07-21 검증팀).
+    "no_crop":     "크롭실패",
+    "crop_err":    "크롭오류",
+    "bad_ratio":   "크롭비율이상",
 }
 
 # status → 분류 그룹 (집계용)
@@ -3248,7 +3252,11 @@ def _status_group(status: str) -> str:
         return "자동통과"
     if status in ("human", "human_skip"):
         return "확인완료"
-    if status in ("need_human", "need_sonnet", "worker_missing"):
+    # crop_fail(no_crop/crop_err/bad_ratio)도 확인필요로 승격(2026-07-21 검증팀):
+    #   원본은 있으나 LCD 크롭 실패 → 자동 OCR 불가 → 사람이 원본 보고 판정해야 정답(final) 확정.
+    #   승격 안 하면 raw 그룹으로 떨어져 판정 대기열에 안 떠 방치 → crop_fail 학습표본의 정답이 영영 미확정.
+    #   no_photo는 원본조차 없어 판정 불가 → OCR미판독 유지(승격 제외).
+    if status in ("need_human", "need_sonnet", "worker_missing", "no_crop", "crop_err", "bad_ratio"):
         return "확인필요"
     if status == "swap_suspect":
         return "정합성의심"
