@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.4",
+  "versionName": "2.2.5",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "Code93은 QR스캐너(scan)에만 — 모뎀맥 바코드는 QR버튼으로 스캔. 바코드전용 스캐너는 CODE128/39 유지."
+  "notes": "큐 담기 크래시(OOM) 수정 — 사진 많을 때 담자마자 튕기던 문제. saveQueue 스트리밍 저장 + OOM 방어."
 }
