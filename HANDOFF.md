@@ -1,38 +1,70 @@
 # ocr-meter HANDOFF
 
-> 최종 업데이트: 2026-07-16
+> 최종 업데이트: 2026-07-21
 
 ## 현재 상태
 
-- 마지막 작업: **아미큐(계기큐) 계기번호 OCR 판독률 규명 → E5 처방 도출 → ami-work 전달** + 800px 압축저장 검증 + 오늘 검침값 표본.
-  1. **아미큐 판독률 규명(핵심 성과)**: 영준님 체감("아미큐 계기번호 가끔 안 나온다") 실측. 아미큐=cst-input(v2)가 우리 `visionocr_batch.swift`(Apple Vision)+`_extract_meter_no` 이식. 진짜 원인=**조합(파싱) 버그, Apple OCR은 숫자 다 읽음**(정답이 raw에 96%+ 존재). DB 대조는 아미큐 불가(동시시공/기설 시 DB 공백).
-  2. **E5 처방 확정**: `_extract_meter_no` 4가지 변경 — ①모든 후보에 타입코드[2:4] 유효 강제(전화번호·일련번호 오판 제거) ②공백·하이픈 낀 11자리 정규화 ③하이픈 끝4자리(-1607 부가번호) 요구 완화 ④인접1줄 결합 하이픈앵커. **실측: 구로 신설 G 50%→100%(오판0), 철거 G 55.7%→84.5%, 전체 82.1%→98.5%(오판4→0). E·Amigo 무회귀.** E6(인접2줄+전체concat)는 유해→폐기.
-  3. **800px 압축저장 검증**: 영준님 "원본 800px/57KB 확정"에 실측 답. 계기번호 800px 98%(원본95%보다↑, over-read노이즈감소)·검침값 97.6%(no_crop0). ami-work 전 데이터 800 재압축+신규수집 800 예정. PARSeq 고해상학습이라 전환후 검침값 판독률 모니터 필요.
-  4. **오늘 검침값 표본**: 06-30분 138건 이미 처리·검증완료(PARSeq 92.8%, 작업자오류 2건 적발). 06-09/10/12는 이미 검증된 정답이라 OCR 재실행 금지(daily_state 부재≠미처리) — 영준님 제동, 원복.
-- 진행 중: 없음 (세션 매듭). ami-work에 E5 처방 전달 완료.
+- 마지막 작업: **ami-work 검증팀과 harvest/crop_fail 학습큐 공동설계 + daily_state.csv 사고 복구.**
+  1. **crop_fail 학습큐 신설(원래 목표)**: daily_cycle.py에 판정시점 크롭·실패건 원본 영속저장 추가
+     (검침값 LCD 크롭 → `검침_크롭_daily/`, no_crop/crop_err/bad_ratio 원본 → `검침_원본_실패건/`,
+     계기번호 need_human 원본 → `계기번호_원본_실패건/`, 전부 egress 0). harvest_trainset.py에
+     `harvest_crop_fail_queue()` 신설 — 위 원본을 daily_state.csv/daily_meterid.csv와 ts조인해
+     `data_7seg/harvest/crop_fail_queue.csv` 생성(ready=사람판정 final 확정된 것만).
+  2. **daily_state.csv 사고 및 복구(중간에 발생)**: crop_fail 테스트 스크립트가 daily_cycle.py 내부
+     미사용 지역변수(8컬럼)를 정본으로 착각해 daily_state.csv(정본 10컬럼)를 직접 write하다 1,543행
+     삭제. 07-02 백업(1,309행)+정식 파이프라인(`daily_cycle.py --date`/`--sync-review`) 재생성으로
+     복구, 최종 1,431행/10컬럼/human 83건 final 100%(사고 전보다 오히려 완전). 검증팀 검수 통과.
+  3. **전체스윕 모드 신설(재발방지)**: `daily_cycle.py --sweep-review` — ocr_review RTDB 노드 전체를
+     스캔해 daily_val_*(날짜+레거시) 키 자동발견·반영. AUTO_SYNC_REVIEW가 최근 3일만 봐서 생기던
+     "오래된 캐치업 리뷰 영구 미반영" 사각지대를 막음. human/human_skip은 절대 덮어쓰지 않음(검증팀
+     요구). 멱등 확인 완료.
+  4. **`ami-work/docs/data-contract.md` 신설**: daily_state.csv 10컬럼 계약(소유자=ocr-meter,
+     소비자=검증팀 읽기전용, orig_status/google 삭제금지, 스키마변경 사전통보). 검증팀 검수완료 마킹됨.
+  5. **1,543행 vs 1,431행 간극(auto -187) 완전 규명**: 내 실수 아님 — 검증팀 P3 아카이브(Firebase
+     비용최적화)가 사고 전 있던 auto 행의 근거 사진(removal_photos)을 사고 이후에 스트립해서, 재생성
+     시점엔 그 완료건이 OCR 불가 상태가 됨. "P3 아카이브 + 과거 daily_state 재생성" 시퀀싱 문제.
+     human/crop_fail(어려운 표본, 학습가치 높음) 손실은 0. 필요시 나중에
+     `archive/workStatus/jongno/{week}/{addr}`(Storage) 원본으로 재크롭+재OCR해 auto만 복원 가능
+     (급하지 않음).
+- 진행 중: 없음 (세션 매듭). 검증팀·PM에 전부 보고·검수 완료.
 - 다음:
-  1. **★아미큐 E5 적용 회신 대기**: ami-work PM이 `cst-input/backend/app.py` `_extract_meter_no`를 E5로 교체. 회신·질문 오면 대응. 연락=Orca(`orca terminal send`).
-  2. **★EA(code-19) 실사진 표본 확보**: E5의 유일 미검증 타입. 골드셋·철거표본 모두 EA 0장. EA는 G와 동일 하이픈 프로세스라 될 것으로 예상되나 실증 필요. EA 신설 사진 나오면 검증.
-  3. **cycle8 검침값 재학습(이월)**: 빌드완료·대기. `cycle8_train.sh`. c8_heldout으로 cycle7b vs cycle8 비교+over-pass0. eval 스크립트 미작성(채택판정 차단요소).
-  4. Google G추출 개선(이월, 실익제한 판단대기).
-- 블로커: **EA 표본 0장**(E5 EA검증 불가). cycle8 eval 스크립트 미작성.
+  1. **검증팀 `_status_group` 배포 확인**: crop_fail을 "확인필요" 판정 대기열에 노출시키는 배포,
+     저녁 저트래픽 시간대 예정이었음 — 배포됐는지, `/report` 회귀 통과했는지 다음 세션에서 확인.
+  2. **crop_fail_queue.csv 실데이터 축적 확인**: 다음 데일리사이클 실행 후 검침_원본_실패건/
+     계기번호_원본_실패건에 실제 파일이 쌓이는지, `harvest_trainset.py`(자동으로 crop_fail 큐도
+     같이 산출) 재실행해서 ready=1 건이 생기는지 확인.
+  3. **계기번호 트랙 crop_fail 리뷰파이프라인**: daily_meterid.csv엔 사람판정 확정 필드(final) 자체가
+     없어 need_human 원본이 전량 pending. 검증팀이 리뷰파이프라인 신설 검토 예정 — 진행상황 확인.
+  4. (이월, 급하지 않음) **아미큐 E5 처방 적용 회신**, EA(code-19) 실사진 표본 확보, cycle8 검침값
+     재학습(빌드완료·eval스크립트 미작성).
+- 블로커: 없음 (오늘 발생한 daily_state.csv 사고는 복구·검수 완료로 해소됨).
 
-## 이번 세션 한 일 (7/14~16)
+## 이번 세션 한 일 (7/21)
 
-### 아미큐 계기번호 판독률 규명 (핵심)
-- 아미큐 구조 확인: OCR 도는 건 cst-input(v2)뿐(계기큐 v1은 QR/수기). Apple Vision + 우리 추출로직 이식.
-- 채택방식 비교(철거 명판 표본): A 현행(순수OCR) vs B(DB substring). DB대조가 우리 인식률 숨은공신이나 **아미큐 현장은 DB 공백이라 불가**(영준님 지적).
-- 조합 개선 실측: 영준님 통찰("Apple은 숫자 다 따는데 조합이 문제") 실증. raw 확인=정답이 `25-45-0079993-1607`로 찍혔는데 현행 정규식이 끝4자리 필수+공백낀11자리 못잡아 실패. E1(라인정규화)→E4(하이픈앵커)→**E5(하이픈앵커+라인폴백)** 도출.
-- 구로 골드셋 검증: G 50→100(오판0), E6 유해 확인. EA는 골드셋에 0장(태스크의 'EA20'은 실제 E17).
-- G·EA=같은 프로세스(하이픈, 타입코드값만 차이), Amigo=별도(하이픈없음+QR백업).
-- ami-work에 E5 처방 전달.
+### crop_fail 학습큐 + harvest 자동연결 공동설계 (ami-pm 소환)
+- 역할분담 확정: harvest_trainset.py·cycle8_prepare.py·PARSeq/YOLO 재학습·daily_cycle.py 검증로직
+  (크롭저장 포함)은 ocr-meter 소관(물리위치 무관). 검증팀은 판정시점 사진·정답·status 확보/전달,
+  정답품질(사람판정→final 확정) 담당.
+- daily_cycle.py: `_persist_fail_orig()` 헬퍼 신설 + 3개 실패분기(no_crop/crop_err/bad_ratio)와
+  성공 크롭 저장 지점, 계기번호 need_human 분기에 배선. egress 0 유지(이미 다운로드된 로컬 파일
+  재사용, 신규 다운로드 경로는 제거).
+- harvest_trainset.py: `harvest_crop_fail_queue()` 신설, `main()`에서 harvest 실행 시 자동 동반.
 
-### 800px 압축 + 오늘 표본
-- 800px A/B/C 실측(계기번호·검침값 무손상, 계기번호는 향상). 영준님 800 확정.
-- daily-cycle 06-30 138건(검증완료 표본). 06-09/10/12 미처리 오판→원복.
+### daily_state.csv 사고 → 복구 → 전체스윕 → 검수 (같은 세션 안에서 발생·해결)
+- 사고: 테스트 스크립트가 프로덕션 CSV를 직접 write하다 스키마 불일치로 1,543행 소실.
+- 복구: 로컬 .bak(07-02, 1,309행)로 즉시 복원 + `daily_cycle.py --date`(19일 순차)로 갭 백필 +
+  RTDB `ocr_review` 전체조회로 AUTO_SYNC_REVIEW 사각지대에 방치돼있던 캐치업 리뷰 103건 발견·반영.
+- 재발방지: `_apply_verdicts_daily(preserve_human=...)` 파라미터 추가 + `sync_review_sweep()`/
+  `--sweep-review` CLI 신설.
+- `ami-work/docs/data-contract.md` 신설(감사 승인, daily_state.csv 10컬럼 계약).
+- 검증팀 검수 통과(10컬럼/행수/human final 100%/멱등/human보존 전부 확인).
 
 ## 재현/위치
-- 아미큐 실측: `ocr_poc/amiq_recognition_gap.md`, `guro_readrate_result.md`, `_amiq_analyze.py`(A/E5/E6 인라인, E5 참조구현).
-- 800px 실측: `res_test_meterid_result.md`, `res_test_meter_result.md`.
-- 골드셋: `ocr_poc/meterid_goldset/`(guro_GOLD67.csv, photos_guro/, a31_g_GOLD119.csv).
-- cycle8(이월): `cycle8_prepare.py`, `cycle8_train.sh`, `lmdb/c8_heldout`.
+- daily_cycle.py: `_persist_fail_orig`(신규), `CROP_DAILY_DIR`/`FAIL_ORIG_DIR`/`METERID_FAIL_DIR`(신규
+  상수), `sync_review_sweep`/`--sweep-review`(신규), `_apply_verdicts_daily(preserve_human=...)`.
+- harvest_trainset.py: `harvest_crop_fail_queue()`, `CROP_FAIL_QUEUE_CSV`, `DAILY_CROP_DIR`,
+  `FAIL_ORIG_DIR`/`METERID_FAIL_DIR`.
+- 복구본: `daily_state.csv`(1,431행/10컬럼), 원본 백업은 `daily_state.csv.bak-swap교정전-20260702-222737`.
+- 계약 문서: `ami-work/docs/data-contract.md`.
+- 이전 세션(7/14~16, 아미큐 E5/800px/cycle8)은 이월 상태 그대로 — 위 "다음" 4번 참고,
+  상세는 이전 HANDOFF 히스토리(git 없음, 필요시 옵시디언 로그 참조).

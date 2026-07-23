@@ -13,7 +13,7 @@ import openpyxl
 
 EXCEL_DIR = "/Users/woodelight/Projects/ami-work/data/종로_실효리스트_20260605"
 DOWNLOAD_DIR = "/Users/woodelight/Projects/ami-work/data/phone_photos_20260606/Download/Download"
-OUTPUT_CSV = "/Users/woodelight/Projects/ocr-meter/ocr_poc/download_target.csv"
+OUTPUT_CSV = "/Users/woodelight/Projects/ami-work/ocr-meter/ocr_poc/download_target.csv"
 
 
 def get_meter_type(meter_no: str) -> str:
