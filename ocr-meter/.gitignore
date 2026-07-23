@@ -1,0 +1,33 @@
+# Virtual environments
+venv/
+venv312/
+venv_easyocr/
+venv_parseq/
+.venv/
+*/venv/
+*/.venv/
+
+# Model weights
+*.pt
+*.pth
+*.onnx
+*.ckpt
+*.safetensors
+*.bin
+*.h5
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# OS / secrets / logs
+.DS_Store
+.env
+*.log
+
+# Symlinked external research dirs (not part of this repo, tracked elsewhere)
+ocr_poc
+ami-research
