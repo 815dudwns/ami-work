@@ -34,3 +34,27 @@ cst-input/backend/session.json
 
 # 실험 산출물 착지 공간 (git 제외)
 scratch/
+계기팀/
+검증팀/
+
+# 산하 프로젝트 (독립 repo/폴더 — ami-work 우산 아래 위치만, git은 각자 유지. 2026-07-21 통합)
+jongno-combined/
+jongno-snap/
+jongno-app/
+cst-app/
+awms-helper/
+awms-otp-collector/
+awms-queue/
+ami-queue/
+ami-board/
+ami-jeju/
+
+# in-project worktree 데스크 컨테이너 (각 팀=별도 브랜치 worktree. 2026-07-21 감사 법전 Art.1)
+/workspaces/
+
+# 공유 상태파일 = worktree 밖 main 단일정본 (data-contract Art.3 PRIMARY, 절대 tracking 금지)
+research/ocr_poc/
+research/ocr_poc/daily_state.csv
+research/ocr_poc/daily_meterid.csv
+research/ocr_poc/cycle_state.csv
+research/ocr_poc/daily_removal_meterid.csv
