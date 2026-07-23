@@ -52,6 +52,16 @@
 - ✅ crop_fail(bad_ratio) 6/18 건은 캐치업으로 human 정답(40618) 확정 = 판정 실증. 7/1 1건 미판정(going-forward).
 - 부수 발견(ocr-meter): AUTO_SYNC_REVIEW 3일 윈도우 밖 옛 캐치업 리뷰 103건 미반영 방치(사고 무관 원래 사각지대) → 정식 반영 완료. 재발방지 전체스윕 모드 PM 판단 대기.
 
+## 물리 위치 · worktree 격리 대응 (2026-07-23, 4-desk 상주 구조 확정)
+
+> 근거: 감사 ocr-meter 물리편입 판정 Q2(2026-07-23). ocr-meter가 ami-work로 subtree 병합되고 4개 데스크(검증팀·계기팀·통신팀·ocr_meter)가 각자 브랜치 in-project worktree로 상주하면서, 공유 산출물이 브랜치마다 갈라져 머지 시 조용히 row 유실될 위험(=2026-07-21 사고 유형)에 대한 봉합.
+
+- **4-desk 배치**: `~/Projects/ami-work/workspaces/<데스크>`, 브랜치 = 데스크명(`geomjeung`·`gyegi`·`tongsin`·`ocr-meter`, 접두어 없음). ocr-meter 코드는 병합으로 `ocr-meter/`(main 추적).
+- **★공유 산출물은 worktree 밖 단일 물리 진실파일.** `daily_state.csv` 정본 = `/Users/woodelight/Projects/ami-work/research/ocr_poc/daily_state.csv` (main 트리, 어느 데스크 worktree에도 사본 두지 않음).
+- **모든 데스크 코드는 이 절대경로로만 참조** — `SHARED_OCR_POC = Path('/Users/woodelight/Projects/ami-work/research/ocr_poc')` 상수 경유(cycle.py·daily_cycle.py 등 이미 채택). 브랜치별 상대경로/사본 참조 금지.
+- **`.gitignore` 추적 제외**로 브랜치 분기 원천 차단: 공유 CSV 4종 + `research/ocr_poc/`(38GB, untracked 유지). git이 추적하지 않으므로 브랜치 머지가 이 파일을 건드릴 수 없음.
+- 팀 정의파일(`.claude/agents/*.md`)은 반대로 **git 추적 필수**(2026-07-23 untracked 유실 사고 → tracked 전환). 공유 상태데이터=추적 제외, 공유 설정/코드=추적 유지 원칙.
+
 ## 소관
 
 - 이 문서 소유 = ami-work PM (로컬 데이터 계약).
