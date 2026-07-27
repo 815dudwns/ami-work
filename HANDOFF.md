@@ -16,7 +16,7 @@
 - **ocr-meter**: 아미큐 실패표본 계약 확정 반영·완료건 정리 — `workspaces/ocr-meter/ocr-meter/HANDOFF.md`
 - **계기팀(gyegi)**: 종로맵 마지막작업일 마커 작업 중 — `workspaces/gyegi/HANDOFF.md` (2026-07-28 갱신)
 - **통신팀(tongsin)**: 이번 세션 작업 대부분 수행(아미큐 26년공사·v2.2.7·BUILTIN_YN·OCR표본). 갱신 완료 — `workspaces/통신팀/HANDOFF.md` (2026-07-28, 커밋 dec221e1)
-- **검증팀(geomjeung)**: 이번 세션 활동 없음. HANDOFF 2026-07-23판 — `workspaces/검증팀/HANDOFF.md`
+- **검증팀(geomjeung)**: 이번 세션 실작업은 없었으나 데스크 상태판으로 재작성(미완 5트랙·대기 4건·함정만). main(de453930) ff 동기화 완료 — `workspaces/검증팀/HANDOFF.md` (2026-07-28, 커밋 94ec7661)
 
 ## 진행중 트랙
 - **★Tailscale 인프라 전환 (2026-07-19 개시)**: tailnet=맥(100.121.228.87)+A33+아이폰. **완료**: ①아미큐 백엔드 tailnet 전환 실증(`tailscale serve --https=8766`→ts.net 주소 cstBackend 발행, A33 요청 200 OK. ★폰 Tailscale VPN 상시 ON 필수 — 꺼짐=접속불가) ②A33 무선 adb 페어링(현장 LTE서 `adb connect 100.93.223.21:<포트>`, 포트는 무선디버깅 토글마다 변경) ③OTP adb 직독 실측 성공(dumpsys notification --noredact 본문 판독 — 카톡의존 수집 사슬 대체 후보, [[otp_adb_notification_read]]). **남은것**: start.sh tailnet 발행 영구화(지금은 재기동 시 trycloudflare로 복귀=안전폴백), 검증관리자 8765 tailnet화, A31 적용(주인협조 1회). 아미큐 맥세션 로그아웃=8766 `/api/session/push`에 무효 JSESSIONID(시크릿 cst-amiq-2026). [[tailscale_adoption]]
