@@ -175,7 +175,7 @@ pwr≥20 & {213,610}              → 2칸 [whme_day, dm_mt_day]
 | 신설(철거후) | `CREMO_ATCH_FILE_ID_3` (1장) |
 
 - 4칸 계기 = 철거사진 4장(_3~_6, 지침별 계기판).
-- awms 사진 통과조건: 큰 해상도(2992+) + 700KB+ + ICC프로파일 없음.
+- awms 사진 통과조건 (★2026-07-02 실측 교정): **800px / JPEG q40 / ICC 제거**가 검증 하한(54KB 통과). 옛 기록 "2992px+/700KB+ 하한"은 허구로 판명. 상한 검증 없음(옛 1~2MB 원본도 통과). 과압축(하한 미만)만 업로드 거부. 근거: jongno photo-uploader.js 커밋 5ed58de, 세션로그 2026-07-03.
 - 큐 사진 경로: awms 웹뷰는 jongno Storage CORS 차단 → 큐 웹뷰(localhost)에서 fetch→base64→awms 표현식 임베드→atob→Blob→FormData. 가상테스트 = `vqphoto:{key}` → firebase `vqueue_photos/{key}`(data URL).
 
 ---
@@ -303,6 +303,25 @@ GET /ami/mob/cst/mobCst1000/getMainList
 - `vm.rowClick(idx)` → `fnSelectDetail`(getDetail) → currentRow 로드(비동기 ~1.8s 대기 후 읽기).
 - `mobCst1000Api`는 전역 접근 가능 → `deleteRows([row])` 등 직접 호출.
 - 세션 흔들림 잦음 → 병렬 금지, await + result 체크, 실패 시 중단.
+
+## 8.5.1 awms 업데이트 신규 필드 (2026-07-27 실측, "사전체결여부" 조사)
+
+영준님 지시로 등록건 1건(`INSTR_NUM=08550107650`, `MAC_MODEM=01253657627`, WORK_STEP=28)을
+getMainList/getDetail로 조회해 §8.3/§7 기존 필드목록과 diff한 결과, 아래가 신규 키다.
+**"사전체결여부" 확정 전 — Y/N 스타일 후보 2개, 확정 안 됨(추측 금지, PM/영준님 확인 대기).**
+
+- `GAETONG_YN` = `"개통"` (getMainList에만 존재, getDetail엔 없음) — 값이 Y/N 리터럴이 아니라 한글 단어.
+- `BUILTIN_YN` = `"N"` (getDetail에만 존재) — 값이 리터럴 `"N"`이라 **가장 유력한 후보.**
+- 그 외 신규(이 테스트건에선 전부 빈값 — 별도 안전정보류 클러스터로 추정, 사전체결과 무관 가능성):
+  `DANGER_INFO_SEQ`, `NEAR_ROAD`, `TOUGH_ROAD`, `LONG_DIS`, `MORE10`, `GOSO_LOCA`, `PHASE3`, `CORPS`,
+  `ETC`(ETC1/2 외 번호없는 것), `ETC3`.
+- 표시용 신규 companion 필드(값 아님): `WORK_STEP_NM`("완료"), `MODEM_DIV_NM`("마스터").
+- getMainList 전용 신규(페이지네이션 추정, 필드 성격 아님): `CNT`, `RNUM`.
+
+★현재 saveAct는 이 필드들을 안 보내도 등록 정상 완료됨(이 테스트건도 완료 상태로 확인) —
+**필수(NOT NULL) 아님, 지금 등록 실패 상황 아님.**
+
+원본 응답: getMainList/getDetail 전체 키 스냅샷은 `/tmp/mainlist_recent.json` `/tmp/detail_recent.json`(임시, 세션 종료 시 소실 — 필요시 재조회).
 
 ## 8.6 검침값(철거 지침) 수정 — 완료(28) 레코드 (2026-06-15 실측)
 
