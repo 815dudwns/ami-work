@@ -99,6 +99,8 @@ let _amiqBusiList = [];
 function _parseBusiList(body) {
     let arr = Array.isArray(body) ? body : (body && (body.data || body.list || body.rows || body.result || body.busiList)) || [];
     if (!Array.isArray(arr)) arr = [];
+    _amiqRawBusiList = arr;
+    if (arr.length) _logRawObj('getBusiList[0]', arr[0]);
     return arr.map(o => {
         // awms 통신팀 getBusiList 실측: CONS_NM(사업명) / CONS_NO(사업번호, BUSI_NUM=C11G250023)
         const name = o.CONS_NM || o.BUSI_NM || o.BUSINESS_NM || o.BSNS_NM || o.busiNm || o.NAME || o.name || '';
@@ -120,13 +122,30 @@ window.__settingsLoadBusiList = async function (silent) {
         return true;
     } catch (e) { log('사업명 조회 실패: ' + e.message, 'warn'); return false; }
 };
-// awms 공사설정 현재값 조회 (getUserWorkGroup) — 지금 awms에 지정된 작업자1/2/3 SEQ.
+// ── 진단: getUserWorkGroup/getBusiList 원시 응답 키=값 그대로 노출 (영준님 지시 2026-07-27) ──
+// 공사명 필드가 어느 키인지 아직 실측 전 — 알려진 키만 라벨 병기, 모르는 키는 이름 그대로 노출한다.
+const _WORKGROUP_LABELS = {
+    WORKER1_SEQ: '작업자1', WORKER2_SEQ: '작업자2', WORKER3_SEQ: '작업자3',
+    DEPT1: '부서1', DEPT2: '부서2(지사)',
+    CONS_NO: '공사(사업)번호', BUSI_NUM: '공사(사업)번호', CONS_NM: '공사명',
+};
+let _amiqRawWorkGroup = null;   // getUserWorkGroup 원시 레코드(키 그대로, 파싱 전)
+let _amiqRawBusiList = [];      // getBusiList 원시 배열(키 그대로, 파싱 전)
+function _logRawObj(tag, obj) {
+    if (!obj || typeof obj !== 'object') { log(tag + ' — 값 없음', 'warn'); return; }
+    const lines = Object.keys(obj).map(k => k + (_WORKGROUP_LABELS[k] ? '(' + _WORKGROUP_LABELS[k] + ')' : '') + ' = ' + obj[k]);
+    log(tag + ' 원시응답(' + lines.length + '키): ' + lines.join(' / '), 'ok');
+}
+// awms 공사설정 현재값 조회 (getUserWorkGroup) — 지금 awms에 지정된 작업자1/2/3 SEQ + 공사 관련 키 전부.
 async function _loadCurrentConfig() {
     const base = (typeof AWMS_BASE !== 'undefined' ? AWMS_BASE : 'https://awms.kdn.com');
     const url = base + '/ami/mob/cst/mobCst1000/getUserWorkGroup?DEPT1=3970';
     const body = await awmsEval(`fetch(${JSON.stringify(url)},{credentials:'include',cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject('HTTP '+r.status))`);
     const arr = Array.isArray(body) ? body : (body && (body.data || body.list)) || [];
-    return (Array.isArray(arr) && arr[0]) || null;
+    const rec = (Array.isArray(arr) && arr[0]) || null;
+    _amiqRawWorkGroup = rec;
+    _logRawObj('getUserWorkGroup', rec);
+    return rec;
 }
 // 세션 연결 시 자동 로드 — awms 공사설정의 "현재 설정값"을 그대로 미러(작업자·사업명). 1회 가드.
 let _amiqAutoLoaded = false;
@@ -177,6 +196,44 @@ async function _loadWorkersInto() {
     log('작업자 ' + list.length + '명 로드', 'ok');
     return true;
 }
+// 진단 섹션 HTML — getUserWorkGroup/getBusiList 원시 키=값 그대로 (공사명 필드 실측 확정용, 영준님 지시 2026-07-27)
+function _renderRawDiag(s) {
+    const dept2 = (typeof JISA_DEPT2 !== 'undefined' && JISA_DEPT2[s.jisa]) || '7793';
+    const kv = (k, v) => {
+        const label = _WORKGROUP_LABELS[k] ? '(' + _WORKGROUP_LABELS[k] + ')' : '';
+        let extra = '';
+        if (/^WORKER\d_SEQ$/.test(k)) {
+            const seq = String(v || '');
+            const w = _amiqWorkerList.find(x => x.seq === seq);
+            extra = seq ? (w ? ' &rarr; <b>' + _esc(w.name) + '</b>' : ' &rarr; <span style="color:#dc2626">(명단에 없음 — DEPT2=' + _esc(dept2) + ' 명단 기준)</span>') : '';
+        }
+        return `<div style="font-family:monospace;font-size:12px;padding:3px 0;border-bottom:1px solid #f3f4f6">${_esc(k)}${_esc(label)} = ${_esc(String(v))}${extra}</div>`;
+    };
+    const wgHtml = _amiqRawWorkGroup
+        ? Object.keys(_amiqRawWorkGroup).map(k => kv(k, _amiqRawWorkGroup[k])).join('')
+        : `<div style="font-size:12px;color:#9ca3af">아직 조회 안 됨 — [awms에서 명단 불러오기] 또는 세션연결 자동로드 후 표시됩니다.</div>`;
+    const busiHtml = _amiqRawBusiList.length
+        ? _amiqRawBusiList.slice(0, 5).map((o, i) =>
+            `<div style="margin:6px 0;padding-bottom:6px;border-bottom:1px solid #e5e7eb"><div style="font-size:11px;color:#6b7280;margin-bottom:2px">#${i + 1}</div>`
+            + Object.keys(o).map(k => kv(k, o[k])).join('') + `</div>`
+          ).join('')
+        : `<div style="font-size:12px;color:#9ca3af">아직 조회 안 됨</div>`;
+    return `<div style="border-top:1px solid #e5e7eb;margin:16px 0 12px;padding-top:12px">`
+        + `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:13px;font-weight:700;color:#374151">진단 — awms 저장값 원문 (getUserWorkGroup)</span>`
+        + `<button onclick="__settingsReloadDiag()" style="padding:6px 10px;background:#6366f1;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:700">다시 조회</button></div>`
+        + `<div style="background:#f9fafb;border-radius:8px;padding:8px 10px;margin-bottom:14px">${wgHtml}</div>`
+        + `<div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px">진단 — getBusiList 원문 (최대 5건, 공사번호&harr;공사명 대응 확인용)</div>`
+        + `<div style="background:#f9fafb;border-radius:8px;padding:8px 10px">${busiHtml}</div>`
+        + `</div>`;
+}
+// 진단 섹션 [다시 조회] — getUserWorkGroup + getBusiList 원시응답 재조회 후 재렌더
+window.__settingsReloadDiag = async function () {
+    if (typeof awmsEval !== 'function') { alert('awms 브릿지 없음 — 폰 앱에서 시도하세요'); return; }
+    log('진단 재조회(getUserWorkGroup/getBusiList)…', 'warn');
+    try { await _loadCurrentConfig(); } catch (e) { log('getUserWorkGroup 조회 실패: ' + e.message, 'err'); }
+    try { await window.__settingsLoadBusiList(true); } catch (e) {}
+    window.__settingsOpen();
+};
 window.__settingsOpen = function () {
     const s = _amiqSettings();
     const jisaOpts = (typeof JISA_DEPT2 !== 'undefined' ? Object.keys(JISA_DEPT2) : [])
@@ -210,6 +267,7 @@ window.__settingsOpen = function () {
         + row('작업자1', workerField(1, s.worker1Seq, s.worker1))
         + row('작업자2', workerField(2, s.worker2Seq, s.worker2))
         + row('작업자3', workerField(3, s.worker3Seq, s.worker3))
+        + _renderRawDiag(s)
         + `<button class="btn-green" style="width:100%;margin-top:8px;padding:14px;background:#059669;color:#fff;border:none;border-radius:8px;font-weight:700" onclick="__settingsSave()">저장</button>`
         + `<div style="height:40px"></div></div>`;
     el.style.display = 'block';
