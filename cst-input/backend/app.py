@@ -9,6 +9,8 @@
 PoC 검증 완료(2026-07-01): 맥 직접 saveAct result:1, 마스터+슬레이브 MB_REG_CNT=2.
 """
 import json, subprocess, urllib.request, time, os, re, base64, tempfile, shutil, glob
+import hashlib, io, uuid
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 
@@ -24,6 +26,7 @@ def _cleanup_old_temp(max_age_sec=3600):
             except Exception:
                 pass
 import requests
+from PIL import Image
 from fastapi import FastAPI, Body, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -34,6 +37,18 @@ CDP_DIR = ROOT / "research" / "awms-poc"             # cdp_cookies.py 등
 
 AWMS = "https://awms.kdn.com/ami/mob/cst/mobCst1000"
 CDP_PORT = 9222
+KST = timezone(timedelta(hours=9))
+
+# ── OCR 실패 표본 수집 (계약: docs/data-contract.md §스키마소유자ocr-meter/쓰기통신팀, 2026-07-27) ──
+# 스키마 정본=ocr-meter, 쓰기=통신팀. 임의 필드변경 금지 — 바꿀 땐 ocr-meter 합의 후 append-only.
+# worktree-상대참조 금지(data-contract 원칙) — SHARED_OCR_POC 절대경로 상수로만 참조.
+SHARED_OCR_POC = Path("/Users/woodelight/Projects/ami-work/research/ocr_poc")
+AMIQ_OCR_FAIL_DIR = SHARED_OCR_POC / "계기번호_아미큐_실패건"
+AMIQ_OCR_PENDING = AMIQ_OCR_FAIL_DIR / "pending"
+AMIQ_OCR_LABELED = AMIQ_OCR_FAIL_DIR / "labeled"
+AMIQ_OCR_PENDING_TTL_SEC = 14 * 24 * 3600   # ocr-meter 정책: pending 14일 미매칭 시 자동삭제
+# _extract_meter_no 추출로직 버전(로직 바뀔 때마다 갱신 — app_version 대신 PM 지시 2026-07-27).
+_OCR_LOGIC_VER = "e5-2026-07-14"
 
 # ── 세션 보관 (메모리 + 디스크 persist) ─────────────────
 # 폰 헬퍼 awms 세션(JSESSIONID httpOnly + XSRF) + UA를 넘겨받아 보관.
@@ -629,6 +644,159 @@ def _extract_meter_no(lines):
     return ''
 
 
+# ── OCR 실패 표본 수집 헬퍼 (계약 스키마=ocr-meter 정본, 여기는 쓰기 구현만) ──
+def _pixel_sha256(img_bytes: bytes) -> str:
+    """JPEG 디코드 픽셀의 sha256 — EXIF 등 메타데이터 차이에 무관(실측 확인: stampExifTime은
+    APP1 세그먼트만 덮어쓰고 픽셀은 불변). saveAct 시점 매칭 키로 그대로 재사용 가능."""
+    try:
+        with Image.open(io.BytesIO(img_bytes)) as im:
+            im = im.convert("RGB")
+            return hashlib.sha256(im.tobytes()).hexdigest(), im.size
+    except Exception:
+        return "", None
+
+
+def _ocr_near_miss(lines):
+    """표본메타 ocr_extracted 전용 — 타입코드 불일치 등으로 _extract_meter_no가 기각했을 11자리
+    후보(타입코드 무관, 최고 신뢰도 1개). _extract_meter_no의 실제 판정에는 전혀 관여하지 않는
+    진단용 부가정보일 뿐 — "완전실패"와 "후보는 있었지만 기각"을 표본에서 구분하기 위함."""
+    best = None
+    for y, conf, text in lines:
+        digits_only = re.sub(r'[\s\-]', '', text)
+        for m in re.finditer(r'\d{11}', digits_only):
+            if best is None or conf > best[0]:
+                best = (conf, m.group(0))
+    return best[1] if best else ""
+
+
+def _ocr_sample_save_pending(photo_bytes: bytes, lines, photo_slot: str):
+    """OCR 실패(계기번호 미추출) 표본을 pending/에 저장. 전부 예외격리 — 실패해도 /api/ocr
+    응답에 영향 0. 내부 해시색인(.hash_index.json)은 ocr-meter 스키마 밖(우리 쪽 매칭 최적화용)."""
+    try:
+        h, size = _pixel_sha256(photo_bytes)
+        if not h:
+            return
+        AMIQ_OCR_PENDING.mkdir(parents=True, exist_ok=True)
+        now = datetime.now(KST)
+        base = f"{now.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        (AMIQ_OCR_PENDING / f"{base}.jpg").write_bytes(photo_bytes)
+        meta = {
+            "schema_version": 1,
+            "source": "amiqueue",
+            "sample_id": base,
+            "captured_at_kst": now.isoformat(),
+            "ocr_logic_version": _OCR_LOGIC_VER,
+            "photo_slot": photo_slot,
+            "worker_id": None,
+            "ocr_engine": "apple_vision",
+            "ocr_raw_lines": [[y, c, t] for y, c, t in lines],
+            "ocr_extracted": _ocr_near_miss(lines),
+            "resolution": list(size) if size else None,
+            "crop_state": "raw",
+            "label": {
+                "status": "pending", "meter_no": None, "match_method": None,
+                "match_confidence": None, "matched_at_kst": None, "matched_from": None,
+            },
+        }
+        (AMIQ_OCR_PENDING / f"{base}.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        idx_path = AMIQ_OCR_PENDING / ".hash_index.json"
+        idx = {}
+        try: idx = json.loads(idx_path.read_text(encoding="utf-8"))
+        except Exception: pass
+        idx.setdefault(h, []).append(base)
+        idx_path.write_text(json.dumps(idx), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _ocr_sample_try_match(photo_bytes: bytes, meter_no: str):
+    """saveAct 제출 시점 — 같은 사진(픽셀해시)이 pending에 있으면 작업자 확정값을 정답으로
+    붙여 labeled/로 이동. 매칭 실패/충돌/타입코드 불통과는 대기풀에서 정리(학습승격 안 함).
+    전부 예외격리 — 실패해도 saveAct 등록에 영향 0."""
+    try:
+        if not meter_no:
+            return
+        h, _ = _pixel_sha256(photo_bytes)
+        if not h:
+            return
+        idx_path = AMIQ_OCR_PENDING / ".hash_index.json"
+        if not idx_path.exists():
+            return
+        idx = json.loads(idx_path.read_text(encoding="utf-8"))
+        sample_ids = idx.get(h, [])
+        if not sample_ids:
+            return
+
+        def _discard(sid):
+            for ext in (".json", ".jpg"):
+                try: (AMIQ_OCR_PENDING / f"{sid}{ext}").unlink()
+                except Exception: pass
+
+        del idx[h]
+        idx_path.write_text(json.dumps(idx), encoding="utf-8")
+
+        if len(sample_ids) > 1:   # 픽셀해시 동일 표본 2건 이상 — conflict, 학습 제외
+            for sid in sample_ids: _discard(sid)
+            return
+        sid = sample_ids[0]
+        jf = AMIQ_OCR_PENDING / f"{sid}.json"
+        img_p = AMIQ_OCR_PENDING / f"{sid}.jpg"
+        if not jf.exists() or not img_p.exists():
+            return
+        type_code = meter_no[2:4] if len(meter_no) >= 4 else ""
+        if type_code not in _METER_TYPE_CODES:   # 타입코드 검증 게이트 — 실질 방어선(작업자 오입력 필터)
+            _discard(sid)
+            return
+        meta = json.loads(jf.read_text(encoding="utf-8"))
+        meta["label"] = {
+            "status": "matched", "meter_no": meter_no,
+            "match_method": "pixel_sha256", "match_confidence": 1.0,
+            "matched_at_kst": datetime.now(KST).isoformat(),
+            "matched_from": f"saveAct:{meter_no}",
+        }
+        AMIQ_OCR_LABELED.mkdir(parents=True, exist_ok=True)
+        (AMIQ_OCR_LABELED / f"{sid}.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        img_p.rename(AMIQ_OCR_LABELED / f"{sid}.jpg")
+        jf.unlink()
+    except Exception:
+        pass
+
+
+def _ocr_sample_cleanup_pending():
+    """pending 14일 미매칭 자동삭제(ocr-meter 정책). 기동 시 안전망 — _cleanup_old_temp와 동일 패턴."""
+    try:
+        if not AMIQ_OCR_PENDING.exists():
+            return
+        now = time.time()
+        stale = set()
+        for jf in AMIQ_OCR_PENDING.glob("*.json"):
+            if jf.name == ".hash_index.json":
+                continue
+            try:
+                if now - jf.stat().st_mtime > AMIQ_OCR_PENDING_TTL_SEC:
+                    stale.add(jf.stem)
+                    jf.unlink()
+                    (AMIQ_OCR_PENDING / f"{jf.stem}.jpg").unlink(missing_ok=True)
+            except Exception:
+                pass
+        if stale:
+            idx_path = AMIQ_OCR_PENDING / ".hash_index.json"
+            try:
+                idx = json.loads(idx_path.read_text(encoding="utf-8"))
+                idx = {h: [s for s in sids if s not in stale] for h, sids in idx.items()}
+                idx = {h: sids for h, sids in idx.items() if sids}
+                idx_path.write_text(json.dumps(idx), encoding="utf-8")
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+_ocr_sample_cleanup_pending()   # 기동 시 pending 14일 만료분 정리(무한적재 방지 안전망)
+
+
 @app.post("/api/ocr")
 def api_ocr(body: dict = Body(...)):
     """사진(base64) 리스트 → AppleVision 계기번호 추출.
@@ -671,8 +839,14 @@ def api_ocr(body: dict = Body(...)):
         results = []
         for iid, p in paths:
             lines = blocks.get(str(p), [])
-            results.append({"id": iid, "meterNo": _extract_meter_no(lines),
+            meter_no = _extract_meter_no(lines)
+            results.append({"id": iid, "meterNo": meter_no,
                             "raw": " | ".join(t for _, _, t in lines)[:240]})
+            if not meter_no:   # 실패 표본 수집 — 응답 조립과 완전 분리, 실패해도 위 결과엔 영향 0
+                try:
+                    _ocr_sample_save_pending(p.read_bytes(), lines, str(iid))
+                except Exception:
+                    pass
         return {"results": results}
     finally:
         shutil.rmtree(tmpd, ignore_errors=True)   # 받은 사진 즉시 정리(맥 누적 방지)
@@ -750,6 +924,12 @@ def _saveact_core(body):
         mf["DATA_NUM"] = dcu_id   # ★변대주 전산화번호 = awms 화면 '변대주' 칸(필드명 DATA_NUM). DCU_ID·차수는 awms 자동생성 (영준님 헬퍼 실측 2026-07-15: DCU_ID 아님)
     res_m = saveact_post(mf, _photos_to_files(m.get("photos", {}), tmpd))
     print(f"[saveact] master {mb} ham={ham or '집합'} fclty={fclty} → {res_m}", flush=True)  # 진단 로그
+    try:   # OCR 실패표본 매칭(슬롯5=계기판 사진) — saveAct 흐름과 완전분리
+        p5 = m.get("photos", {}).get("5")
+        if p5:
+            _ocr_sample_try_match(base64.b64decode(str(p5).split(",")[-1]), mb)
+    except Exception:
+        pass
     fid3 = res_m.get("atchFileId3", ""); fid4 = res_m.get("atchFileId4", "")
     results = [{"role": "master", "meterNo": mb, "resp": res_m}]
     yield {"type": "item", "role": "master", "meterNo": mb, "idx": 1, "total": n,
@@ -770,6 +950,12 @@ def _saveact_core(body):
             photos["ATCH_FILE_ID_5_SRC"] = sp["ATCH_FILE_ID_5_SRC"]
         res_s = saveact_post(sf, photos)
         print(f"[saveact] slave {s['meterNo']} fclty={fclty} → {res_s}", flush=True)  # 진단 로그
+        try:   # OCR 실패표본 매칭(슬롯5=계기판 사진) — saveAct 흐름과 완전분리
+            sp5 = s.get("photos", {}).get("5")
+            if sp5:
+                _ocr_sample_try_match(base64.b64decode(str(sp5).split(",")[-1]), s["meterNo"])
+        except Exception:
+            pass
         results.append({"role": "slave", "meterNo": s["meterNo"], "resp": res_s})
         yield {"type": "item", "role": "slave", "meterNo": s["meterNo"], "idx": i + 2, "total": n,
                "ok": bool(res_s.get("result") == 1)}
