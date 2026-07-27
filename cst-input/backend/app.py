@@ -340,6 +340,26 @@ def api_config_set(body: dict = Body(...)):
     return CONFIG
 
 
+# ── 진단: getUserWorkGroup/getBusiList 원시응답 그대로 (공사명 필드 실측용, 영준님 지시 2026-07-27) ──
+# 폰 없이 맥 세션(pull/push)만으로 확정 가능. 자동매핑 없음 — 필드 확정 전 추측 금지.
+@app.get("/api/diag/workgroup")
+def api_diag_workgroup():
+    out = {}
+    try:
+        r = requests.get(f"{AWMS}/getUserWorkGroup?DEPT1={CONFIG['DEPT1']}", headers=_headers(), timeout=15)
+        out["getUserWorkGroup_status"] = r.status_code
+        out["getUserWorkGroup_raw"] = r.json() if "json" in r.headers.get("content-type", "") else r.text[:1000]
+    except Exception as e:
+        out["getUserWorkGroup_error"] = str(e)
+    try:
+        r = requests.get(f"{AWMS}/getBusiList?DEPT1={CONFIG['DEPT1']}", headers=_headers(), timeout=15)
+        out["getBusiList_status"] = r.status_code
+        out["getBusiList_raw"] = r.json() if "json" in r.headers.get("content-type", "") else r.text[:1000]
+    except Exception as e:
+        out["getBusiList_error"] = str(e)
+    return out
+
+
 # ── 변대주번호 자동조회 (아미큐 자동채움, 영준님 2026-07-02) ──────────
 # 동행(WITH_YN=Y): 계기번호==종로 workStatus new_meter_id(임시저장 포함) → 종로 site-data '변대주'(0000A000)
 # 일반(그외):       계기번호==ami-work site-data 계기번호 → 'DCUID' 앞 8자(0000A000)
