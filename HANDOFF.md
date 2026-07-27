@@ -1,87 +1,109 @@
-# HANDOFF — ami-work(아미맵) / jongno-combined(종로맵) / 계기큐·아미큐·헬퍼
+# HANDOFF — 계기팀 데스크(gyegi) / 종로맵·계기큐·snap·명륜·구로 + 공통 참조
 
 > ★ **이 문서는 영구 상태판이다. 휘발성 세션 진행메모를 여기 쓰지 말 것** — 작업 디테일·과정은 메모리(`~/.claude/.../memory/`)와 `research/` 문서에 남긴다.
-> ami-work 세션이 여러 개라 충돌하므로, HANDOFF는 **잘 안 바뀌는 것**(미완 트랙·대기 액션·핵심 규칙)만 단일 권위로 유지한다. **완료·배포·검증된 건 여기 남기지 말고 즉시 지운다**(상세는 옵시디언 로그·메모리).
+> **완료·배포·검증된 건 여기 남기지 말고 즉시 지운다**(상세는 옵시디언 로그·메모리). 남기는 건 **미완 트랙·대기 액션·핵심 규칙**뿐.
 >
 > 앱 통칭 [[app_naming_convention]]. 배포 시 APP_VERSION 갱신 [[jongno_app_version_deploy]]. 종로맵=Naver Maps.
 > **awms API 모를 때 = `research/awms-poc/awms_API_레퍼런스.md`. 통신팀(mob/cst)/계기팀(mob/mtr) 별개 — 항상 구별.**
 
+## ★ 작업 경로 · 소유 (2026-07-27 PM 결정)
+- **jongno-combined는 ami-work git에 없는 별개 repo**(github.com/815dudwns/jongno-combined, ami-work `.gitignore` L46). **gyegi 브랜치로 체크아웃 불가.**
+- **독립 repo는 worktree로 쪼개지 않고 main 경로에서 소유 데스크가 직접 작업**한다. 종로맵·snap 작업 경로 = `/Users/woodelight/Projects/ami-work/jongno-combined` (계기팀 단독 소유). 커밋은 그 repo 자체 브랜치(main), gyegi 브랜치와 무관.
+- 착수 전 반드시 `git status` — 타 세션 미커밋 변경(예: `admin-validate.html`=검증팀 소관)을 **내 커밋에 딸려 넣지 말 것**.
+- gyegi 워크트리(`workspaces/gyegi`)에 있는 것 = ami-work 추적분(계기큐 `awms-queue-www` 등). 종로맵은 여기 없다.
+
+## 다음 할 일 (바로 집을 것)
+1. **종로맵 임시 노란마커 코드 회수** — 2026-07-27 하루짜리 기능. 날짜 게이트(`TEMP_LASTDAY_DATE='2026-07-27'`)로 **7/28부터 자동 비활성**이라 동작상 급하지 않으나, 죽은 코드로 남아 있다. 회수 대상 = `jongno-combined/js/map.js`의 `[임시 2026-07-27]` 주석 3곳(`meterLastDayAddresses`·`_commActiveClass`·`MARKER_FILL`/`CIRCLE_CLASSES` 항목) + `css/marker.css` 2곳. 회수 시 `_commActiveClass`를 원래 삼항식으로 되돌리면 됨(호출부 2곳).
+2. **아미큐 저장값 진단 — main 미머지 상태 해소**(아래 트랙 참조). 폰 실측이 막혀 있어 공사명 필드 확정이 진행 불가.
+3. 구로 잔여·보강현황 재산정 등은 아래 대기 액션.
+
 ## 진행중 트랙
-- **★Tailscale 인프라 전환 (2026-07-19 개시)**: tailnet=맥(100.121.228.87)+A33+아이폰. **완료**: ①아미큐 백엔드 tailnet 전환 실증(`tailscale serve --https=8766`→ts.net 주소 cstBackend 발행, A33 요청 200 OK. ★폰 Tailscale VPN 상시 ON 필수 — 꺼짐=접속불가) ②A33 무선 adb 페어링(현장 LTE서 `adb connect 100.93.223.21:<포트>`, 포트는 무선디버깅 토글마다 변경) ③OTP adb 직독 실측 성공(dumpsys notification --noredact 본문 판독 — 카톡의존 수집 사슬 대체 후보, [[otp_adb_notification_read]]). **남은것**: start.sh tailnet 발행 영구화(지금은 재기동 시 trycloudflare로 복귀=안전폴백), 검증관리자 8765 tailnet화, A31 적용(주인협조 1회). 아미큐 맥세션 로그아웃=8766 `/api/session/push`에 무효 JSESSIONID(시크릿 cst-amiq-2026). [[tailscale_adoption]]
-- **★조직 배선 확정+검증팀 개소 (영준님 2026-07-19) — 정본 `research/조직배선_설계_20260719.md`**: **실조직축 3팀 = 통신팀(아미큐·헬퍼·아미맵) / 계기팀(계기큐·종로맵+snap·명륜·구로·OTP수집기) / 검증팀(검증관리자·데일리검진)** + ocr-meter(독립) + **PM=통합 CLAUDE.md·L0코어·HANDOFF·awms공통·스키마·배포정책·팀간조율 전결(실행자 아님)**. **감사 회신 반영(같은날 밤)**: 팀 표준=`.claude/agents/<팀>.md` 정의 하나(BlogAgent 실증, append-system-prompt 불필요), **운영=호출형(a) 채택**(PM이 Agent툴로 팀 호출 — 상주 세션(b)은 메모리분리 미검증이라 보류), **mailbox 폐기→PM간 통신=Orca terminal send**(핸들 매번 조회, read버그#8746→파일릴레이). **검증팀 생성·시운전 완료**: `.claude/agents/검증팀.md`(필독카드·전결·보고·사고이력 규칙) — 기동검증 통과(역할·카드접근·백엔드확인, 8765 IPv4/IPv6 2프로세스 지적까지). agent-memory/검증팀/ 폴더는 미생성 — 첫 실무(데일리검진 인수인계) 때 기록 축적 확인. **다음: 7/20 관문 후 검증팀 실무 인수인계(PM 검수 2~3회) → 통신팀·계기팀 정의 작성(반나절 거리)**. Orca 규약: 세션 삭제 절대금지(닫기만), disconnected 배지 무시. 물리 추출(폴더 이동)은 별건 — 실측조사 후 승인. [[org_three_teams_wiring]] [[pm_comm_orca_mailbox_deprecated]]
-- **★보조앱(snap) v20260717.3 배포완료 (2026-07-17) — 폰 실기 최종확인만 남음**: 3연속 배포(A33 USB설치+Pages 자동업뎃 모두 성공). **.1**=카메라 경량화(1600급·단일패스 800px q40)+IndexedDB 로컬큐(`snap-photo-queue`, put→성공 delete→drain 복구)+재촬영 최신승리 가드+도크 z40 재설계+검침 자릿수 캡 — 하네스 테스트 11/11 PASS(재부팅 후 T3~T6 포함). **.2**=실기 피드백 5건: 셔터음(Web Audio 합성)+셔터 성공 시 카메라 자동닫힘(연속촬영 폐기 — 영준님 지시)+로그아웃 설정 안으로 이동+로그아웃 백지버그(authLogout이 APK에 없는 login.html로 이동)→세션키 삭제+인라인 로그인+**재촬영 옛사진 잔존 회귀 수정**(jobId 랜덤접미사로 jobTs 파싱 전멸→구 job이 최신 판정. ujRegister에 ts 저장). **.3**=폰 YOLO(LCD 자동검출) 완전제거('LCD 위치 저장됨' 문구·loadYolo·runYoloOnOld·lcd-crop 로드·deploy.sh 자산) — daily_cycle 맥 PM YOLO 재검출로 대체, APK 크기는 거의 동일(onnx가 zip에서 ~0으로 압축되던 파일). ★네이티브 AndroidUpload=실가동 확인(옛 "미가동" 기록은 오판). **남음: 폰 실기 최종확인**(셔터음·자동닫힘·재촬영 교체·로그아웃·문구제거).
-- **★배포 방식 전환 완료 (2026-07-02) — 이제 push=자동배포 안정**: legacy GitHub Pages가 `deployment_queued` 데드락(종일 실패 원인 = `.git` 517MB가 배포 artifact 463MB로 담겨 deploy 타임아웃) → **jongno-combined·ami-work 둘 다 GitHub Actions Pages 워크플로우로 전환**(`.github/workflows/pages.yml`, `concurrency: cancel-in-progress` + checkout 후 `rm -rf .git`). `.nojekyll`·data/백업 배포제외도 함께. ami-work remote URL 옛 PAT(ghp_)→gh인증(gho_) 교체로 workflow 파일 push 가능. **★근본: `.git` 517MB 히스토리 정리(data 백업 커밋 누적) 미착수** — git filter-repo로 정리하면 clone·배포 근본 경량화. GitHub 지불문제 아님(Gmail 확인).
-- **★검증관리자 데이터워크벤치 재설계 (2026-07-02, 1~4단계 배포완료)** — "검증 전용"→**데이터가 주인공인 워크벤치**. 정본 `research/admin-validation/데이터그리드_재설계.md`. ①정합성 on-read(`backend/validation_rules.py`: workStatus 최신 검침값으로 status 재판정 → worker_missing 실시간 auto/need 해소, human/kepco 보존. app.py `_attach_photo_urls`에 통합) ②신설번호 workStatus 단일진실(스왑 시 CSV 수동교정 불필요) ③문제만·차수(cha)·검증대기 필터 ④OCR 자동토글(`_maybeAutoOcr`, 갭2=실패 재시도가드/갭3=자동 전체범위 수정). 탭 '검증'→'데이터'. **5단계 awms 등록=옆 세션 담당**. ★백엔드 app.py는 uvicorn `--reload` 없음 → 재시작 `lsof :8765 kill`+`start.sh`(터널 별개라 URL 유지). daily_cycle.py는 git 미추적(파일·실행엔 반영). [[validate-workbench-redesign]]
-- **★사진 유실방지 (2026-07-02)** — 종로맵 웹사진 **IndexedDB 대기큐 배포완료**(`js/photo-queue.js`: onPhotoSelect 압축직후 put→onSave 성공시 delete→initMap `drainPhotoQueue` 복구배너. 촬영본이 메모리에만 있어 백그라운드freeze/OS킬 시 소실되던 문제). **미적용(TODO)**: ①보조앱↔계기맵 연동 누락 — `_temp/` Storage 영구종속(흡수 시 URL만 복사)·당일 미흡수 temp 이튿날 소멸·snap/메인 seq 계산 불일치·저장 시 temp 통째삭제 ②보조앱(snap) 자체 IDB큐. research 3문서: `종로맵_웹사진_누락분석.md`·`보조앱_계기맵_연동_누락분석.md`·`OCR자동_검증자동_체인분석.md`.
-- **★F. 계기큐 맥 이식(전송탭) — 맥 세션 직접 실행부 교체 완료, awms 라이브 검증만 남음 (2026-07-17)** — 검증완료→전송탭→awms전송→완료표시→큐정리. **이번 세션 완성·커밋·push**: ①백엔드 `research/admin-validation/backend/awms_mtr_direct.py`(신규) — 맥이 mob/mtr requests 직접호출(철거5000→getDetail→신설4000/25→완료28+사진재전송), 세션 pull(CDP)/push(무선), 사후검증 필드대조. selftest 10/10. ②app.py 배선 — 세션 4종(pull-session/push-session/session-direct/login-snapshot)+`/transmit/run` exec_mode `direct` 분기(구 `_remote_register` CDP는 폴백 보존)+최종봉인 저장+사후검증+P0 자동검증 워처(근무 08~20시 1시간, `/transmit/auto-validate` 토글). ③전송탭 프론트 admin-validate.html **build 1800** clay 전면개편. 정본=jongno-combined. **awms 라이브는 배선검증 모드**(session_alive만 확인, 실등록 안 함) — 영준님이 폰 로그인 열어줄 때 실등록.
-  - **★봉인 규칙 확정(영준님 2026-07-17)**: 봉인=**계정 무관 전역 물리 시퀀스**(아이디 여러개 빌려써도 하나로 이어짐, 이 아이디 0111111→다음 아이디 0111112). 시스템이 `seal_last` 1개 기억(config+Firebase awms_seal 전역최대 max). **자릿수 zfill 보존**('0111111'). 단상+1/삼상+2. 첫 로그인 1회 getMainList(8000)+getBusiList로 설정 고정, 이후 루프 중 awms 봉인/사업 조회 없음. 배치 끝 1회 awms 봉인 저장. **다른 아이디 로그인 시 불일치 감지→[봉인 동기화] 버튼**(`/transmit/seal-sync`). [[awms_seal_real_range_rule]]
-  - **★로그인 UI 확정**: [로그인] 버튼 폐기(로그인은 폰 계기큐 앱에서 사람이). 맥=[세션 가져오기]+[세션확인](아이디 표시)만. 계정=세션 아이디 자동(선택 UI 없음). 등록 공사명(cons_no)/봉인 공사명(seal_cons_no) 드롭다운 2개 분리.
-  - **★세션 전송 툴 (영준님 확정 2026-07-19)**: 계기큐 APK에 네이티브 쿠키 브릿지+로그인성공 자동 push(`/transmit/push-session`, 받는쪽 완성) 추가 — **영준님/계기팀 누가 로그인해도 세션이 맥으로 자동 이관**. 계기팀 폰=tailnet 밖이라 push 주소는 공개터널+Firebase 자동발견. APK 재빌드+계기팀 폰 1회 재설치 필요. 착수=관문 후.
-  - **P0 자동검증 워처 = jongno ON (2026-07-19 켬)**: 근무 08~20시 매시간 daily_cycle 오늘날짜 자동검진, config 저장이라 재시작 생존. 상태조회 `GET /transmit/auto-validate?dataset=jongno`, 로그태그 `[autoval]`(/tmp 백엔드 로그). 7/20 첫 실가동 — 세션 시작 시 [autoval] 로그부터 확인.
-  - **남은것**: awms 로그인 개방 후 게이트 순서 실행(7/20 작업 후=영준님 로그인으로) = G1 더미(0999) 1건→G2 실계기 1건(28+사진+필드대조)→G3 소배치. 관문 때 카톡 OTP의 adb 직독 실물검증도 같이. 실등록 시 `exec_mode` 기본 direct, `live:true`. 봉인 다음=**315699**(DB 전역최대+1, width6, 스모크 확인). 백엔드 재시작=`lsof :8765 kill`+`start.sh`(launchd KeepAlive라 kill만 해도 새 코드로 재기동). → [[metercq_mac_session_direct]] [[validate_portal_location_and_workflow]]
-- **D/G. 아미큐(통신팀 cst-app) — 풀 네이티브(Compose) 재작성 완료 (2026-07-01, v2.1.6, 배포+이 폰 설치)** — 웹뷰 원격로드 폐기→네이티브(same appId com.youngjun.cstinput, debug 키스토어 유지). **탭 설정/수집/큐**(단계이동 하단 화살표). 수집=마스터사진4(개별탭+4장일괄)+신설기설토글+QR/바코드 분리스캔+OCR→**큐 담기**→큐탭 **[올려]=EXIF 시각보정(마지막사진=현재-10초, 실제간격 보존 admin.html방식, 앱 ExifInterface 스탬프)→awms 전송(진행바)**, **[사진저장]**(갤러리 Pictures/아미큐, 파일명=YYYYMMDD_HHMMSS.jpg=EXIF시각 1:1). **OTP 자동입력**(채널 startsWith픽스·__markOtpReq 네이티브배선), **인앱 자동업데이트**(APK+cst-version.json push), **백엔드URL 자동발견**(Firebase cstBackend, 폰입력 불필요), 사진 EXIF 굽기+정사각(90도 픽스), OCR=검증포털 extract_meter 이식, 신설/기설 WORK_DIV M1010/M1030(슬레이브 항상 M1010), 상단겹침·흰띠 픽스. 맥 백엔드(FastAPI 8766 `cst-input/backend/app.py`, `bash cst-input/start.sh`=백엔드+터널+URL발행). 배포=APK+version.json push→앱 자동업뎃. 빌드=`cd ~/Projects/cst-app/android && ./gradlew :app:assembleDebug`. 상세 [[communication_team_mac_input_device]].
-  - **★v2.2.0 배포 (2026-07-06)**: ①통신방식 auto 판별돼도 드롭다운 **항상 노출**(강제 변경 가능) ②입력검증 — 계기번호 **11자리 숫자 강제**·모뎀MAC 정규화(QR/수동 모두, QR 이형태도 숫자추출→검증) ③**awms 등록확인** — saveAct allOk 후 `/api/verify`(getMainList 재조회, app.py 신규) 동기확인→**verified=true만 이력+큐제거**, 미확인이면 큐 유지 ④**작업 이력 탭 신설**(`cst_history.json`, 사진 제외 메타). ★백엔드 `/api/verify` 반영하려면 **재시작 필요**(`lsof -ti:8766|xargs kill` + `bash cst-input/start.sh`). 라이브 verify(실 getMainList 매칭)는 미검증.
-  - **남은 것(라이브/폰 검증)**: ①신설/기설 M1030 실전송 미실측 ②슬레이브 라이브 saveAct BUNGI/INST_S 재조회 확인 ③awms 라이브 saveAct는 더미(0999)로만 실증 ④현장 셀룰러 터널(현 quick tunnel, 재기동마다 URL바뀜→자동발견으로 앱은 무관). OTP는 이 폰 adb로 활성화 완료(`cmd notification allow_listener`), **다른 폰=알림접근+접근성 수동 켜기(개발자옵션 불필요, 사이드로드는 앱정보⋮ 제한된설정 허용)**.
-  - **★v2.2.1~2.2.4 배포 (2026-07-15) — 계기번호/QR/맥/변대주/바코드 대량 수정**. ★아미큐 실사용=**cst-app 네이티브(CollectScreen.kt)**, cst-input/collect.js(웹)는 안 씀([[amiqueue_native_meter_qr]] — 웹 고쳐도 반영0, 반나절 삽질). ①**2.2.1** normMeter=QR MID추출+**Amigo A접두(A0530163039) 허용**(QR 3필드 PID/YYMM/MID). ②**2.2.3→2.2.4** 모뎀맥 바코드=**Code 93**인데 ML Kit에 FORMAT_CODE_93 누락→못읽음(초록배경 무관, zxing검증). **scan(QR)에만 Code93 추가, scanBarcode(바코드전용)은 CODE128/39 유지**(영준님 지시). 헬퍼 바코드 원복(inject v84 awms스캐너)도 이게 근본→헬퍼도 Code93 추가하면 원복 불필요(미착수). [[mlkit_barcode_code93]]
-  - **★변대주(DCU_ID) = 필드명 `DATA_NUM`이 정답 (DCU_ID 아님!)** — app.py가 DCU_ID/+00/DCU_SIGONG_CD에 넣던 게 다 오답, awms 화면 '변대주'칸=DATA_NUM(헬퍼 실측 79190491196 DATA_NUM=0025W781 역추적). **backend app.py dc19c8ad로 DATA_NUM 수정+재구동(PID 26931) 완료**. 조건=신설(M1010)+PLC(10/20/90)+변대주조회. 마스터·슬레이브 공유. **★재전송 실검증 대기**(재구동 후 아직 미확인). **슬레이브 6개(79190494164 등)는 이미 DCU_ID로 잘못 등록→getDetail 막혀 API 정정 불가, 헬퍼/CDP로 수정 필요.** [[amiqueue_bdju_dcuid_rule]]
-  - **★★블로커: 큐 담기 크래시 (LTE+기설+슬레이브 조합) — 2026-07-15 미해결.** addToQueue·DoneStep 코드상 안전(null폴백), 크래시 지점 못 짚음. **logcat 필수인데 폰 USB 연결 불가(현장작업중)**. 폰 연결되면 adb logcat으로 스택 확정. 임시=그 조합만 헬퍼 우회.
-  - **★cst-input backend(FastAPI 8766)도 uvicorn `--reload` 없음 → 코드수정 시 재구동 필수**: `kill $(lsof -tiTCP:8766 -sTCP:LISTEN)` 후 `nohup <venv_parseq/python> <uvicorn> app:app --app-dir cst-input/backend --host 127.0.0.1 --port 8766 >> /tmp/cst-input-backend.log 2>&1 &`. 안 하면 옛 코드로 계속 돔(변대주 안 올라간 원인).
-- **E. status 지역별 부분로딩 (quota 근본해결, 영준님 지시 2026-06-22, 미착수)** — 아미맵·종로맵 workStatus를 **구(동그룹) 단위로 쪼개 저장 → 선택 구만 로딩 + 이벤트 증분**. 지금은 전체 workStatus를 localStorage 통째 저장 → iOS Safari 5MB quota 터짐(아래 핫픽스로 임시방어만). site-data는 이미 IDB 캐시(1회). **Firebase workStatus 구조 재편 + 기존 상태 구별 마이그레이션** 필요 → 작업자 데이터 다루니 **맥에서 설계·검증 후 배포**(영준님 "배포만 하지말것"). 필터는 데이터 `동그룹` 필드 사용(map.js:560). [[jongno_lightweight_done]]
-- **★OTP수집기(A31, 계기큐 로그인OTP 카톡 중계) — 2건 미해결 (2026-07-03~05)**: ①**v1.0.1 배포완료** = 수집 후 카톡종료가 삼성 최근앱'모두닫기'로 **타앱까지 죽이던 것 제거**(closeAllRecentApps 삭제→카톡 백그라운드만 정리). `ami-work/awms-otp-collector.apk` URL 수동설치(★네이티브라 자동배포X, `~/Projects/awms-otp-collector`, git아님). ②**카톡 자동진입 간헐실패(미해결)** = 알림패널은 열리나 KDN노드 클릭→카톡 간헐실패, **강제(수동)클릭=정상** → 케이스A(그룹접힘/미리보기숨김으로 KDN텍스트노드 실종) 유력. 집에서 A31/A33 USB `OTPCOL` logcat으로 A(`10회 실패 IDLE리셋`)/B(`클릭성공+WAIT_KAKAO 타임아웃`) 확정 후 수정. ③**awmsID 저장 미반영** = A31에 mdp2603726 설정했다는데 Firebase `awmsOtp`엔 옛 mdp2504381로만(write권한OK·설정됨인데 카톡열어도 OTP못읽어 미업로드=읽기실패 유력). A31=남의폰이라 USB불가→진단버전(Firebase 브레드크럼)+인앱자동업뎃 넣어 원격진단 제안. → [[otp_collector_kakao_autoclick_intermittent]] [[awms_otp_amiqueue_embed]]
+
+- **★아미큐 awms 저장값(작업자·공사명) 미수신 — 진단코드 작성됐으나 폰에 안 올라감 (2026-07-27)**
+  - **증상**: 아미큐가 awms에 저장된 작업자·공사명을 못 받아옴. 앱에는 숫자(SEQ)로만 보임.
+  - **원인 분석(PM 세션 조사, 미수정 인계)**: ①작업자 — `ami-queue-www/collect.js` `_amiqAutoLoad`가 `getUserWorkGroup`의 SEQ를 `_amiqWorkerList`(`getUserList?DEPT2=<현재지사>`)에서 이름 매핑하는데, **SEQ가 현재 지사 명단 밖이면 매핑 실패 → 이름 빈문자열 → 숫자만 남음**. 실패가 조용해서 "값이 없음"과 "매핑 실패"가 구분 안 됨. ②공사명 — **`getUserWorkGroup` 응답의 공사 필드를 아예 안 읽는다.** `getBusiList` 목록에서 `/^C/` 첫 항목을 임의 선택하고, 그것도 `!s.busiNum`일 때만이라 한 번 값이 박히면 갱신 안 됨. ③백엔드 `cst-input/backend/app.py` `pull_workgroup()`도 WORKER1/2/3_SEQ만 반영, BUSI_NUM은 CONFIG 기본값 고정.
+  - **통신팀 작업분**: 사전설정 화면에 `getUserWorkGroup`·`getBusiList` 원시응답 키=값 진단 섹션 추가(SEQ→이름 매핑 실패 시 사유 명시). 공사명 자동매핑은 **의도적으로 미착수**(필드 실측 확정 전 추측 매핑 금지). APP_VER `v0727a-저장값진단`, **tongsin 브랜치 커밋 4da495a1 push 완료**.
+  - **★블로커**: 아미큐 www는 `https://815dudwns.github.io/ami-work/ami-queue-www/collect.js` 원격로드 = **ami-work Pages(소스 브랜치 main)**. tongsin 브랜치에만 있어 **main 미머지 → 라이브 미반영**(라이브 `app.js` APP_VER은 아직 `v0614f-여러그룹`, 라이브 collect.js에 진단코드 0건). 폰에서 사전설정을 열어도 진단 섹션이 안 보인다.
+  - **추가 확인 필요**: ami-work Pages **legacy build API가 2026-07-02부터 `errored`("Page build failed")**. jongno-combined는 Actions 워크플로우로 정상 배포되는데 ami-work도 같은 방식인지, 머지해도 실제 배포되는지 확인 필요.
+  - **다음**: main 머지 → 라이브 반영 확인 → 폰 사전설정 열어 **공사명이 어느 필드인지 실측 확정** → 확정 후 통신팀이 자동반영 로직 추가.
+
+- **★Tailscale 인프라 전환 (2026-07-19 개시)**: tailnet=맥(100.121.228.87)+A33+아이폰. **남은것**: start.sh tailnet 발행 영구화(지금은 재기동 시 trycloudflare 복귀=안전폴백), 검증관리자 8765 tailnet화, A31 적용(주인협조 1회). 아미큐 맥세션 로그아웃=8766 `/api/session/push`에 무효 JSESSIONID(시크릿 cst-amiq-2026). ★폰 Tailscale VPN 상시 ON 필수 — 꺼짐=접속불가. [[tailscale_adoption]] [[otp_adb_notification_read]]
+
+- **★조직 배선 (2026-07-19~) — 정본 `research/조직배선_설계_20260719.md`**: 3팀 = 통신팀(아미큐·헬퍼·아미맵) / 계기팀(계기큐·종로맵+snap·명륜·구로·OTP수집기) / 검증팀(검증관리자·데일리검진) + ocr-meter + PM. 팀 표준=`.claude/agents/<팀>.md`(git 추적 필수 — 2026-07-23 untracked 유실 사고). **PM간 통신=Orca terminal send**(핸들 매번 재조회, TUI엔 orchestration inject 유실). **남은것**: 검증팀 실무 인수인계 PM 검수, agent-memory/ 축적 확인. ★세션 삭제 절대금지(닫기만) — 경로 공유 형제 세션 전멸. [[org_three_teams_wiring]] [[pm_comm_orca_mailbox_deprecated]] [[team_desk_report_pm_only]]
+
+- **★F. 계기큐 맥 이식(전송탭) — 배선 완료, awms 라이브 실등록만 남음 (2026-07-17)**: 검증완료→전송탭→awms전송→완료표시→큐정리. 백엔드 `research/admin-validation/backend/awms_mtr_direct.py`(맥이 mob/mtr 직접호출), app.py `/transmit/run` `exec_mode=direct`, 전송탭 프론트 build 1800. **awms 라이브는 배선검증 모드**(session_alive만 확인, 실등록 안 함).
+  - **남은것**: awms 로그인 개방 후 게이트 순서 = G1 더미(0999) 1건 → G2 실계기 1건(28+사진+필드대조) → G3 소배치. 실등록 시 `exec_mode` 기본 direct, `live:true`. **봉인 다음=315699**(DB 전역최대+1, width6). 관문 때 카톡 OTP adb 직독 실물검증 병행.
+  - **봉인 규칙**: 계정 무관 **전역 물리 시퀀스**, `seal_last` 1개 기억(config+Firebase awms_seal max), **zfill 보존**('0111111'), 단상+1/삼상+2. 불일치 시 [봉인 동기화](`/transmit/seal-sync`). [[awms_seal_real_range_rule]]
+  - **세션 전송 툴(확정, 착수 대기)**: 계기큐 APK에 네이티브 쿠키 브릿지+로그인성공 자동 push(`/transmit/push-session`, 받는쪽 완성). 계기팀 폰=tailnet 밖이라 공개터널+Firebase 자동발견. **APK 재빌드+계기팀 폰 1회 재설치 필요.**
+  - **P0 자동검증 워처 = jongno ON**: 근무 08~20시 매시간 daily_cycle 자동검진, config 저장이라 재시작 생존. 상태 `GET /transmit/auto-validate?dataset=jongno`, 로그태그 `[autoval]`.
+  - ★백엔드 재시작 = `lsof :8765 kill` + `start.sh`(launchd KeepAlive라 kill만 해도 새 코드로 재기동). `--reload` 없음. → [[metercq_mac_session_direct]] [[validate_portal_location_and_workflow]]
+
+- **★검증관리자 데이터워크벤치 (1~4단계 배포완료, 5단계 남음)** — 정본 `research/admin-validation/데이터그리드_재설계.md`. **5단계 awms 등록=옆 세션 담당**. ★`daily_cycle.py`는 git 미추적(파일·실행엔 반영). [[validate-workbench-redesign]]
+
+- **★사진 유실방지 — 미적용분(TODO)**: ①보조앱↔계기맵 연동 누락 — `_temp/` Storage 영구종속(흡수 시 URL만 복사)·당일 미흡수 temp 이튿날 소멸·snap/메인 seq 계산 불일치·저장 시 temp 통째삭제 ②보조앱(snap) 자체 IDB큐. research 3문서: `종로맵_웹사진_누락분석.md`·`보조앱_계기맵_연동_누락분석.md`·`OCR자동_검증자동_체인분석.md`. (종로맵 웹사진 IndexedDB 대기큐 `js/photo-queue.js`는 배포완료)
+
+- **★D/G. 아미큐(통신팀 cst-app) — 남은 라이브/폰 검증**: ①신설/기설 M1030 실전송 미실측 ②슬레이브 라이브 saveAct BUNGI/INST_S 재조회 확인 ③awms 라이브 saveAct는 더미(0999)로만 실증 ④라이브 verify(실 getMainList 매칭) 미검증.
+  - ★아미큐 실사용=**cst-app 네이티브(CollectScreen.kt)**, `cst-input/collect.js`(웹)는 안 씀 — 웹 고쳐도 반영0(반나절 삽질). [[amiqueue_native_meter_qr]]
+  - **★변대주(DCU_ID) = 필드명 `DATA_NUM`이 정답**(DCU_ID 아님). backend app.py dc19c8ad 수정+재구동 완료, **재전송 실검증 대기**. 슬레이브 6개(79190494164 등)는 이미 DCU_ID로 잘못 등록→getDetail 막혀 API 정정 불가, 헬퍼/CDP 수정 필요. [[amiqueue_bdju_dcuid_rule]]
+  - **헬퍼 바코드 Code93 추가 미착수** — 추가하면 inject v84 원복 불필요. [[mlkit_barcode_code93]]
+  - ★`cst-input` backend(8766)도 `--reload` 없음 → 코드수정 시 재구동 필수. 안 하면 옛 코드로 계속 돔(변대주 안 올라간 원인).
+
+- **E. status 지역별 부분로딩 (quota 근본해결, 영준님 지시 2026-06-22, 미착수)** — 아미맵·종로맵 workStatus를 구(동그룹) 단위로 쪼개 저장 → 선택 구만 로딩 + 이벤트 증분. **Firebase workStatus 구조 재편 + 기존 상태 마이그레이션** 필요 → **맥에서 설계·검증 후 배포**(영준님 "배포만 하지말것"). 필터는 데이터 `동그룹` 필드(map.js:560).
+
+- **★OTP수집기(A31) — 2건 미해결**: ①**카톡 자동진입 간헐실패** — 알림패널은 열리나 KDN노드 클릭→카톡 간헐실패, 수동클릭=정상 → 케이스A(그룹접힘/미리보기숨김으로 KDN 텍스트노드 실종) 유력. A31/A33 USB `OTPCOL` logcat으로 A/B 확정 후 수정. ②**awmsID 저장 미반영** — A31에 mdp2603726 설정했다는데 Firebase `awmsOtp`엔 옛 mdp2504381(읽기실패 유력). A31=남의폰 USB불가 → 진단버전(Firebase 브레드크럼)+인앱자동업뎃으로 원격진단 제안. ★네이티브라 자동배포X, APK 수동설치(`~/Projects/awms-otp-collector`, git 아님). [[otp_collector_kakao_autoclick_intermittent]]
+
+- **★`.git` 517MB 히스토리 정리 미착수** — data 백업 커밋 누적. git filter-repo로 정리하면 clone·배포 근본 경량화. (Pages Actions 전환 자체는 완료되어 push=자동배포 안정)
 
 ## 대기 액션 (영준님 결정/확인 필요)
-- **★ 보강현황 정기 반영 = 엑셀 올 때마다 재방문 재산정 (7/3본 반영·배포 완료 2026-07-05)**: 7/3 보강현황(`data/boranggi-20260703.xlsx`, 윤용운 포워드) 정합성 게이트 합격(지사↔주소구 100%) → **site-data 26,588→15,390**(완료 24,128 archive 분리·제거=미완료 874+신규 14,516), **재방문 데이터셋 신설 1,586**(SK/TOU처럼 별도 `data/rework-data.json`+토글+'재' 라벨, detail 상세표시), workStatus 재 478주소 rework+pending 복귀, stats 분모 완료포함 41,104, admin 전용아이콘 제거. 배포 `?v=20260705a`. **재방문 정의 = 완료했으나 LP(원격검침) 미수신 = 모뎀 슬레이브 재등록 누락**(계기교체·연계 O, 통신방식(옛)만 있고 실제 모뎀등록(블록B col18/19/28)·LP X). **다음 엑셀 오면 재방문 재산정**(그동안 LP 올라온 건 한전이 대상서 뺌→자동 제외). 정합성 게이트 먼저([[boranggi_excel_integrity_gate]]). Firebase siteData(26,588)는 아미큐 영향 때문에 미갱신(아미맵/stats는 로컬 기준). → [[boranggi_pipeline]] [[실효계기_엑셀_라이프사이클]]
-- **★ 구로(구로금천) 후속 — 멀티지역·완료마킹·좌표는 배포완료, 남은 것만**(2026-06-29): ①차수 미매칭(9차수 통합으로 재산정, 미매칭 18건 site-data 부재분 제외) ②삼상 계기 검침값이 차수엑셀에 단일값뿐 → `whme_day`만 채움(주간/야간/무효/최대 4필드 미완, 마커무관·검증부정확) ③잔여 ?좌표 1건(금천 시흥동 138-5, 어디에도 없는 폐지번) ④**구로 작업자 계정 미발급** — 발급 시 auth.js ACCOUNTS에 `region:'guro'` 추가하면 그 아이디는 구로 고정. ⑤구로 차수 4개(5·14·15·18차)가 완료분 전부라는 전제로 마킹(더 있으면 hold 111주소 중 일부가 complete). → [[jongno_multiregion_structure]]
-- **★ 한전 데이터 열람 포털 자동화 (미조사, 준비되면 조사)** — awms 아닌 별개 **웹포털**. 영준님 권한 없어 **권한자(김창숙 사장님) OTP로 열어줌** → 아미큐식 세션쿠키 이식(권장 A=우리 직접 로그인+OTP실시간, B=쿠키넘김). **30분 sliding세션 → keep-alive 자동연장 필수**(25~28분 heartbeat). API 레퍼런스 스켈레톤 `research/kepco-portal/kepco_API_레퍼런스.md`(CLAUDE.md에 경로 등록). 준비물=포털URL·로그인방식·데이터·세션방식. → [[kepco_portal_session_automation_idea]]
-- **★ 22차 중복 관철동 11-14(02470001147) awms 관리자 삭제요청**(2026-06-26) — 종로아이디 기등록건이 중구아이디 22차로 중복 saveRow됨. 완료(28)+작업자권한이라 현장삭제 불가 → **한전 관리자 삭제 필요**. 보고문 작성됨(관철12-12=25라 현장삭제됨). 원인=계기큐 완료판정 계정단위(위 v0623b가 근본수정).
+- **★보강현황 정기 반영 = 엑셀 올 때마다 재방문 재산정**: **다음 엑셀 오면 재산정**(그동안 LP 올라온 건 한전이 대상서 뺌→자동 제외). 정합성 게이트 먼저(지사↔주소구 일치율, 90%+ 합격) [[boranggi_excel_integrity_gate]]. **재방문 정의 = 완료했으나 LP 미수신 = 모뎀 슬레이브 재등록 누락**. Firebase siteData(26,588)는 아미큐 영향 때문에 미갱신(아미맵/stats는 로컬 기준). [[boranggi_pipeline]] [[실효계기_엑셀_라이프사이클]]
+- **★구로(구로금천) 잔여**: ①차수 미매칭(9차수 통합 재산정, 미매칭 18건 site-data 부재분 제외) ②삼상 계기 검침값이 차수엑셀에 단일값뿐 → `whme_day`만 채움(4필드 미완) ③잔여 ?좌표 1건(금천 시흥동 138-5, 폐지번) ④**구로 작업자 계정 미발급** — 발급 시 auth.js ACCOUNTS에 `region:'guro'` ⑤구로 차수 4개(5·14·15·18차)가 완료분 전부라는 전제로 마킹(더 있으면 hold 111주소 중 일부가 complete). [[jongno_multiregion_structure]]
+- **★한전 데이터 열람 포털 자동화 (미조사)** — awms 아닌 별개 웹포털. 권한자(김창숙 사장님) OTP로 열어줌 → 세션쿠키 이식(권장 A=직접 로그인+OTP실시간). **30분 sliding세션 → keep-alive 필수**(25~28분 heartbeat). 스켈레톤 `research/kepco-portal/kepco_API_레퍼런스.md`. 준비물=포털URL·로그인방식·데이터·세션방식. [[kepco_portal_session_automation_idea]]
+- **★22차 중복 관철동 11-14(02470001147) awms 관리자 삭제요청** — 완료(28)+작업자권한이라 현장삭제 불가, **한전 관리자 삭제 필요**. 보고문 작성됨.
+- **★옵시디언 Obsidian Git 자동백업 설정 + 폰 옵시디언 repo 연결** (영준님 직접). ★`js/auth.js` 평문 클라이언트 인증 = 이미 노출, 서버인증 전환 별도과제.
+- **Firebase 요금제 — Spark 복귀 여부 미확인**: 무료체험 크레딧(`01214A-10A39B-960378`) 7/2 종료 예정이었음. 현재 요금제 상태 확인 필요. DB 이전(B안)은 안 함(리스크 과다). ★비용 주범=RTDB catch-up 풀다운 → P1 델타화+P3 주간아카이브 배포됨(라이브 6.73→1.73MB). [[firebase_cost_rtdb_catchup]]
 
 ## 후처리 자동화 (`/daily-analysis` 스킬 — 진행중)
-- 스킬 `~/.claude/skills/daily-analysis/SKILL.md`. 파이프라인 **데이터검증→need_human→후처리→엑셀/사진zip→awms**. 문서 `research/후처리_자동화_기획.md`, 메모리 [[postprocess_automation_plan]]. ocr-meter `research/ocr_poc/daily_cycle.py`=수집·검진.
-- 1단계 규칙필터 완료(신설=EA/G/Amigo, 철거=타입코드중점). 계기번호 검증=Apple Vision 단독. 검침 필드법칙=readingFieldsFor(계약종별+계약전력) — ★계약정보 위치 정정(2026-06-17): 계약종별·계약전력은 `jongno-combined/data/jongno-site-data.json` 계기객체에 저장돼 있음(옛 "미저장" 기록 틀림). 단 workStatus/replacement_list엔 없음. 데이터 정합성(칸바뀜·위상일치) 검증 포함.
-- **★5단계 순서 확정(영준님 2026-06-17, 스킬 반영)**: 누락정리→(작업자)채우기→정합성→OCR→need_human = "데이터검증 완료". **OCR부터 달려들지 말 것. 데일리=오늘거 기준만**(옛 타일 draft 섞지 말 것). 임시저장도 작업누락분. A그룹(채울것)/B그룹(디스플레이오류·조회불가=못채움→임시저장 냅두고 넘어감). **현장 YOLO 미검출은 daily_cycle이 PM YOLO 폴백 자동재검출(사각지대 자동해소, 별도스크립트 불필요)**.
-- **★awms 필드없음 케이스(영준님 2026-06-17)**: 한전조회 1필드인데 실제 2종 4필드(주간·야간·무효·최대) 넣어야 하는 계기 → awms 전송불가. **비고 "awms 필드없음" + 추가데이터 엑셀 별도.** 오늘 seq33(06450094903) 해당. TODO: **종로앱 추가데이터 입력UI에 야간·무효·최대 필드 추가**(지금 단순 1필드).
-- **검증포털↔스킬 동기화 완료(2026-06-29)**: 판정 저장노드가 이미 `ocr_review/daily_val_{date}` 단일(페이지 /verdict·스킬 --review·/apply 공유) → 자동 동기화. backend `/apply`(app.py L1466) **구현돼 있음**(옛 "--apply 미구현"은 daily_cycle CLI 기준 오기). **need_human은 데이터검증 페이지 딥링크로 일원화**(`admin-validate.html?auth=admin&dataset=jongno&date=YYYYMMDD&review=need` → setFilter('need') 니드휴먼뷰). 단 영준님 퇴근길 선호 = `--review --upload` **리뷰HTML URL**(로그인없이 사진+판정, 같은 노드라 동기화). SKILL.md 반영. → [[validate_sync_daily_val_node]]
-- **★daily_cycle 3단계 순서 확정(2026-06-20, 스킬 반영)**: `--date`(PARSeq 1차)→`--sonnet`(구글비전+YOLO 2차)→`--review --upload --date`(그날만). **--sonnet 빠뜨리면 need_sonnet이 구글비전 미경유로 리뷰에 통째 유입**(6/19 사고). 리뷰 코드수정(daily_cycle.py): run_review에 날짜필터(`_today`)+검침/계기번호 카드에 **Google Vision 후보**+계기번호 todo에 `google` 상태 포함.
+- 스킬 `~/.claude/skills/daily-analysis/SKILL.md`. 파이프라인 **데이터검증→need_human→후처리→엑셀/사진zip→awms**. 문서 `research/후처리_자동화_기획.md` [[postprocess_automation_plan]]. `research/ocr_poc/daily_cycle.py`=수집·검진.
+- **★5단계 순서(영준님)**: 누락정리→(작업자)채우기→정합성→OCR→need_human. **OCR부터 달려들지 말 것. 데일리=오늘거 기준만**(옛 타일 draft 섞지 말 것). A그룹(채울것)/B그룹(디스플레이오류·조회불가=못채움→임시저장 두고 넘어감).
+- **★daily_cycle 3단계 순서**: `--date`(PARSeq 1차)→`--sonnet`(구글비전+YOLO 2차)→`--review --upload --date`. **--sonnet 빠뜨리면 need_sonnet이 구글비전 미경유로 리뷰 통째 유입**(6/19 사고).
+- **★awms 필드없음 케이스**: 한전조회 1필드인데 실제 2종 4필드 넣어야 하는 계기 → awms 전송불가. **비고 "awms 필드없음" + 추가데이터 엑셀 별도.** **TODO: 종로앱 추가데이터 입력UI에 야간·무효·최대 필드 추가**(지금 1필드).
+- 계약종별·계약전력은 `jongno-combined/data/jongno-site-data.json` 계기객체에 있음(workStatus/replacement_list엔 없음). 검침 필드법칙=readingFieldsFor(계약종별+계약전력).
+- need_human은 데이터검증 페이지 딥링크로 일원화(`admin-validate.html?auth=admin&dataset=jongno&date=YYYYMMDD&review=need`). 영준님 퇴근길 선호 = `--review --upload` 리뷰HTML URL(같은 노드라 동기화). [[validate_sync_daily_val_node]]
+
 ## 종로 보조앱(snap) — 미완 항목만
-- **★v20260719.1~.3 연속배포 (2026-07-19, A33 USB설치+자동업뎃 push)** — 실기 피드백+리뷰 C-1: **.1** ①셔터음 1회 ②QR 동시모드 반복인식 가드(같은 seq+raw 2분 무시 — 카메라 재오픈 시 _qrDone 리셋으로 같은 QR 재업로드되던 것) ③초록 인식박스 복구(showCamera host.innerHTML=''가 캔버스 삭제 → 배포 후 한 번도 안 그려졌음) ④줌 무줌 고정(시작 시 zoom 1.0 리셋) ⑤**네이티브 재촬영 최신승리 = enqueueUniqueWork(day_seq_slot, REPLACE)**(리뷰 C-1 해소)+캐시 getFilesDir 영속화+워커 조기실패 failed 기록+재촬영 시 이전 up job 도크 정리. **.2** 셔터음 뚝 끊김→120ms 지수감쇠. **.3→.4** 카메라 **기본설정**=후면 카메라0(★강제 아님 — 영준님 정정. 저장된 선택/마지막 사용은 존중, 저장 없을 때만 카메라0. 1회 마이그레이션으로 기존 자동저장값 청소). **폰 실기 확인(2026-07-19 저녁)**: SNAP_UPLOAD 로그 감시로 촬영 10여장 전량 1초 내 업로드 성공(고유키·filesDir 정상), 셔터음 1회 확인, 영준님 "되는것같네". **남은 GATE: 전파불량 배경 시나리오 미실증**(네트워크 차단→촬영→화면끄기→복구 시 배경 자동업로드 — adb 네트워크 차단으로 재현 가능, 오늘 로그는 전부 즉시성공이라 미검증).
-- **★정밀리뷰 잔여 (2026-07-19, 보고서 scratchpad/snap-review-20260719.md)**: C-1은 위 v20260719.1로 해소. 남은 권고 = ②저장 시 temp 통째삭제→흡수 필드만 삭제(B-4·C-3 완화, 메인앱 push만) ③흡수 tempPhotos/jongno 하드코딩(구로 흡수불가, 구로 확장 전 RG 변수화) ④검침값 temp행 영영 미흡수(모달 재오픈 필요). 미해결 4건(기존 기록)은 그대로 유효.
-> 2인1조 사진분담 컴패니언. 상세·완료분은 [[jongno_snap_companion]] [[jongno_snap_bg_upload]] + `jongno-combined/research/보조앱_snap_설계.md`
-- **★v20260707.7 대량개선 배포완료 (2026-07-07)**: 신설 **실시간QR카메라**(프리뷰 중 QR→계기번호·제조월 자동저장, 재인식·인식초록박스·손전등·줌제거·상단X·하단3버튼·1:1) / 설정 **카메라선택**(카메라0/1/2)+**QR인식방식 옵션**(통합=실시간 / 기존=OS카메라+QR버튼)=광각고정 해결 / 철거·신설 완료 **초록띠**(사방균일, 활성옵션 기준) / 철거검침위 작업번호박스 / YOLO옵션제거 / 버튼·QR·셔터 피드백 / **사진 재촬영 덮어쓰기=수정가능**(setIfEmpty→set, Storage 고유경로로 이전사진 복구가능). 자동업뎃=snap-version.json+apk/(pages). ★**APP_VER(JS상수)이 자동업뎃 비교기준** → 버전범프 시 3곳(APP_VER+라벨2) 다 갱신(에이전트가 라벨만 바꿔 무한업뎃 뜰 뻔). **미검증=폰 실기 QR카메라 화질·인식률.**
-- **QR 직행경로+도크 업로드로그 = 배포완료(v20260617.1, 2026-06-17, APK URL설치)**. 원인규명: QR 계기번호는 사진과 달리 메인 직행경로가 없어 temp 고립(사진은 계기할당시 autoSave가 workStatus 직접기록). 수정=handleScanResult에 hit분기(할당계기면 statusRef 직접 update, ★draft의 new_meter_id는 ''빈문자열이라 setIfEmpty 아닌 `!cur`로 판정) + ujRegister/ujSet 도크('계기번호'-성공/실패, slot='qr' 구독건너뜀·재전송=QR재스캔). temp orphan·Storage apk 삭제 완료. **남은 확인: 폰서 QR 1건 스캔→도크 '성공'+계기 직접반영 동작 검증**(미검증). 빌드법=아래 로컬번들.
-- **검침값 사진 늘림(4필드 대응) — 조사완료·미구현(2026-06-17)**. 현재 snap=철거 검침 1칸(주간)뿐, 메인앱은 최대 4필드(주간·야간·무효·최대) 각 사진슬롯+입력칸. 영준님 결정: **매칭계기=계약정보로 자동판별(필요칸만), 미리찍기=모드토글(주간/야간/4필드)**. 구현 순서(advisor): ①메인앱 `replacement-modal.js:1253` payload에 `계약종별`·`계약전력` 2줄 저장(push 즉시반영, snap이 seqIndex.entry서 읽음) → Firebase 1건 검증 → ②snap utils.js import + readingFieldsFor 자동판별 + 모드토글 + temp 스키마 필드별(`removal_photos[fid]`/`removal_values[fid]`)·**하위호환(구 단일 removal_photo는 firstActive로)** ③`prefillTempForSeq` 다필드 순회. ★새 슬롯에 실패/재전송/job-status UI 만들지 말 것(snap GATE 안). snap=로컬번들(아래 배포법).
-- ★**로컬번들**: jongno-snap은 server.url 없음 → snap.html 변경은 **github push로 폰 반영 안 됨**. `cp jongno-combined/snap.html → jongno-snap/android/app/src/main/assets/public/index.html` + `assembleDebug` + `install -r`(`~/Projects/jongno-snap/deploy.sh RFCT710YTFW`) + 재시작 필수. cap sync 금지.
-- ★**백그라운드 업로드 실동작 미검증(GATE)** — 워커 자기로그 0줄. **사진찍고 즉시 화면끄기 60초 → 워커 doWork/Storage 로그+새 tempPhotos 생기는지** 확인 전엔 실패/재전송/job-status 구현 금지(advisor).
-- 시트 삭제메뉴(없음=촬영/앨범, 있음=+삭제[temp만·부모보호·슬롯단위], 실패=재전송/촬영/앨범) **미구현** — 위 GATE 검증 후.
+> 2인1조 사진분담 컴패니언. [[jongno_snap_companion]] + `jongno-combined/research/보조앱_snap_설계.md`
+- **★GATE: 전파불량 배경 업로드 미실증** — 네트워크 차단→촬영→화면끄기→복구 시 배경 자동업로드. adb 네트워크 차단으로 재현 가능. (평시 즉시업로드는 실기 확인됨)
+- **정밀리뷰 잔여**(`scratchpad/snap-review-20260719.md`): ①저장 시 temp 통째삭제→흡수 필드만 삭제 ②흡수 `tempPhotos/jongno` 하드코딩(구로 흡수불가, 구로 확장 전 RG 변수화) ③검침값 temp행 영영 미흡수(모달 재오픈 필요).
+- **검침값 사진 늘림(4필드) — 조사완료·미구현**: 현재 snap=철거 검침 1칸(주간)뿐. 영준님 결정=**매칭계기는 계약정보로 자동판별, 미리찍기는 모드토글**. 순서 ①메인앱 `replacement-modal.js:1253` payload에 `계약종별`·`계약전력` 저장 → Firebase 1건 검증 → ②snap utils.js import + readingFieldsFor + 모드토글 + temp 스키마 필드별(`removal_photos[fid]`/`removal_values[fid]`, **구 단일 `removal_photo`는 firstActive 하위호환**) ③`prefillTempForSeq` 다필드 순회. ★새 슬롯에 실패/재전송/job-status UI 만들지 말 것(GATE 밖).
+- 시트 삭제메뉴(없음=촬영/앨범, 있음=+삭제[temp만·부모보호·슬롯단위], 실패=재전송/촬영/앨범) **미구현** — GATE 검증 후.
+- **폰 실기 미검증**: QR카메라 화질·인식률.
 - ★**보조앱은 들어낼 수도 있음(영준님)** — 통합 깔끔히 제거 가능하게. 메인앱 흡수로직은 snap 없으면 no-op이라 무해.
+- ★**로컬번들**: jongno-snap은 server.url 없음 → snap.html 변경은 **github push로 폰 반영 안 됨**. `cp jongno-combined/snap.html → jongno-snap/android/app/src/main/assets/public/index.html` + `assembleDebug` + `install -r`(`~/Projects/jongno-snap/deploy.sh RFCT710YTFW`) + 재시작. cap sync 금지. ★APP_VER(JS상수)이 자동업뎃 비교기준 → 범프 시 3곳(APP_VER+라벨2) 다 갱신(안 하면 무한업뎃).
 
 ## 블로커
+- **★아미큐 진단코드 main 미머지 → 폰 실측 불가** (위 트랙 1번). ami-work Pages legacy build `errored`(2026-07-02~) 동반 확인 필요.
+- **★아미큐 변대주 DATA_NUM 재전송 실검증 대기** — backend 재구동됨, 현장 재전송 결과 미확인.
+- **아미큐 큐 담기 크래시 (LTE+기설+슬레이브) — 관찰로 하향**: v2.2.5 스트리밍+catch(Throwable) 반영. 재발 시 A33(RFCT710YTFW, USB 가능)으로 logcat 확정. 근본=사진 파일분리 TODO. [[amiqueue_queue_oom_crash]]
 - (제주 완료0 / 종로 미연계 = 영준님 지시로 제외)
-- (맥 업데이트 후유증 = 2026-07-17 재부팅으로 완전 해소. launchd 5종 자동기동+터널 URL 자동 재발행+양쪽 앱 접속 검증완료 — lsof·브라우저 스폰 정상. 도메인 사면 named 터널로 URL 영구고정 예정)
-- **아미큐 큐 담기 크래시 (LTE+기설+슬레이브) — 관찰로 하향(2026-07-17)**: 엊그제 1회 발생 후 어제 하루 실사용 무발생(영준님 확인). 재발 시 A33(RFCT710YTFW, 아미큐 설치됨·USB 가능)으로 logcat 확정.
-- **★아미큐 변대주 DATA_NUM 재전송 실검증 대기** — backend 재구동됨, 현장 재전송 결과 미확인
-- **★지식 재구조화 v1 완료 (2026-07-15)** — 옵시디언 core5+systems18 카드+git동기화(obsidian-vault private)+비주얼(홈대시보드·Canvas). **영준님 할 일: 옵시디언에 Obsidian Git 자동백업 설정 + 폰 옵시디언 repo 연결.** repo=시스템별 진입점 CLAUDE.md. 3층(옵정본/메모리recall/repo진입점). [[ami_knowledge_restructure_v1]]. ★public ami-work/CLAUDE.md 계정 정리했으나 js/auth.js 평문(클라인증)=이미 노출, 서버인증 전환 별도과제(감사 검토요청 메일 발송).
-
-## Firebase 요금제/사용량
-- **★ 7/1 Spark 복귀 필수**(대기 액션 참조) — 무료체험 7/2 종료 전. billing 계정=무료체험 크레딧 `01214A-10A39B-960378`(₩453,008, 7/2 종료). DB 이전(B안)은 안 함(리스크 과다).
-- 다운로드 100% 범인=workStatus 30초 폴링 → Part3 증분 리스너로 해결(완료). ami-work Storage 안 씀(사진은 ami-jongno만).
-- ocr-meter는 ami-jongno만 읽음. 분리위반: 종로 sync-meter-from-awms.html이 ami-work DB awmscomplete 사용 → ami-jongno 이전 검토(별건).
 
 ## 핵심 규칙 (사고 방지 — 영구)
+- **★독립 repo(jongno-combined)는 main 경로에서 소유 데스크가 직접 작업.** worktree로 쪼개지 않는다. 착수 전 `git status`로 타 세션 미커밋 변경 확인 — 남의 파일 딸려 커밋 금지. (2026-07-27 PM 결정)
+- **★팀 데스크 = 작업 + PM 보고만.** PM을 추측해 복수 터미널에 발송 금지. 배포·타팀 지시는 PM 경유. [[team_desk_report_pm_only]]
 - **awms 맥변경 = 모뎀 재결합(saveAct 아님), 마스터 먼저.** 통신팀(mob/cst)/계기팀(mob/mtr) 별개·교차호출 405. 모뎀맥·마스터/슬레이브는 통신팀 전용. → `awms_API_레퍼런스.md` 8.5.
-- **계기큐 코드수정 = ami-work/awms-queue-www push**(APK빌드 아님, USB 불필요). 네이티브(카메라/파일선택)만 빌드.
-- **종로팀 awms 아이디 = mdp2504271 전용 고정**(2026-06-26 확정) — 중구가 **별도 아이디 발급**받기로 해 같은아이디 공유 종료. 봉인차수 전환 불필요(종로 봉인차수=22차 397820263291 고정). 계기큐 [종로구]/[중구] **토글 제거**(v0626a). 공유시절 전환버튼(v0623a)·봉인 백업/원복 운영은 종료. 옛 종로 awms아이디=mdp2504381. ※봉인값(METR_SEAL_VAL)·차수(LV_CONS_NO)는 계정전역이라 한 계정 내선 그대로 이어짐(계기큐 빌더가 활성봉인차수 따라감, awms-saverow.js:651).
-- **계기큐 백그라운드 일괄등록 = awms fetch 오버레이로 해결**(APK). 다른앱 쓰며 등록 OK. ★단 배치 중 계기큐를 최근앱서 스와이프 종료 금지(Activity 죽으면 오버레이도 죽음). → [[awms_queue_webview_visibility_freeze]].
-- **종로맵 배포 시 APP_VERSION 갱신**(map.html/stats.html 통일) — 안 하면 옛화면 잔존.
-- **★Pages 배포 = APK·웹무관 제외 (2026-07-06)**: ami-work `pages.yml`이 `*.apk`·research/·worker/·design/·scripts·`*.py`·`*.xlsx`·ami_data_coords.json 제외(artifact 122MB→~25MB, "Deployment failed try again later"=CDN sync 타임아웃 근본해결, 지메일 실패알림 스팸 원인). **APK는 pages 아니라 `raw.githubusercontent.com/815dudwns/ami-work/main/파일명.apk`로 받음**(자동업뎃 apkUrl도 raw). 종로보조앱 자동업뎃만 예외=snap-version.json+apk/(pages). ★배포 실패 시 `rerun --failed`는 artifact 중복(count 2) 유발 → **빈 커밋 fresh run**으로 재배포.
-- **★작업앱(접근성/오버레이) = 금융앱 피싱탐지에 악성 오탐**: 토스 피싱제로가 헬퍼·아미큐·계기큐·OTP수집기(접근성/오버레이/알림접근 씀)를 원격제어 사기앱 패턴으로 감지→삭제권고+송금제한. MCS보조앱(snap)·웹앱(종로맵/아미맵)은 접근성 안 써서 무관. **작업폰/금융폰 분리가 근본**(작업자 폰 1대라 어려움). 영준님 "냅둬"(2026-07-07, 대응 보류).
+- **계기큐 코드수정 = ami-work/awms-queue-www push**(APK빌드 아님, USB 불필요). 네이티브(카메라/파일선택)만 빌드. **아미큐 www도 원격로드 = Pages 소스 브랜치(main)에 있어야 반영된다.**
+- **종로팀 awms 아이디 = mdp2504271 전용 고정** — 중구 별도 아이디 발급으로 공유 종료. 종로 봉인차수=22차 397820263291 고정. 계기큐 [종로구]/[중구] 토글 제거(v0626a). 옛 종로 awms아이디=mdp2504381. ※봉인값(METR_SEAL_VAL)·차수(LV_CONS_NO)는 계정전역.
+- **계기큐 백그라운드 일괄등록 = awms fetch 오버레이로 해결**(APK). ★배치 중 계기큐를 최근앱서 스와이프 종료 금지(Activity 죽으면 오버레이도 죽음). [[awms_queue_webview_visibility_freeze]]
+- **종로맵 배포 시 APP_VERSION 갱신**(map.html/stats.html 통일) + `?v=` 캐시버스트 + **메뉴 하단 버전라벨** 3종 함께. 안 하면 옛화면 잔존. 배포 보고 시 버전 표시(영준님이 폰 버전으로 새코드/캐시 판별). [[push_show_version]]
+- **★Pages 배포 = APK·웹무관 제외**: ami-work `pages.yml`이 `*.apk`·research/·worker/·design/·scripts·`*.py`·`*.xlsx`·ami_data_coords.json 제외. **APK는 pages 아니라 `raw.githubusercontent.com/815dudwns/ami-work/main/<파일>.apk`**. 종로 snap 자동업뎃만 예외(snap-version.json+apk/). ★배포 실패 시 `rerun --failed`는 artifact 중복 → **빈 커밋 fresh run**으로 재배포.
+- **★작업앱(접근성/오버레이) = 금융앱 피싱탐지에 악성 오탐**: 토스 피싱제로가 헬퍼·아미큐·계기큐·OTP수집기를 원격제어 사기앱으로 감지→삭제권고+송금제한. 영준님 "냅둬"(대응 보류).
 - **TOU = 정적파일(data/tou-data.json), Firebase 아님 — push로 반영.**
-- **★site-data.json 변경 시 `python3 scripts/gen_site_version.py` 필수**(Part2 캐시-우선 로더 — 안 하면 작업자 폰 옛 IDB캐시 유지). → [[amimap_part2_sitedata_cache]].
-- **아미맵 마커 = 좌표 기준 그룹핑**(같은 좌표 여러 지번 1마커, 재건축 한건물 통합). 완료 시 구성 지번 전부 기록. → [[amimap_marker_coord_merge]].
-- **종로맵 검침값 입력규칙** — 자릿수 단상(17/19/25/26/27/53)5·나머지6, 최대전력만 7(4자리.2자리), 순서 주·야·무효·최대, 소수칸 inputmode=decimal, 최대전력≥10000 저장경고. 최대↔무효 작업자혼동 빈발. → [[jongno_reading_input_rules]].
+- **★site-data.json 변경 시 `gen_site_version.py`(폰 IDB캐시) + `gen_stats_index.py`(stats 분모) 필수.** ★`upload_sitedata.py`는 **없는 스크립트**(옛 기록 오류) — Firebase siteData 갱신은 REST PUT 수동이고 아미큐 영향이라 신중. ★`gen_stats_index.py`는 Firebase 아닌 **로컬 파일 합산**(site-data.json + `site-data-completed-archive-*.json` + rework-data.json). **종로/철거 대조 키=고객번호**(계기번호는 교체로 바뀜). [[실효계기_엑셀_라이프사이클]]
+- **아미맵 마커 = 좌표 기준 그룹핑**(같은 좌표 여러 지번 1마커, 재건축 한건물 통합). 완료 시 구성 지번 전부 기록. [[amimap_marker_coord_merge]]
+- **종로맵 검침값 입력규칙** — 자릿수 단상(17/19/25/26/27/53)5·나머지6, 최대전력만 7(4자리.2자리), 순서 주·야·무효·최대, 소수칸 inputmode=decimal, 최대전력≥10000 저장경고. 최대↔무효 작업자혼동 빈발. [[jongno_reading_input_rules]]
 - **28(완료) 되돌리기 불가**(계기팀). 통신팀은 전송 전이면 삭제·수정 자유.
-- **주소상태(workStatus)는 무조건 Firebase.** 종로DB=ami-jongno.
-- **★실효계기 데이터 단일원본 = `data/site-data.json`(아미맵 직접). stats 분모 = `data/stats-site-index.json`(정적). Firebase siteData(charger4eleccar)는 아미큐 조회용.** site-data.json 갱신 시 **`gen_site_version.py`(폰 IDB캐시) + `gen_stats_index.py`(stats 분모)** 실행. ★★`upload_sitedata.py`는 **없는 스크립트**(옛 기록 오류) — Firebase siteData 갱신은 REST PUT 수동이고 아미큐 영향이라 신중(2026-07-05 재구성 시 Firebase는 26,588 유지). ★★`gen_stats_index.py`는 2026-07-05부터 **Firebase 아닌 로컬 파일 합산**(site-data.json + `site-data-completed-archive-*.json` + rework-data.json). → [[실효계기_엑셀_라이프사이클]]. **종로/철거 대조 키=고객번호(계기번호는 교체로 바뀜).**
-- **ami-work/jongno 코드는 PM 직접 수정**(에이전트 권한거부). 계기큐 APK는 빌드 가능.
-- 종로 import: 실작업(source없음) 보호. 추가계기·추가데이터는 awms 안 감.
-- **AUTH/FORCE_LOGOUT_VERSION 평소 배포에 건드리지 말 것** — 잦은 범프가 "앱 초기화" 원인 [[ami_work_init_logout_fix]].
-- **awms 로그인 OTP 자동입력** = 카톡 OTP를 네이티브 접근성 서비스가 읽어 webview에 입력. 헬퍼=자기앱 내장 / 아미큐=재빌드 시 내장 / 계기큐=A31 별도수집기→Firebase→inject 폴링. 로그태그 `AWMS_OTP`(수집기 `OTPCOL`). 전부 [[awms_otp_amiqueue_embed]].
+- **주소상태(workStatus)는 무조건 Firebase.** 종로DB=**ami-jongno**(ami-work 아님). 통째삭제 보호규칙 적용(2026-07-13).
+- **종로 workStatus 주소키 제약** — 주소당 meter_state 1개라 **완전완료만 complete, 일부완료는 hold(파랑)**. [[jongno_workstatus_address_key_partial]]
+- 종로 import: 실작업(source없음) 보호. 추가계기·추가데이터는 awms 안 감. 삭제 시 `replacement_list`에 worker≠awms·사진 있으면 삭제 금지. [[jongno_delete_protect]]
+- **AUTH/FORCE_LOGOUT_VERSION 평소 배포에 건드리지 말 것** — 잦은 범프가 "앱 초기화" 원인. [[ami_work_init_logout_fix]]
+- **awms 로그인 OTP 자동입력** = 카톡 OTP를 네이티브 접근성 서비스가 읽어 webview 입력. 헬퍼=자기앱 내장 / 아미큐=재빌드 시 내장 / 계기큐=A31 별도수집기→Firebase→inject 폴링. 로그태그 `AWMS_OTP`(수집기 `OTPCOL`). [[awms_otp_amiqueue_embed]]
+- **Firebase Storage 사진 자동삭제 금지** — 증거물, lifecycle 삭제 X. 정리는 수동만. [[firebase_storage_no_autodelete]]
