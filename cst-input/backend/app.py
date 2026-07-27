@@ -68,11 +68,31 @@ def _parse_cookie_header(cookie_str: str) -> dict:
     return out
 
 # 설정값 — /api/config로 갱신 (헬퍼 설정페이지: 지사/동행/계정 + awms 공사설정)
-CONFIG = {"BUSI_NUM": "C11G250023", "WORKER1_SEQ": "273584", "WORKER2_SEQ": "20118",
+CONFIG = {"BUSI_NUM": "202651005002", "WORKER1_SEQ": "273584", "WORKER2_SEQ": "20118",
           "DEPT1": "3970", "DEPT2": "7793",
           "WITH_YN": "", "CRED_ID": "", "CRED_PW": ""}   # WITH_YN=동행시공, CRED=awms계정(자동입력용)
-# WORKER1_SEQ=정본 기본값(=로그인 rememberedId, pull시 자동덮어씀), WORKER2_SEQ=정본 작업조2(설정페이지/공사설정 override).
-# 631 NOT NULL 재발 방지: 빈값이면 saveAct가 거부(_assert_config). awms 공사설정(menu=01040000) 조회 반영은 본구현 TODO.
+# WORKER1_SEQ=정본 기본값(=로그인 rememberedId, pull시 자동덮어씀).
+# WORKER2_SEQ=awms 저장 작업조2 — pull_workgroup(getUserWorkGroup)이 세션 pull/push 때 awms 저장값으로 갱신(하드코딩 20118은 폴백). 폰은 WORKER2 안 push(설정 read-only).
+# 631 NOT NULL 재발 방지: 빈값이면 saveAct가 거부(_assert_config). (awms 공사설정 조회 반영 2026-07-22 구현완료)
+# CONFIG persist — 폰이 지정한 설정값(지사/동행/계정)이 재기동 기본값 리셋으로 날아가던 문제 해결(2026-07-22).
+#   폰은 지사를 재선택할 때만 pushConfig → 저장 안 하면 재시작 후 기본값(7793)으로 등록됨. session.json처럼 config.json에 persist.
+CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
+
+
+def _save_config():
+    try:
+        CONFIG_FILE.write_text(json.dumps(CONFIG), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _load_config():
+    """폰이 지정한 설정값(DEPT2/WITH_YN/CRED)을 디스크에서 복원 — 재기동해도 설정 유지."""
+    try:
+        saved = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        CONFIG.update({k: v for k, v in saved.items() if k in CONFIG})
+    except Exception:
+        pass
 
 
 def _adb_forward_helper():
@@ -115,6 +135,7 @@ def pull_session():
     if rid and str(rid).isdigit():
         CONFIG["WORKER1_SEQ"] = rid
     _save_session()
+    pull_workgroup()   # awms 저장 작업조(WORKER2_SEQ 등) 반영
     return SESSION
 
 
@@ -145,6 +166,33 @@ def session_alive():
         return r.status_code == 200 and "json" in r.headers.get("content-type", "")
     except Exception:
         return False
+
+
+def pull_workgroup():
+    """awms getUserWorkGroup으로 저장된 작업조(WORKER2_SEQ 등)를 받아와 CONFIG에 반영.
+    awms 공사설정이 정본 — 하드코딩/폰 대신 이 저장값을 사용(2026-07-22 본구현, 75줄 TODO 해결).
+    응답 예: [{"WORKER1_SEQ":"273584","WORKER2_SEQ":"7290005","WORKER3_SEQ":"",...}].
+    실패가 조용히 묻히던 문제(PM 지시 2026-07-27) — 실패/비정상 응답 전부 로그로 남긴다."""
+    try:
+        r = requests.get(f"{AWMS}/getUserWorkGroup", headers=_headers(), timeout=15)
+        if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
+            arr = r.json()
+            if arr and isinstance(arr, list):
+                wg = arr[0]
+                before = {k: CONFIG.get(k) for k in ("WORKER1_SEQ", "WORKER2_SEQ", "WORKER3_SEQ")}
+                for k in ("WORKER1_SEQ", "WORKER2_SEQ", "WORKER3_SEQ"):
+                    v = str(wg.get(k, "") or "").strip()
+                    if v:   # awms 저장값 있을 때만 갱신(빈값이면 기존/폴백 유지)
+                        CONFIG[k] = v
+                after = {k: CONFIG.get(k) for k in ("WORKER1_SEQ", "WORKER2_SEQ", "WORKER3_SEQ")}
+                print(f"[pull_workgroup] awms 응답={wg} 반영전={before} 반영후={after}", flush=True)
+            else:
+                print(f"[pull_workgroup] 빈/비배열 응답 — 반영 안 함: {arr!r}", flush=True)
+        else:
+            print(f"[pull_workgroup] 실패 응답 status={r.status_code} content-type="
+                  f"{r.headers.get('content-type','')} body={r.text[:200]!r}", flush=True)
+    except Exception as e:
+        print(f"[pull_workgroup] 예외로 실패(조용히 묻히던 부분) — {type(e).__name__}: {e}", flush=True)
 
 
 # ── 통신방식 자동판별 (헬퍼 awms-bridge-inject.js macToSuffix/inferMasterINST_S 이식) ──
@@ -287,6 +335,9 @@ from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])  # 폰 앱/터널에서 호출
 _load_session()   # 재기동 시 디스크 세션 복원 (무USB 자립)
+_load_config()    # 폰이 지정한 설정값(지사/동행/계정) 복원 — 기본값 리셋 방지(설정값으로 등록)
+if SESSION.get("jsessionid"):
+    pull_workgroup()   # 재기동 시 세션 있으면 awms 저장 작업조(WORKER2_SEQ) 즉시 반영 — 20118 노출 구간 제거
 _cleanup_old_temp(0)   # 기동 시 남은 임시 사진폴더 전부 정리(in-flight 없음)
 
 
@@ -325,19 +376,82 @@ def api_session_push(body: dict = Body(...)):
     if rid and str(rid).isdigit():
         CONFIG["WORKER1_SEQ"] = rid
     _save_session()
+    pull_workgroup()   # 폰이 세션 push할 때마다 awms 저장 작업조(WORKER2_SEQ) 반영
     return {"ok": True, "alive": session_alive(), "account": rid,
             "worker1": CONFIG["WORKER1_SEQ"], "worker2": CONFIG["WORKER2_SEQ"]}
 
 
 @app.get("/api/config")
 def api_config():
-    return CONFIG
+    out = dict(CONFIG)
+    out["WORKER1_NM"] = _worker_name(CONFIG.get("WORKER1_SEQ", ""))
+    out["WORKER2_NM"] = _worker_name(CONFIG.get("WORKER2_SEQ", ""))
+    out["WORKER3_NM"] = _worker_name(CONFIG.get("WORKER3_SEQ", ""))
+    out["BUSI_NM"] = _busi_name(CONFIG.get("BUSI_NUM", ""))
+    return out
 
 
 @app.post("/api/config")
 def api_config_set(body: dict = Body(...)):
     CONFIG.update({k: v for k, v in body.items() if k in CONFIG})
+    _save_config()   # 폰 설정값(지사 등) persist — 재기동해도 유지
     return CONFIG
+
+
+# ── 이름 해석 (설정탭 표시용, 영준님 지시 2026-07-27) ──
+# WORKER*_SEQ/BUSI_NUM은 코드뿐이라 화면엔 이름이 필요. 실측(getUserList DEPT1=3970&FLAG=M10,
+# BLON_CL_CD=='20'만 KDN 실직원, 나머지는 mdp계정/외주코드)으로 확인된 매핑 — 하드코딩 아님, 매 조회 API 실호출.
+# getUserList가 13000+건이라 무겁다 → 캐시(1시간). awms 세션 없으면 조용히 빈 매핑(코드만 표시로 폴백).
+_dir_cache = {"map": {}, "ts": 0.0}
+_busi_cache = {"map": {}, "ts": 0.0}
+
+
+def _worker_directory() -> dict:
+    now = time.time()
+    if _dir_cache["map"] and now - _dir_cache["ts"] < 3600:
+        return _dir_cache["map"]
+    try:
+        r = requests.get(f"{AWMS}/getUserList?DEPT1=3970&FLAG=M10", headers=_headers(), timeout=20)
+        body = r.json() if "json" in r.headers.get("content-type", "") else None
+        arr = body if isinstance(body, list) else ((body or {}).get("data") or (body or {}).get("list") or [])
+        m = {}
+        for o in arr:
+            if o.get("DEPT1") == "3970" and o.get("BLON_CL_CD") == "20":
+                seq = str(o.get("USER_ID", "")).strip()
+                nm = str(o.get("USER_NM", "")).strip()
+                if seq and nm and seq not in m:
+                    m[seq] = nm
+        if m:
+            _dir_cache["map"] = m
+            _dir_cache["ts"] = now
+    except Exception:
+        pass
+    return _dir_cache["map"]
+
+
+def _worker_name(seq) -> str:
+    return _worker_directory().get(str(seq or "").strip(), "")
+
+
+def _busi_directory() -> dict:
+    now = time.time()
+    if _busi_cache["map"] and now - _busi_cache["ts"] < 3600:
+        return _busi_cache["map"]
+    try:
+        r = requests.get(f"{AWMS}/getBusiList?DEPT1={CONFIG['DEPT1']}", headers=_headers(), timeout=15)
+        body = r.json() if "json" in r.headers.get("content-type", "") else None
+        arr = body if isinstance(body, list) else ((body or {}).get("data") or (body or {}).get("list") or [])
+        m = {str(o.get("CONS_NO", "")).strip(): str(o.get("CONS_NM", "")).strip() for o in arr if o.get("CONS_NO")}
+        if m:
+            _busi_cache["map"] = m
+            _busi_cache["ts"] = now
+    except Exception:
+        pass
+    return _busi_cache["map"]
+
+
+def _busi_name(busi_num) -> str:
+    return _busi_directory().get(str(busi_num or "").strip(), "")
 
 
 # ── 변대주번호 자동조회 (아미큐 자동채움, 영준님 2026-07-02) ──────────
