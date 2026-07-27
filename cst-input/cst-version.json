@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.5",
+  "versionName": "2.2.6",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "큐 담기 크래시(OOM) 수정 — 사진 많을 때 담자마자 튕기던 문제. saveQueue 스트리밍 저장 + OOM 방어."
+  "notes": "큐 담기 크래시(OOM) 수정 + 설정탭에 공사명·작업자명 표시(예: 26년 통신망보강공사 / 장진교)"
 }
