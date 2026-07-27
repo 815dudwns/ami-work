@@ -308,15 +308,17 @@ GET /ami/mob/cst/mobCst1000/getMainList
 
 영준님 지시로 등록건 1건(`INSTR_NUM=08550107650`, `MAC_MODEM=01253657627`, WORK_STEP=28)을
 getMainList/getDetail로 조회해 §8.3/§7 기존 필드목록과 diff한 결과, 아래가 신규 키다.
-**"사전체결여부" 확정 전 — Y/N 스타일 후보 2개, 확정 안 됨(추측 금지, PM/영준님 확인 대기).**
 
-- `GAETONG_YN` = `"개통"` (getMainList에만 존재, getDetail엔 없음) — 값이 Y/N 리터럴이 아니라 한글 단어.
-- `BUILTIN_YN` = `"N"` (getDetail에만 존재) — 값이 리터럴 `"N"`이라 **가장 유력한 후보.**
-- 그 외 신규(이 테스트건에선 전부 빈값 — 별도 안전정보류 클러스터로 추정, 사전체결과 무관 가능성):
+★★ **"사전체결여부" = `BUILTIN_YN` 확정(영준님 확인, 2026-07-27). 항상 `N`.**
+saveAct 빌더 `_MASTER_BASE`(app.py)에 `"BUILTIN_YN": "N"` 리터럴 고정 반영 완료 — `_common()`을
+마스터/슬레이브 둘 다 이 dict를 베이스로 쓰므로 양쪽 경로 자동 커버. 빈문자열 금지(리터럴 "N").
+- `GAETONG_YN` = `"개통"` (getMainList에만 존재) — **사전체결여부 아님**(영준님 확인). 정체 미상, 손대지 않음.
+- 그 외 신규(이 테스트건에선 전부 빈값 — 별도 안전정보류 클러스터로 추정, **이번 범위 아님, 건드리지 않음**):
   `DANGER_INFO_SEQ`, `NEAR_ROAD`, `TOUGH_ROAD`, `LONG_DIS`, `MORE10`, `GOSO_LOCA`, `PHASE3`, `CORPS`,
   `ETC`(ETC1/2 외 번호없는 것), `ETC3`.
 - 표시용 신규 companion 필드(값 아님): `WORK_STEP_NM`("완료"), `MODEM_DIV_NM`("마스터").
 - getMainList 전용 신규(페이지네이션 추정, 필드 성격 아님): `CNT`, `RNUM`.
+- 계기팀(MOBMTR/계기큐)은 무관(영준님 확인) — 전파 안 함.
 
 ★현재 saveAct는 이 필드들을 안 보내도 등록 정상 완료됨(이 테스트건도 완료 상태로 확인) —
 **필수(NOT NULL) 아님, 지금 등록 실패 상황 아님.**

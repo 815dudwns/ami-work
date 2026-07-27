@@ -295,6 +295,9 @@ _MASTER_BASE = {
     "WORK_STEP": "28", "MTR_WITH_YN": "Y", "FCLTY_DIV": "20", "EXT_CONN_DEV": "N",
     "GUBUN": "01", "DCU_SIGONG_CD": "N", "TDU_USE_YN": "N", "mbInsertCnt": "0",
     "ERR_LIST": "[]", "SEAL_UPD": "N", "DANGER_INFO_FLAG": "2",
+    # BUILTIN_YN = 사전체결여부(awms 2026-07-27 신규필드, 영준님 확정 2026-07-27). 항상 N.
+    # 빈문자열 금지 — 봉인 필드처럼 빈값이면 awms Java parseInt가 500 낼 전례([[awms_saveact_500_fix]]).
+    "BUILTIN_YN": "N",
     # 봉인/기타 빈필드는 _empty_fields()로 채움
 }
 _EMPTY_FIELDS = ["REMV_MEMO", "IND_CBD_DIV_CD", "FAC1", "LINE_FAIR", "USE_CT", "USE_POWER",
