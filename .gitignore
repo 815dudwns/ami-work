@@ -30,7 +30,12 @@ sort-demo.html
 .claude/settings.local.json
 
 __pycache__/
+# 자격증명 포함 — 절대 커밋 금지 (repo가 public + Pages 배포라 커밋 즉시 공개 노출)
 cst-input/backend/session.json
+cst-input/backend/config.json
+cst-input/backend/config.json.*
+cst-input/backend/session.json.*
+cst-input/backend/*.bak-*
 
 # 실험 산출물 착지 공간 (git 제외)
 scratch/
