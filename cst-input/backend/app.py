@@ -331,13 +331,74 @@ def api_session_push(body: dict = Body(...)):
 
 @app.get("/api/config")
 def api_config():
-    return CONFIG
+    out = dict(CONFIG)
+    out["WORKER1_NM"] = _worker_name(CONFIG.get("WORKER1_SEQ", ""))
+    out["WORKER2_NM"] = _worker_name(CONFIG.get("WORKER2_SEQ", ""))
+    out["WORKER3_NM"] = _worker_name(CONFIG.get("WORKER3_SEQ", ""))
+    out["BUSI_NM"] = _busi_name(CONFIG.get("BUSI_NUM", ""))
+    return out
 
 
 @app.post("/api/config")
 def api_config_set(body: dict = Body(...)):
     CONFIG.update({k: v for k, v in body.items() if k in CONFIG})
     return CONFIG
+
+
+# ── 이름 해석 (설정탭 표시용, 영준님 지시 2026-07-27) ──
+# WORKER*_SEQ/BUSI_NUM은 코드뿐이라 화면엔 이름이 필요. 실측(getUserList DEPT1=3970&FLAG=M10,
+# BLON_CL_CD=='20'만 KDN 실직원, 나머지는 mdp계정/외주코드)으로 확인된 매핑 — 하드코딩 아님, 매 조회 API 실호출.
+# getUserList가 13000+건이라 무겁다 → 캐시(1시간). awms 세션 없으면 조용히 빈 매핑(코드만 표시로 폴백).
+_dir_cache = {"map": {}, "ts": 0.0}
+_busi_cache = {"map": {}, "ts": 0.0}
+
+
+def _worker_directory() -> dict:
+    now = time.time()
+    if _dir_cache["map"] and now - _dir_cache["ts"] < 3600:
+        return _dir_cache["map"]
+    try:
+        r = requests.get(f"{AWMS}/getUserList?DEPT1=3970&FLAG=M10", headers=_headers(), timeout=20)
+        body = r.json() if "json" in r.headers.get("content-type", "") else None
+        arr = body if isinstance(body, list) else ((body or {}).get("data") or (body or {}).get("list") or [])
+        m = {}
+        for o in arr:
+            if o.get("DEPT1") == "3970" and o.get("BLON_CL_CD") == "20":
+                seq = str(o.get("USER_ID", "")).strip()
+                nm = str(o.get("USER_NM", "")).strip()
+                if seq and nm and seq not in m:
+                    m[seq] = nm
+        if m:
+            _dir_cache["map"] = m
+            _dir_cache["ts"] = now
+    except Exception:
+        pass
+    return _dir_cache["map"]
+
+
+def _worker_name(seq) -> str:
+    return _worker_directory().get(str(seq or "").strip(), "")
+
+
+def _busi_directory() -> dict:
+    now = time.time()
+    if _busi_cache["map"] and now - _busi_cache["ts"] < 3600:
+        return _busi_cache["map"]
+    try:
+        r = requests.get(f"{AWMS}/getBusiList?DEPT1={CONFIG['DEPT1']}", headers=_headers(), timeout=15)
+        body = r.json() if "json" in r.headers.get("content-type", "") else None
+        arr = body if isinstance(body, list) else ((body or {}).get("data") or (body or {}).get("list") or [])
+        m = {str(o.get("CONS_NO", "")).strip(): str(o.get("CONS_NM", "")).strip() for o in arr if o.get("CONS_NO")}
+        if m:
+            _busi_cache["map"] = m
+            _busi_cache["ts"] = now
+    except Exception:
+        pass
+    return _busi_cache["map"]
+
+
+def _busi_name(busi_num) -> str:
+    return _busi_directory().get(str(busi_num or "").strip(), "")
 
 
 # ── 진단: getUserWorkGroup/getBusiList 원시응답 그대로 (공사명 필드 실측용, 영준님 지시 2026-07-27) ──
