@@ -15,7 +15,7 @@
 ### 데스크 상태 (상세는 각 경로, 본문 복사 금지)
 - **ocr-meter**: 아미큐 실패표본 계약 확정 반영·완료건 정리 — `workspaces/ocr-meter/ocr-meter/HANDOFF.md`
 - **계기팀(gyegi)**: 종로맵 마지막작업일 마커 작업 중 — `workspaces/gyegi/HANDOFF.md` (2026-07-28 갱신)
-- **통신팀(tongsin)**: 이번 세션 작업 대부분 수행(아미큐 26년공사·v2.2.7·BUILTIN_YN·OCR표본). 데스크 HANDOFF는 2026-07-23판 그대로 — 다음 세션 시작 시 갱신 확인 필요 — `workspaces/통신팀/HANDOFF.md`
+- **통신팀(tongsin)**: 이번 세션 작업 대부분 수행(아미큐 26년공사·v2.2.7·BUILTIN_YN·OCR표본). 갱신 완료 — `workspaces/통신팀/HANDOFF.md` (2026-07-28, 커밋 dec221e1)
 - **검증팀(geomjeung)**: 이번 세션 활동 없음. HANDOFF 2026-07-23판 — `workspaces/검증팀/HANDOFF.md`
 
 ## 진행중 트랙
