@@ -11,8 +11,13 @@ import requests
 import time
 import re
 import os
+import sys
 
-API_KEY = 'e46ada1811d067b4acf77d992a13b52e'
+# 공용 자격증명 로더 (repo 루트 스크립트라 scripts/ 를 경로에 추가)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts'))
+from _env import require_env
+
+API_KEY = require_env('KAKAO_REST_API_KEY')
 EXCEL_FILE = '/Users/woodelight/Library/Mobile Documents/com~apple~CloudDocs/TalkFile_복사본 SKT 중계기 AMI 모뎀 설치요청건0411.xlsx'
 OUTPUT_JSON = '/Users/woodelight/Projects/ami-work/data/skt-data.json'
 
