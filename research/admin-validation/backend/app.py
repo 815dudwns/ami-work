@@ -3946,7 +3946,7 @@ def _cdp_eval_queue(expr: str, *, await_promise: bool = False, timeout: int = 10
     import subprocess
     try:
         r = subprocess.run(
-            ["adb", "shell", "pidof", PKG],
+            [mtr_direct.ADB, "shell", "pidof", PKG],
             timeout=5, capture_output=True, text=True,
         )
         pid_raw = (r.stdout or "").strip().split()
@@ -3960,7 +3960,7 @@ def _cdp_eval_queue(expr: str, *, await_promise: bool = False, timeout: int = 10
     default_sock = f"webview_devtools_remote_{pid}"
     try:
         r2 = subprocess.run(
-            ["adb", "shell", "cat", "/proc/net/unix"],
+            [mtr_direct.ADB, "shell", "cat", "/proc/net/unix"],
             timeout=5, capture_output=True, text=True,
         )
         sock_name = default_sock
@@ -3978,7 +3978,7 @@ def _cdp_eval_queue(expr: str, *, await_promise: bool = False, timeout: int = 10
     # 3) adb forward
     try:
         subprocess.run(
-            ["adb", "forward", f"tcp:{CDP_PORT}", f"localabstract:{sock_name}"],
+            [mtr_direct.ADB, "forward", f"tcp:{CDP_PORT}", f"localabstract:{sock_name}"],
             timeout=5, capture_output=True, check=True,
         )
     except Exception as e:
@@ -4042,7 +4042,7 @@ def _cdp_eval_queue(expr: str, *, await_promise: bool = False, timeout: int = 10
     finally:
         try:
             subprocess.run(
-                ["adb", "forward", "--remove", f"tcp:{CDP_PORT}"],
+                [mtr_direct.ADB, "forward", "--remove", f"tcp:{CDP_PORT}"],
                 timeout=5, capture_output=True,
             )
         except Exception:
@@ -4067,7 +4067,7 @@ def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
     # 화면 깨우기 (freeze 방지, 실패 무시)
     try:
         subprocess.run(
-            ["adb", "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
+            [mtr_direct.ADB, "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
             timeout=5, capture_output=True,
         )
     except Exception:
@@ -4076,7 +4076,7 @@ def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
     # pid 탐색
     try:
         r = subprocess.run(
-            ["adb", "shell", "pidof", PKG],
+            [mtr_direct.ADB, "shell", "pidof", PKG],
             timeout=5, capture_output=True, text=True,
         )
         pid_raw = (r.stdout or "").strip().split()
@@ -4090,7 +4090,7 @@ def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
     default_sock = f"webview_devtools_remote_{pid}"
     try:
         r2 = subprocess.run(
-            ["adb", "shell", "cat", "/proc/net/unix"],
+            [mtr_direct.ADB, "shell", "cat", "/proc/net/unix"],
             timeout=5, capture_output=True, text=True,
         )
         sock_name = default_sock
@@ -4109,7 +4109,7 @@ def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
     # adb forward 설정
     try:
         subprocess.run(
-            ["adb", "forward", f"tcp:{CDP_PORT}", f"localabstract:{sock_name}"],
+            [mtr_direct.ADB, "forward", f"tcp:{CDP_PORT}", f"localabstract:{sock_name}"],
             timeout=5, capture_output=True, check=True,
         )
     except Exception as e:
@@ -4264,7 +4264,7 @@ def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
         # forward 반드시 정리
         try:
             subprocess.run(
-                ["adb", "forward", "--remove", f"tcp:{CDP_PORT}"],
+                [mtr_direct.ADB, "forward", "--remove", f"tcp:{CDP_PORT}"],
                 timeout=5, capture_output=True,
             )
         except Exception:
@@ -4897,7 +4897,7 @@ def post_transmit_login(req: TransmitLoginReq):
     import subprocess
     try:
         subprocess.run(
-            ["adb", "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
+            [mtr_direct.ADB, "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
             timeout=5, capture_output=True,
         )
     except Exception:
@@ -4965,7 +4965,7 @@ def get_transmit_session(dataset: str = Query(...)):
     import subprocess
     try:
         subprocess.run(
-            ["adb", "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
+            [mtr_direct.ADB, "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
             timeout=5, capture_output=True,
         )
     except Exception:
