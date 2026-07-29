@@ -3828,6 +3828,38 @@ def post_transmit_seal_sync(dataset: str = Query(...)):
             "account": mtr_direct.SESSION.get("rememberedId") or ""}
 
 
+# ── POST /transmit/reset-row ──────────────────────────────────────────────────
+@app.post("/transmit/reset-row")
+def post_transmit_reset_row(
+    dataset: str = Query(...),
+    mid: str = Query(..., description="철거 계기번호"),
+    apply: bool = Query(False, description="기본 dry-run. True여야 실제 삭제"),
+):
+    """임시저장(25) 1건 원복 — awms에서 삭제해 20(대기)으로 되돌린다.
+
+    ★설계 기준 (영준님 확정 2026-07-29):
+      - 25 = 삭제 가능. 이 이식은 25 한정이므로 원복도 **25 전용**.
+      - 28 = ★삭제 불가(검침값 수정만 가능). 여기서 28이 오면 거부한다.
+    기본은 dry-run이라 apply=true를 줘야 실제로 지운다.
+
+    ※ DB(workStatus)의 awms_synced/awms_seal 흔적은 **여기서 지우지 않는다.**
+      awms 삭제 후에는 DB와 awms가 어긋나므로(등록됨으로 표시되나 awms엔 없음)
+      호출측이 db_hint를 보고 별도로 정리해야 한다. 되돌리기 어려운 쓰기라 의도적으로 분리했다.
+    """
+    if not mtr_direct.session_alive():
+        raise HTTPException(status_code=502, detail="세션 없음/만료")
+
+    res = mtr_direct.reset_row_25(mid, dry_run=not apply)
+
+    db_hint = ""
+    if apply and res.get("ok"):
+        db_hint = (f"awms 삭제 완료. workStatus/{dataset}/<주소>/replacement_list/{mid} 의 "
+                   f"awms_synced·awms_synced_at·awms_seal 이 남아 있으면 별도 정리 필요"
+                   f"(안 지우면 '이미 등록됨'으로 재등록에서 제외될 수 있음).")
+
+    return {**res, "dataset": dataset, "mid": mid, "db_hint": db_hint}
+
+
 # ── GET /transmit/busilist ────────────────────────────────────────────────────
 @app.get("/transmit/busilist")
 def get_transmit_busilist(dataset: str = Query(..., description="dataset id")):

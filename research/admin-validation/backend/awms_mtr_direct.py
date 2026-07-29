@@ -734,6 +734,96 @@ def save_final_seal(cons_no: str, final_seal: str) -> dict:
         return {"ok": False, "status_code": 0, "body": str(e)}
 
 
+# ── 원복(임시저장 삭제) ────────────────────────────────────────────────────────
+# ★설계 기준 (영준님 확정 2026-07-29):
+#   - 임시저장(25) = resetRows로 삭제 가능 → 25→20 복귀. 이 이식은 25 한정이므로 원복도 25 전용.
+#   - 완료(28)    = ★삭제 불가. 검침값 수정만 가능(mobMtr5000/saveRow, EX_WORK_STEP=28+RE_SAVE_YN=Y,
+#                   신설번호 잠김). 통신팀 MOBCST 완료건은 saveAct 재전송 시 모뎀결합 unique 제약으로
+#                   500 → awms UI로만 수정 가능.
+#   - 따라서 **원복 자동화 범위 = 25 삭제까지. 28은 설계상 손대지 않는다.**
+#
+# ⚠ resetRows는 실호출 페이로드가 캡처된 적 없다(문서상 "행객체 배열 POST"만).
+#   통신팀 deleteRows(mobCst1000Api.deleteRows(checkedItems)) 패턴을 따라 행객체를 그대로 배열로 보낸다.
+#   첫 실행은 반드시 dry_run으로 대상 확인 → 승인 후 apply. apply 후 재조회로 20 복귀를 검증한다.
+
+def find_row_for_reset(mid: str) -> dict:
+    """원복 대상 행 조회. 반환 {"ok", "row"|None, "work_step", "err"}."""
+    try:
+        r = requests.get(
+            f"{AWMS_BASE}/mobMtr1000/getMainList",
+            headers=_headers(),
+            params={"FLAG": "1", "DEPT1": BONBU_CD, "busiKey": "", "searchVal": str(mid),
+                    "sortKey": "", "workStep": "20,25,28", "pPageNo": "1", "pRowCount": "50"},
+            timeout=30,
+        )
+        if r.status_code != 200:
+            return {"ok": False, "row": None, "work_step": "", "err": f"조회 실패 status={r.status_code}"}
+        rows = r.json()
+    except Exception as e:
+        return {"ok": False, "row": None, "work_step": "", "err": f"조회 오류: {e}"}
+
+    if not isinstance(rows, list):
+        return {"ok": False, "row": None, "work_step": "", "err": "응답이 배열이 아님"}
+
+    # 25(임시저장) 행 우선. 없으면 28 존재 여부를 알려 호출측이 거부 사유를 알 수 있게 한다.
+    row25 = next((x for x in rows if str(x.get("WORK_STEP") or "") == "25"), None)
+    if row25 is not None:
+        return {"ok": True, "row": row25, "work_step": "25", "err": ""}
+    row28 = next((x for x in rows if str(x.get("WORK_STEP") or "") == "28"), None)
+    if row28 is not None:
+        return {"ok": False, "row": None, "work_step": "28",
+                "err": "완료(28) 건은 삭제 불가 — 설계상 원복 대상 아님(검침값 수정만 가능)"}
+    return {"ok": False, "row": None, "work_step": "",
+            "err": "임시저장(25) 행 없음 — 이미 삭제됐거나 등록된 적 없음"}
+
+
+def reset_row_25(mid: str, dry_run: bool = True) -> dict:
+    """임시저장(25) 1건 삭제 → 20 복귀. ★25 전용, 28이면 거부.
+
+    dry_run=True(기본)면 대상만 확인하고 awms에 쓰지 않는다.
+    반환: {"ok", "dry_run", "work_step", "target", "status_code", "verified", "err"}
+    """
+    found = find_row_for_reset(mid)
+    if not found["ok"]:
+        return {"ok": False, "dry_run": dry_run, "work_step": found["work_step"],
+                "target": None, "status_code": 0, "verified": False, "err": found["err"]}
+
+    row = found["row"]
+    target = {k: row.get(k) for k in
+              ("WHM_NO", "CREMO_WHM_NO", "WORK_STEP", "CONS_NO", "CNTR_NO",
+               "CONS_TGT_SEQNO", "WRK_PLCE_ADDR_CTT")}
+
+    # ★2중 가드 — find가 25만 돌려주지만 여기서 한 번 더 확인한다(코드 변경 사고 대비).
+    if str(row.get("WORK_STEP") or "") != "25":
+        return {"ok": False, "dry_run": dry_run, "work_step": str(row.get("WORK_STEP") or ""),
+                "target": target, "status_code": 0, "verified": False,
+                "err": "가드: WORK_STEP이 25가 아니라 중단"}
+
+    if dry_run:
+        return {"ok": True, "dry_run": True, "work_step": "25", "target": target,
+                "status_code": 0, "verified": False, "err": ""}
+
+    try:
+        r = requests.post(
+            f"{AWMS_BASE}/mobMtr1000/resetRows",
+            headers=_headers(json_post=True),
+            json=[row],                      # 행객체 배열 (통신팀 deleteRows 패턴)
+            timeout=30,
+        )
+        status, body = r.status_code, r.text[:200]
+    except Exception as e:
+        return {"ok": False, "dry_run": False, "work_step": "25", "target": target,
+                "status_code": 0, "verified": False, "err": f"POST 오류: {e}"}
+
+    # 재조회 검증 — 25가 사라지고 20으로 돌아왔는지
+    after = find_row_for_reset(mid)
+    verified = (not after["ok"]) and after["work_step"] != "25"
+
+    return {"ok": status == 200 and verified, "dry_run": False, "work_step": "25",
+            "target": target, "status_code": status, "verified": verified,
+            "err": "" if verified else f"삭제 후 검증 실패(25 잔존 가능) body={body}"}
+
+
 # ── 메인 등록 함수 ─────────────────────────────────────────────────────────────
 def register_replacement_direct(job: dict) -> dict:
     """
