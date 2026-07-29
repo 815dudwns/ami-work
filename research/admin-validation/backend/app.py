@@ -4118,8 +4118,48 @@ def post_transmit_plan(req: TransmitPlanReq):
             "note": seal_note, "awms_max": _awms_max}
 
     _cons_no, _cons_src = _resolve_cons_no(req.dataset, cfg)   # 저장값 아닌 실시간 해석
+
+    # ★미리보기용 안전정보 (PM 최종지시 §1-7) — 화면이 경고·차단 배너를 그리는 근거.
+    #   기본 전송이 완료(28)라 되돌릴 수 없다. 여기서 미리 보여주고 run에서 서버가 한 번 더 막는다.
+    _val: dict = {}
+    for _addr, _node in (raw or {}).items():
+        _rl = (_node or {}).get("replacement_list")
+        if isinstance(_rl, dict):
+            for _m, _r in _rl.items():
+                if isinstance(_r, dict):
+                    _val[_m] = bool(_r.get("validated"))
+    _mids = [str(a.get("mid")) for a in req.assignments]
+    _unver = [m for m in _mids if not _val.get(m)]
+
+    _box_e_s = str(cfg.get("seal_box_end") or "")
+    _box_s_s = str(cfg.get("seal_box_start") or "")
+    _z = (lambda v: str(v).zfill(width) if width else str(v))
+    _last_seal = nxt - 1                       # 이번 배정의 마지막 봉인
+    _overflow = bool(_box_e_s.isdigit()) and _last_seal > int(_box_e_s)
+    _box_missing = not (_box_s_s.isdigit() and _box_e_s.isdigit())
+
+    guard = {
+        "total": len(_mids),
+        "verified": len(_mids) - len(_unver),
+        "unverified": len(_unver),
+        "unverified_mids": _unver[:20],
+        "seal_range": f"{_z(start)}~{_z(_last_seal)}",
+        "seal_box": (f"{_z(int(_box_s_s))}~{_z(int(_box_e_s))}" if not _box_missing else ""),
+        "seal_box_missing": _box_missing,
+        "seal_overflow": _overflow,
+        "blocked": bool(_unver) or _box_missing or _overflow,
+        "warning": "완료(28)는 되돌릴 수 없습니다. 전송 후에는 삭제할 수 없고 검침값 수정만 가능합니다.",
+    }
+    if _box_missing:
+        guard["reason"] = "봉인박스 범위를 먼저 등록하세요."
+    elif _overflow:
+        guard["reason"] = f"봉인 범위 초과 — 박스 끝 {_z(int(_box_e_s))}을(를) 넘습니다. 새 박스를 등록하세요."
+    elif _unver:
+        guard["reason"] = f"검증완료되지 않은 건 {len(_unver)}건 — 완료 전송 불가."
+
     return {"dataset": req.dataset, "cons_no": _cons_no, "cons_no_source": _cons_src,
-            "seal_cons_no": cfg.get("seal_cons_no", ""),
+            "seal_cons_no": cfg.get("seal_cons_no", ""), "account": acct,
+            "guard": guard,
             "plan": plan, "accounts": {acct: meta}, "seal": meta}
 
 
@@ -4523,8 +4563,11 @@ class TransmitRunReq(BaseModel):
     #   등록 범위가 25 한정에서 28까지로 확대됐다(PM 최종지시 §1-7, 2026-07-29).
     #   ★28은 삭제 불가다. resetRows는 25 전용이고 완료건 원복 자동화는 설계상 만들지 않는다.
     #     검침값 수정만 mobMtr5000/saveRow(EX_WORK_STEP=28+RE_SAVE_YN=Y)로 가능하고 신설번호는 잠긴다.
-    #   기본값은 되돌릴 수 있는 25로 둔다(PM 확인 후 변경 가능). 28은 호출측이 명시해야 나간다.
-    work_step: str = "25"
+    #   ★기본값 = "28"(완료). 평소 동작이 완료 전송이다(영준님 확정 2026-07-29).
+    #     되돌릴 수 없으므로 서버측 안전장치를 함께 둔다 — post_transmit_run 초입 참조:
+    #       ① 검증완료된 건만 통과(미검증 섞이면 400) ② 봉인박스 미등록·범위초과 400.
+    #     "25"를 주면 임시저장까지만 올린다(resetRows로 원복 가능).
+    work_step: str = "28"
 
 
 @app.post("/transmit/run")
@@ -4537,6 +4580,54 @@ def post_transmit_run(req: TransmitRunReq):
         raise HTTPException(status_code=404, detail=f"dataset '{req.dataset}' 없음")
     if not req.assignments:
         raise HTTPException(status_code=400, detail="assignments 비어있음")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # ★완료(28) 안전장치 — 서버측 차단 (PM 최종지시 §1-7, 2026-07-29)
+    #   기본 전송이 완료(28)로 바뀌었다. 완료는 삭제할 수 없다(resetRows는 25 전용).
+    #   화면 경고만으로는 부족하므로 서버에서도 막는다.
+    # ══════════════════════════════════════════════════════════════════════════
+    _t_cfg = _load_transmit_config().get(req.dataset, {}) or {}
+    _is_complete = str(req.work_step) == "28"
+
+    if _is_complete and req.live:
+        # (1) 검증완료된 건만 완료 전송 대상 — 미검증·확인필요가 섞이면 차단
+        _raw_chk = _get_ws_raw(req.dataset) or {}
+        _val: dict = {}
+        for _addr, _node in _raw_chk.items():
+            _rl = (_node or {}).get("replacement_list")
+            if isinstance(_rl, dict):
+                for _m, _r in _rl.items():
+                    if isinstance(_r, dict):
+                        _val[_m] = bool(_r.get("validated"))
+        _bad = [str(a.get("mid")) for a in req.assignments if not _val.get(str(a.get("mid")))]
+        if _bad:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"완료(28) 전송 차단 — 검증완료되지 않은 건 {len(_bad)}건이 섞여 있습니다. "
+                        f"완료는 되돌릴 수 없으므로 검증완료 건만 보낼 수 있습니다. "
+                        f"대상: {', '.join(_bad[:10])}{' 외' if len(_bad) > 10 else ''}"),
+            )
+
+    # (2) 봉인 범위 초과 차단 (2겹 중 서버측) — 박스 미등록도 여기서 막는다
+    _box_s = str(_t_cfg.get("seal_box_start") or "")
+    _box_e = str(_t_cfg.get("seal_box_end") or "")
+    if req.live:
+        if not (_box_s.isdigit() and _box_e.isdigit()):
+            raise HTTPException(
+                status_code=400,
+                detail="봉인박스 범위를 먼저 등록하세요 (설정 → 봉인 시작/끝). 등록 전에는 전송할 수 없습니다.",
+            )
+        _need = sum(2 if _is_three_phase(a.get("meter_no", ""), a.get("cntr_clas_cd")) else 1
+                    for a in req.assignments)
+        _start, _w, _note = _seal_state(_get_ws_raw(req.dataset) or {}, _t_cfg)
+        _last = _start + _need - 1
+        if _last > int(_box_e):
+            _z = (lambda v: str(v).zfill(_w) if _w else str(v))
+            raise HTTPException(
+                status_code=400,
+                detail=(f"봉인 범위 초과 — 이번 전송에 {_need}개가 필요해 {_z(_start)}~{_z(_last)}를 쓰게 되는데 "
+                        f"박스 끝이 {_z(int(_box_e))}입니다. 새 봉인박스를 등록하고 다시 시도하세요."),
+            )
 
     global _LATEST_TRANSMIT_JOB_ID
     job_id = str(uuid.uuid4())[:8]
