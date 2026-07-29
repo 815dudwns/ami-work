@@ -269,6 +269,27 @@ def fetch_login_snapshot() -> dict:
     }
 
 
+def get_awms_seal_max() -> int:
+    """awms 계정의 봉인 설정값(METR_SEAL_VAL) 조회 — **참고·대조용. 진실원천 아님.**
+
+    ★계정을 공유해 쓰기 때문에 이 값에 남의 봉인이 섞인다(영준님 확정 2026-07-29).
+      우리 것인지 여부는 **봉인박스 범위**로 판별한다 — app.py `_seal_state()` 참조.
+    실패 시 0.
+    """
+    try:
+        r = requests.get(f"{AWMS_BASE}/mobMtr8000/getMainList", headers=_headers(), timeout=30)
+        if r.status_code != 200:
+            return 0
+        d = r.json()
+    except Exception:
+        return 0
+    first = d[0] if isinstance(d, list) and d else d
+    if not isinstance(first, dict):
+        return 0
+    v = str(first.get("METR_SEAL_VAL") or "")
+    return int(v) if v.isdigit() else 0
+
+
 def get_active_cons_no() -> str:
     """현재 활성 차수(공사번호) 실시간 조회 — 봉인조회 응답의 LV_CONS_NO.
 

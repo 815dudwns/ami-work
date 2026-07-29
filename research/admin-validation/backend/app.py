@@ -3683,15 +3683,58 @@ def _resolve_account(dataset: str) -> str:
     return ""
 
 
-def _seal_state(raw: dict, t_cfg: dict) -> tuple:
-    """전역 봉인 상태: (다음 시작값 int, 자릿수 width).
-    시작 = max(DB 전역최대, config.seal_last) + 1. width = config.seal_width > config.seal_last 길이 > DB 기록 길이."""
+def _seal_state(raw: dict, t_cfg: dict, awms_max: int = 0) -> tuple:
+    """봉인 다음번호 판정. 반환 (다음 시작값 int, 자릿수 width, 판정근거 note).
+
+    ★★ 판정 알고리즘 (영준님 확정 2026-07-29) — 진실원천은 **우리 DB 기록**이다.
+
+      기준선 = max(우리 DB 전역최대 `_db_seal_max`, config.seal_last)
+      1) awms 계정 봉인 최댓값(`awms_max`)을 조회한다.
+      2) 그 값이 **우리 봉인박스 범위**(`seal_box_start` ~ `seal_box_end`) 안이면
+         → **우리가 awms에서 수동 전송한 것**으로 본다. 기준선보다 크면 그 값을 채택한다.
+         (우리 시스템으로 전송이 안 되면 작업자가 awms에서 직접 올린다. 그때 봉인은 소비되지만
+          우리 DB엔 안 남는다. 실측 근거: 우리 사용분 0315258~0315698 중 315261→315328 구간이 비어 있다.)
+      3) 범위 **밖**이면 → 계정을 공유해 쓰는 **남의 봉인**이므로 무시하고 우리 DB 기준으로 이어간다.
+         (종로 작업자가 중구 아이디를 공유해 써서 같은 계정에 남의 이력이 섞인다.)
+      ★판별 기준은 계정이 아니라 **봉인박스 범위**다. 범위 안=우리 것, 범위 밖=남의 것.
+      ★박스 범위가 설정되지 않았으면 awms 값을 **채택하지 않는다**(안전측). 근거 문자열로 드러낸다.
+
+    사고 이력: awms 값을 무조건 채택하던 때 3156981을 받아 3156982가 배정될 뻔했다(실물은 0315700).
+               또 DB 기록이 주간아카이브로 밀려 기준선을 잃자 봉인이 1번부터 배정됐다(METER_KEEP 직결).
+    """
     db_max, db_width = _db_seal_max(raw)
     cfg_last_s = str(t_cfg.get("seal_last") or "")
     cfg_last = int(cfg_last_s) if cfg_last_s.isdigit() else 0
-    start = max(db_max, cfg_last) + 1
+    base = max(db_max, cfg_last)                 # 우리 기록 기준선
     width = int(t_cfg.get("seal_width") or 0) or (len(cfg_last_s) if cfg_last_s.isdigit() else 0) or db_width
-    return start, width
+
+    def _z(v: int) -> str:
+        return str(v).zfill(width) if width else str(v)
+
+    box_s = str(t_cfg.get("seal_box_start") or "")
+    box_e = str(t_cfg.get("seal_box_end") or "")
+    box_lo = int(box_s) if box_s.isdigit() else 0
+    box_hi = int(box_e) if box_e.isdigit() else 0
+
+    note = f"DB 마지막 {_z(base)} 기준" if base else "★기준 없음(DB·설정 모두 비어 있음)"
+
+    if awms_max > 0:
+        if box_lo and box_hi and box_lo <= awms_max <= box_hi:
+            if awms_max > base:
+                note = (f"awms 최댓값 {_z(awms_max)}(우리 봉인박스 {_z(box_lo)}~{_z(box_hi)} 내 "
+                        f"— 수동전송분으로 판단) 반영 → 다음 {_z(awms_max + 1)}")
+                base = awms_max
+            else:
+                note = (f"awms 최댓값 {_z(awms_max)}(범위 내이나 DB 마지막 {_z(base)} 이하) "
+                        f"→ DB 기준 유지")
+        elif box_lo and box_hi:
+            note = (f"awms 최댓값 {_z(awms_max)}(우리 봉인박스 {_z(box_lo)}~{_z(box_hi)} 밖 "
+                    f"— 계정공유 타 작업분) 무시 → DB 마지막 {_z(base)} 기준")
+        else:
+            note = (f"awms 최댓값 {_z(awms_max)} — ★봉인박스 범위 미설정이라 판별 불가, "
+                    f"채택하지 않음 → DB 마지막 {_z(base)} 기준")
+
+    return base + 1, width, note
 
 
 class TransmitConfigReq(BaseModel):
@@ -3703,7 +3746,13 @@ class TransmitConfigReq(BaseModel):
     cons_no_manual: bool | None = None
     seal_cons_no: str = ""     # 봉인 공사번호 — 별도 선택 가능 (등록차수와 다를 수 있음)
     seal_last: str = ""        # ★전역 마지막 사용 봉인 (계정 무관 물리 시퀀스, zero-padding 원문 '0111111')
-    seal_width: int = 0        # 봉인 자릿수 (0이면 seal_last 길이로 유추)
+    seal_width: int = 0        # 봉인 자릿수 (0이면 seal_last 길이로 유추). 종로 현행 7자리 고정
+    # ★우리 봉인박스 범위 — awms 조회값이 '우리 것'인지 판별하는 유일한 기준(계정 아님).
+    #   범위 안 = 우리가 awms에서 수동전송한 것 → 반영 / 범위 밖 = 계정공유 타 작업분 → 무시.
+    #   미설정이면 awms 값을 채택하지 않는다(안전측).
+    #   None = 기존값 유지 / "" = 명시적 해제(미설정으로 되돌림) / 값 = 설정
+    seal_box_start: str | None = None
+    seal_box_end: str | None = None
     accounts: list = []        # (구) 아이디별 시작 봉인 — 전역 시퀀스 전환으로 배정에는 미사용, 하위호환 보존
 
 
@@ -3730,6 +3779,9 @@ def post_transmit_config(req: TransmitConfigReq):
         "seal_cons_no": req.seal_cons_no,
         "seal_last": req.seal_last or prev.get("seal_last", ""),
         "seal_width": req.seal_width or prev.get("seal_width", 0),
+        # None이면 기존값 유지, ""면 해제 — 잘못 설정한 범위를 지울 수 있어야 한다.
+        "seal_box_start": prev.get("seal_box_start", "") if req.seal_box_start is None else req.seal_box_start,
+        "seal_box_end": prev.get("seal_box_end", "") if req.seal_box_end is None else req.seal_box_end,
         "accounts": req.accounts,
     }
 
@@ -3877,14 +3929,20 @@ def post_transmit_login_snapshot(dataset: str = Query(...), account: str = Query
              or (len(sys_last_s) if sys_last_s.isdigit() else 0)
              or db_width)
 
+    # ★★ 봉인 진실원천 = 우리 DB 기록 (영준님 확정 2026-07-29)
+    #   awms 설정값은 **참고·대조용일 뿐 기준으로 삼지 않는다.**
+    #   이유: 종로 작업자가 중구 아이디를 공유해 쓰고 있어 같은 계정의 awms 봉인설정에
+    #        남의 봉인 이력이 섞인다. 그 값을 채택하면 우리 물리 봉인 시퀀스가 튄다.
+    #   실제 사고(2026-07-29): awms 값 3156981을 자동채택해 3156982가 배정될 뻔했다.
+    #        실물 다음 봉인은 0315700이었다.
+    #   → 자동채택을 제거한다. 기준이 없으면 '없음'을 드러내고 사람이 넣게 한다.
     seal_mismatch = False
     if awms_seal_s.isdigit():
         if sys_last == 0:
-            # 최초: awms 값을 시스템 기억의 기준으로 채택
-            ds_cfg["seal_last"] = awms_seal_s
-            ds_cfg["seal_width"] = width or len(awms_seal_s)
+            # 기준 없음 — awms 값으로 메우지 않는다. 경고만 올린다.
+            seal_mismatch = True
         elif int(awms_seal_s) != sys_last:
-            # 이 계정 awms 설정이 시스템 기억과 어긋남 → 프론트에서 [봉인 동기화] 안내
+            # 계정 공유로 어긋나는 게 정상일 수 있다. 우리 기록이 이긴다.
             seal_mismatch = True
             if not ds_cfg.get("seal_width"):
                 ds_cfg["seal_width"] = width
@@ -4045,11 +4103,19 @@ def post_transmit_plan(req: TransmitPlanReq):
             three = _is_three_phase(a.get("meter_no", ""), a.get("cntr_clas_cd"))
         items.append({"mid": a["mid"], "three": bool(three)})
 
-    start, width = _seal_state(raw, cfg)
+    # awms 계정 봉인값은 참고용으로만 조회 — 우리 봉인박스 범위 안일 때만 채택된다.
+    _awms_max = 0
+    try:
+        if mtr_direct.session_alive():
+            _awms_max = mtr_direct.get_awms_seal_max()
+    except Exception:
+        pass
+    start, width, seal_note = _seal_state(raw, cfg, _awms_max)
     alloc, nxt = _allocate_seals(items, start, width)
     acct = _resolve_account(req.dataset)  # 계정 = 세션 아이디, 없으면 config 계정 폴백 (기록용)
     plan: Dict[str, dict] = {mid: {**v, "account": acct} for mid, v in alloc.items()}
-    meta = {"start": start, "next_after": nxt, "count": len(items), "width": width}
+    meta = {"start": start, "next_after": nxt, "count": len(items), "width": width,
+            "note": seal_note, "awms_max": _awms_max}
 
     _cons_no, _cons_src = _resolve_cons_no(req.dataset, cfg)   # 저장값 아닌 실시간 해석
     return {"dataset": req.dataset, "cons_no": _cons_no, "cons_no_source": _cons_src,
@@ -4546,7 +4612,13 @@ def post_transmit_run(req: TransmitRunReq):
                 items.append({"mid": a["mid"], "three": bool(three)})
 
             # 전역 봉인 배정 (자릿수 zfill 보존, 단상+1/삼상+2 — DB+config는 전송 전 1회만 읽음)
-            seal_start, seal_width = _seal_state(raw, t_cfg)
+            _awms_seal_max = 0
+            try:
+                _awms_seal_max = mtr_direct.get_awms_seal_max()
+            except Exception:
+                pass
+            seal_start, seal_width, _seal_note = _seal_state(raw, t_cfg, _awms_seal_max)
+            _append_log({"phase": "시스템", "ok": True, "msg": f"봉인 판정: {_seal_note}"})
             alloc, seal_next_after = _allocate_seals(items, seal_start, seal_width)
             mid_seal: Dict[str, dict] = {}   # mid → {seal_no, seal_no2, account}
             for mid, seal in alloc.items():
