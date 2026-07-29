@@ -28,7 +28,11 @@ SEVEN_DAYS_MS = 7 * 86400 * 1000
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # stub이 라이브에 남기는 화이트리스트 (나머지는 archive에만) — 설계 §3.1
-TOP_KEEP = ("meter_state", "comm_state", "meter_updatedAt", "comm_updatedAt", "x", "y")
+# ★comm_completed_list 필수 (2026-07-29 추가): 통신팀 계기단위 완료기록.
+#   빠져 있으면 아카이브 때 라이브에서 소실된다 — 2026-07-28 통신팀 일괄반영분(worker=0728일괄완료)
+#   1,781개 주소 348KB가 다음 아카이브에서 통째로 날아갈 뻔했다. 지도 완료표시의 진실값이라 라이브 필수.
+TOP_KEEP = ("meter_state", "comm_state", "meter_updatedAt", "comm_updatedAt", "x", "y",
+            "comm_completed_list")
 METER_KEEP = ("new_meter_id", "old_meter_id", "replaced_at", "source", "draft", "daily_seq", "quarantine", "awms_error")
 
 
