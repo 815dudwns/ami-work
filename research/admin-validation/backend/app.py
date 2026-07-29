@@ -3984,6 +3984,30 @@ def post_transmit_seal_sync(dataset: str = Query(...)):
             "account": mtr_direct.SESSION.get("rememberedId") or ""}
 
 
+# ── POST /transmit/stop ───────────────────────────────────────────────────────
+@app.post("/transmit/stop")
+def post_transmit_stop(job_id: str = Query(..., description="중지할 전송 잡 id")):
+    """진행 중인 전송을 안전하게 중지한다.
+
+    ★프로세스를 죽여서 멈추면 진행상태가 유실되고 DB와 awms가 어긋난다(2026-07-29 실사고).
+      이 경로는 잡에 취소 플래그를 세우고, 전송 루프가 **다음 건 시작 전에** 확인해 멈춘다.
+    ★이미 나간 건은 되돌리지 않는다 — 완료(28)는 삭제할 수 없다.
+      임시저장(25)으로 나간 건은 필요하면 POST /transmit/reset-row 로 개별 원복.
+    """
+    with _TRANSMIT_JOBS_LOCK:
+        job = _TRANSMIT_JOBS.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"잡 없음: {job_id}")
+        if job.get("status") not in ("running",):
+            return {"ok": True, "already": job.get("status"), "job_id": job_id,
+                    "done": job.get("done", 0), "total": job.get("total", 0),
+                    "msg": "이미 종료된 잡입니다."}
+        job["cancel"] = True
+        done, total = job.get("done", 0), job.get("total", 0)
+    return {"ok": True, "job_id": job_id, "done": done, "total": total,
+            "msg": f"중지 요청됨 — 진행 중인 건까지 마치고 멈춥니다. (현재 {done}/{total})"}
+
+
 # ── POST /transmit/reset-row ──────────────────────────────────────────────────
 @app.post("/transmit/reset-row")
 def post_transmit_reset_row(
@@ -4174,6 +4198,7 @@ _TRANSMIT_JOBS: Dict[str, dict] = {}
 _TRANSMIT_JOBS_LOCK = threading.Lock()
 # 폰 계기큐 모니터(GET /monitor/active-job)가 폴링할 "최신 전송 잡" id — 조회 전용 캐시.
 _LATEST_TRANSMIT_JOB_ID: Optional[str] = None
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -4772,6 +4797,20 @@ def post_transmit_run(req: TransmitRunReq):
 
             # 건별 전송 루프
             for idx, a in enumerate(req.assignments):
+                # ★[중지] — 매 건 시작 전에 취소 플래그 확인 (POST /transmit/stop 이 세운다).
+                #   이미 나간 건은 되돌리지 않는다(완료 28은 삭제 불가). 다음 건부터 멈춘다.
+                #   프로세스를 죽여서 멈추면 진행상태가 유실되고 DB/awms가 어긋나므로 이 경로를 쓴다.
+                with _TRANSMIT_JOBS_LOCK:
+                    _cancelled = bool(_TRANSMIT_JOBS.get(job_id, {}).get("cancel"))
+                if _cancelled:
+                    _append_log({"phase": "시스템", "ok": True,
+                                 "msg": f"★중지 요청 — {idx}건 전송 후 멈춤. 남은 {len(req.assignments) - idx}건은 보내지 않습니다."})
+                    with _TRANSMIT_JOBS_LOCK:
+                        j = _TRANSMIT_JOBS.get(job_id)
+                        if j is not None:
+                            j["status"] = "cancelled"
+                            j["finished_at"] = datetime.now(KST).isoformat()
+                    break
                 mid = str(a.get("mid", "")).strip()
                 now_ms = int(time.time() * 1000)
                 seal = mid_seal.get(mid, {})
