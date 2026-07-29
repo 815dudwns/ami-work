@@ -3641,6 +3641,32 @@ def _allocate_seals(items: list, start_seal: int, width: int = 0):
     return out, cur
 
 
+def _resolve_cons_no(dataset: str, t_cfg: dict | None = None) -> tuple:
+    """등록 차수(공사번호) 결정. 반환 (cons_no, source).
+
+    ★어떤 차수 번호도 코드·설정에 고정하지 않는다 (영준님 확정 2026-07-29).
+      1) 사용자가 드롭다운에서 직접 고른 경우(`cons_no_manual=True`) → **그 선택이 최우선**.
+      2) 그 외 → awms 활성차수(LV_CONS_NO)를 **호출 시점에 실시간 조회**해 따라간다.
+         저장값에 의존하지 않으므로 27차·28차로 넘어가도 코드/설정 수정 없이 자동 추종한다.
+      3) 실시간 조회 실패 시에만 마지막으로 알던 값으로 폴백(active_cons_no → cons_no).
+
+    기존 사고: login-snapshot이 '비어있을 때만' 채우는 구조라 옛 23차가 고착 → P4 오등록.
+    그 자리에 26차 같은 다른 고정값을 넣지 않는다. 값이 아니라 **출처**를 바꾼 것이다.
+    """
+    if t_cfg is None:
+        t_cfg = _load_transmit_config().get(dataset, {}) or {}
+    if t_cfg.get("cons_no_manual") and t_cfg.get("cons_no"):
+        return str(t_cfg["cons_no"]), "manual"
+    try:
+        if mtr_direct.session_alive():
+            active = mtr_direct.get_active_cons_no()
+            if active:
+                return active, "active"
+    except Exception:
+        pass
+    return str(t_cfg.get("active_cons_no") or t_cfg.get("cons_no") or ""), "cached"
+
+
 def _resolve_account(dataset: str) -> str:
     """봉인 기록용 계정 id. 세션 rememberedId 우선, 없으면 config accounts[0].id 폴백.
 
@@ -3670,7 +3696,11 @@ def _seal_state(raw: dict, t_cfg: dict) -> tuple:
 
 class TransmitConfigReq(BaseModel):
     dataset: str
-    cons_no: str = ""          # 등록 공사번호(차수) — 사업조회 목록에서 선택, 그대로 주입
+    cons_no: str = ""          # 등록 공사번호(차수) — 사업조회 목록에서 선택. 빈값이면 활성차수 자동추종
+    # ★사용자가 드롭다운에서 활성차수와 다른 차수를 고르면 서버가 cons_no_manual=True로 표시하고
+    #   그 선택을 우선한다. 활성차수와 같은 값을 고르면 다시 자동추종(False)으로 돌아간다.
+    #   요청 본문으로 직접 줄 수도 있다(None이면 서버가 자동 판정).
+    cons_no_manual: bool | None = None
     seal_cons_no: str = ""     # 봉인 공사번호 — 별도 선택 가능 (등록차수와 다를 수 있음)
     seal_last: str = ""        # ★전역 마지막 사용 봉인 (계정 무관 물리 시퀀스, zero-padding 원문 '0111111')
     seal_width: int = 0        # 봉인 자릿수 (0이면 seal_last 길이로 유추)
@@ -3691,6 +3721,10 @@ def post_transmit_config(req: TransmitConfigReq):
     cfg = _load_transmit_config()
     prev = cfg.get(req.dataset) or {}
     cfg[req.dataset] = {
+        # ★ prev 먼저 펼쳐 화이트리스트에 없는 키를 보존한다(2026-07-29).
+        #   전엔 dict를 통째로 재구성해서 auto_validate_watch가 매 저장마다 조용히 삭제됐고,
+        #   전송탭에서 봉인/차수를 저장하는 순간 P0 자동검증 워처가 꺼지는 사고가 실제로 났다.
+        **prev,
         "dataset": req.dataset,
         "cons_no": req.cons_no,
         "seal_cons_no": req.seal_cons_no,
@@ -3698,6 +3732,25 @@ def post_transmit_config(req: TransmitConfigReq):
         "seal_width": req.seal_width or prev.get("seal_width", 0),
         "accounts": req.accounts,
     }
+
+    # ★차수 수동선택 판정 (2026-07-29) — 특정 차수를 설정에 고정하지 않기 위한 장치.
+    #   사용자가 활성차수와 "다른" 차수를 골랐을 때만 manual=True로 잠그고,
+    #   활성차수와 같은 값을 고르면 자동추종(False)으로 되돌린다.
+    #   → 27차·28차로 넘어가도 manual이 아니면 새 활성차수를 그대로 따라간다.
+    if req.cons_no_manual is not None:
+        manual = bool(req.cons_no_manual)                       # 호출측 명시 지정 우선
+    elif not req.cons_no:
+        manual = False                                          # 비우면 자동추종
+    else:
+        active = str(prev.get("active_cons_no") or "")
+        if not active:
+            try:
+                active = mtr_direct.get_active_cons_no() if mtr_direct.session_alive() else ""
+            except Exception:
+                active = ""
+        manual = bool(active) and str(req.cons_no) != active
+    cfg[req.dataset]["cons_no_manual"] = manual
+
     _save_transmit_config(cfg)
     return {"ok": True, "config": cfg[req.dataset]}
 
@@ -3800,10 +3853,17 @@ def post_transmit_login_snapshot(dataset: str = Query(...), account: str = Query
                                   "seal_last": "", "seal_width": 0, "accounts": []}
     # getMainList(8000).LV_CONS_NO = 봉인 활성차수 → seal_cons_no 기본값.
     # 등록 cons_no는 사업조회(busi_list) 드롭다운에서 사용자가 선택 (둘 다 선택 가능, 다를 수 있음).
+    # ★차수 자동추종 (2026-07-29, 영준님 확정)
+    #   - active_cons_no = awms 활성차수(LV_CONS_NO). 항상 갱신 = 기본값의 출처.
+    #   - 등록 cons_no는 사용자가 드롭다운에서 직접 고른 적 없으면(cons_no_manual=False) 활성차수를 따라간다.
+    #   - ★특정 차수 고정이 아니다. 사용자가 다른 차수를 고르면 manual=True가 되어 그 선택이 이긴다.
+    #   - 기존엔 'if not cons_no'(비어있을 때만)라 옛 차수가 고착됐다 — 23차로 굳어 P4가 오등록됐다.
     if snap.get("cons_no"):
-        ds_cfg["seal_cons_no"] = snap["cons_no"]
-        if not ds_cfg.get("cons_no"):
-            ds_cfg["cons_no"] = snap["cons_no"]
+        active = snap["cons_no"]
+        ds_cfg["active_cons_no"] = active
+        ds_cfg["seal_cons_no"] = active
+        if not ds_cfg.get("cons_no_manual"):
+            ds_cfg["cons_no"] = active
 
     # ★봉인 = 계정 무관 전역 물리 시퀀스. awms 계정별 설정값은 서로 어긋나 있을 수 있음.
     #   시스템 기억(config.seal_last + DB 전역최대)이 진실 — awms 조회값과 비교해 불일치 알림.
@@ -3915,6 +3975,22 @@ def get_transmit_busilist(dataset: str = Query(..., description="dataset id")):
     if dataset not in cfg.get("datasets", {}):
         raise HTTPException(status_code=404, detail=f"dataset '{dataset}' 없음")
 
+    # ★맥 direct 우선 (2026-07-29) — 폰 없이도 차수 드롭다운이 채워져야 한다.
+    #   기존엔 CDP 전용이라 폰이 꺼져 있으면 목록이 비어 사용자가 차수를 고를 수 없었다.
+    if mtr_direct.session_alive():
+        direct = mtr_direct.get_busi_list()
+        if direct:
+            t_cfg = _load_transmit_config().get(dataset, {})
+            return {
+                "list": [
+                    {"cons_no": b["CONS_NO"], "name": b["CONS_OVVW_CTT"], "seqno": b.get("WHM_SEQNO")}
+                    for b in direct
+                ],
+                "active_cons_no": t_cfg.get("active_cons_no", ""),  # 기본값 표시용(awms 활성차수)
+                "source": "direct",
+            }
+
+    # 폴백: 폰 계기큐 CDP (맥 세션이 없을 때)
     expr = (
         "_awmsGet(AWMS_API + '/mobMtr1000/getBusiList?DEPT1=' + DEFAULT_AWMS.HDQR_CD)"
         ".then(r => JSON.stringify(r))"
@@ -3975,7 +4051,8 @@ def post_transmit_plan(req: TransmitPlanReq):
     plan: Dict[str, dict] = {mid: {**v, "account": acct} for mid, v in alloc.items()}
     meta = {"start": start, "next_after": nxt, "count": len(items), "width": width}
 
-    return {"dataset": req.dataset, "cons_no": cfg.get("cons_no", ""),
+    _cons_no, _cons_src = _resolve_cons_no(req.dataset, cfg)   # 저장값 아닌 실시간 해석
+    return {"dataset": req.dataset, "cons_no": _cons_no, "cons_no_source": _cons_src,
             "seal_cons_no": cfg.get("seal_cons_no", ""),
             "plan": plan, "accounts": {acct: meta}, "seal": meta}
 
@@ -4443,7 +4520,10 @@ def post_transmit_run(req: TransmitRunReq):
         try:
             # 전송 설정 로드 (공사번호·봉인 공사번호·전역 봉인 상태)
             t_cfg = _load_transmit_config().get(req.dataset, {})
-            cons_no = t_cfg.get("cons_no", "")
+            # ★차수는 저장값이 아니라 실시간 해석 — 사용자 선택 우선, 없으면 awms 활성차수 추종.
+            cons_no, _cons_src = _resolve_cons_no(req.dataset, t_cfg)
+            _append_log({"phase": "시스템", "ok": True,
+                         "msg": f"등록차수 {cons_no} (출처: {_cons_src})"})
             seal_cons_no = t_cfg.get("seal_cons_no", "") or cons_no  # 봉인차수 별도선택, 없으면 등록차수
 
             # direct 모드 + 실등록이면 세션 선확인 (건별 실패 전에 잡 레벨에서 차단)

@@ -269,6 +269,54 @@ def fetch_login_snapshot() -> dict:
     }
 
 
+def get_active_cons_no() -> str:
+    """현재 활성 차수(공사번호) 실시간 조회 — 봉인조회 응답의 LV_CONS_NO.
+
+    ★차수를 어디에도 하드코딩하지 않기 위한 단일 출처(영준님 확정 2026-07-29).
+      봉인조회(mobMtr8000/getMainList)가 봉인값과 활성차수를 한 번에 준다. 응답은 dict.
+      27차·28차로 넘어가면 이 값이 자동으로 바뀌므로 코드 수정이 필요 없다.
+    """
+    try:
+        r = requests.get(f"{AWMS_BASE}/mobMtr8000/getMainList", headers=_headers(), timeout=30)
+        if r.status_code != 200:
+            return ""
+        d = r.json()
+    except Exception:
+        return ""
+    first = d[0] if isinstance(d, list) and d else d
+    if not isinstance(first, dict):
+        return ""
+    return str(first.get("LV_CONS_NO") or "")
+
+
+def get_busi_list() -> list:
+    """맥 세션으로 공사(차수) 목록 조회 — 전송탭 차수 드롭다운용.
+
+    ★폰 CDP 없이 맥 단독으로 동작해야 한다(2026-07-29). 기존 /transmit/busilist는 CDP 전용이라
+      폰이 없으면 드롭다운이 비어 사용자가 차수를 고를 수 없었다.
+    반환: [{"CONS_NO", "CONS_OVVW_CTT", "WHM_SEQNO"}]  (실패 시 빈 리스트)
+    """
+    try:
+        r = requests.get(
+            f"{AWMS_BASE}/mobMtr1000/getBusiList?DEPT1={BONBU_CD}",
+            headers=_headers(),
+            timeout=30,
+        )
+        if r.status_code != 200:
+            return []
+        bl = r.json()
+    except Exception:
+        return []
+    if not isinstance(bl, list):
+        return []
+    return [
+        {"CONS_NO": str(b.get("CONS_NO") or ""),
+         "CONS_OVVW_CTT": str(b.get("CONS_OVVW_CTT") or ""),
+         "WHM_SEQNO": b.get("WHM_SEQNO")}
+        for b in bl if b.get("CONS_NO")
+    ]
+
+
 # ── 지침 칸수 규칙 (JS readingFieldsFor 이식) ────────────────────────────────
 def reading_fields_for(clas: str | None, pwr: str | None) -> list[str]:
     """
