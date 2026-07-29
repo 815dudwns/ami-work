@@ -338,6 +338,28 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
     awms_synced_manual_map = maps.get("awms_synced_manual_map", {})
     awms_seal_map   = maps.get("awms_seal_map", {})
 
+    # ★ 고아행 제외(2026-07-29 검증팀). 작업자가 앱에서 순번 등을 고치면 종로맵이 replaced_at을
+    #   새로 찍는다 → CSV 병합키(kst_str(replaced_at)_{fid})가 통째로 바뀌고, 옛 키 행이 라이브에
+    #   짝 없는 '고아'로 남는다. 이 행의 parseq/google은 **옛 사진** OCR 결과라, mid 단독 폴백으로
+    #   새 레코드(새 사진)를 붙이면 사진과 OCR이 어긋나 멀쩡한 건이 need_human으로 오판된다
+    #   (실제 사고: 명륜3가 1-1102 / 56170861534 — 작업자는 고쳤는데 화면은 계속 오류 표시).
+    #   → 라이브에 정확 매칭(ts15, mid)이 없는 행은 화면에서 제외한다. 다음 워처가 새 키로
+    #   재수집한 행이 대신 뜨므로 몇 분 안에 최신값으로 복귀한다.
+    #   ※ 근본 수정(daily_cycle의 고아 스윕)은 ocr-meter 소관 — 여기선 표시만 막는다.
+    if ts_mid_map:  # 맵 획득 실패(폴백 빈 dict) 시엔 절대 거르지 않는다 — 전건 소실 방지
+        for _rk in ("meter_values", "meter_ids", "removal_ids"):
+            _rows = results.get(_rk)
+            if not isinstance(_rows, list):
+                continue
+            _kept = [
+                _r for _r in _rows
+                if (str(_r.get("ts", ""))[:15], str(_r.get("mid", ""))) in ts_mid_map
+            ]
+            if len(_kept) != len(_rows):
+                print(f"[orphan] {_rk}: {len(_rows) - len(_kept)}행 제외 "
+                      f"(라이브에 짝 없음 — 작업자 수정으로 replaced_at 변경)", flush=True)
+                results[_rk] = _kept
+
     for row in results.get("meter_values", []):
         row["photo_url"] = None
         row["lcd_photo_url"] = None      # YOLO로 잘라낸 LCD 크롭(있으면) — 검침값 검수 확대용
@@ -3619,6 +3641,22 @@ def _allocate_seals(items: list, start_seal: int, width: int = 0):
     return out, cur
 
 
+def _resolve_account(dataset: str) -> str:
+    """봉인 기록용 계정 id. 세션 rememberedId 우선, 없으면 config accounts[0].id 폴백.
+
+    ★rememberedId는 awms 로그인 화면에서 '아이디 저장'을 켜야 생기는 쿠키라 대개 비어 있다.
+      실측(2026-07-29): 아카이브 봉인기록 375건 중 367건이 account 빈값 — 누가 쓴 봉인인지
+      구분이 안 됐다. 봉인은 물리 스티커라 '누가 썼는지'가 남아야 해서 config 계정으로 폴백한다.
+    """
+    acct = str(mtr_direct.SESSION.get("rememberedId") or "")
+    if acct:
+        return acct
+    accs = (_load_transmit_config().get(dataset, {}) or {}).get("accounts") or []
+    if accs and isinstance(accs[0], dict):
+        return str(accs[0].get("id") or "")
+    return ""
+
+
 def _seal_state(raw: dict, t_cfg: dict) -> tuple:
     """전역 봉인 상태: (다음 시작값 int, 자릿수 width).
     시작 = max(DB 전역최대, config.seal_last) + 1. width = config.seal_width > config.seal_last 길이 > DB 기록 길이."""
@@ -3933,7 +3971,7 @@ def post_transmit_plan(req: TransmitPlanReq):
 
     start, width = _seal_state(raw, cfg)
     alloc, nxt = _allocate_seals(items, start, width)
-    acct = str(mtr_direct.SESSION.get("rememberedId") or "")  # 계정 = 세션 아이디 (기록용)
+    acct = _resolve_account(req.dataset)  # 계정 = 세션 아이디, 없으면 config 계정 폴백 (기록용)
     plan: Dict[str, dict] = {mid: {**v, "account": acct} for mid, v in alloc.items()}
     meta = {"start": start, "next_after": nxt, "count": len(items), "width": width}
 
@@ -4416,7 +4454,7 @@ def post_transmit_run(req: TransmitRunReq):
             raw = _get_ws_raw(req.dataset) or {}
 
             # 삼상 판정 (루프 전 일괄) — ★봉인은 전역 시퀀스(계정 무관), 계정 = 세션 아이디
-            _session_acct = str(mtr_direct.SESSION.get("rememberedId") or "")
+            _session_acct = _resolve_account(req.dataset)
             items = []
             for a in req.assignments:
                 three = a.get("three")

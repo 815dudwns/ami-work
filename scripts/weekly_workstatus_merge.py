@@ -33,7 +33,14 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #   1,781개 주소 348KB가 다음 아카이브에서 통째로 날아갈 뻔했다. 지도 완료표시의 진실값이라 라이브 필수.
 TOP_KEEP = ("meter_state", "comm_state", "meter_updatedAt", "comm_updatedAt", "x", "y",
             "comm_completed_list")
-METER_KEEP = ("new_meter_id", "old_meter_id", "replaced_at", "source", "draft", "daily_seq", "quarantine", "awms_error")
+# ★awms_seal·awms_synced·awms_synced_at 필수 (2026-07-29 추가):
+#   봉인번호는 영준님이 현장에서 실제로 붙인 물리 스티커 번호다. 라이브에 남아야 한다.
+#   빠져 있어서 아카이브 때 통째로 탈락했다 — 실측: 계기 stub 6,891건 중 awms_synced 0건,
+#   반면 아카이브 원본엔 awms_seal 375건 생존. 그 결과 _db_seal_max()가 라이브만 보고 0을 반환해
+#   봉인 자동배정이 '1번'부터 시작하는 사고가 났다(2026-07-29 P4 직전 발견).
+#   검증관리자 데이터탭 봉인번호 컬럼도 라이브를 읽으므로 이게 없으면 전부 '-'로 표시된다.
+METER_KEEP = ("new_meter_id", "old_meter_id", "replaced_at", "source", "draft", "daily_seq", "quarantine", "awms_error",
+              "awms_seal", "awms_synced", "awms_synced_at")
 
 
 def bnow():
