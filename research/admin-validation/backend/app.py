@@ -174,6 +174,148 @@ def _invalidate_ws_raw(dataset: str) -> None:
         _WS_RAW_CACHE.pop(dataset, None)
 
 
+# ── 아카이브 메타 인덱스 (봉인·차수) ─────────────────────────────────────────────
+#   주간 아카이브(weekly_workstatus_merge.py)가 stub화할 때 METER_KEEP 화이트리스트에
+#   awms_seal·cha가 없어서 **라이브에서 통째로 사라진다**(실측 2026-07-29: 라이브 awms_seal 0건·
+#   cha 0건, 아카이브에 각각 375건·4960건). 그래서 라이브만 읽으면 데이터탭 봉인·차수·계정이
+#   전부 '-'로 뜬다. 원본이 남아 있는 archive/{ws_path}에서 그 두 필드만 뽑아 폴백용으로 쓴다.
+#   ★비용 가드: 아카이브 전체는 6.27MB라 매 요청 받으면 안 된다(RTDB egress 사고 전례).
+#     주차목록 shallow(수백 B)만 찍어 주차 집합이 바뀐 경우에만 전체를 다시 받고,
+#     결과 인덱스는 디스크 JSON으로 남겨 서버 재시작에도 재다운로드 없이 즉시 로드한다.
+#   ※근본 수정(METER_KEEP에 두 필드 추가)은 계기팀 소관 — 그건 앞으로의 스트립만 막고,
+#     이미 스트립된 과거분은 되돌아오지 않으므로 이 인덱스는 어느 쪽이든 계속 필요하다.
+_ARCH_META_CACHE: Dict[str, dict] = {}      # dataset -> {"idx": {...}, "weeks": [...], "checked_at": float}
+_ARCH_META_LOCK = threading.Lock()
+_ARCH_META_TTL = 900.0                      # 주차목록 재확인 주기(초)
+_ARCH_META_PATH = Path(__file__).resolve().parent / "archive_meta_index.json"
+
+
+def _arch_urls(dataset: str) -> tuple:
+    """(주차목록 shallow URL, 전체 URL). 설정 없으면 (None, None)."""
+    ds = (_load_config().get("datasets", {}) or {}).get(dataset) or {}
+    base = str(ds.get("rtdb_review_url", "")).rstrip("/")
+    ws_path = str(ds.get("ws_path", "workStatus/jongno")).strip("/")
+    if not base:
+        return None, None
+    root = f"{base}/archive/{ws_path}"
+    return f"{root}.json?shallow=true", f"{root}.json"
+
+
+# 인덱스 스키마 버전 — 담는 필드가 바뀌면 올린다. 디스크 캐시가 이 버전과 다르면 강제 재빌드.
+_ARCH_IDX_SCHEMA = 3
+
+# 아카이브 stub이 라이브에서 떨어뜨리는 필드들. 화면이 이 값들을 못 찾으면 과거가 빈칸으로 보인다.
+_ARCH_PICK = ("awms_seal", "cha", "removal_values", "removal_photos",
+              "removal_lcd_photos", "removal_lcd_regions",
+              "new_meter_photo", "old_meter_photo",
+              # 썸네일도 담는다 — 원본만 담으면 썸네일을 쓰는 화면에서 빈칸이 된다(2026-07-30 실측: 아카이브에 1,181건 존재)
+              "new_meter_photo_thumb", "old_meter_photo_thumb",
+              "remark", "cust_no", "new_meter_mfg_ym", "old_meter_mfg_ym", "daily_seq")
+
+
+def _arch_extract(tree: dict) -> dict:
+    """아카이브 트리 → {mid: {...}} 추출.
+
+    ★주간 아카이브는 METER_KEEP 화이트리스트만 남기므로, 라이브에서 **검침값·사진·봉인·차수**가
+      통째로 사라진다. 라이브만 보면 과거 날짜가 화면에서 빈칸으로 보인다(2026-07-29 사고).
+      원본이 남아 있는 archive/ 에서 화면에 필요한 필드를 뽑아 폴백용으로 쓴다.
+    """
+    idx: Dict[str, dict] = {}
+    for _wk, addrs in (tree or {}).items():
+        if not isinstance(addrs, dict):
+            continue
+        for _addr, val in addrs.items():
+            if not isinstance(val, dict):
+                continue
+            meter_state = val.get("meter_state")
+            for mid, rec in (val.get("replacement_list") or {}).items():
+                if not isinstance(rec, dict):
+                    continue
+                picked = {}
+                for k in _ARCH_PICK:
+                    v = rec.get(k)
+                    if v in (None, "", {}, []):
+                        continue
+                    picked[k] = v
+                if not picked and not meter_state:
+                    continue
+                cur = idx.setdefault(str(mid), {})
+                # 같은 계기가 여러 주차에 걸치면 먼저 채워진 값을 지키고 빈 자리만 메운다
+                for k, v in picked.items():
+                    if cur.get(k) in (None, "", {}, []):
+                        cur[k] = v
+                if meter_state and not cur.get("meter_state"):
+                    cur["meter_state"] = meter_state
+    return idx
+
+
+def _archive_meta_index(dataset: str) -> dict:
+    """아카이브 봉인·차수 인덱스. 실패해도 절대 raise 하지 않는다(빈 dict 반환 → 화면은 '-')."""
+    now = time.monotonic()
+    with _ARCH_META_LOCK:
+        ent = _ARCH_META_CACHE.get(dataset)
+        if ent is not None and (now - ent["checked_at"]) < _ARCH_META_TTL:
+            return ent["idx"]
+
+    shallow_url, full_url = _arch_urls(dataset)
+    if not shallow_url:
+        return {}
+
+    try:
+        with urllib.request.urlopen(shallow_url, timeout=30) as r:
+            weeks = sorted((json.loads(r.read()) or {}).keys())
+    except Exception as e:
+        print(f"[archmeta] 주차목록 조회 실패({dataset}): {e}", flush=True)
+        with _ARCH_META_LOCK:
+            ent = _ARCH_META_CACHE.get(dataset)
+        return ent["idx"] if ent else {}
+
+    # 디스크 캐시가 같은 주차 집합이면 재다운로드 없이 채택
+    if not _ARCH_META_CACHE.get(dataset):
+        try:
+            if _ARCH_META_PATH.exists():
+                disk = json.loads(_ARCH_META_PATH.read_text(encoding="utf-8"))
+                d_ent = (disk or {}).get(dataset) or {}
+                if (d_ent.get("schema") == _ARCH_IDX_SCHEMA
+                        and d_ent.get("weeks") == weeks and isinstance(d_ent.get("idx"), dict)):
+                    with _ARCH_META_LOCK:
+                        _ARCH_META_CACHE[dataset] = {"idx": d_ent["idx"], "weeks": weeks,
+                                                     "checked_at": now}
+                    print(f"[archmeta] 디스크 캐시 채택 {dataset}: {len(d_ent['idx'])}건", flush=True)
+                    return d_ent["idx"]
+        except Exception as e:
+            print(f"[archmeta] 디스크 캐시 읽기 실패(무시): {e}", flush=True)
+
+    with _ARCH_META_LOCK:
+        ent = _ARCH_META_CACHE.get(dataset)
+    if ent is not None and ent.get("weeks") == weeks:
+        with _ARCH_META_LOCK:
+            _ARCH_META_CACHE[dataset]["checked_at"] = now
+        return ent["idx"]
+
+    # 주차 집합이 바뀌었을 때만 전체 수신
+    try:
+        with urllib.request.urlopen(full_url, timeout=180) as r:
+            tree = json.loads(r.read())
+        idx = _arch_extract(tree if isinstance(tree, dict) else {})
+    except Exception as e:
+        print(f"[archmeta] 전체 조회 실패({dataset}): {e}", flush=True)
+        return ent["idx"] if ent else {}
+
+    with _ARCH_META_LOCK:
+        _ARCH_META_CACHE[dataset] = {"idx": idx, "weeks": weeks, "checked_at": now}
+    try:
+        disk = {}
+        if _ARCH_META_PATH.exists():
+            disk = json.loads(_ARCH_META_PATH.read_text(encoding="utf-8")) or {}
+        disk[dataset] = {"schema": _ARCH_IDX_SCHEMA, "weeks": weeks, "idx": idx}
+        _ARCH_META_PATH.write_text(json.dumps(disk, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        print(f"[archmeta] 디스크 캐시 쓰기 실패(무시): {e}", flush=True)
+    print(f"[archmeta] 인덱스 재빌드 {dataset}: {len(idx)}건 (주차 {len(weeks)}개)", flush=True)
+    return idx
+
+
 def _build_photo_map(dataset: str, date: Optional[str]) -> dict:
     """
     firebase_admin SDK로 workStatus/jongno를 읽어 date 기준 replacement_list 레코드를
@@ -207,6 +349,11 @@ def _build_photo_map(dataset: str, date: Optional[str]) -> dict:
     awms_synced_map: Dict[str, bool] = {}       # mid → awms_synced (전송완료 여부)
     awms_synced_manual_map: Dict[str, bool] = {}  # mid → 수동 마킹 여부 (되돌리기 가능/실전송 구분)
     awms_seal_map: Dict[str, Any] = {}          # mid → awms_seal dict (봉인번호·계정 기록)
+    work_step_map: Dict[str, Any] = {}          # mid → awms_work_step (25/28 원값)
+    cha_map: Dict[str, Any] = {}                # mid → cha (차수 라벨. 3b 차수 필터·데이터탭 표시)
+    # 아카이브 폴백 인덱스 — 주간 아카이브가 라이브에서 스트립한 awms_seal·cha를 되살린다.
+    # (실패해도 빈 dict라 화면은 '-'로 떨어질 뿐 크래시 없음)
+    _arch_meta = _archive_meta_index(dataset)
     # mid 단독 폴백: 같은 날 mid가 유일할 때만 채택 (ts15가 어긋난 수정건 보정용).
     # 중복 mid는 모호하므로 폴백에서 제외(_AMBIG로 표시 후 최종 제거).
     _mid_recs: Dict[str, list] = {}             # mid → [rec, ...] (그날)
@@ -251,7 +398,11 @@ def _build_photo_map(dataset: str, date: Optional[str]) -> dict:
             replaced_at_map[mid] = ra                          # 작업일시 ms (도입전 경계 판정용)
             awms_synced_map[mid] = bool(rec.get("awms_synced"))   # awms 전송완료 여부
             awms_synced_manual_map[mid] = bool(rec.get("awms_synced_manual"))  # 수동 마킹 여부
-            awms_seal_map[mid] = rec.get("awms_seal") or None     # 봉인번호·계정 기록 (없으면 None)
+            # 봉인·차수는 라이브 우선, 없으면 아카이브 원본 폴백(라이브는 스트립돼 0건인 상태)
+            _am = _arch_meta.get(mid) or {}
+            awms_seal_map[mid] = rec.get("awms_seal") or _am.get("awms_seal") or None
+            cha_map[mid] = rec.get("cha") or _am.get("cha") or None
+            work_step_map[mid] = rec.get("awms_work_step") or None
             # 임시저장(미완료) = draft 플래그 또는 신설계기번호/철거검침값 누락 (daily_summary와 동일 규칙)
             draft_map[mid] = bool(
                 rec.get("draft") is True
@@ -279,6 +430,9 @@ def _build_photo_map(dataset: str, date: Optional[str]) -> dict:
         "awms_synced_map": awms_synced_map,
         "awms_synced_manual_map": awms_synced_manual_map,
         "awms_seal_map": awms_seal_map,
+        "cha_map": cha_map,
+        "work_step_map": work_step_map,
+        "arch_meta": _arch_meta,   # 아카이브 원본 폴백(검침값·사진 등)
     }
 
 
@@ -337,28 +491,19 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
     awms_synced_map = maps.get("awms_synced_map", {})
     awms_synced_manual_map = maps.get("awms_synced_manual_map", {})
     awms_seal_map   = maps.get("awms_seal_map", {})
+    cha_map         = maps.get("cha_map", {})
+    work_step_map   = maps.get("work_step_map", {})
+    arch_meta       = maps.get("arch_meta", {}) or {}
 
-    # ★ 고아행 제외(2026-07-29 검증팀). 작업자가 앱에서 순번 등을 고치면 종로맵이 replaced_at을
-    #   새로 찍는다 → CSV 병합키(kst_str(replaced_at)_{fid})가 통째로 바뀌고, 옛 키 행이 라이브에
-    #   짝 없는 '고아'로 남는다. 이 행의 parseq/google은 **옛 사진** OCR 결과라, mid 단독 폴백으로
-    #   새 레코드(새 사진)를 붙이면 사진과 OCR이 어긋나 멀쩡한 건이 need_human으로 오판된다
-    #   (실제 사고: 명륜3가 1-1102 / 56170861534 — 작업자는 고쳤는데 화면은 계속 오류 표시).
-    #   → 라이브에 정확 매칭(ts15, mid)이 없는 행은 화면에서 제외한다. 다음 워처가 새 키로
-    #   재수집한 행이 대신 뜨므로 몇 분 안에 최신값으로 복귀한다.
-    #   ※ 근본 수정(daily_cycle의 고아 스윕)은 ocr-meter 소관 — 여기선 표시만 막는다.
-    if ts_mid_map:  # 맵 획득 실패(폴백 빈 dict) 시엔 절대 거르지 않는다 — 전건 소실 방지
-        for _rk in ("meter_values", "meter_ids", "removal_ids"):
-            _rows = results.get(_rk)
-            if not isinstance(_rows, list):
-                continue
-            _kept = [
-                _r for _r in _rows
-                if (str(_r.get("ts", ""))[:15], str(_r.get("mid", ""))) in ts_mid_map
-            ]
-            if len(_kept) != len(_rows):
-                print(f"[orphan] {_rk}: {len(_rows) - len(_kept)}행 제외 "
-                      f"(라이브에 짝 없음 — 작업자 수정으로 replaced_at 변경)", flush=True)
-                results[_rk] = _kept
+    # ★ 고아행 제외 필터는 제거했다(2026-07-30).
+    #   원래 의도: 작업자가 값을 고쳐 replaced_at이 바뀌면 옛 CSV 행이 남아 오판을 만든다 —
+    #   그 행을 화면에서 감추려 했다.
+    #   실제로는 **정상 데이터를 지웠다.** CSV의 ts와 workStatus의 replaced_at이 2~6초 어긋나는
+    #   건이 흔한데(생성 시점 차이), 그걸 전부 "고아"로 보고 걸러버렸다.
+    #   실측 사고: 0626 29171233026(CSV 140101 vs 실제 140103), 0702 29171234729(102238 vs 102232) 등이
+    #   종로맵에는 사진이 보이는데 데이터관리자에서는 행 자체가 사라졌다.
+    #   ts가 어긋난 건은 이미 mid 단독 폴백(mid_rec_map)이 받아주므로 감출 이유가 없다.
+    #   원래 문제였던 고아행 자체는 daily_state.csv에서 직접 제거하는 편이 맞다(2026-07-29 처리 완료).
 
     for row in results.get("meter_values", []):
         row["photo_url"] = None
@@ -370,14 +515,26 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         ts15 = ts_full[:15]
         rec = ts_mid_map.get((ts15, mid)) or mid_rec_map.get(mid)  # ts 어긋난 수정건은 mid 단독 폴백
         if rec:
-            rp = rec.get("removal_photos") or {}
+            # ★아카이브 stub에는 사진·검침값이 없다 — 원본이 남은 아카이브 인덱스로 메운다.
+            _am = arch_meta.get(mid) or {}
+            rp = rec.get("removal_photos") or _am.get("removal_photos") or {}
             row["photo_url"] = rp.get(fid) or None
-            lrp = rec.get("removal_lcd_photos") or {}
+            lrp = rec.get("removal_lcd_photos") or _am.get("removal_lcd_photos") or {}
             row["lcd_photo_url"] = lrp.get(fid) or None
             # ★ on-read 검침 status 재판정(2026-07-02): CSV에 굳은 worker_missing/판정을
             #   workStatus 최신 검침값으로 다시 계산 → 작업자가 나중에 넣은 값 즉시 반영.
             #   (human/human_skip/kepco는 validation_rules가 보존)
-            validation_rules.apply_onread(row, rec.get("removal_values") or {})
+            #
+            # ★★ 단, 아카이브 stub에는 재판정을 걸지 않는다(2026-07-29 사고).
+            #   주간 아카이브가 stub화하면서 removal_values를 통째로 떨어뜨리는데, 그걸 "작업자가
+            #   값을 안 넣었다"로 읽고 빈 값으로 재계산해 **CSV에 멀쩡히 있는 판정을 지워버렸다.**
+            #   실제 사고: 7/16 122건이 화면에서 worker_val 0건 · final 0건 · 전건 worker_missing.
+            #   CSV 원본은 `...,71547,41547,071547,71547,pass2` 로 정상이었다.
+            #   → removal_values가 아예 없는 레코드(=아카이브 stub)는 비교 근거가 없는 것이지
+            #     "값이 비었다"는 증거가 아니므로, CSV 판정을 그대로 살린다.
+            _rv = rec.get("removal_values") or _am.get("removal_values")
+            if isinstance(_rv, dict) and _rv:
+                validation_rules.apply_onread(row, _rv)
         # 서버(검증=daily_cycle)가 YOLO로 크롭한 LCD가 /tmp/daily_cycle에 있으면 그걸 표시(폰 크롭 없어도)
         row["lcd_crop_ts"] = None
         try:
@@ -397,7 +554,8 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         row["awms_synced"]      = bool(awms_synced_map.get(mid))
         row["awms_synced_manual"] = bool(awms_synced_manual_map.get(mid))
         row["awms_seal"]        = awms_seal_map.get(mid)
-        row["cha"]              = rec.get("cha") if rec else None  # 3b 차수 필터
+        row["awms_work_step"]   = work_step_map.get(mid)
+        row["cha"]              = cha_map.get(mid)  # 3b 차수 필터 (라이브 없으면 아카이브 폴백)
 
     for row in results.get("meter_ids", []):
         row["photo_url"] = None
@@ -405,7 +563,7 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         mid = str(row.get("mid", ""))
         rec = ts_mid_map.get((ts, mid)) or mid_rec_map.get(mid)  # ts 어긋난 수정건은 mid 단독 폴백
         if rec:
-            row["photo_url"] = rec.get("new_meter_photo") or None
+            row["photo_url"] = rec.get("new_meter_photo") or (arch_meta.get(mid) or {}).get("new_meter_photo") or None
             # ★ 2단계 단일진실(2026-07-02): 신설번호를 workStatus 최신으로 덮음
             #   → 스왑·작업자변경 즉시 반영(CSV daily_meterid 수동교정 불필요).
             #   CSV의 vision_result/google_result(OCR)는 그대로 대조에 쓰이고,
@@ -425,7 +583,8 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         row["awms_synced"]      = bool(awms_synced_map.get(mid))
         row["awms_synced_manual"] = bool(awms_synced_manual_map.get(mid))
         row["awms_seal"]        = awms_seal_map.get(mid)
-        row["cha"]              = rec.get("cha") if rec else None  # 3b 차수 필터
+        row["awms_work_step"]   = work_step_map.get(mid)
+        row["cha"]              = cha_map.get(mid)  # 3b 차수 필터 (라이브 없으면 아카이브 폴백)
 
     for row in results.get("removal_ids", []):
         row["photo_url"] = None
@@ -435,7 +594,7 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         ts15 = ts_full[:15]
         rec = ts_mid_map.get((ts15, mid)) or mid_rec_map.get(mid)  # ts 어긋난 수정건은 mid 단독 폴백
         if rec:
-            row["photo_url"] = rec.get("old_meter_photo") or None
+            row["photo_url"] = rec.get("old_meter_photo") or (arch_meta.get(mid) or {}).get("old_meter_photo") or None
         row["remark"]           = remark_map.get(mid)
         row["meter_state"]      = meter_state_map.get(mid)
         row["new_meter_mfg_ym"] = new_mfg_ym_map.get(mid)
@@ -448,7 +607,8 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         row["awms_synced"]      = bool(awms_synced_map.get(mid))
         row["awms_synced_manual"] = bool(awms_synced_manual_map.get(mid))
         row["awms_seal"]        = awms_seal_map.get(mid)
-        row["cha"]              = rec.get("cha") if rec else None  # 3b 차수 필터
+        row["awms_work_step"]   = work_step_map.get(mid)
+        row["cha"]              = cha_map.get(mid)  # 3b 차수 필터 (라이브 없으면 아카이브 폴백)
 
 
 def _merge_unverified(results: dict, dataset: str, date: Optional[str]) -> None:
@@ -3597,28 +3757,80 @@ def _is_three_phase(meter_no: str, cntr_clas_cd) -> bool:
     return code in _THREE_PHASE_METER_CODES
 
 
-def _db_seal_max(raw: dict, account: str = "") -> tuple:
+def _db_seal_max(raw: dict, account: str = "", dataset: str = "") -> tuple:
     """workStatus 전체에서 기록된 봉인번호(awms_seal.seal_no/seal_no2)의 전역 최대값+자릿수.
     ★봉인은 계정 무관 물리 시퀀스 (영준님 2026-07-17) — account 필터 없이 전역.
-    반환: (max_int, max_width). 다음 봉인 = max_int + 1 (중단 후 재개해도 번호 재사용 안 함)."""
+    반환: (max_int, max_width). 다음 봉인 = max_int + 1 (중단 후 재개해도 번호 재사용 안 함).
+
+    ★라이브만 보면 안 된다(2026-07-29 사고). 주간 아카이브가 METER_KEEP 화이트리스트로
+      stub화하면서 awms_seal을 통째로 떨어뜨려 **라이브 기록이 0건**이 된다. 그러면 여기서
+      db_max=0이 나오고, config.seal_last마저 비면 다음 봉인이 **1번부터 재배정**된다
+      (실제로 발생). 그래서 아카이브 원본 인덱스까지 함께 훑어 커서를 잃지 않게 한다.
+      ※근본적으로는 계기팀이 METER_KEEP에 awms_seal을 추가해야 하지만, 이미 스트립된
+        과거분은 되돌아오지 않으므로 이 폴백은 어느 쪽이든 계속 필요하다.
+    """
     mx, width = 0, 0
-    if not isinstance(raw, dict):
-        return 0, 0
-    for _addr, av in raw.items():
-        if not isinstance(av, dict):
-            continue
-        for _mid, rec in (av.get("replacement_list") or {}).items():
-            if not isinstance(rec, dict):
+
+    def _take(v):
+        nonlocal mx, width
+        if v is not None and str(v).isdigit():
+            mx = max(mx, int(v))
+            width = max(width, len(str(v)))
+
+    if isinstance(raw, dict):
+        for _addr, av in raw.items():
+            if not isinstance(av, dict):
                 continue
-            s = rec.get("awms_seal")
-            if not isinstance(s, dict):
-                continue
-            for k in ("seal_no", "seal_no2"):
-                v = s.get(k)
-                if v is not None and str(v).isdigit():
-                    mx = max(mx, int(v))
-                    width = max(width, len(str(v)))
+            for _mid, rec in (av.get("replacement_list") or {}).items():
+                if not isinstance(rec, dict):
+                    continue
+                s = rec.get("awms_seal")
+                if not isinstance(s, dict):
+                    continue
+                for k in ("seal_no", "seal_no2"):
+                    _take(s.get(k))
+
+    if dataset:
+        try:
+            for _mid, meta in (_archive_meta_index(dataset) or {}).items():
+                s = (meta or {}).get("awms_seal")
+                if isinstance(s, dict):
+                    for k in ("seal_no", "seal_no2"):
+                        _take(s.get(k))
+        except Exception as e:
+            print(f"[seal] 아카이브 봉인 스캔 실패(무시): {e}", flush=True)
+
     return mx, width
+
+
+# ── 봉인박스 (팀 단위 전역 자원) ────────────────────────────────────────────────
+#   ★봉인은 종로팀이 수령한 소모품이라 awms 아이디와 무관하다(영준님 2026-07-29).
+#     배경: 종로/중구는 같은 지사 하청의 다른 회사인데 차수 레벨이 안 맞아 종로팀이 공사중지되면서
+#     종로 작업자가 중구 아이디를 고정 발급받아 쓰고 있다(OTP 불편). 나중에 종로 아이디로 돌아갈 수
+#     있는데, 계정이 바뀌어도 **같은 봉인을 이어서** 쓴다. 그래서 박스에 account를 넣지 않고,
+#     커서도 계정별로 쪼개지 않는다(쪼개면 아이디가 바뀔 때 봉인이 어긋난다).
+#   ★awms_seal.account는 "누가 그 계기를 올렸는지"라는 **등록 이력**으로만 유지한다(봉인 소유 아님).
+#   ★범위·번호·자릿수는 코드에 박지 않는다 — 전부 전송 설정에서 입력/수정/추가한다.
+def _seal_boxes(t_cfg: dict) -> list:
+    """설정된 봉인박스 목록 [{box_id, start, end, closed}]. 시작번호 순 정렬, closed 제외."""
+    out = []
+    for b in (t_cfg.get("seal_boxes") or []):
+        if not isinstance(b, dict) or b.get("closed"):
+            continue
+        s, e = str(b.get("start", "")).strip(), str(b.get("end", "")).strip()
+        if not (s.isdigit() and e.isdigit()) or int(e) < int(s):
+            continue
+        out.append({"box_id": str(b.get("box_id") or ""), "start": int(s), "end": int(e),
+                    "width": max(len(s), len(e))})
+    out.sort(key=lambda x: x["start"])
+    return out
+
+
+def _seal_in_boxes(n: int, boxes: list) -> bool:
+    """봉인번호가 우리 박스 범위 안인가.
+    ★우리 것/남의 것 판별 기준은 **계정이 아니라 범위**다(영준님 2026-07-29).
+      계정을 공유해 쓰므로 같은 아이디에 남의 봉인 이력이 섞인다."""
+    return any(b["start"] <= n <= b["end"] for b in boxes)
 
 
 def _allocate_seals(items: list, start_seal: int, width: int = 0):
@@ -4896,8 +5108,9 @@ def post_transmit_run(req: TransmitRunReq):
                                     "seal_no2": seal.get("seal_no2", ""),
                                     "removal_values": _rep.get("removal_values") or {},
                                     "mfg_ym": _rep.get("new_meter_mfg_ym") or "",
-                                    # 임시저장(25) 전용이므로 검증도 25 기대
-                                    "work_step": "25",
+                                    # ★실제 전송한 work_step으로 기대값을 잡는다(2026-07-30).
+                                    #   전엔 "25"가 박혀 있어, 28로 잘 나간 87건이 전부 불일치로 찍혔다.
+                                    "work_step": str(req.work_step),
                                 },
                             })
                         # 모듈 상세로그 → 잡 로그에 병기 (건별 1줄, 28 미달 경고 포함)
@@ -4939,6 +5152,10 @@ def post_transmit_run(req: TransmitRunReq):
                         },
                         "awms_synced": True,
                         "awms_synced_at": now_ms,
+                        # ★어디까지 올렸는지(25 임시저장 / 28 완료)를 DB에 남긴다(2026-07-30).
+                        #   전에는 이 값을 저장하지 않아, awms에는 28로 올라갔는데 화면은 근거가 없어
+                        #   기본값인 '임시저장'으로 표시했다("왜 다 임시저장이지?"의 원인).
+                        "awms_work_step": str(req.work_step),
                     })
 
                     ok_count += 1

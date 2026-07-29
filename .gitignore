@@ -62,3 +62,12 @@ research/ocr_poc/daily_state.csv
 research/ocr_poc/daily_meterid.csv
 research/ocr_poc/cycle_state.csv
 research/ocr_poc/daily_removal_meterid.csv
+
+# 검증관리자 백엔드 런타임 상태 (절대 tracking 금지 — 2026-07-30 검증팀)
+#   session_mtr.json = awms 라이브 JSESSIONID (자격증명. repo가 public + Pages 배포)
+#   transmit_config.json = 봉인 커서/박스 범위 (유실 시 복구 어려움)
+#   archive_meta_index.json = 재생성 가능한 2.7MB 캐시
+research/admin-validation/backend/session_mtr.json
+research/admin-validation/backend/transmit_config.json
+research/admin-validation/backend/archive_meta_index.json
+research/admin-validation/backend/*.bak-*

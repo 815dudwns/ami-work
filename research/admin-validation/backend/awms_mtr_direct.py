@@ -1247,11 +1247,22 @@ def verify_registration(items: list) -> list:
             "dm_mt_day": "DGD_DM_MT_NDL_DAY_QTT",
             "var_day":   "DGD_VAR_NDL_DAY_QTT",
         }
+        # ★검침값은 숫자로 정규화해 비교한다(2026-07-30).
+        #   awms는 11534.0, 우리 기록은 11534처럼 표기가 달라서 문자열로 비교하면 전건 불일치가 났다.
+        def _numeq(a, b) -> bool:
+            sa, sb = str(a).strip(), str(b).strip()
+            if sa == sb:
+                return True
+            try:
+                return float(sa) == float(sb)
+            except (TypeError, ValueError):
+                return False
+
         for f, dgd_key in dgd_map.items():
             if f in rv:
                 got_v = str(detail.get(dgd_key) or "")
                 exp_v = str(rv[f])
-                if got_v != exp_v:
+                if not _numeq(got_v, exp_v):
                     mismatches.append({"field": dgd_key, "expect": exp_v, "got": got_v})
 
         # 제조월
