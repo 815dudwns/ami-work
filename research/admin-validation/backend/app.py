@@ -3994,7 +3994,7 @@ def post_transmit_reset_row(
     """임시저장(25) 1건 원복 — awms에서 삭제해 20(대기)으로 되돌린다.
 
     ★설계 기준 (영준님 확정 2026-07-29):
-      - 25 = 삭제 가능. 이 이식은 25 한정이므로 원복도 **25 전용**.
+      - 25 = 삭제 가능 → 원복은 **25 전용**.
       - 28 = ★삭제 불가(검침값 수정만 가능). 여기서 28이 오면 거부한다.
     기본은 dry-run이라 apply=true를 줘야 실제로 지운다.
 
@@ -4519,6 +4519,12 @@ class TransmitRunReq(BaseModel):
     exec_mode: str = "direct"
     # verify: 실등록 배치 후 awms 재조회 필드대조 (P4 사후검증, direct+live에서만 동작)
     verify: bool = True
+    # ★work_step: 어디까지 올릴지 — "25"(임시저장) / "28"(완료). 화면에서 고른다.
+    #   등록 범위가 25 한정에서 28까지로 확대됐다(PM 최종지시 §1-7, 2026-07-29).
+    #   ★28은 삭제 불가다. resetRows는 25 전용이고 완료건 원복 자동화는 설계상 만들지 않는다.
+    #     검침값 수정만 mobMtr5000/saveRow(EX_WORK_STEP=28+RE_SAVE_YN=Y)로 가능하고 신설번호는 잠긴다.
+    #   기본값은 되돌릴 수 있는 25로 둔다(PM 확인 후 변경 가능). 28은 호출측이 명시해야 나간다.
+    work_step: str = "25"
 
 
 @app.post("/transmit/run")
@@ -4619,6 +4625,8 @@ def post_transmit_run(req: TransmitRunReq):
                 pass
             seal_start, seal_width, _seal_note = _seal_state(raw, t_cfg, _awms_seal_max)
             _append_log({"phase": "시스템", "ok": True, "msg": f"봉인 판정: {_seal_note}"})
+            _ws = "28(완료 — ★되돌릴 수 없음)" if str(req.work_step) == "28" else "25(임시저장 — resetRows로 원복 가능)"
+            _append_log({"phase": "시스템", "ok": True, "msg": f"등록 단계: WORK_STEP={_ws}"})
             alloc, seal_next_after = _allocate_seals(items, seal_start, seal_width)
             mid_seal: Dict[str, dict] = {}   # mid → {seal_no, seal_no2, account}
             for mid, seal in alloc.items():
@@ -4733,9 +4741,10 @@ def post_transmit_run(req: TransmitRunReq):
                                 "cons_no": cons_no,
                                 "account": acct,
                             },
-                            # ★영준님 방침(2026-07-20): 완료(28) 절대 금지 — 임시저장(25)까지만.
-                            #   하드코딩 True. 완료가 필요하면 이 코드를 명시적으로 바꿀 것.
-                            "no_complete": True,
+                            # ★등록 범위 = 요청의 work_step ("25" 임시저장 / "28" 완료).
+                            #   PM 최종지시 §1-7(2026-07-29)로 25 한정 제약이 해제됐다.
+                            #   ★28은 되돌릴 수 없다 — 전송 전 확인(검증완료 건만·건수 경고)은 화면 책임.
+                            "no_complete": str(req.work_step) != "28",
                         })
                         remote_result = {
                             "ok": d.get("ok"),

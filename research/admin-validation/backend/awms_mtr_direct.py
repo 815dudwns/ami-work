@@ -805,7 +805,7 @@ def save_final_seal(cons_no: str, final_seal: str) -> dict:
 
 # ── 원복(임시저장 삭제) ────────────────────────────────────────────────────────
 # ★설계 기준 (영준님 확정 2026-07-29):
-#   - 임시저장(25) = resetRows로 삭제 가능 → 25→20 복귀. 이 이식은 25 한정이므로 원복도 25 전용.
+#   - 임시저장(25) = resetRows로 삭제 가능 → 25→20 복귀. 원복 자동화는 25 전용이다.
 #   - 완료(28)    = ★삭제 불가. 검침값 수정만 가능(mobMtr5000/saveRow, EX_WORK_STEP=28+RE_SAVE_YN=Y,
 #                   신설번호 잠김). 통신팀 MOBCST 완료건은 saveAct 재전송 시 모뎀결합 unique 제약으로
 #                   500 → awms UI로만 수정 가능.
@@ -1096,8 +1096,10 @@ def register_replacement_direct(job: dict) -> dict:
 
     # 8) 완료(28): getDetail 재조회 + 시공 17키 + 신설사진 재전송
     done_step = "25"
-    # ★영준님 방침(2026-07-20): 완료(28)는 절대 금지 — 임시저장(25)까지만.
-    #   no_complete=True면 완료(28) saveRow 단계 전체 스킵(getDetail 조회는 무해).
+    # 등록 범위는 호출측이 no_complete로 정한다 (PM 최종지시 §1-7, 2026-07-29로 25 한정 해제).
+    #   no_complete=True  → 임시저장(25)에서 멈춤. resetRows로 원복 가능.
+    #   no_complete=False → 완료(28)까지. ★되돌릴 수 없다 — 원복 자동화는 설계상 만들지 않는다.
+    #   (getDetail 조회 자체는 어느 쪽이든 무해)
     no_complete = bool(job.get("no_complete"))
     try:
         d2, _ = _get_detail_with_retry(
