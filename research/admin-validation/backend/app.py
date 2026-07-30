@@ -3583,7 +3583,8 @@ _STATUS_LABEL = {
     "human":       "확인완료",
     "human_skip":  "확인완료",   # human_skip도 사람이 완료한 것으로 통합
     "swap_suspect": "정합성의심",
-    "no_photo":    "사진없음",
+    # ★유실이 아니라 "배치 시점에 업로드 전"이라는 뜻 — 오인 방지(2026-07-30, 영준님 승인)
+    "no_photo":    "사진 대기",
     "dl_err":      "다운로드오류",
     "google":      "자동통과(Google)",
     "pass2":       "자동통과(2차)",
