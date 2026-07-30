@@ -25,9 +25,11 @@ Phase 3(인증)은 미구현(TODO 주석).
 """
 
 import contextlib
+import csv
 import io
 import json
 import os
+import shutil
 import sys
 import threading
 import time
@@ -767,6 +769,24 @@ class ValidateRequest(BaseModel):
     date: str  # YYYYMMDD
     only_mids: Optional[List[str]] = None   # 순번 범위 검증 — 이 철거번호들만 OCR (None=전체)
 
+class ForceRevalidateRequest(BaseModel):
+    """행 단위 강제 재판독 (2026-07-30 검증팀).
+
+    배치가 CSV에 status를 한 번 쓰면 daily_cycle이 증분 skip으로 그 행을 다시 안 본다
+    (`if ts in st: continue`). 그래서 [검증 실행]을 다시 눌러도 재판독이 일어나지 않는다.
+    실제로 2026-07-30 no_photo 8건을 고친 방법은 **CSV 행 수동 삭제**였다 — 그 수동 작업을
+    API로 만든 것이 이 엔드포인트다.
+
+    ★daily_cycle 쪽 수정(P0)에 의존하지 않는다. 여기서 대상 행을 지우고 run_daily를 호출하므로
+      P0가 적용되든 안 되든 동작한다. P0가 적용되면 '사진 미도착 건이 애초에 안 굳는' 부분이
+      해결되고, 이 API는 그 뒤에도 '사람이 지금 다시 읽으라고 지시하는' 경로로 남는다.
+    """
+    dataset: str
+    date: str                                  # YYYYMMDD — 이 날짜 행만 건드린다
+    mids: List[str]                            # 대상 계기(그룹) — 최소 1건
+    tracks: Optional[List[str]] = None         # values | new_meter | removal (None=전부)
+    include_human: bool = False                # True면 사람판정(human/human_skip)도 재판독 (기본 보존)
+
 class SuggestRequest(BaseModel):
     dataset: str
     date: str
@@ -930,6 +950,153 @@ def post_validate(req: ValidateRequest):
     t.start()
 
     return {"job_id": job_id, "status": "running"}
+
+
+# ── 2b. POST /validate/force — 행 단위 강제 재판독 ───────────────────────────────
+#   증분 skip 우회를 CSV 행 삭제로 구현한다(daily_cycle 무수정 = P0 독립).
+_FORCE_TRACKS = {
+    "values":    "STATE_CSV",              # daily_state.csv           ts = YYYYMMDD_HHMMSS_{fid}
+    "new_meter": "METERID_CSV",            # daily_meterid.csv         ts = YYYYMMDD_HHMMSS
+    "removal":   "REMOVAL_METERID_CSV",    # daily_removal_meterid.csv ts = YYYYMMDD_HHMMSS_rm
+}
+# 사람이 판정한 행·준공반영 행은 기본 보존 — 재판독하면 사람 판단이 날아간다.
+_FORCE_PRESERVE = {"human", "human_skip", "kepco"}
+_FORCE_BACKUP_DIR = Path.home() / ".ami-backups" / "val-backend" / "force"
+
+
+def _force_csv_path(track: str, out_dir) -> Path:
+    """트랙별 CSV 실경로. out_dir(샌드박스 데이터셋) 지정 시 그 폴더, 아니면 daily_cycle 정본."""
+    attr = _FORCE_TRACKS[track]
+    if out_dir:
+        fname = Path(getattr(daily_cycle, attr)).name
+        return Path(out_dir) / fname
+    return Path(getattr(daily_cycle, attr))
+
+
+def _force_clear_rows(date: str, mids: set, tracks: list, include_human: bool, out_dir):
+    """대상 행을 CSV에서 제거해 증분 skip을 우회한다. 반환 (removed, kept_human, backup_dir).
+
+    ★안전장치
+      - 반드시 date 접두 + mids 교집합만 지운다. 다른 날짜는 절대 건드리지 않는다.
+      - 지우기 전에 CSV 3종을 타임스탬프 폴더로 백업(repo 밖 ~/.ami-backups).
+      - 사람판정(human/human_skip)·준공(kepco)은 include_human=False면 남긴다.
+      - BOM(utf-8-sig)을 보존해 daily_cycle이 쓰던 형식과 어긋나지 않게 한다.
+    """
+    stamp = datetime.now(KST).strftime("%Y%m%d_%H%M%S")
+    bdir = _FORCE_BACKUP_DIR / stamp
+    bdir.mkdir(parents=True, exist_ok=True)
+    removed: dict = {}
+    kept_human: dict = {}
+
+    for track in tracks:
+        p = _force_csv_path(track, out_dir)
+        if not p.exists():
+            removed[track] = []
+            continue
+        shutil.copy2(p, bdir / p.name)
+        with open(p, encoding="utf-8-sig", newline="") as f:
+            rd = csv.DictReader(f)
+            cols = rd.fieldnames or []
+            rows = list(rd)
+        keep, gone, held = [], [], []
+        for r in rows:
+            ts = str(r.get("ts") or "")
+            hit = ts.startswith(date) and str(r.get("mid") or "") in mids
+            if hit and not include_human and str(r.get("status") or "") in _FORCE_PRESERVE:
+                held.append(ts); keep.append(r); continue
+            if hit:
+                gone.append(ts); continue
+            keep.append(r)
+        if gone:
+            with open(p, "w", encoding="utf-8-sig", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=cols)
+                w.writeheader(); w.writerows(keep)
+        removed[track] = gone
+        kept_human[track] = held
+    return removed, kept_human, str(bdir)
+
+
+@app.post("/validate/force")
+def post_validate_force(req: ForceRevalidateRequest):
+    """행 단위 강제 재판독 — 대상 CSV 행을 지우고 그 계기만 다시 OCR한다.
+
+    화면 [재판독] 버튼의 백엔드. /validate와 같은 잡 락·잡 폴링을 쓴다(동시실행 금지).
+    """
+    global _RUNNING_JOB
+
+    cfg = _load_config()
+    if req.dataset not in cfg.get("datasets", {}):
+        raise HTTPException(status_code=404, detail=f"dataset '{req.dataset}' 없음")
+    try:
+        datetime.strptime(req.date, "%Y%m%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date는 YYYYMMDD 형식")
+    mids = {str(m).strip() for m in (req.mids or []) if str(m).strip()}
+    if not mids:
+        raise HTTPException(status_code=400, detail="mids가 비었습니다 — 재판독 대상을 지정하세요")
+    tracks = [t for t in (req.tracks or list(_FORCE_TRACKS)) if t in _FORCE_TRACKS]
+    if not tracks:
+        raise HTTPException(status_code=400,
+                            detail=f"tracks는 {list(_FORCE_TRACKS)} 중에서 지정하세요")
+
+    with _JOB_LOCK:
+        if _RUNNING_JOB is not None:
+            running_info = _JOBS.get(_RUNNING_JOB, {})
+            raise HTTPException(
+                status_code=409,
+                detail=f"이미 실행 중인 잡이 있습니다: {_RUNNING_JOB} "
+                       f"(dataset={running_info.get('dataset')}, date={running_info.get('date')}). "
+                       f"끝난 뒤 다시 시도하세요."
+            )
+        job_id = "force-" + str(uuid.uuid4())[:6]
+        _RUNNING_JOB = job_id
+
+    _ws_url, _out_dir = _dataset_ocr_ctx(req.dataset)
+    try:
+        removed, kept_human, backup_dir = _force_clear_rows(
+            req.date, mids, tracks, req.include_human, _out_dir)
+    except Exception as e:
+        with _JOB_LOCK:
+            _RUNNING_JOB = None
+        raise HTTPException(status_code=500, detail=f"행 정리 실패(재판독 안 함): {e}")
+
+    n_removed = sum(len(v) for v in removed.values())
+    n_held = sum(len(v) for v in kept_human.values())
+    print(f"[force] dataset={req.dataset} date={req.date} mids={len(mids)} "
+          f"tracks={tracks} 행삭제={n_removed} 사람판정보존={n_held} backup={backup_dir}", flush=True)
+
+    with _JOBS_LOCK:
+        _JOBS[job_id] = {
+            "status": "running", "log": "", "summary": None,
+            "dataset": req.dataset, "date": req.date,
+            "started_at": datetime.now(KST).isoformat(), "finished_at": None,
+            "force": {"removed": removed, "kept_human": kept_human,
+                      "backup_dir": backup_dir, "mids": sorted(mids)},
+        }
+
+    def _run():
+        global _RUNNING_JOB
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                daily_cycle.run_daily(date=req.date, ws_url=_ws_url, out_dir=_out_dir,
+                                      no_sync=True, only_mids=sorted(mids))
+            with _JOBS_LOCK:
+                _JOBS[job_id].update({"status": "done", "log": buf.getvalue(),
+                                      "finished_at": datetime.now(KST).isoformat()})
+        except Exception:
+            with _JOBS_LOCK:
+                _JOBS[job_id].update({"status": "error",
+                                      "log": buf.getvalue() + "\n\n" + traceback.format_exc(),
+                                      "finished_at": datetime.now(KST).isoformat()})
+        finally:
+            with _JOB_LOCK:
+                _RUNNING_JOB = None
+            _invalidate_ws_raw(req.dataset)
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"job_id": job_id, "status": "running", "removed": removed,
+            "kept_human": kept_human, "backup_dir": backup_dir}
 
 
 # ── 3. GET /jobs/{job_id} ────────────────────────────────────────────────────────
