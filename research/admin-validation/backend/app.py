@@ -4087,7 +4087,7 @@ def get_transmit_pull_session():
 
 
 @app.get("/transmit/session-direct")
-def get_transmit_session_direct():
+def get_transmit_session_direct(dataset: str = Query("jongno")):
     """맥 보관 세션의 생존 확인 (awms getMainList 재조회). 폰 불필요."""
     has = bool(mtr_direct.SESSION.get("jsessionid"))
     alive = mtr_direct.session_alive() if has else False
@@ -4095,7 +4095,11 @@ def get_transmit_session_direct():
         "ok": True,
         "has_session": has,
         "alive": alive,
-        "account": mtr_direct.SESSION.get("rememberedId") or "",
+        # ★account 폴백 (2026-07-30 검증팀): 폰이 /transmit/push-session으로 밀어넣은 세션에는
+        #   rememberedId가 없다(실측 None) → 화면에 계정이 빈칸으로 떴다. 봉인은 계정 무관이라
+        #   전송에는 영향이 없지만 표시가 비면 "세션이 잘못됐다"로 오인된다.
+        #   전송 기록용 계정 결정과 같은 규칙(_resolve_account)으로 config accounts[0]을 폴백한다.
+        "account": mtr_direct.SESSION.get("rememberedId") or _resolve_account(dataset),
         "ts": mtr_direct.SESSION.get("ts") or 0,
     }
 
@@ -4274,13 +4278,32 @@ def get_transmit_busilist(dataset: str = Query(..., description="dataset id")):
     if mtr_direct.session_alive():
         direct = mtr_direct.get_busi_list()
         if direct:
+            # ★활성차수는 저장값이 아니라 실시간 조회로 채운다 (2026-07-30 검증팀).
+            #   기존엔 t_cfg["active_cons_no"]만 읽었다. 그 값은 /transmit/login-snapshot이
+            #   단 한 번 채우는 구조라, 스냅샷을 한 번도 안 돈 config에서는 영구히 빈 문자열이었고
+            #   화면은 기본 선택할 차수를 몰라 공사명을 못 띄웠다(2026-07-30 실제 발생).
+            #   getMainList(봉인조회)가 LV_CONS_NO로 활성차수를 주므로 여기서 바로 읽는다.
+            #   읽은 값은 config에 캐시해 세션이 죽은 뒤에도 마지막 활성차수를 알 수 있게 한다.
+            #   ★봉인 필드(seal_last/seal_cons_no/seal_box_*)는 절대 건드리지 않는다.
             t_cfg = _load_transmit_config().get(dataset, {})
+            active = str(t_cfg.get("active_cons_no") or "")
+            try:
+                live = mtr_direct.get_active_cons_no()
+            except Exception:
+                live = ""
+            if live and live != active:
+                active = live
+                cfg_all = _load_transmit_config()
+                ds_cfg = cfg_all.setdefault(dataset, {"dataset": dataset})
+                ds_cfg["active_cons_no"] = live
+                _save_transmit_config(cfg_all)
+                print(f"[busilist] 활성차수 실시간 갱신 dataset={dataset} active_cons_no={live}", flush=True)
             return {
                 "list": [
                     {"cons_no": b["CONS_NO"], "name": b["CONS_OVVW_CTT"], "seqno": b.get("WHM_SEQNO")}
                     for b in direct
                 ],
-                "active_cons_no": t_cfg.get("active_cons_no", ""),  # 기본값 표시용(awms 활성차수)
+                "active_cons_no": active,  # 기본값 표시용(awms 활성차수 LV_CONS_NO)
                 "source": "direct",
             }
 
