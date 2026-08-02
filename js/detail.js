@@ -219,6 +219,23 @@ function showDetail(address, meters, addresses, statusKeys) {
         commonPoleEl.style.display = 'none';
     }
 
+    // DCU 철거예정 표기 — 큰 글씨 공통줄에 '변대주명 + 판정'을 한 줄 더 붙인다.
+    //   (영준님 지시 2026-08-02: 변대주 값 안이 아니라 위 큰 글씨에)
+    //   판정은 data 의 dcu_철거예정 필드('DCU 철거예정 개소 LTE 시설' | 'DCU 유지').
+    //   DCUID 가 없어 위 블록이 숨겨진 경우에도 태그가 있으면 줄을 살린다.
+    const dcuTag = meters.find(m => m.dcu_철거예정)?.dcu_철거예정 || '';
+    if (dcuTag) {
+        const poleName = meters.find(m => m.인입주 || m.변대주);
+        const nameTxt = (poleName && (poleName.인입주 || poleName.변대주)) || '';
+        const isRemove = dcuTag.indexOf('철거') !== -1;
+        const tagHtml =
+            `<div style="margin-top:${commonPoleEl.style.display === 'block' ? '4px' : '0'};` +
+            `color:${isRemove ? '#b91c1c' : '#1d4ed8'};">` +
+            `${nameTxt ? nameTxt + ' ' : ''}${dcuTag}</div>`;
+        commonPoleEl.innerHTML += tagHtml;
+        commonPoleEl.style.display = 'block';
+    }
+
     // 재작업 알림 (rework=true) — 상단에 표시
     const reworkEl = document.getElementById('rework-notice');
     if (reworkEl) {

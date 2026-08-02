@@ -41,9 +41,12 @@ function jisaOf(item) {
 // (label: 마커에 표시할 글자, null이면 계기 개수 숫자 / uiLabel: 카테고리 패널 표시명)
 const DATASETS = [
     { file: './data/site-data.json', category: '실효', label: null,  uiLabel: '실효계기' },
-    { file: './data/skt-data.json',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
-    { file: './data/tou-data.json',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
     { file: './data/rework-data.json', category: '재방문', label: '재', uiLabel: '재방문' },
+    // 2026-08-02 영준님 지시로 skt·tou 내림 — 0730 리스트와 재방문만 남긴다.
+    //   데이터 파일(data/skt-data.json·tou-data.json)은 지우지 않았다. 되살리려면 이 배열에
+    //   아래 두 줄을 되돌리고 getSelectedCategories 의 ALL 에도 다시 넣어야 한다.
+    // { file: './data/skt-data.json',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
+    // { file: './data/tou-data.json',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
 ];
 
 // 위치 추적 관련 상태
@@ -309,7 +312,7 @@ function populateCategoryFilter() {
 
 // 카테고리 필터 — 체크된 카테고리만 표시 (localStorage 저장)
 function getSelectedCategories() {
-    const ALL = ['실효', 'skt', 'tou', '재방문'];
+    const ALL = ['실효', '재방문'];   // skt·tou 내림(2026-08-02) — DATASETS 주석 참조
     const saved = localStorage.getItem('ami_selected_categories');
     if (saved) try {
         const set = new Set(JSON.parse(saved));
