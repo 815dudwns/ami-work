@@ -86,8 +86,8 @@
 4. site-data.json에 합치기 (계기번호 중복 체크)
 4.5. **★ `python3 scripts/apply_dcu_status.py data/site-data.json data/rework-data.json`** — DCU 철거예정 판정 부착 (해지→'DCU 철거예정 개소 LTE 시설' / 유지→'DCU 유지'). 매칭키=변대주명+지사, 태그는 `dcu_철거예정` 필드에만. 목록 정본 `data/reference/DCU_철거_예정_개소_목록.xlsx`. **새 리스트마다 무조건**([[dcu_removal_tag_rule]])
 5. **★ `python3 scripts/gen_site_version.py`** — site-data.version.json 재생성 (안 하면 작업자 폰이 옛 IndexedDB 캐시 사용. site-data.json 바꾸면 무조건)
-6. Firebase 업로드: upload_sitedata.py → siteData/charger4eleccar
-6.5. **★ `python3 scripts/gen_stats_index.py`** — data/stats-site-index.json 재생성 (stats 지사별 분모. upload_sitedata.py 후 반드시)
+6. ~~Firebase 업로드: upload_sitedata.py → siteData/charger4eleccar~~ **폐지(2026-08-02)**. Firebase `siteData` 노드를 읽는 곳이 이제 없다 — 지도는 `js/map.js`가 `./data/site-data.json`을 GitHub Pages에서 직접 읽고, 통계는 `data/stats-site-index.json`(정적)을 읽는다(RTDB 22MB 반복 다운로드 제거 조치). 올릴 필요 없고, `scripts/upload_new_data.py`는 workStatus를 통째 교체(`ref.set`)하므로 **실행 금지**(완료 1만여 건 유실 위험)
+6.5. **★ `python3 scripts/gen_stats_index.py`** — data/stats-site-index.json 재생성 (stats 지사별 분모 = site-data + 완료 아카이브 + 재방문. **로컬 파일 기준**이며 Firebase를 안 읽는다. site-data.json 바꾸면 무조건)
 7. 작업상태 업로드: scripts/upload_work_status.py → workStatus/charger4eleccar
 8. git commit & push
 9. 브라우저 확인
