@@ -86,6 +86,8 @@ def main():
                     help="workStatus 출처. local 은 --ws 스냅샷 파일")
     ap.add_argument("--ws", default=os.path.join(ROOT, "data", "ws-live-snapshot.json"))
     ap.add_argument("--apply", action="store_true", help="실제 반영(기본은 드라이런)")
+    ap.add_argument("--out", help="이관 결과를 이 파일로 저장(라이브는 건드리지 않음). "
+                                  "로컬 육안 확인용")
     args = ap.parse_args()
 
     data_dir = os.path.abspath(args.data_dir)
@@ -146,8 +148,19 @@ def main():
     todo = [p for p in plan if p[1] not in ws]
     print("\n실제 이관 대상: {}건 (충돌 제외)".format(len(todo)))
 
+    # --out: 라이브를 건드리지 않고 결과본만 파일로 떨군다(로컬 육안 확인용).
+    if args.out:
+        migrated = dict(ws)
+        for old, new, rec in todo:
+            migrated[new] = rec
+            migrated.pop(old, None)
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(migrated, f, ensure_ascii=False)
+        print("\n결과본 저장: {} ({}키)".format(args.out, len(migrated)))
+        print("  원본 스냅샷은 그대로 둔다. Firebase 는 건드리지 않았다.")
+
     if not args.apply:
-        print("\n드라이런입니다. 반영하려면 --apply 를 붙이세요.")
+        print("\n드라이런입니다. 라이브 반영은 --source firebase --apply 입니다.")
         return 0
 
     if args.source != "firebase":
