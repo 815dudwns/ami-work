@@ -6,13 +6,35 @@
 - GitHub: github.com/815dudwns/ami-work
 - 기술: HTML + 바닐라 JS + Kakao Maps + Firebase Realtime DB
 
+## 조직·운영 (PM 관리체계 — 2026-07-21)
+> 조직 정본 = `research/조직배선_설계_20260719.md`. 지침 계층: 감사=글로벌(`~/CLAUDE.md`), PM=이 프로젝트 지침+팀 배선.
+
+**조직도**: 영준님(대표) · 감사(거버넌스) · **ami-work PM**(조율·판단, 실행자 아님)
+- **통신팀** (본업 KDN 단독시공): 아미큐·헬퍼·아미맵. awms=MOBCST. 폴더 `cst-input/`·`js/`·`awms-helper/`
+- **계기팀** (B2B 종로 동행): 계기큐·종로맵·snap·명륜·구로금천·OTP수집기. awms=MOBMTR. 폴더 `jongno-combined/`·`awms-queue-www/`
+- **검증팀** (데이터회사 본업): 검증관리자(8765)·후처리/데일리검진(daily_cycle). 폴더 검증백엔드·`daily_cycle.py`
+- **ocr-meter** (독립사무소): OCR 판독. `~/Projects/ocr-meter` (검증팀은 판정 의문 시 OCR_검증규칙.md 먼저)
+
+**문서 4층** (정체성·지식이 어디에 있나):
+1. 글로벌 지침 = `~/CLAUDE.md` — 감사 소관(조직·언어·위임·Orca 공통규약)
+2. 프로젝트 지침 = 이 파일 — PM 소관(앱버전표·데이터규칙·프로세스·이 조직표)
+3. 팀 전용 지침 = `.claude/agents/<팀>.md` — 통신팀·계기팀·검증팀(정체성·필독카드·전결·보고)
+4. 시스템 매뉴얼 정본 = 옵시디언 카드(`core/`·`systems/`, 아래 지식베이스 인덱스)
+- 메모리: PM=auto-memory / 팀=`.claude/agent-memory/<팀>/` (상호 오염 금지)
+
+**팀 운영 방식** (감사 §4):
+- (a) 호출형 — PM이 Agent 툴 `subagent_type: <팀>` 호출. 정의파일이 정체성·메모리 자동분리(감사 권장, 기본)
+- (b) 상주형 — Orca 세션에 팀 정의 주입(`.claude/agents/<팀>.md` 읽혀 정체성). 영준님 직접 대화 필요 시. 통신=`orca terminal send`
+- 전결 = 팀 카드범위 내 코드·운영. PM 보고 후 = 스키마변경·Firebase구조/rules·배포·awms실등록(live)·대량삭제
+- 보고 = 결과요약은 PM에, 긴 산출물 `/tmp/relay/`. HANDOFF는 PM 단일권위(팀은 읽기만)
+
 ## ★ 지식베이스 (시스템별 모듈 — 작업 전 해당 카드부터 로드)
 > 2026-07-13 재구조화. 지식이 시스템(도메인) 단위 카드로 봉합됨. **특정 시스템 작업 시 이 CLAUDE.md 전체가 아니라 해당 카드 + L0 공용코어만 읽으면 독립적으로 작동**한다. 각 카드 = 구조·동작 / 결정이력(함정) / 배포·버전 / TODO 4요소. 정본 = 옵시디언, 원자적 사실 = auto-memory(카드가 [[slug]]로 링크), repo = 실무·진입점.
 >
 > 볼트 루트: `/Users/woodelight/Projects/obsidian/Projects/AMI/`
 
 **L0 공용코어** (`core/`) — 모든 시스템 공유:
-- `core/사업구조.md` — 단독/동행·한전 발주체인·전략·B2B·10팀확장·한전리스크
+- `core/사업구조.md` — 단독/동행·한전 발주체인·전략·B2B·10팀확장·한전리스크 + **영준님 배경·앱 탄생사·김창숙 브릿지·2027 데이터회사·에이전트 조직**(2026-07-19 구술 통합. 사업 판단 전 필독)
 - `core/계기도메인.md` — 계기타입5종·단상삼상·4필드검침·변대주/DCUID·통신방식·모뎀MAC판별
 - `core/데이터규칙.md` — 누락금지·zfill·좌표폴백·네이버캐스케이드·사이트추가·보강파이프라인·KEPCO_IMPORT보존
 - `core/Firebase.md` — DB구조·통째삭제보호·롤백·스토리지정책·rules복구
@@ -62,6 +84,7 @@
 2. 주소 변환: 주소변환.py (지번 → 도로명, 카카오 API)
 3. 좌표 추출: 좌표추출.py (도로명 → 좌표, 3단계 폴백) → ami_data_coords.json
 4. site-data.json에 합치기 (계기번호 중복 체크)
+4.5. **★ `python3 scripts/apply_dcu_status.py data/site-data.json data/rework-data.json`** — DCU 철거예정 판정 부착 (해지→'DCU 철거예정 개소 LTE 시설' / 유지→'DCU 유지'). 매칭키=변대주명+지사, 태그는 `dcu_철거예정` 필드에만. 목록 정본 `data/reference/DCU_철거_예정_개소_목록.xlsx`. **새 리스트마다 무조건**([[dcu_removal_tag_rule]])
 5. **★ `python3 scripts/gen_site_version.py`** — site-data.version.json 재생성 (안 하면 작업자 폰이 옛 IndexedDB 캐시 사용. site-data.json 바꾸면 무조건)
 6. Firebase 업로드: upload_sitedata.py → siteData/charger4eleccar
 6.5. **★ `python3 scripts/gen_stats_index.py`** — data/stats-site-index.json 재생성 (stats 지사별 분모. upload_sitedata.py 후 반드시)
