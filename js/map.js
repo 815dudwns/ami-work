@@ -482,10 +482,16 @@ function createMarker(position, address, meters, category, addresses) {
 
 // 마커 색상 갱신 (상태 변경 시 호출) — address는 변경된 단일 지번이지만,
 //   합친 마커는 여러 지번 대표하므로 addresses에 포함하는 마커를 찾아 집계로 다시 칠한다.
+//   ※ workStatus 키가 '주소' 단독이라 같은 지번이 category가 다른 마커(실효/재방문/tou/skt)에
+//     동시에 존재할 수 있다. find로 첫 마커만 칠하면 나머지는 새로고침 전까지 옛 색으로 남아
+//     화면과 데이터가 어긋난다. 해당 지번을 가진 마커를 전부 갱신한다.
 function updateMarkerColor(address) {
-    const marker = markers.find(m => (m.addresses || [m.address]).includes(address));
-    if (!marker) return;
+    markers.filter(m => (m.addresses || [m.address]).includes(address))
+           .forEach(marker => repaintMarker(marker));
+}
 
+// 마커 하나를 현재 workStatus 기준으로 다시 칠한다.
+function repaintMarker(marker) {
     const addrList = marker.addresses || [marker.address];
     const state = aggregateState(addrList);
     const isApproximate = marker.meters.some(m => m.좌표정확도 === 'approximate');
