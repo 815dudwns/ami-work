@@ -13,11 +13,22 @@ def dec(k):
     return (k.replace('_dot_', '.').replace('_hash_', '#').replace('_dollar_', '$')
              .replace('_lb_', '[').replace('_rb_', ']').replace('_sl_', '/'))
 
+# workStatus 키는 '주소' 또는 '주소|도로명주소'(마커 여러 개로 갈린 주소)다.
+#   주소 단위로 접되, 마커 집계와 같은 보수적 원칙을 쓴다 — 전부 complete 일 때만 complete.
+#   접지 않으면 갈린 주소가 조회에 안 잡혀 조용히 pending 으로 집계된다.
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from status_key import address_of_status_key
+
 cur = db.reference('workStatus/charger4eleccar').get() or {}
-ws = {}
+_states = {}
 for k, v in cur.items():
     if isinstance(v, dict):
-        ws[dec(k).strip()] = v.get('state', 'pending')
+        addr = address_of_status_key(dec(k).strip())
+        _states.setdefault(addr, []).append(v.get('state', 'pending'))
+ws = {a: ('complete' if all(x == 'complete' for x in sts) else
+          next((x for x in sts if x != 'complete'), 'pending'))
+      for a, sts in _states.items()}
 
 wb = openpyxl.load_workbook(f'{BASE}/data/계기교체_보강현황_20260528.xlsx', data_only=True)
 sh = wb.worksheets[0]

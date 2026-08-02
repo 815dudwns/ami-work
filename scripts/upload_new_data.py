@@ -16,6 +16,9 @@ from zoneinfo import ZoneInfo
 import firebase_admin
 from firebase_admin import credentials, db as firebase_db
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from status_key import build_status_key_index, build_address_to_keys, load_rows, keys_for_address
+
 KST = ZoneInfo('Asia/Seoul')
 
 BASE = '/Users/woodelight/Projects/ami-work'
@@ -62,11 +65,21 @@ def upload_work_status():
     # 새 데이터 기준으로 set하되, 이미 cur에 있는데 new에 없는 주소는 보존 정책 결정 필요.
     # 정책: 새 site-data 주소 기준으로 완전 교체 (cur에 있는 주소도 새 site-data에 없으면 사라짐)
 
+    # 주소 -> 상태 키. 한 주소가 마커 여러 개로 갈리면 키가 여러 개다(js/status-key.js와 동일 규칙).
+    #   ★이 변환을 빼면 통째교체(set)로 옛 주소 키만 남아 갈린 마커가 전부 기록을 잃는다.
+    #   ★인덱스는 '교체 후' site-data 기준이어야 한다. all 은 site -> workstatus 순서라 문제없지만,
+    #     workstatus 만 단독 실행할 때는 site-data.json 이 이미 새 데이터인지 확인할 것.
+    by_marker, split = build_status_key_index(load_rows(f'{BASE}/data'))
+    addr_to_keys = build_address_to_keys(by_marker)
+    print(f"[statusKey] 마커 여러 개로 갈린 주소: {len(split)}건")
+
     encoded = {}
     for addr, v in ws_new.items():
         # null/빈문자열은 제거 (Firebase는 null 키 삭제)
         clean = {k: val for k, val in v.items() if val is not None and val != ''}
-        encoded[encode_key(addr)] = clean
+        # 갈린 주소는 마커마다 기록이 필요하다 — 상태 키 전부에 넣는다.
+        for sk in keys_for_address(addr, addr_to_keys):
+            encoded[encode_key(sk)] = clean
 
     print(f"인코딩된 항목: {len(encoded)}건")
     # 완전 교체

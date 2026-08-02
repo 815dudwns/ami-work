@@ -23,6 +23,10 @@ OUT = f'{BASE}/data/work-status-new.json'
 CUTOFF_UTC = datetime.datetime(2026, 5, 13, 6, 54, 58, tzinfo=timezone.utc)
 CUTOFF_TS = CUTOFF_UTC.timestamp()  # epoch seconds — timezone-safe 비교용
 
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from status_key import address_of_status_key
+
 def main():
     with open(SITE_NEW) as f:
         new = json.load(f)
@@ -41,7 +45,9 @@ def main():
     for addr, v in old_ws.items():
         if not isinstance(v, dict): continue
         state = v.get('state')
-        in_new_db = addr in new_addrs
+        # workStatus 키는 '주소' 또는 '주소|도로명주소'(갈린 주소)다. 대조는 주소 부분으로 한다.
+        #   그냥 addr 로 비교하면 갈린 주소가 전부 '새 DB에 없음'으로 오판된다.
+        in_new_db = address_of_status_key(addr) in new_addrs
 
         if state == 'complete':
             at = v.get('updatedAt', '')

@@ -2,6 +2,11 @@
 # upload_work_status.py
 # Firebase Realtime DB의 workStatus/charger4eleccar에 작업자/날짜 정보를 일괄 업로드
 
+# ★주의(2026-08-02): workStatus 키 규칙이 바뀌었다. 한 주소가 마커 여러 개로 갈리면
+#   키가 '주소|도로명주소'가 된다(scripts/status_key.py). 이 스크립트는 원문 주소를
+#   그대로 키로 쓰므로, 재실행하면 갈린 마커가 못 읽는 옛 키를 되살린다.
+#   재사용할 일이 생기면 status_key.build_address_to_keys 로 펼쳐서 쓸 것.
+
 import json
 import sys
 import os

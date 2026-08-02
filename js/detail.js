@@ -2,17 +2,24 @@
 
 let currentAddress = '';
 let currentMeters = [];
-// 합친 마커(같은 좌표 여러 지번)의 구성 지번 전체. 단일이면 [currentAddress].
+// 합친 마커(같은 좌표 여러 지번)의 구성 지번 전체. 단일이면 [currentAddress]. — 표시용
 let currentAddresses = [];
+// 이 패널이 읽고 쓰는 workStatus 키. 한 주소가 마커 여러 개로 갈리면 주소와 다르다.
+//   ★workStatus 접근은 반드시 이쪽을 쓴다. currentAddress는 화면 표시 전용.
+let currentStatusKey = '';
+let currentStatusKeys = [];
 
 // 현재 정렬 모드: 'none' | 'dup' | 'maker'
 let currentSortMode = 'none';
 
 // 주소 클릭 시 상세 패널 표시
-function showDetail(address, meters, addresses) {
+function showDetail(address, meters, addresses, statusKeys) {
     currentAddress = address;
     currentMeters = meters;
     currentAddresses = (addresses && addresses.length) ? addresses : [address];
+    currentStatusKeys = (statusKeys && statusKeys.length) ? statusKeys : currentAddresses;
+    // 대표 키 — 클릭한 지번에 대응하는 키를 우선 고른다(없으면 첫 키).
+    currentStatusKey = currentStatusKeys.find(k => addressOfStatusKey(k) === address) || currentStatusKeys[0];
 
     // 어드민 사진등록 버튼에 현재 주소 전달
     const adminBtn = document.getElementById('admin-upload-btn');
@@ -23,7 +30,7 @@ function showDetail(address, meters, addresses) {
     const collectBtn = document.getElementById('awms-collect-btn');
     if (collectBtn) collectBtn.onclick = () => collectToAmiqueue(address, meters);
 
-    const status = workStatus[address] || { state: 'pending', checkedMeters: [], reason: '' };
+    const status = workStatus[currentStatusKey] || { state: 'pending', checkedMeters: [], reason: '' };
     status.checkedMeters = status.checkedMeters || [];
 
     // 주소 텍스트 추출 — 더러운 값(undefined/null/"-") 거름
@@ -151,19 +158,19 @@ function showDetail(address, meters, addresses) {
     failInput.oninput = (e) => {
         if (e.target.value.trim()) e.target.style.borderColor = '';
         // 입력 중: 로컬만 저장
-        if (!workStatus[currentAddress]) {
-            workStatus[currentAddress] = { state: 'pending', checkedMeters: [], reason: '' };
+        if (!workStatus[currentStatusKey]) {
+            workStatus[currentStatusKey] = { state: 'pending', checkedMeters: [], reason: '' };
         }
-        workStatus[currentAddress].reason = e.target.value;
+        workStatus[currentStatusKey].reason = e.target.value;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
     };
     // blur/Enter 시 이벤트 큐에 추가
     const flushFailReason = () => {
         const session = authGetSession();
-        const state = workStatus[currentAddress]?.state || 'pending';
+        const state = workStatus[currentStatusKey]?.state || 'pending';
         if (state !== 'pending') {
             saveStateEvent(
-                currentAddress,
+                currentStatusKey,
                 state,
                 failInput.value.trim(),
                 session ? session.id   : '',
@@ -328,10 +335,10 @@ function getSortedMeters() {
 
 // 계기 개별 불가 토글
 function toggleMeterFail(meterNumber) {
-    if (!workStatus[currentAddress]) {
-        workStatus[currentAddress] = { state: 'pending', checkedMeters: [], reason: '' };
+    if (!workStatus[currentStatusKey]) {
+        workStatus[currentStatusKey] = { state: 'pending', checkedMeters: [], reason: '' };
     }
-    const status = workStatus[currentAddress];
+    const status = workStatus[currentStatusKey];
     if (!status.failedMeters) status.failedMeters = {};
 
     if (status.failedMeters[meterNumber] !== undefined) {
@@ -340,7 +347,7 @@ function toggleMeterFail(meterNumber) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
         // Firebase 동기화: 불가 해제 이벤트
         if (typeof addEvent === 'function') {
-            addEvent({ type: 'meterFail', address: currentAddress, meter: meterNumber, failed: false, ts: Date.now() });
+            addEvent({ type: 'meterFail', address: currentStatusKey, meter: meterNumber, failed: false, ts: Date.now() });
         }
         if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
         renderMetersList();
@@ -350,7 +357,7 @@ function toggleMeterFail(meterNumber) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
         // Firebase 동기화: 불가 설정 이벤트 (사유는 saveMeterFailReason에서 갱신)
         if (typeof addEvent === 'function') {
-            addEvent({ type: 'meterFail', address: currentAddress, meter: meterNumber, reason: '', failed: true, ts: Date.now() });
+            addEvent({ type: 'meterFail', address: currentStatusKey, meter: meterNumber, reason: '', failed: true, ts: Date.now() });
         }
         if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
         renderMetersList();
@@ -364,14 +371,14 @@ function toggleMeterFail(meterNumber) {
 
 // 계기 불가 사유 저장
 function saveMeterFailReason(meterNumber, reason) {
-    if (!workStatus[currentAddress]) return;
-    const status = workStatus[currentAddress];
+    if (!workStatus[currentStatusKey]) return;
+    const status = workStatus[currentStatusKey];
     if (!status.failedMeters) status.failedMeters = {};
     status.failedMeters[meterNumber] = reason;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
     // Firebase 동기화: 사유 갱신 이벤트
     if (typeof addEvent === 'function') {
-        addEvent({ type: 'meterFail', address: currentAddress, meter: meterNumber, reason: reason, failed: true, ts: Date.now() });
+        addEvent({ type: 'meterFail', address: currentStatusKey, meter: meterNumber, reason: reason, failed: true, ts: Date.now() });
     }
     if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
 }
@@ -379,7 +386,7 @@ function saveMeterFailReason(meterNumber, reason) {
 // 추가된 계기(added_meters)를 currentMeters에 가짜 객체로 합쳐서 함께 표시
 function getMetersWithAdded() {
     const base = currentMeters || [];
-    const status = workStatus[currentAddress] || {};
+    const status = workStatus[currentStatusKey] || {};
     const added = status.added_meters || {};
     const addedList = Object.values(added).map(a => ({
         계기번호: a.meter_id,
@@ -404,7 +411,7 @@ function renderMetersList() {
     currentMeters = meters;
     const sortedMeters = getSortedMeters();
     currentMeters = origCurrent;
-    const status = workStatus[currentAddress] || { state: 'pending', checkedMeters: [], reason: '' };
+    const status = workStatus[currentStatusKey] || { state: 'pending', checkedMeters: [], reason: '' };
     // 큰 글씨(공통) 영역에 표시되었는지 — DCUID 기준으로 판단
     const allSameDcu = meters.length > 0 && meters.every(m => m.DCUID === meters[0].DCUID);
     const commonDcuShown = allSameDcu && !!meters[0].DCUID;
@@ -635,9 +642,9 @@ function renderMetersList() {
                 const m = btn.dataset.meter;
                 if (!confirm(`추가 계기 ${m}를 삭제할까요?`)) return;
                 try {
-                    await removeAddedMeter(currentAddress, m);
+                    await removeAddedMeter(currentStatusKey, m);
                     renderMetersList();
-                    if (typeof updateMarkerColor === 'function') updateMarkerColor(currentAddress);
+                    if (typeof updateMarkerColor === 'function') updateMarkerColor(currentStatusKey);
                 } catch (err) {
                     alert('삭제 실패: ' + err.message);
                 }
@@ -696,10 +703,11 @@ function closeDetail() {
 function updateStatus(state) {
     const session = authGetSession();
     const reason = (document.getElementById('fail-reason')?.value || '').trim();
-    // 합친 마커(같은 좌표 = 한 건물)는 완료/불가/보류를 구성 지번 전부에 기록.
+    // 합친 마커(같은 좌표 = 한 건물)는 완료/불가/보류를 구성 키 전부에 기록.
     //   ※ #2 결정점(영준님 확인 사안): 한 건물 한 번 작업 = 묶인 지번 다 처리.
-    //     primary만 기록하길 원하면 아래를 [currentAddress]로 되돌리면 됨.
-    const targets = (currentAddresses && currentAddresses.length) ? currentAddresses : [currentAddress];
+    //   ★전파 범위는 '이 마커'로 한정된다. 같은 지번이라도 좌표가 갈려 다른 마커면
+    //     상태 키가 다르므로(js/status-key.js) 그쪽까지 완료로 넘어가지 않는다.
+    const targets = (currentStatusKeys && currentStatusKeys.length) ? currentStatusKeys : [currentStatusKey];
     targets.forEach(addr => {
         saveStateEvent(
             addr,
@@ -709,29 +717,29 @@ function updateStatus(state) {
             session ? session.name : ''
         );
     });
-    updateMarkerColor(currentAddress);
+    updateMarkerColor(currentStatusKey);
 }
 
 // 주소의 작업 상태 초기화 (pending으로 되돌리기) — 체크박스는 유지
 function resetStatus() {
-    if (!workStatus[currentAddress]) return;
+    if (!workStatus[currentStatusKey]) return;
 
     // state만 pending으로 (체크박스/불가 유지) — 합친 마커는 구성 지번 전부
-    const targets = (currentAddresses && currentAddresses.length) ? currentAddresses : [currentAddress];
+    const targets = (currentStatusKeys && currentStatusKeys.length) ? currentStatusKeys : [currentStatusKey];
     targets.forEach(addr => { if (workStatus[addr]) saveStateEvent(addr, 'pending', '', '', ''); });
 
-    updateMarkerColor(currentAddress);
-    showDetail(currentAddress, currentMeters, currentAddresses);
+    updateMarkerColor(currentStatusKey);
+    showDetail(currentAddress, currentMeters, currentAddresses, currentStatusKeys);
 }
 
 // 계기 체크 토글
 function toggleMeterCheck(meterNumber) {
-    if (!workStatus[currentAddress]) {
-        workStatus[currentAddress] = { state: 'pending', checkedMeters: [], reason: '' };
+    if (!workStatus[currentStatusKey]) {
+        workStatus[currentStatusKey] = { state: 'pending', checkedMeters: [], reason: '' };
     }
-    const checkedMeters = workStatus[currentAddress].checkedMeters || [];
+    const checkedMeters = workStatus[currentStatusKey].checkedMeters || [];
     const isChecked = checkedMeters.includes(meterNumber);
-    saveCheckEvent(currentAddress, meterNumber, !isChecked);
+    saveCheckEvent(currentStatusKey, meterNumber, !isChecked);
 }
 
 // ── 계기 추가 모달 (admin 전용) ───────────────────────────────
@@ -803,10 +811,10 @@ async function saveNewMeter() {
     }
 
     try {
-        await saveAddedMeter(currentAddress, meterId, {});
+        await saveAddedMeter(currentStatusKey, meterId, {});
         closeAddMeterModal();
         renderMetersList();
-        if (typeof updateMarkerColor === 'function') updateMarkerColor(currentAddress);
+        if (typeof updateMarkerColor === 'function') updateMarkerColor(currentStatusKey);
     } catch (e) {
         showAddMeterToast('저장 실패: ' + e.message);
     }
