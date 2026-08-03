@@ -82,14 +82,17 @@ def main():
     rew_mid = {normalize_meter(x.get('계기번호')) for x in rew}
     print(f'원장 — 미완료 {len(todo):,} / 완료 {len(done):,} / 재방문 {len(rew):,}', flush=True)
 
-    # 좌표 시드 (계기번호 우선, 없으면 지번주소)
-    seed_mid, seed_addr = {}, {}
+    # 기존 데이터에서 값을 끌어올 때의 키 = 고객번호 > 계기번호+주소 (scripts/ledger_match.py).
+    #   ★계기번호 단독 매칭 금지(영준님 2026-08-03). 검기만료가 아닌 사유로 철거 후 재시공하면
+    #     같은 계기번호가 다른 개소에 나타나 엉뚱한 인입주·좌표가 조용히 붙는다.
+    from ledger_match import build_index, lookup  # noqa: E402
+    _by_cust, _by_pair = build_index(todo + done + rew)
+
+    # 좌표 폴백용 주소 시드 — 좌표는 개소가 아니라 '주소'에 붙는 값이라 주소 일치면 안전하다.
+    seed_addr = {}
     for x in todo + done + rew:
         if x.get('lat') is None:
             continue
-        m = normalize_meter(x.get('계기번호'))
-        if m:
-            seed_mid.setdefault(m, x)
         a = normalize_str(x.get('주소'))
         if a:
             seed_addr.setdefault(a, x)
@@ -154,12 +157,22 @@ def main():
             'dcu_철거예정': dcu_tag,
         }
 
-        # 좌표 시드
-        s = seed_mid.get(mid) or seed_addr.get(jibun)
+        # 기존 데이터에서 끌어오기 — 고객번호 > 계기번호+주소. 못 찾으면 비운다.
+        #   ※ 주덕기 엑셀에는 고객번호 열이 없어 현재는 사실상 2순위만 걸린다.
+        #     고객번호 열을 받게 되면 자동으로 1순위가 쓰인다.
+        s, _how = lookup(rec, _by_cust, _by_pair)
         if s:
-            rec['lat'], rec['lng'] = s.get('lat'), s.get('lng')
-            rec['좌표정확도'] = s.get('좌표정확도') or ''
             rec['고객번호'] = normalize_cust_no(s.get('고객번호')) or ''
+            # 인입주는 이 엑셀에 열 자체가 없다. 변대주를 복사하면 '두 기둥이 같다'는
+            # 거짓이 되므로, 기존 데이터에 진짜 값이 있을 때만 싣는다.
+            rec['인입주'] = normalize_str(s.get('인입주'))
+            rec['match_by'] = _how
+
+        # 좌표 — 개소가 아니라 주소에 붙는 값이라 주소 일치면 안전하다.
+        c = s if (s and s.get('lat') is not None) else seed_addr.get(jibun)
+        if c and c.get('lat') is not None:
+            rec['lat'], rec['lng'] = c.get('lat'), c.get('lng')
+            rec['좌표정확도'] = c.get('좌표정확도') or ''
         else:
             need_geo.append(rec)
 
