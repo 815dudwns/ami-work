@@ -498,13 +498,11 @@ function renderMetersList() {
         const subParts = [];
         // 1) 통신방식 (빨강) · 변대주 한글명 · 인입주
         if (meter.통신방식) subParts.push(`<span class="comm-type">${meter.통신방식}</span>`);
-        // 변대주 — 한전 DCU 대장에서 이름으로 찾은 변대주번호가 있으면 같이 보여준다.
-        //   (영준님 2026-08-06. 번호는 대장이 유일할 때만 실린다 — 후보 다중이면 생략)
-        if (meter.변대주) {
-            subParts.push(meter.변대주번호
-                ? `변대주 ${meter.변대주} (${meter.변대주번호})`
-                : `변대주 ${meter.변대주}`);
-        }
+        // 변대주 — 이름만 보여준다. 번호는 붙이지 않는다(영준님 2026-08-06):
+        //   DCU ID 줄이 이미 10자리를 보여주고 복사만 8자리로 자른다. 대장에서 이름으로 찾은
+        //   변대주번호는 같을 땐 그 복사값과 중복이고, 16%(1,080건)는 우리 DCUID와 아예
+        //   달라서(동명 변대주로 추정) 틀린 번호를 보여주게 된다.
+        if (meter.변대주) subParts.push(`변대주 ${meter.변대주}`);
         if (meter.인입주) subParts.push(`인입주 ${meter.인입주}`);
         // 2) 사업차수 (신·전)
         if (meter['사업차수']) {
