@@ -81,23 +81,30 @@ def load_reference(path=XLSX):
     ws2 = wb['전체DCU 현황']
     start2 = _header_row(ws2) + 1
     cm_name, cm_id = collections.defaultdict(collections.Counter), {}
+    # 변대주명 -> 변대주번호. 대장이 이름과 번호를 같이 들고 있어 우리 데이터에 없는 번호를
+    # 채울 수 있다(영준님 2026-08-06). 한 이름에 번호가 여럿이면 애매하므로 싣지 않는다.
+    pn_name = collections.defaultdict(set)
     for r in ws2.iter_rows(min_row=start2, values_only=True):
         if not r[3]:
             continue
+        dept, nm = str(r[1] or '').strip(), nkey(r[7])
+        pole_no = str(r[6] or '').strip()
+        if pole_no:
+            pn_name[(dept, nm)].add(pole_no)
         comm = str(r[8] or '').strip()
         if not comm:
             continue
-        cm_name[(str(r[1] or '').strip(), nkey(r[7]))][comm] += 1
+        cm_name[(dept, nm)][comm] += 1
         for k in (nkey(r[3]), nkey(r[6])):
             if k:
                 cm_id.setdefault(k, comm)
 
-    return (rm_name, rm_id), (cm_name, cm_id)
+    return (rm_name, rm_id), (cm_name, cm_id, pn_name)
 
 
 def apply_to(records, removal, comm):
     rm_name, rm_id = removal
-    cm_name, cm_id = comm
+    cm_name, cm_id, pn_name = comm
     stat = collections.Counter()
 
     for x in records:
@@ -122,7 +129,15 @@ def apply_to(records, removal, comm):
         x['dcu_철거예정'] = tag
         stat[tag or '(철거예정 없음)'] += 1
 
-        # 2) 통신방식 — 이미 있으면 덮지 않는다
+        # 2) 변대주번호 — 대장에서 이름으로 찾는다. 후보가 둘 이상이면 애매하니 안 싣는다.
+        nos = pn_name.get((dept, nk))
+        if nos and len(nos) == 1:
+            x['변대주번호'] = next(iter(nos))
+            stat['변대주번호 채움'] += 1
+        elif nos:
+            stat['변대주번호 후보다중(생략)'] += 1
+
+        # 3) 통신방식 — 이미 있으면 덮지 않는다
         if str(x.get('통신방식') or '').strip():
             stat['통신방식 원본유지'] += 1
             continue

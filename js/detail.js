@@ -496,7 +496,13 @@ function renderMetersList() {
         const subParts = [];
         // 1) 통신방식 (빨강) · 변대주 한글명 · 인입주
         if (meter.통신방식) subParts.push(`<span class="comm-type">${meter.통신방식}</span>`);
-        if (meter.변대주) subParts.push(`변대주 ${meter.변대주}`);
+        // 변대주 — 한전 DCU 대장에서 이름으로 찾은 변대주번호가 있으면 같이 보여준다.
+        //   (영준님 2026-08-06. 번호는 대장이 유일할 때만 실린다 — 후보 다중이면 생략)
+        if (meter.변대주) {
+            subParts.push(meter.변대주번호
+                ? `변대주 ${meter.변대주} (${meter.변대주번호})`
+                : `변대주 ${meter.변대주}`);
+        }
         if (meter.인입주) subParts.push(`인입주 ${meter.인입주}`);
         // 2) 사업차수 (신·전)
         if (meter['사업차수']) {
