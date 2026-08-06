@@ -208,8 +208,10 @@ function showDetail(address, meters, addresses, statusKeys) {
             dcuHtml = `<span>${dcu}</span>`;
             copyVal = dcu;
         }
-        const poleCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="전산화번호 복사" style="margin-left:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
-        commonPoleEl.innerHTML = `변대주 ${dcuHtml}${poleCopyBtn}`;
+        const poleCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="DCU ID 복사" style="margin-left:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+        // 이 줄이 보여주는 값은 DCUID다 — 예전 라벨이 '변대주'라 현장에서 변대주명과
+//   헷갈렸다(영준님 2026-08-06). 변대주명은 계기별 상세줄에 따로 나온다.
+        commonPoleEl.innerHTML = `DCU ID ${dcuHtml}${poleCopyBtn}`;
         commonPoleEl.style.display = 'block';
         commonPoleEl.querySelector('.pole-copy-btn').addEventListener('click', (e) => {
             e.stopPropagation();
@@ -479,8 +481,8 @@ function renderMetersList() {
                 pHtml = `<span>${dcu}</span>`;
                 copyVal = dcu;
             }
-            const pCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="전산화번호 복사" style="margin-left:3px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
-            detailParts.push(`변대주 ${pHtml}${pCopyBtn}`);
+            const pCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="DCU ID 복사" style="margin-left:3px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+            detailParts.push(`DCU ID ${pHtml}${pCopyBtn}`);
         }
         // 상호 (있을 때)
         if (meter.상호 && meter.상호 !== '0') detailParts.push(`상호 ${meter.상호}`);
