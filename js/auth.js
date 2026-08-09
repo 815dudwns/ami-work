@@ -27,6 +27,8 @@ const ACCOUNTS = [
     { id: 'user22', pw: '1111', name: '김윤준', role: 'user' },
     { id: 'user23', pw: '1111', name: '이현규', role: 'user' },
     { id: 'user24', pw: '1111', name: '김춘동', role: 'user' },
+    { id: 'user25', pw: '1111', name: '신완식', role: 'user' },
+    { id: 'user26', pw: '1111', name: '안병삼', role: 'user' },
     // 종로 부조장 = 우영준(영준님 본인) = admin 계정으로 겸임 (별도 user 발급 안 함)
     // --- validator 계정 (데이터검증 사장님·직원용) ---
     // ★ 영준님이 실제 계정으로 교체할 것 (id/pw/name 모두)
