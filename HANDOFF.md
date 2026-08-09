@@ -36,9 +36,9 @@
 
 ### 데스크 상태 (상세는 각 경로, 본문 복사 금지)
 - **ocr-meter**: P0 철거트랙 no_photo 고착 수정·실증 완료, 미결 없음 — `workspaces/ocr-meter/HANDOFF.md` (2026-08-09 회신)
-- **계기팀(gyegi)**: 아미맵 마커 키 분리 구현·검증 완료(커밋 aa7ad53f·4fb3ce8a·658f761b, main에 ff 병합됨). 종료 회신 없음 — `workspaces/gyegi/HANDOFF.md`
-- **통신팀**: 종료 회신 없음(세션 비활성 추정) — `workspaces/통신팀/HANDOFF.md`
-- **검증팀**: 종료 회신 없음(세션 비활성 추정) — `workspaces/검증팀/HANDOFF.md`
+- **계기팀(gyegi)**: 아미맵 마커 키 분리 코드·마이그·검증 완료(코드 3개는 main에 ff 병합·배포됨). **gyegi 브랜치에 데스크 HANDOFF 커밋 `4c21b735` 1개가 main 미반영** — 문서만이라 배포 영향 없음 — `workspaces/gyegi/HANDOFF.md`
+- **검증팀**: build **1816~1820 배포완료**(no_photo 판정큐 승격 · 모바일 적응형 · 공사명 복구 · 행단위 재판독 · 사진열기+라벨). **F1/F2와 전송 막힘 5건은 영준님 결정 대기** — `workspaces/검증팀/HANDOFF.md` (commit 87b9e971)
+- **통신팀**: 대기(진행중 작업 없음). **백엔드 아카이브 가동중이나 미커밋 — 커밋 승인 대기** — `workspaces/통신팀/HANDOFF.md`
 
 
 ## 진행중 트랙
