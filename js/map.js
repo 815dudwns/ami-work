@@ -34,7 +34,13 @@ function guOf(addr) {
 // 항목의 보정된 지사 (item.지사 대신 이걸로 분류 — 기타 흡수)
 function jisaOf(item) {
     const j = GU_TO_JISA[guOf(item.주소)];
-    return j || '미분류';
+    if (j) return j;
+    // 주소의 구로 못 잡으면 데이터의 지사 필드로 편입 (영준님 2026-08-10).
+    //   지하철 고압처럼 소재지 구와 관리 지사가 다른 건이 있다 — 회사 소속 지사가 관리해서다.
+    //   구 표기가 없는 주소도 여기로 흡수된다. 값이 JISA_TO_GU에 있는 정식 지사명일 때만 신뢰.
+    const raw = (item.지사 || '').trim();
+    if (raw && JISA_TO_GU[raw]) return raw;
+    return '미분류';
 }
 
 // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
