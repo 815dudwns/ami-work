@@ -3,129 +3,26 @@
 입력: data/coords-todo.json, data/boranggi-new-6975.json
 출력: data/boranggi-new-6975.json (lat/lng/좌표정확도 채워서 갱신)
 fail 0 목표: 동 중심까지 폴백, 누락 0
+
+좌표 캐스케이드는 scripts/geocode_cascade.py 로 옮겼다(2026-08-10) — extract_coords_new.py 와 동일.
+카카오 도로명 → 지번 → 정규화 지번 → 키워드 → **네이버** → 본번 → 동 중심.
 """
 import json
-import re
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import requests
+from geocode_cascade import resolve as _cascade
 
-from _env import require_env
-
-API_KEY = require_env('KAKAO_REST_API_KEY')
 BASE = '/Users/woodelight/Projects/ami-work'
 TODO = f'{BASE}/data/coords-todo.json'
 SITE = f'{BASE}/data/boranggi-new-6975.json'
 WORKERS = 10
 
-_session = requests.Session()
-_session.headers.update({'Authorization': f'KakaoAK {API_KEY}'})
-
-
-def search_address(query):
-    if not query:
-        return None
-    for attempt in range(4):
-        try:
-            r = _session.get(
-                'https://dapi.kakao.com/v2/local/search/address.json',
-                params={'query': query}, timeout=15)
-            if r.status_code == 429:
-                time.sleep(0.5 * (attempt + 1))
-                continue
-            if r.status_code == 200:
-                docs = r.json().get('documents', [])
-                if docs:
-                    doc = docs[0]
-                    lat = float(doc['y'])
-                    lng = float(doc['x'])
-                    road = (doc.get('road_address') or {}).get('address_name', '')
-                    jibun = (doc.get('address') or {}).get('address_name', '')
-                    return (road or jibun or query), lat, lng
-                return None
-            time.sleep(0.3)
-        except Exception:
-            time.sleep(0.3)
-    return None
-
-
-def search_keyword(query):
-    if not query:
-        return None
-    try:
-        r = _session.get(
-            'https://dapi.kakao.com/v2/local/search/keyword.json',
-            params={'query': query, 'size': 1}, timeout=15)
-        if r.status_code == 200:
-            docs = r.json().get('documents', [])
-            if docs:
-                doc = docs[0]
-                return (
-                    doc.get('road_address_name') or doc.get('address_name') or query,
-                    float(doc['y']),
-                    float(doc['x'])
-                )
-    except Exception:
-        pass
-    return None
-
-
-def extract_dong(address):
-    m = re.match(r'(.*?[동읍면])', address or '')
-    return m.group(1).strip() if m else None
-
-
-def trim_addr(addr):
-    if not addr:
-        return ''
-    a = re.sub(r'\s+', ' ', addr).strip()
-    return re.split(r'[\(]', a)[0].strip()
-
 
 def resolve(key):
-    """주소 키 (지번주소, 도로명주소) -> (key, accuracy, road, lat, lng)"""
-    jibun = trim_addr(key[0])
-    road = trim_addr(key[1])
-    found = None
-    accuracy = None
-
-    # 1단계: 도로명주소 검색
-    if road:
-        found = search_address(road)
-        if found:
-            accuracy = 'exact'
-
-    # 2단계: 지번주소 검색
-    if not found and jibun:
-        found = search_address(jibun)
-        if found:
-            accuracy = 'exact'
-
-    # 3단계: 도로명 키워드 검색
-    if not found and road:
-        found = search_keyword(road)
-        if found:
-            accuracy = 'exact'
-
-    # 4단계: 지번 키워드 검색
-    if not found and jibun:
-        found = search_keyword(jibun)
-        if found:
-            accuracy = 'exact'
-
-    # 5단계: 동 중심 폴백
-    if not found:
-        dong = extract_dong(jibun) or extract_dong(road)
-        if dong:
-            found = search_address(dong) or search_keyword(dong)
-            if found:
-                accuracy = 'approximate'
-
-    if found:
-        return key, accuracy, found[0], found[1], found[2]
-    return key, 'fail', road or jibun, None, None
+    """주소 키 (지번주소, 도로명주소) -> (key, accuracy, road, lat, lng)."""
+    hit = _cascade(jibun=key[0], road=key[1])
+    return key, hit.accuracy, hit.address, hit.lat, hit.lng
 
 
 def main():
