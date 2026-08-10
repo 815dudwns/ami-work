@@ -570,6 +570,16 @@ function renderMetersList() {
             if (meter.DCUID)     subParts.push(`DCU ${meter.DCUID}`);
             if (meter.변대주)     subParts.push(`변대주 ${meter.변대주}`);
         }
+        // 9) 고압철거 전용 필드 (category=고압): 철거할 모뎀 MAC + 현장 위치 비고
+        //   원본(주덕기 0810 리스트)에 DCUID·변대주가 통째로 비어 있어, 계기를 특정하는 값은
+        //   MAC 뿐이다. 비고는 "지하2층 전기실"처럼 계기를 찾아가는 위치 안내라 필수.
+        if (meter.category === '고압') {
+            if (meter.모뎀MAC) {
+                const macCopyBtn = `<button class="copy-btn" data-copy="${meter.모뎀MAC}" title="모뎀MAC 복사" style="margin-left:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+                subParts.push(`MAC ${meter.모뎀MAC}${macCopyBtn}`);
+            }
+            if (meter.비고) subParts.push(`<span style="color:#2563eb;">${meter.비고}</span>`);
+        }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
         const details = detailParts.join(', ');
 
