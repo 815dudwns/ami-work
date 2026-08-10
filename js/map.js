@@ -42,6 +42,7 @@ const DATASETS = [
     { file: './data/skt-data.json',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
     { file: './data/tou-data.json',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
     { file: './data/rework-data.json', category: '재방문', label: '재', uiLabel: '재방문' },
+    { file: './data/gapap-data.json', category: '고압', label: '고', uiLabel: '고압철거' },
 ];
 
 // 위치 추적 관련 상태
@@ -302,7 +303,7 @@ function populateCategoryFilter() {
 
 // 카테고리 필터 — 체크된 카테고리만 표시 (localStorage 저장)
 function getSelectedCategories() {
-    const ALL = ['실효', 'skt', 'tou', '재방문'];
+    const ALL = ['실효', 'skt', 'tou', '재방문', '고압'];
     const saved = localStorage.getItem('ami_selected_categories');
     if (saved) try {
         const set = new Set(JSON.parse(saved));
