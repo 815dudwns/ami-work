@@ -6,13 +6,35 @@
 - GitHub: github.com/815dudwns/ami-work
 - 기술: HTML + 바닐라 JS + Kakao Maps + Firebase Realtime DB
 
+## 조직·운영 (PM 관리체계 — 2026-07-21)
+> 조직 정본 = `research/조직배선_설계_20260719.md`. 지침 계층: 감사=글로벌(`~/CLAUDE.md`), PM=이 프로젝트 지침+팀 배선.
+
+**조직도**: 영준님(대표) · 감사(거버넌스) · **ami-work PM**(조율·판단, 실행자 아님)
+- **통신팀** (본업 KDN 단독시공): 아미큐·헬퍼·아미맵. awms=MOBCST. 폴더 `cst-input/`·`js/`·`awms-helper/`
+- **계기팀** (B2B 종로 동행): 계기큐·종로맵·snap·명륜·구로금천·OTP수집기. awms=MOBMTR. 폴더 `jongno-combined/`·`awms-queue-www/`
+- **검증팀** (데이터회사 본업): 검증관리자(8765)·후처리/데일리검진(daily_cycle). 폴더 검증백엔드·`daily_cycle.py`
+- **ocr-meter** (독립사무소): OCR 판독. `~/Projects/ocr-meter` (검증팀은 판정 의문 시 OCR_검증규칙.md 먼저)
+
+**문서 4층** (정체성·지식이 어디에 있나):
+1. 글로벌 지침 = `~/CLAUDE.md` — 감사 소관(조직·언어·위임·Orca 공통규약)
+2. 프로젝트 지침 = 이 파일 — PM 소관(앱버전표·데이터규칙·프로세스·이 조직표)
+3. 팀 전용 지침 = `.claude/agents/<팀>.md` — 통신팀·계기팀·검증팀(정체성·필독카드·전결·보고)
+4. 시스템 매뉴얼 정본 = 옵시디언 카드(`core/`·`systems/`, 아래 지식베이스 인덱스)
+- 메모리: PM=auto-memory / 팀=`.claude/agent-memory/<팀>/` (상호 오염 금지)
+
+**팀 운영 방식** (감사 §4):
+- (a) 호출형 — PM이 Agent 툴 `subagent_type: <팀>` 호출. 정의파일이 정체성·메모리 자동분리(감사 권장, 기본)
+- (b) 상주형 — Orca 세션에 팀 정의 주입(`.claude/agents/<팀>.md` 읽혀 정체성). 영준님 직접 대화 필요 시. 통신=`orca terminal send`
+- 전결 = 팀 카드범위 내 코드·운영. PM 보고 후 = 스키마변경·Firebase구조/rules·배포·awms실등록(live)·대량삭제
+- 보고 = 결과요약은 PM에, 긴 산출물 `/tmp/relay/`. HANDOFF는 PM 단일권위(팀은 읽기만)
+
 ## ★ 지식베이스 (시스템별 모듈 — 작업 전 해당 카드부터 로드)
 > 2026-07-13 재구조화. 지식이 시스템(도메인) 단위 카드로 봉합됨. **특정 시스템 작업 시 이 CLAUDE.md 전체가 아니라 해당 카드 + L0 공용코어만 읽으면 독립적으로 작동**한다. 각 카드 = 구조·동작 / 결정이력(함정) / 배포·버전 / TODO 4요소. 정본 = 옵시디언, 원자적 사실 = auto-memory(카드가 [[slug]]로 링크), repo = 실무·진입점.
 >
 > 볼트 루트: `/Users/woodelight/Projects/obsidian/Projects/AMI/`
 
 **L0 공용코어** (`core/`) — 모든 시스템 공유:
-- `core/사업구조.md` — 단독/동행·한전 발주체인·전략·B2B·10팀확장·한전리스크
+- `core/사업구조.md` — 단독/동행·한전 발주체인·전략·B2B·10팀확장·한전리스크 + **영준님 배경·앱 탄생사·김창숙 브릿지·2027 데이터회사·에이전트 조직**(2026-07-19 구술 통합. 사업 판단 전 필독)
 - `core/계기도메인.md` — 계기타입5종·단상삼상·4필드검침·변대주/DCUID·통신방식·모뎀MAC판별
 - `core/데이터규칙.md` — 누락금지·zfill·좌표폴백·네이버캐스케이드·사이트추가·보강파이프라인·KEPCO_IMPORT보존
 - `core/Firebase.md` — DB구조·통째삭제보호·롤백·스토리지정책·rules복구
@@ -40,7 +62,7 @@
 | 앱(호칭) | 버전 위치 | 현재 버전 | 갱신일 |
 |---|---|---|---|
 | **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` / APK | `v0626b-아이디선택` / APK 오버레이fetch | 2026-06-26 |
-| **아미큐**(통신큐·통신팀) | `cst-app` `versionName`(네이티브) / `cst-input/cst-version.json`(자동업뎃) / `ami-queue-www/app.js` `APP_VER`(원격로드 JS, push만) | `2.2.5`(네이티브) / `v0727a-저장값진단`(collect.js — 사전설정 화면에 getUserWorkGroup·getBusiList 원시 키=값 진단 섹션 추가, 공사명 필드 실측 확정 전 자동매핑 미적용) | 2026-07-27 |
+| **아미큐**(통신큐·통신팀) | `cst-input/cst-version.json` `versionName`(자동업뎃) / `cst-app` `versionName`(네이티브) · **UI=`cst-input/www/` · saveAct빌더=`cst-input/backend/app.py`** | `2.2.7` (공사명 원본표시 + 설정탭 작업자명 + 이력탭 전체삭제) | 2026-08-11 |
 | **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260702.4` / `v20260706.1` (workStatus 미러 IndexedDB 이전=iOS quota 해결. map.js ?v=20260706b) | 2026-07-06 |
 | **종로 보조앱**(jongno-snap) | `snap.html` `APP_VER` + 라벨 / snap-version.json / APK | `v20260707.7` (사진 재촬영 덮어쓰기 / 실시간QR / 카메라선택. ★범프 시 3곳 APP_VER+라벨2 갱신) | 2026-07-07 |
 | **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260624a` | 2026-06-24 |
@@ -48,6 +70,8 @@
 | **OTP수집기**(awms-otp-collector) | `versionName` | `1.0.1` (카톡 백그라운드만 정리. ★네이티브 자동배포X, APK수동설치) | 2026-07-03 |
 | **awms-bridge-inject**(리모컨 공용) | `awms-bridge-inject.js` `VER` | `v80` | 2026-06-20 |
 | **명륜 팀배분**(myungroon) | `jongno-combined/myungroon.html` `myungroon_app_version` / 메뉴라벨 | `20260624.1` | 2026-06-24 |
+
+★**`ami-queue-www/`는 죽은 옛 웹뷰다 — 아미큐 아님, 고쳐도 폰 반영 0**(2026-08-11 실증). 아미큐 실체는 `cst-input/`.
 
 규칙: 계기큐·아미큐 JS는 github 원격로드라 `APP_VER`+push만으로 반영(APK는 네이티브 변경 시만). 종로맵은 `APP_VERSION`+`?v=`+메뉴라벨 함께([[jongno_app_version_deploy]]). 아미맵 `FORCE_LOGOUT_VERSION`은 긴급 시만([[ami_work_init_logout_fix]]).
 
@@ -62,9 +86,10 @@
 2. 주소 변환: 주소변환.py (지번 → 도로명, 카카오 API)
 3. 좌표 추출: 좌표추출.py (도로명 → 좌표, 3단계 폴백) → ami_data_coords.json
 4. site-data.json에 합치기 (계기번호 중복 체크)
+4.5. **★ `python3 scripts/apply_dcu_status.py data/site-data.json data/rework-data.json`** — DCU 철거예정 판정 부착 (해지→'DCU 철거예정 개소 LTE 시설' / 유지→'DCU 유지'). 매칭키=변대주명+지사, 태그는 `dcu_철거예정` 필드에만. 목록 정본 `data/reference/DCU_철거_예정_개소_목록.xlsx`. **새 리스트마다 무조건**([[dcu_removal_tag_rule]])
 5. **★ `python3 scripts/gen_site_version.py`** — site-data.version.json 재생성 (안 하면 작업자 폰이 옛 IndexedDB 캐시 사용. site-data.json 바꾸면 무조건)
-6. Firebase 업로드: upload_sitedata.py → siteData/charger4eleccar
-6.5. **★ `python3 scripts/gen_stats_index.py`** — data/stats-site-index.json 재생성 (stats 지사별 분모. upload_sitedata.py 후 반드시)
+6. ~~Firebase 업로드: upload_sitedata.py → siteData/charger4eleccar~~ **폐지(2026-08-02)**. Firebase `siteData` 노드를 읽는 곳이 이제 없다 — 지도는 `js/map.js`가 `./data/site-data.json`을 GitHub Pages에서 직접 읽고, 통계는 `data/stats-site-index.json`(정적)을 읽는다(RTDB 22MB 반복 다운로드 제거 조치). 올릴 필요 없고, `scripts/upload_new_data.py`는 workStatus를 통째 교체(`ref.set`)하므로 **실행 금지**(완료 1만여 건 유실 위험)
+6.5. **★ `python3 scripts/gen_stats_index.py`** — data/stats-site-index.json 재생성 (stats 지사별 분모 = site-data + 완료 아카이브 + 재방문. **로컬 파일 기준**이며 Firebase를 안 읽는다. site-data.json 바꾸면 무조건)
 7. 작업상태 업로드: scripts/upload_work_status.py → workStatus/charger4eleccar
 8. git commit & push
 9. 브라우저 확인

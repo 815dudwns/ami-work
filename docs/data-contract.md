@@ -11,19 +11,38 @@
 4. **스키마 변경(컬럼 추가/의미변경)은 소유자가 소비자에게 사전 통보·합의 후** 진행.
 5. 위반(소비 컬럼 삭제·무단 스키마 축소) 발견 시 → 소유자가 계약 스키마로 즉시 복구 + PM 보고.
 6. ★테스트·임시 스크립트는 프로덕션 산출물을 **직접 write 금지** — 읽더라도 tmp 카피로 작업. (2026-07-21 사고: 테스트 스크립트가 `daily_state.csv`를 직접 write → DictWriter가 `orig_status/google` 거부 예외로 파일 잘림. 재생성은 정식 파이프라인 `daily_cycle --date`로만.)
+7. ★**공유 산출물 물리 위치 = worktree 밖 main 단일 절대경로.** (2026-07-21 in-project worktree 전환 대응. 감사 법전 `orca-multiagent-law.md` Art.3 PRIMARY 채택.)
+   - 팀 데스크가 각자 브랜치 git worktree(`ami-work/workspaces/<팀>`)로 분리돼도 공유 상태파일은 **브랜치별로 복제하지 않는다.**
+   - 4개 공유 상태파일(`daily_state.csv`·`daily_meterid.csv`·`cycle_state.csv`·`daily_removal_meterid.csv`)은 gitignore(untracked)로 두어 worktree 체크아웃에 복제되지 않게 하고, 모든 세션 코드는 절대경로 `/Users/woodelight/Projects/ami-work/research/ocr_poc/<파일>`로 참조한다(코드 상수 `SHARED_OCR_POC`).
+   - `Path(__file__).parent` 등 **worktree-상대 참조 금지** — 자기 브랜치 체크아웃본을 봐서 diverge를 유발한다(오늘 아침 사고와 동류). 공유 상태파일 참조는 `SHARED_OCR_POC` 절대경로 상수로 통일.
+   - 실제 백엔드(검증·cst)는 launchd가 main 트리 절대경로 uvicorn(`research/ocr_poc/venv_parseq/bin/uvicorn`)으로 실행 = 이미 단일정본. 세션 cwd가 worktree여도 데이터는 main.
+   - 폴백(절대경로 불가 환경): 소유자 브랜치서만 write → 소비팀 merge 후 read.
 
 ## 계약표
 
 | 산출물 | 소유자(생성/스키마) | 소비자(읽기) | 스키마 계약 |
 |---|---|---|---|
 | `daily_state.csv` | **ocr-meter** (`run_daily`) | **검증팀** (`/report`·집계) | 10컬럼. ★`orig_status`(crop_fail 정답경로)·`google` 포함. 소비 컬럼 삭제 금지 |
+| `계기번호_아미큐_실패건/` | **스키마=ocr-meter / 쓰기=통신팀** (`/api/ocr`·`saveAct`) | **ocr-meter** (`harvest_trainset.py`) | 사진+JSON 사이드카 쌍, `schema_version 1`. 통신팀 임의 스키마 변경 금지 — ocr-meter 합의 후 append-only 확장만 |
 
 > 추가 공유 산출물(cycle_state.csv, Firebase daily_val/ocr_review 노드 등)이 세션 간 공유될 경우 위 표에 소유자·소비자·스키마를 명시해 확장한다.
+
+### ★스키마 소유자와 쓰기 주체가 분리된 사례 (2026-07-27 신설)
+`계기번호_아미큐_실패건/`은 **파일을 만드는 세션(통신팀)과 스키마를 정하는 세션(ocr-meter)이 다른 첫 사례**다.
+원칙 1(단일 소유자)의 예외이므로 아래를 명시한다.
+- **스키마 정본 = ocr-meter.** 필드 추가·의미 변경은 ocr-meter 합의 후 **append-only**로만. 통신팀 임의 변경 금지.
+- **쓰기 = 통신팀 백엔드**(`cst-input/backend/app.py`). 경로는 `SHARED_OCR_POC` 관례대로 **절대경로 상수**로 참조.
+- **읽기·학습 승격 = ocr-meter.** 게이트(`status=matched` + 타입코드 검증) 미통과분은 학습에 쓰지 않는다.
+- 경로: `/Users/woodelight/Projects/ami-work/research/ocr_poc/계기번호_아미큐_실패건/{pending,labeled}/`
+  (`research/ocr_poc/`는 이미 gitignore — worktree에 복제되지 않음)
+- **기존 `계기번호_원본_실패건/`(crop_fail, 검증팀 daily_cycle 전용)과 통합하지 않는다.** provenance가 다르고
+  라벨 획득 방법이 달라(ts 정확조인 vs 사진매칭) 한 파일에 섞으면 두 팀이 같은 파일을 다른 가정으로 건드리게 된다.
+  최종 학습셋 병합만 `harvest_trainset.py`에서 두 번째 소스로 수행.
 
 ## daily_state.csv 계약 스키마 (10컬럼)
 
 - 필수 보존 컬럼: **`orig_status`**(crop_fail→human 전이 추적, crop_fail 학습 정답경로의 핵심), **`google`**.
-- 확定(2026-07-21, ocr-meter 복구본 기준. daily_cycle.py STATE_COLS와 동일):
+- 확정(2026-07-21, ocr-meter 복구본 기준. daily_cycle.py STATE_COLS와 동일):
 
   ```
   ts, fid, mid, type, worker_val, parseq, google, final, status, orig_status

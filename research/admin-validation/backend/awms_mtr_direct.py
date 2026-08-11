@@ -269,6 +269,75 @@ def fetch_login_snapshot() -> dict:
     }
 
 
+def get_awms_seal_max() -> int:
+    """awms 계정의 봉인 설정값(METR_SEAL_VAL) 조회 — **참고·대조용. 진실원천 아님.**
+
+    ★계정을 공유해 쓰기 때문에 이 값에 남의 봉인이 섞인다(영준님 확정 2026-07-29).
+      우리 것인지 여부는 **봉인박스 범위**로 판별한다 — app.py `_seal_state()` 참조.
+    실패 시 0.
+    """
+    try:
+        r = requests.get(f"{AWMS_BASE}/mobMtr8000/getMainList", headers=_headers(), timeout=30)
+        if r.status_code != 200:
+            return 0
+        d = r.json()
+    except Exception:
+        return 0
+    first = d[0] if isinstance(d, list) and d else d
+    if not isinstance(first, dict):
+        return 0
+    v = str(first.get("METR_SEAL_VAL") or "")
+    return int(v) if v.isdigit() else 0
+
+
+def get_active_cons_no() -> str:
+    """현재 활성 차수(공사번호) 실시간 조회 — 봉인조회 응답의 LV_CONS_NO.
+
+    ★차수를 어디에도 하드코딩하지 않기 위한 단일 출처(영준님 확정 2026-07-29).
+      봉인조회(mobMtr8000/getMainList)가 봉인값과 활성차수를 한 번에 준다. 응답은 dict.
+      27차·28차로 넘어가면 이 값이 자동으로 바뀌므로 코드 수정이 필요 없다.
+    """
+    try:
+        r = requests.get(f"{AWMS_BASE}/mobMtr8000/getMainList", headers=_headers(), timeout=30)
+        if r.status_code != 200:
+            return ""
+        d = r.json()
+    except Exception:
+        return ""
+    first = d[0] if isinstance(d, list) and d else d
+    if not isinstance(first, dict):
+        return ""
+    return str(first.get("LV_CONS_NO") or "")
+
+
+def get_busi_list() -> list:
+    """맥 세션으로 공사(차수) 목록 조회 — 전송탭 차수 드롭다운용.
+
+    ★폰 CDP 없이 맥 단독으로 동작해야 한다(2026-07-29). 기존 /transmit/busilist는 CDP 전용이라
+      폰이 없으면 드롭다운이 비어 사용자가 차수를 고를 수 없었다.
+    반환: [{"CONS_NO", "CONS_OVVW_CTT", "WHM_SEQNO"}]  (실패 시 빈 리스트)
+    """
+    try:
+        r = requests.get(
+            f"{AWMS_BASE}/mobMtr1000/getBusiList?DEPT1={BONBU_CD}",
+            headers=_headers(),
+            timeout=30,
+        )
+        if r.status_code != 200:
+            return []
+        bl = r.json()
+    except Exception:
+        return []
+    if not isinstance(bl, list):
+        return []
+    return [
+        {"CONS_NO": str(b.get("CONS_NO") or ""),
+         "CONS_OVVW_CTT": str(b.get("CONS_OVVW_CTT") or ""),
+         "WHM_SEQNO": b.get("WHM_SEQNO")}
+        for b in bl if b.get("CONS_NO")
+    ]
+
+
 # ── 지침 칸수 규칙 (JS readingFieldsFor 이식) ────────────────────────────────
 def reading_fields_for(clas: str | None, pwr: str | None) -> list[str]:
     """
@@ -734,6 +803,96 @@ def save_final_seal(cons_no: str, final_seal: str) -> dict:
         return {"ok": False, "status_code": 0, "body": str(e)}
 
 
+# ── 원복(임시저장 삭제) ────────────────────────────────────────────────────────
+# ★설계 기준 (영준님 확정 2026-07-29):
+#   - 임시저장(25) = resetRows로 삭제 가능 → 25→20 복귀. 원복 자동화는 25 전용이다.
+#   - 완료(28)    = ★삭제 불가. 검침값 수정만 가능(mobMtr5000/saveRow, EX_WORK_STEP=28+RE_SAVE_YN=Y,
+#                   신설번호 잠김). 통신팀 MOBCST 완료건은 saveAct 재전송 시 모뎀결합 unique 제약으로
+#                   500 → awms UI로만 수정 가능.
+#   - 따라서 **원복 자동화 범위 = 25 삭제까지. 28은 설계상 손대지 않는다.**
+#
+# ⚠ resetRows는 실호출 페이로드가 캡처된 적 없다(문서상 "행객체 배열 POST"만).
+#   통신팀 deleteRows(mobCst1000Api.deleteRows(checkedItems)) 패턴을 따라 행객체를 그대로 배열로 보낸다.
+#   첫 실행은 반드시 dry_run으로 대상 확인 → 승인 후 apply. apply 후 재조회로 20 복귀를 검증한다.
+
+def find_row_for_reset(mid: str) -> dict:
+    """원복 대상 행 조회. 반환 {"ok", "row"|None, "work_step", "err"}."""
+    try:
+        r = requests.get(
+            f"{AWMS_BASE}/mobMtr1000/getMainList",
+            headers=_headers(),
+            params={"FLAG": "1", "DEPT1": BONBU_CD, "busiKey": "", "searchVal": str(mid),
+                    "sortKey": "", "workStep": "20,25,28", "pPageNo": "1", "pRowCount": "50"},
+            timeout=30,
+        )
+        if r.status_code != 200:
+            return {"ok": False, "row": None, "work_step": "", "err": f"조회 실패 status={r.status_code}"}
+        rows = r.json()
+    except Exception as e:
+        return {"ok": False, "row": None, "work_step": "", "err": f"조회 오류: {e}"}
+
+    if not isinstance(rows, list):
+        return {"ok": False, "row": None, "work_step": "", "err": "응답이 배열이 아님"}
+
+    # 25(임시저장) 행 우선. 없으면 28 존재 여부를 알려 호출측이 거부 사유를 알 수 있게 한다.
+    row25 = next((x for x in rows if str(x.get("WORK_STEP") or "") == "25"), None)
+    if row25 is not None:
+        return {"ok": True, "row": row25, "work_step": "25", "err": ""}
+    row28 = next((x for x in rows if str(x.get("WORK_STEP") or "") == "28"), None)
+    if row28 is not None:
+        return {"ok": False, "row": None, "work_step": "28",
+                "err": "완료(28) 건은 삭제 불가 — 설계상 원복 대상 아님(검침값 수정만 가능)"}
+    return {"ok": False, "row": None, "work_step": "",
+            "err": "임시저장(25) 행 없음 — 이미 삭제됐거나 등록된 적 없음"}
+
+
+def reset_row_25(mid: str, dry_run: bool = True) -> dict:
+    """임시저장(25) 1건 삭제 → 20 복귀. ★25 전용, 28이면 거부.
+
+    dry_run=True(기본)면 대상만 확인하고 awms에 쓰지 않는다.
+    반환: {"ok", "dry_run", "work_step", "target", "status_code", "verified", "err"}
+    """
+    found = find_row_for_reset(mid)
+    if not found["ok"]:
+        return {"ok": False, "dry_run": dry_run, "work_step": found["work_step"],
+                "target": None, "status_code": 0, "verified": False, "err": found["err"]}
+
+    row = found["row"]
+    target = {k: row.get(k) for k in
+              ("WHM_NO", "CREMO_WHM_NO", "WORK_STEP", "CONS_NO", "CNTR_NO",
+               "CONS_TGT_SEQNO", "WRK_PLCE_ADDR_CTT")}
+
+    # ★2중 가드 — find가 25만 돌려주지만 여기서 한 번 더 확인한다(코드 변경 사고 대비).
+    if str(row.get("WORK_STEP") or "") != "25":
+        return {"ok": False, "dry_run": dry_run, "work_step": str(row.get("WORK_STEP") or ""),
+                "target": target, "status_code": 0, "verified": False,
+                "err": "가드: WORK_STEP이 25가 아니라 중단"}
+
+    if dry_run:
+        return {"ok": True, "dry_run": True, "work_step": "25", "target": target,
+                "status_code": 0, "verified": False, "err": ""}
+
+    try:
+        r = requests.post(
+            f"{AWMS_BASE}/mobMtr1000/resetRows",
+            headers=_headers(json_post=True),
+            json=[row],                      # 행객체 배열 (통신팀 deleteRows 패턴)
+            timeout=30,
+        )
+        status, body = r.status_code, r.text[:200]
+    except Exception as e:
+        return {"ok": False, "dry_run": False, "work_step": "25", "target": target,
+                "status_code": 0, "verified": False, "err": f"POST 오류: {e}"}
+
+    # 재조회 검증 — 25가 사라지고 20으로 돌아왔는지
+    after = find_row_for_reset(mid)
+    verified = (not after["ok"]) and after["work_step"] != "25"
+
+    return {"ok": status == 200 and verified, "dry_run": False, "work_step": "25",
+            "target": target, "status_code": status, "verified": verified,
+            "err": "" if verified else f"삭제 후 검증 실패(25 잔존 가능) body={body}"}
+
+
 # ── 메인 등록 함수 ─────────────────────────────────────────────────────────────
 def register_replacement_direct(job: dict) -> dict:
     """
@@ -937,8 +1096,10 @@ def register_replacement_direct(job: dict) -> dict:
 
     # 8) 완료(28): getDetail 재조회 + 시공 17키 + 신설사진 재전송
     done_step = "25"
-    # ★영준님 방침(2026-07-20): 완료(28)는 절대 금지 — 임시저장(25)까지만.
-    #   no_complete=True면 완료(28) saveRow 단계 전체 스킵(getDetail 조회는 무해).
+    # 등록 범위는 호출측이 no_complete로 정한다 (PM 최종지시 §1-7, 2026-07-29로 25 한정 해제).
+    #   no_complete=True  → 임시저장(25)에서 멈춤. resetRows로 원복 가능.
+    #   no_complete=False → 완료(28)까지. ★되돌릴 수 없다 — 원복 자동화는 설계상 만들지 않는다.
+    #   (getDetail 조회 자체는 어느 쪽이든 무해)
     no_complete = bool(job.get("no_complete"))
     try:
         d2, _ = _get_detail_with_retry(
@@ -1086,11 +1247,22 @@ def verify_registration(items: list) -> list:
             "dm_mt_day": "DGD_DM_MT_NDL_DAY_QTT",
             "var_day":   "DGD_VAR_NDL_DAY_QTT",
         }
+        # ★검침값은 숫자로 정규화해 비교한다(2026-07-30).
+        #   awms는 11534.0, 우리 기록은 11534처럼 표기가 달라서 문자열로 비교하면 전건 불일치가 났다.
+        def _numeq(a, b) -> bool:
+            sa, sb = str(a).strip(), str(b).strip()
+            if sa == sb:
+                return True
+            try:
+                return float(sa) == float(sb)
+            except (TypeError, ValueError):
+                return False
+
         for f, dgd_key in dgd_map.items():
             if f in rv:
                 got_v = str(detail.get(dgd_key) or "")
                 exp_v = str(rv[f])
-                if got_v != exp_v:
+                if not _numeq(got_v, exp_v):
                     mismatches.append({"field": dgd_key, "expect": exp_v, "got": got_v})
 
         # 제조월

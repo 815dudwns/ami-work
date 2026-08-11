@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.5",
+  "versionName": "2.2.8",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "큐 담기 크래시(OOM) 수정 — 사진 많을 때 담자마자 튕기던 문제. saveQueue 스트리밍 저장 + OOM 방어."
+  "notes": "맥 입력 화면에 외장형 연결장치(EXT_CONN_DEV, AE만)·집합형(추가)(FCLTY_DIV 30) 체크박스 추가 + 담기 화면에 읽기전용 확인줄"
 }

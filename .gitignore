@@ -3,9 +3,8 @@
 *.exe
 *.msi
 
-# 데이터 원본 / 유틸 스크립트 (로컬 전용)
+# 데이터 원본 (로컬 전용)
 *.xlsx
-*.py
 data/original/
 ami-work-1c49a-firebase-adminsdk-*.json
 
@@ -30,7 +29,12 @@ sort-demo.html
 .claude/settings.local.json
 
 __pycache__/
+# 자격증명 포함 — 절대 커밋 금지 (repo가 public + Pages 배포라 커밋 즉시 공개 노출)
 cst-input/backend/session.json
+cst-input/backend/config.json
+cst-input/backend/config.json.*
+cst-input/backend/session.json.*
+cst-input/backend/*.bak-*
 
 # 실험 산출물 착지 공간 (git 제외)
 scratch/
@@ -58,3 +62,12 @@ research/ocr_poc/daily_state.csv
 research/ocr_poc/daily_meterid.csv
 research/ocr_poc/cycle_state.csv
 research/ocr_poc/daily_removal_meterid.csv
+
+# 검증관리자 백엔드 런타임 상태 (절대 tracking 금지 — 2026-07-30 검증팀)
+#   session_mtr.json = awms 라이브 JSESSIONID (자격증명. repo가 public + Pages 배포)
+#   transmit_config.json = 봉인 커서/박스 범위 (유실 시 복구 어려움)
+#   archive_meta_index.json = 재생성 가능한 2.7MB 캐시
+research/admin-validation/backend/session_mtr.json
+research/admin-validation/backend/transmit_config.json
+research/admin-validation/backend/archive_meta_index.json
+research/admin-validation/backend/*.bak-*

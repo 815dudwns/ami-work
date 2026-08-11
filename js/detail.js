@@ -2,17 +2,24 @@
 
 let currentAddress = '';
 let currentMeters = [];
-// 합친 마커(같은 좌표 여러 지번)의 구성 지번 전체. 단일이면 [currentAddress].
+// 합친 마커(같은 좌표 여러 지번)의 구성 지번 전체. 단일이면 [currentAddress]. — 표시용
 let currentAddresses = [];
+// 이 패널이 읽고 쓰는 workStatus 키. 한 주소가 마커 여러 개로 갈리면 주소와 다르다.
+//   ★workStatus 접근은 반드시 이쪽을 쓴다. currentAddress는 화면 표시 전용.
+let currentStatusKey = '';
+let currentStatusKeys = [];
 
 // 현재 정렬 모드: 'none' | 'dup' | 'maker'
 let currentSortMode = 'none';
 
 // 주소 클릭 시 상세 패널 표시
-function showDetail(address, meters, addresses) {
+function showDetail(address, meters, addresses, statusKeys) {
     currentAddress = address;
     currentMeters = meters;
     currentAddresses = (addresses && addresses.length) ? addresses : [address];
+    currentStatusKeys = (statusKeys && statusKeys.length) ? statusKeys : currentAddresses;
+    // 대표 키 — 클릭한 지번에 대응하는 키를 우선 고른다(없으면 첫 키).
+    currentStatusKey = currentStatusKeys.find(k => addressOfStatusKey(k) === address) || currentStatusKeys[0];
 
     // 어드민 사진등록 버튼에 현재 주소 전달
     const adminBtn = document.getElementById('admin-upload-btn');
@@ -23,7 +30,7 @@ function showDetail(address, meters, addresses) {
     const collectBtn = document.getElementById('awms-collect-btn');
     if (collectBtn) collectBtn.onclick = () => collectToAmiqueue(address, meters);
 
-    const status = workStatus[address] || { state: 'pending', checkedMeters: [], reason: '' };
+    const status = workStatus[currentStatusKey] || { state: 'pending', checkedMeters: [], reason: '' };
     status.checkedMeters = status.checkedMeters || [];
 
     // 주소 텍스트 추출 — 더러운 값(undefined/null/"-") 거름
@@ -151,19 +158,19 @@ function showDetail(address, meters, addresses) {
     failInput.oninput = (e) => {
         if (e.target.value.trim()) e.target.style.borderColor = '';
         // 입력 중: 로컬만 저장
-        if (!workStatus[currentAddress]) {
-            workStatus[currentAddress] = { state: 'pending', checkedMeters: [], reason: '' };
+        if (!workStatus[currentStatusKey]) {
+            workStatus[currentStatusKey] = { state: 'pending', checkedMeters: [], reason: '' };
         }
-        workStatus[currentAddress].reason = e.target.value;
+        workStatus[currentStatusKey].reason = e.target.value;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
     };
     // blur/Enter 시 이벤트 큐에 추가
     const flushFailReason = () => {
         const session = authGetSession();
-        const state = workStatus[currentAddress]?.state || 'pending';
+        const state = workStatus[currentStatusKey]?.state || 'pending';
         if (state !== 'pending') {
             saveStateEvent(
-                currentAddress,
+                currentStatusKey,
                 state,
                 failInput.value.trim(),
                 session ? session.id   : '',
@@ -201,8 +208,10 @@ function showDetail(address, meters, addresses) {
             dcuHtml = `<span>${dcu}</span>`;
             copyVal = dcu;
         }
-        const poleCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="전산화번호 복사" style="margin-left:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
-        commonPoleEl.innerHTML = `변대주 ${dcuHtml}${poleCopyBtn}`;
+        const poleCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="DCU ID 복사" style="margin-left:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+        // 이 줄이 보여주는 값은 DCUID다 — 예전 라벨이 '변대주'라 현장에서 변대주명과
+//   헷갈렸다(영준님 2026-08-06). 변대주명은 계기별 상세줄에 따로 나온다.
+        commonPoleEl.innerHTML = `DCU ID ${dcuHtml}${poleCopyBtn}`;
         commonPoleEl.style.display = 'block';
         commonPoleEl.querySelector('.pole-copy-btn').addEventListener('click', (e) => {
             e.stopPropagation();
@@ -210,6 +219,23 @@ function showDetail(address, meters, addresses) {
         });
     } else {
         commonPoleEl.style.display = 'none';
+    }
+
+    // DCU 철거예정 표기 — 큰 글씨 공통줄에 '변대주명 + 판정'을 한 줄 더 붙인다.
+    //   (영준님 지시 2026-08-02: 변대주 값 안이 아니라 위 큰 글씨에)
+    //   판정은 data 의 dcu_철거예정 필드('DCU 철거예정 개소 LTE 시설' | 'DCU 유지').
+    //   DCUID 가 없어 위 블록이 숨겨진 경우에도 태그가 있으면 줄을 살린다.
+    const dcuTag = meters.find(m => m.dcu_철거예정)?.dcu_철거예정 || '';
+    if (dcuTag) {
+        const poleName = meters.find(m => m.인입주 || m.변대주);
+        const nameTxt = (poleName && (poleName.인입주 || poleName.변대주)) || '';
+        const isRemove = dcuTag.indexOf('철거') !== -1;
+        const tagHtml =
+            `<div style="margin-top:${commonPoleEl.style.display === 'block' ? '4px' : '0'};` +
+            `color:${isRemove ? '#b91c1c' : '#1d4ed8'};">` +
+            `${nameTxt ? nameTxt + ' ' : ''}${dcuTag}</div>`;
+        commonPoleEl.innerHTML += tagHtml;
+        commonPoleEl.style.display = 'block';
     }
 
     // 재작업 알림 (rework=true) — 상단에 표시
@@ -328,10 +354,10 @@ function getSortedMeters() {
 
 // 계기 개별 불가 토글
 function toggleMeterFail(meterNumber) {
-    if (!workStatus[currentAddress]) {
-        workStatus[currentAddress] = { state: 'pending', checkedMeters: [], reason: '' };
+    if (!workStatus[currentStatusKey]) {
+        workStatus[currentStatusKey] = { state: 'pending', checkedMeters: [], reason: '' };
     }
-    const status = workStatus[currentAddress];
+    const status = workStatus[currentStatusKey];
     if (!status.failedMeters) status.failedMeters = {};
 
     if (status.failedMeters[meterNumber] !== undefined) {
@@ -340,7 +366,7 @@ function toggleMeterFail(meterNumber) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
         // Firebase 동기화: 불가 해제 이벤트
         if (typeof addEvent === 'function') {
-            addEvent({ type: 'meterFail', address: currentAddress, meter: meterNumber, failed: false, ts: Date.now() });
+            addEvent({ type: 'meterFail', address: currentStatusKey, meter: meterNumber, failed: false, ts: Date.now() });
         }
         if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
         renderMetersList();
@@ -350,7 +376,7 @@ function toggleMeterFail(meterNumber) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
         // Firebase 동기화: 불가 설정 이벤트 (사유는 saveMeterFailReason에서 갱신)
         if (typeof addEvent === 'function') {
-            addEvent({ type: 'meterFail', address: currentAddress, meter: meterNumber, reason: '', failed: true, ts: Date.now() });
+            addEvent({ type: 'meterFail', address: currentStatusKey, meter: meterNumber, reason: '', failed: true, ts: Date.now() });
         }
         if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
         renderMetersList();
@@ -364,14 +390,14 @@ function toggleMeterFail(meterNumber) {
 
 // 계기 불가 사유 저장
 function saveMeterFailReason(meterNumber, reason) {
-    if (!workStatus[currentAddress]) return;
-    const status = workStatus[currentAddress];
+    if (!workStatus[currentStatusKey]) return;
+    const status = workStatus[currentStatusKey];
     if (!status.failedMeters) status.failedMeters = {};
     status.failedMeters[meterNumber] = reason;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
     // Firebase 동기화: 사유 갱신 이벤트
     if (typeof addEvent === 'function') {
-        addEvent({ type: 'meterFail', address: currentAddress, meter: meterNumber, reason: reason, failed: true, ts: Date.now() });
+        addEvent({ type: 'meterFail', address: currentStatusKey, meter: meterNumber, reason: reason, failed: true, ts: Date.now() });
     }
     if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
 }
@@ -379,7 +405,7 @@ function saveMeterFailReason(meterNumber, reason) {
 // 추가된 계기(added_meters)를 currentMeters에 가짜 객체로 합쳐서 함께 표시
 function getMetersWithAdded() {
     const base = currentMeters || [];
-    const status = workStatus[currentAddress] || {};
+    const status = workStatus[currentStatusKey] || {};
     const added = status.added_meters || {};
     const addedList = Object.values(added).map(a => ({
         계기번호: a.meter_id,
@@ -404,7 +430,7 @@ function renderMetersList() {
     currentMeters = meters;
     const sortedMeters = getSortedMeters();
     currentMeters = origCurrent;
-    const status = workStatus[currentAddress] || { state: 'pending', checkedMeters: [], reason: '' };
+    const status = workStatus[currentStatusKey] || { state: 'pending', checkedMeters: [], reason: '' };
     // 큰 글씨(공통) 영역에 표시되었는지 — DCUID 기준으로 판단
     const allSameDcu = meters.length > 0 && meters.every(m => m.DCUID === meters[0].DCUID);
     const commonDcuShown = allSameDcu && !!meters[0].DCUID;
@@ -455,8 +481,8 @@ function renderMetersList() {
                 pHtml = `<span>${dcu}</span>`;
                 copyVal = dcu;
             }
-            const pCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="전산화번호 복사" style="margin-left:3px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
-            detailParts.push(`변대주 ${pHtml}${pCopyBtn}`);
+            const pCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="DCU ID 복사" style="margin-left:3px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+            detailParts.push(`DCU ID ${pHtml}${pCopyBtn}`);
         }
         // 상호 (있을 때)
         if (meter.상호 && meter.상호 !== '0') detailParts.push(`상호 ${meter.상호}`);
@@ -472,6 +498,10 @@ function renderMetersList() {
         const subParts = [];
         // 1) 통신방식 (빨강) · 변대주 한글명 · 인입주
         if (meter.통신방식) subParts.push(`<span class="comm-type">${meter.통신방식}</span>`);
+        // 변대주 — 이름만 보여준다. 번호는 붙이지 않는다(영준님 2026-08-06):
+        //   DCU ID 줄이 이미 10자리를 보여주고 복사만 8자리로 자른다. 대장에서 이름으로 찾은
+        //   변대주번호는 같을 땐 그 복사값과 중복이고, 16%(1,080건)는 우리 DCUID와 아예
+        //   달라서(동명 변대주로 추정) 틀린 번호를 보여주게 된다.
         if (meter.변대주) subParts.push(`변대주 ${meter.변대주}`);
         if (meter.인입주) subParts.push(`인입주 ${meter.인입주}`);
         // 2) 사업차수 (신·전)
@@ -539,6 +569,16 @@ function renderMetersList() {
                 subParts.push(`통신 ${meter.통신방식}`);
             if (meter.DCUID)     subParts.push(`DCU ${meter.DCUID}`);
             if (meter.변대주)     subParts.push(`변대주 ${meter.변대주}`);
+        }
+        // 9) 고압철거 전용 필드 (category=고압): 철거할 모뎀 MAC + 현장 위치 비고
+        //   원본(주덕기 0810 리스트)에 DCUID·변대주가 통째로 비어 있어, 계기를 특정하는 값은
+        //   MAC 뿐이다. 비고는 "지하2층 전기실"처럼 계기를 찾아가는 위치 안내라 필수.
+        if (meter.category === '고압') {
+            if (meter.모뎀MAC) {
+                const macCopyBtn = `<button class="copy-btn" data-copy="${meter.모뎀MAC}" title="모뎀MAC 복사" style="margin-left:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+                subParts.push(`MAC ${meter.모뎀MAC}${macCopyBtn}`);
+            }
+            if (meter.비고) subParts.push(`<span style="color:#2563eb;">${meter.비고}</span>`);
         }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
         const details = detailParts.join(', ');
@@ -635,9 +675,9 @@ function renderMetersList() {
                 const m = btn.dataset.meter;
                 if (!confirm(`추가 계기 ${m}를 삭제할까요?`)) return;
                 try {
-                    await removeAddedMeter(currentAddress, m);
+                    await removeAddedMeter(currentStatusKey, m);
                     renderMetersList();
-                    if (typeof updateMarkerColor === 'function') updateMarkerColor(currentAddress);
+                    if (typeof updateMarkerColor === 'function') updateMarkerColor(currentStatusKey);
                 } catch (err) {
                     alert('삭제 실패: ' + err.message);
                 }
@@ -696,10 +736,11 @@ function closeDetail() {
 function updateStatus(state) {
     const session = authGetSession();
     const reason = (document.getElementById('fail-reason')?.value || '').trim();
-    // 합친 마커(같은 좌표 = 한 건물)는 완료/불가/보류를 구성 지번 전부에 기록.
+    // 합친 마커(같은 좌표 = 한 건물)는 완료/불가/보류를 구성 키 전부에 기록.
     //   ※ #2 결정점(영준님 확인 사안): 한 건물 한 번 작업 = 묶인 지번 다 처리.
-    //     primary만 기록하길 원하면 아래를 [currentAddress]로 되돌리면 됨.
-    const targets = (currentAddresses && currentAddresses.length) ? currentAddresses : [currentAddress];
+    //   ★전파 범위는 '이 마커'로 한정된다. 같은 지번이라도 좌표가 갈려 다른 마커면
+    //     상태 키가 다르므로(js/status-key.js) 그쪽까지 완료로 넘어가지 않는다.
+    const targets = (currentStatusKeys && currentStatusKeys.length) ? currentStatusKeys : [currentStatusKey];
     targets.forEach(addr => {
         saveStateEvent(
             addr,
@@ -709,29 +750,29 @@ function updateStatus(state) {
             session ? session.name : ''
         );
     });
-    updateMarkerColor(currentAddress);
+    updateMarkerColor(currentStatusKey);
 }
 
 // 주소의 작업 상태 초기화 (pending으로 되돌리기) — 체크박스는 유지
 function resetStatus() {
-    if (!workStatus[currentAddress]) return;
+    if (!workStatus[currentStatusKey]) return;
 
     // state만 pending으로 (체크박스/불가 유지) — 합친 마커는 구성 지번 전부
-    const targets = (currentAddresses && currentAddresses.length) ? currentAddresses : [currentAddress];
+    const targets = (currentStatusKeys && currentStatusKeys.length) ? currentStatusKeys : [currentStatusKey];
     targets.forEach(addr => { if (workStatus[addr]) saveStateEvent(addr, 'pending', '', '', ''); });
 
-    updateMarkerColor(currentAddress);
-    showDetail(currentAddress, currentMeters, currentAddresses);
+    updateMarkerColor(currentStatusKey);
+    showDetail(currentAddress, currentMeters, currentAddresses, currentStatusKeys);
 }
 
 // 계기 체크 토글
 function toggleMeterCheck(meterNumber) {
-    if (!workStatus[currentAddress]) {
-        workStatus[currentAddress] = { state: 'pending', checkedMeters: [], reason: '' };
+    if (!workStatus[currentStatusKey]) {
+        workStatus[currentStatusKey] = { state: 'pending', checkedMeters: [], reason: '' };
     }
-    const checkedMeters = workStatus[currentAddress].checkedMeters || [];
+    const checkedMeters = workStatus[currentStatusKey].checkedMeters || [];
     const isChecked = checkedMeters.includes(meterNumber);
-    saveCheckEvent(currentAddress, meterNumber, !isChecked);
+    saveCheckEvent(currentStatusKey, meterNumber, !isChecked);
 }
 
 // ── 계기 추가 모달 (admin 전용) ───────────────────────────────
@@ -803,10 +844,10 @@ async function saveNewMeter() {
     }
 
     try {
-        await saveAddedMeter(currentAddress, meterId, {});
+        await saveAddedMeter(currentStatusKey, meterId, {});
         closeAddMeterModal();
         renderMetersList();
-        if (typeof updateMarkerColor === 'function') updateMarkerColor(currentAddress);
+        if (typeof updateMarkerColor === 'function') updateMarkerColor(currentStatusKey);
     } catch (e) {
         showAddMeterToast('저장 실패: ' + e.message);
     }

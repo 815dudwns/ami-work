@@ -3,6 +3,8 @@
 let map;
 let markers = [];
 let sampleData = [];
+// 마커키 -> workStatus 키 인덱스 (js/status-key.js). 데이터 로드 직후 1회 생성.
+let statusKeyIndex = null;
 
 // 지사 -> 구 매핑 (단일 소스 오브 트루스, 하드코딩 — 데이터의 지사필드는 '기타' 오염으로 신뢰 불가)
 const JISA_TO_GU = {
@@ -32,17 +34,26 @@ function guOf(addr) {
 // 항목의 보정된 지사 (item.지사 대신 이걸로 분류 — 기타 흡수)
 function jisaOf(item) {
     const j = GU_TO_JISA[guOf(item.주소)];
-    return j || '미분류';
+    if (j) return j;
+    // 주소의 구로 못 잡으면 데이터의 지사 필드로 편입 (영준님 2026-08-10).
+    //   지하철 고압처럼 소재지 구와 관리 지사가 다른 건이 있다 — 회사 소속 지사가 관리해서다.
+    //   구 표기가 없는 주소도 여기로 흡수된다. 값이 JISA_TO_GU에 있는 정식 지사명일 때만 신뢰.
+    const raw = (item.지사 || '').trim();
+    if (raw && JISA_TO_GU[raw]) return raw;
+    return '미분류';
 }
 
 // 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
 // (label: 마커에 표시할 글자, null이면 계기 개수 숫자 / uiLabel: 카테고리 패널 표시명)
 const DATASETS = [
     { file: './data/site-data.json', category: '실효', label: null,  uiLabel: '실효계기' },
-    { file: './data/skt-data.json',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
-    { file: './data/tou-data.json',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
     { file: './data/rework-data.json', category: '재방문', label: '재', uiLabel: '재방문' },
     { file: './data/gapap-data.json', category: '고압', label: '고', uiLabel: '고압철거' },
+    // 2026-08-02 영준님 지시로 skt·tou 내림 — 0730 리스트와 재방문만 남긴다.
+    //   데이터 파일(data/skt-data.json·tou-data.json)은 지우지 않았다. 되살리려면 이 배열에
+    //   아래 두 줄을 되돌리고 getSelectedCategories 의 ALL 에도 다시 넣어야 한다.
+    // { file: './data/skt-data.json',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
+    // { file: './data/tou-data.json',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
 ];
 
 // 위치 추적 관련 상태
@@ -128,11 +139,16 @@ async function initMap() {
     console.log('[siteData] 로드 완료:', sampleData.length, '개',
         DATASETS.map(d => `${d.category}=${sampleData.filter(r => r.category===d.category).length}`).join(', '));
 
+    // ★반드시 sampleData 전체로 만든다. 지사·구·카테고리로 거른 부분집합을 쓰면
+    //   화면 필터에 따라 키가 달라져 같은 마커가 다른 기록을 읽는다.
+    statusKeyIndex = buildStatusKeyIndex(sampleData);
+    console.log('[statusKey] 마커 여러 개로 갈린 주소:', statusKeyIndex.splitAddresses.length, '건');
+
     populateJisaOptions();
     populateCategoryFilter();
     loadMarkers();
     await initFirebase();
-    markers.forEach(m => updateMarkerColor(m.address));
+    markers.forEach(m => repaintMarker(m));
 }
 
 // 지사 드롭다운 옵션 채우기 (JISA_TO_GU 7개 키 기준 + localStorage 복원)
@@ -303,7 +319,7 @@ function populateCategoryFilter() {
 
 // 카테고리 필터 — 체크된 카테고리만 표시 (localStorage 저장)
 function getSelectedCategories() {
-    const ALL = ['실효', 'skt', 'tou', '재방문', '고압'];
+    const ALL = ['실효', '재방문', '고압'];   // skt·tou 내림(2026-08-02) — DATASETS 주석 참조
     const saved = localStorage.getItem('ami_selected_categories');
     if (saved) try {
         const set = new Set(JSON.parse(saved));
@@ -353,13 +369,18 @@ function loadMarkers() {
                 lng: item.lng,
                 roadAddress: item.도로명주소,
                 category: item.category,
-                address: item.주소,   // 대표 지번(첫 레코드) — 하위호환 키
-                addresses: [],        // 합쳐진 구성 지번 전체(중복 좌표)
+                address: item.주소,   // 대표 지번(첫 레코드) — 표시용
+                addresses: [],        // 합쳐진 구성 지번 전체(중복 좌표) — 표시용
+                statusKeys: [],       // 이 마커가 읽고 쓰는 workStatus 키
             };
         }
         grouped[key].meters.push(item);
         if (item.주소 && !grouped[key].addresses.includes(item.주소)) {
             grouped[key].addresses.push(item.주소);
+        }
+        const sk = statusKeyOf(item, statusKeyIndex);
+        if (sk && !grouped[key].statusKeys.includes(sk)) {
+            grouped[key].statusKeys.push(sk);
         }
     });
 
@@ -368,12 +389,13 @@ function loadMarkers() {
 
     Object.values(grouped).forEach(data => {
         const coords = new kakao.maps.LatLng(data.lat, data.lng);
-        createMarker(coords, data.address, data.meters, data.category, data.addresses);
+        createMarker(coords, data.address, data.meters, data.category, data.addresses, data.statusKeys);
     });
 }
 
-// 합친 마커의 구성 지번 상태 집계 — 보수적(하나라도 미완이면 미완색).
+// 합친 마커의 구성 상태 집계 — 보수적(하나라도 미완이면 미완색).
 //   우선순위: fail > hold > (전부 complete면) complete > pending
+//   ※ 인자는 표시용 주소가 아니라 workStatus 키 목록이다(js/status-key.js).
 function aggregateState(addresses) {
     if (!addresses || !addresses.length) return 'pending';
     const states = addresses.map(a => (workStatus[a] && workStatus[a].state) || 'pending');
@@ -424,11 +446,13 @@ function spreadOverlappingMarkers(grouped) {
 }
 
 // 단일 마커 생성 및 지도에 추가
-function createMarker(position, address, meters, category, addresses) {
-    // 합친 마커: 구성 지번 전체(addresses)로 상태 집계. 단일이면 [address].
+function createMarker(position, address, meters, category, addresses, statusKeys) {
+    // 표시용 지번 목록(패널 제목 등). 단일이면 [address].
     const addrList = (addresses && addresses.length) ? addresses : [address];
-    const state = aggregateState(addrList);
-    const addedCount = aggregateAddedCount(addrList);
+    // 상태를 읽고 쓰는 키. 한 주소가 마커 여러 개로 갈리면 주소와 달라진다(js/status-key.js).
+    const keyList = (statusKeys && statusKeys.length) ? statusKeys : addrList;
+    const state = aggregateState(keyList);
+    const addedCount = aggregateAddedCount(keyList);
     const meterCount = meters.length + addedCount;
     const isSkt = category === 'skt';
     const isTou = category === 'tou';
@@ -448,7 +472,7 @@ function createMarker(position, address, meters, category, addresses) {
     else markerLabel = (isApproximate && state === 'pending') ? '?' : meterCount;
     // rework(재)면 숫자 위에 '재' 뱃지. 재방문 데이터셋은 rework=true라 개수+'재'로 표시.
     const touHasRework = isTou && meters.some(m => m.tou_type === 'rework');
-    const isRework = aggregateRework(addrList) || touHasRework;
+    const isRework = aggregateRework(keyList) || touHasRework;
 
     const markerContent = `
         <div class="custom-marker ${color}">
@@ -467,7 +491,7 @@ function createMarker(position, address, meters, category, addresses) {
 
     // 클릭 이벤트를 직접 생성한 DOM에 붙임 — 합친 마커는 구성 지번 전체 전달
     markerEl.addEventListener('click', () => {
-        showDetail(address, meters, addrList);
+        showDetail(address, meters, addrList, keyList);
     });
 
     const customOverlay = new kakao.maps.CustomOverlay({
@@ -478,16 +502,22 @@ function createMarker(position, address, meters, category, addresses) {
 
     customOverlay.setMap(map);
 
-    markers.push({ overlay: customOverlay, address, addresses: addrList, meters, element: markerEl, category });
+    markers.push({ overlay: customOverlay, address, addresses: addrList, statusKeys: keyList, meters, element: markerEl, category });
 }
 
 // 마커 색상 갱신 (상태 변경 시 호출) — address는 변경된 단일 지번이지만,
 //   합친 마커는 여러 지번 대표하므로 addresses에 포함하는 마커를 찾아 집계로 다시 칠한다.
-function updateMarkerColor(address) {
-    const marker = markers.find(m => (m.addresses || [m.address]).includes(address));
-    if (!marker) return;
+//   ※ workStatus 키가 '주소' 단독이라 같은 지번이 category가 다른 마커(실효/재방문/tou/skt)에
+//     동시에 존재할 수 있다. find로 첫 마커만 칠하면 나머지는 새로고침 전까지 옛 색으로 남아
+//     화면과 데이터가 어긋난다. 해당 지번을 가진 마커를 전부 갱신한다.
+function updateMarkerColor(statusKey) {
+    markers.filter(m => (m.statusKeys || m.addresses || [m.address]).includes(statusKey))
+           .forEach(marker => repaintMarker(marker));
+}
 
-    const addrList = marker.addresses || [marker.address];
+// 마커 하나를 현재 workStatus 기준으로 다시 칠한다.
+function repaintMarker(marker) {
+    const addrList = marker.statusKeys || marker.addresses || [marker.address];
     const state = aggregateState(addrList);
     const isApproximate = marker.meters.some(m => m.좌표정확도 === 'approximate');
     const isSkt = marker.category === 'skt';
@@ -531,7 +561,7 @@ function updateMarkerColor(address) {
 
 // 전체 마커 색상 일괄 갱신 (Firebase 동기화 후 호출)
 function refreshAllMarkers() {
-    markers.forEach(m => updateMarkerColor(m.address));
+    markers.forEach(m => repaintMarker(m));
 }
 
 // 현재 위치 추적 토글
@@ -672,7 +702,8 @@ function gotoSearchResult(r) {
             // 좌표 기준 합친 마커와 일치 — 같은 좌표·카테고리 전체(여러 지번 포함)
             const groupMeters = sampleData.filter(s => s.category === it.category && s.lat === it.lat && s.lng === it.lng);
             const groupAddresses = [...new Set(groupMeters.map(m => m.주소).filter(Boolean))];
-            if (typeof showDetail === 'function') showDetail(it.주소, groupMeters, groupAddresses);
+            const groupKeys = [...new Set(groupMeters.map(m => statusKeyOf(m, statusKeyIndex)).filter(Boolean))];
+            if (typeof showDetail === 'function') showDetail(it.주소, groupMeters, groupAddresses, groupKeys);
         }, 200);
     }
 }

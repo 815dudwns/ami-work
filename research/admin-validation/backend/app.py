@@ -25,9 +25,11 @@ Phase 3(인증)은 미구현(TODO 주석).
 """
 
 import contextlib
+import csv
 import io
 import json
 import os
+import shutil
 import sys
 import threading
 import time
@@ -174,6 +176,148 @@ def _invalidate_ws_raw(dataset: str) -> None:
         _WS_RAW_CACHE.pop(dataset, None)
 
 
+# ── 아카이브 메타 인덱스 (봉인·차수) ─────────────────────────────────────────────
+#   주간 아카이브(weekly_workstatus_merge.py)가 stub화할 때 METER_KEEP 화이트리스트에
+#   awms_seal·cha가 없어서 **라이브에서 통째로 사라진다**(실측 2026-07-29: 라이브 awms_seal 0건·
+#   cha 0건, 아카이브에 각각 375건·4960건). 그래서 라이브만 읽으면 데이터탭 봉인·차수·계정이
+#   전부 '-'로 뜬다. 원본이 남아 있는 archive/{ws_path}에서 그 두 필드만 뽑아 폴백용으로 쓴다.
+#   ★비용 가드: 아카이브 전체는 6.27MB라 매 요청 받으면 안 된다(RTDB egress 사고 전례).
+#     주차목록 shallow(수백 B)만 찍어 주차 집합이 바뀐 경우에만 전체를 다시 받고,
+#     결과 인덱스는 디스크 JSON으로 남겨 서버 재시작에도 재다운로드 없이 즉시 로드한다.
+#   ※근본 수정(METER_KEEP에 두 필드 추가)은 계기팀 소관 — 그건 앞으로의 스트립만 막고,
+#     이미 스트립된 과거분은 되돌아오지 않으므로 이 인덱스는 어느 쪽이든 계속 필요하다.
+_ARCH_META_CACHE: Dict[str, dict] = {}      # dataset -> {"idx": {...}, "weeks": [...], "checked_at": float}
+_ARCH_META_LOCK = threading.Lock()
+_ARCH_META_TTL = 900.0                      # 주차목록 재확인 주기(초)
+_ARCH_META_PATH = Path(__file__).resolve().parent / "archive_meta_index.json"
+
+
+def _arch_urls(dataset: str) -> tuple:
+    """(주차목록 shallow URL, 전체 URL). 설정 없으면 (None, None)."""
+    ds = (_load_config().get("datasets", {}) or {}).get(dataset) or {}
+    base = str(ds.get("rtdb_review_url", "")).rstrip("/")
+    ws_path = str(ds.get("ws_path", "workStatus/jongno")).strip("/")
+    if not base:
+        return None, None
+    root = f"{base}/archive/{ws_path}"
+    return f"{root}.json?shallow=true", f"{root}.json"
+
+
+# 인덱스 스키마 버전 — 담는 필드가 바뀌면 올린다. 디스크 캐시가 이 버전과 다르면 강제 재빌드.
+_ARCH_IDX_SCHEMA = 3
+
+# 아카이브 stub이 라이브에서 떨어뜨리는 필드들. 화면이 이 값들을 못 찾으면 과거가 빈칸으로 보인다.
+_ARCH_PICK = ("awms_seal", "cha", "removal_values", "removal_photos",
+              "removal_lcd_photos", "removal_lcd_regions",
+              "new_meter_photo", "old_meter_photo",
+              # 썸네일도 담는다 — 원본만 담으면 썸네일을 쓰는 화면에서 빈칸이 된다(2026-07-30 실측: 아카이브에 1,181건 존재)
+              "new_meter_photo_thumb", "old_meter_photo_thumb",
+              "remark", "cust_no", "new_meter_mfg_ym", "old_meter_mfg_ym", "daily_seq")
+
+
+def _arch_extract(tree: dict) -> dict:
+    """아카이브 트리 → {mid: {...}} 추출.
+
+    ★주간 아카이브는 METER_KEEP 화이트리스트만 남기므로, 라이브에서 **검침값·사진·봉인·차수**가
+      통째로 사라진다. 라이브만 보면 과거 날짜가 화면에서 빈칸으로 보인다(2026-07-29 사고).
+      원본이 남아 있는 archive/ 에서 화면에 필요한 필드를 뽑아 폴백용으로 쓴다.
+    """
+    idx: Dict[str, dict] = {}
+    for _wk, addrs in (tree or {}).items():
+        if not isinstance(addrs, dict):
+            continue
+        for _addr, val in addrs.items():
+            if not isinstance(val, dict):
+                continue
+            meter_state = val.get("meter_state")
+            for mid, rec in (val.get("replacement_list") or {}).items():
+                if not isinstance(rec, dict):
+                    continue
+                picked = {}
+                for k in _ARCH_PICK:
+                    v = rec.get(k)
+                    if v in (None, "", {}, []):
+                        continue
+                    picked[k] = v
+                if not picked and not meter_state:
+                    continue
+                cur = idx.setdefault(str(mid), {})
+                # 같은 계기가 여러 주차에 걸치면 먼저 채워진 값을 지키고 빈 자리만 메운다
+                for k, v in picked.items():
+                    if cur.get(k) in (None, "", {}, []):
+                        cur[k] = v
+                if meter_state and not cur.get("meter_state"):
+                    cur["meter_state"] = meter_state
+    return idx
+
+
+def _archive_meta_index(dataset: str) -> dict:
+    """아카이브 봉인·차수 인덱스. 실패해도 절대 raise 하지 않는다(빈 dict 반환 → 화면은 '-')."""
+    now = time.monotonic()
+    with _ARCH_META_LOCK:
+        ent = _ARCH_META_CACHE.get(dataset)
+        if ent is not None and (now - ent["checked_at"]) < _ARCH_META_TTL:
+            return ent["idx"]
+
+    shallow_url, full_url = _arch_urls(dataset)
+    if not shallow_url:
+        return {}
+
+    try:
+        with urllib.request.urlopen(shallow_url, timeout=30) as r:
+            weeks = sorted((json.loads(r.read()) or {}).keys())
+    except Exception as e:
+        print(f"[archmeta] 주차목록 조회 실패({dataset}): {e}", flush=True)
+        with _ARCH_META_LOCK:
+            ent = _ARCH_META_CACHE.get(dataset)
+        return ent["idx"] if ent else {}
+
+    # 디스크 캐시가 같은 주차 집합이면 재다운로드 없이 채택
+    if not _ARCH_META_CACHE.get(dataset):
+        try:
+            if _ARCH_META_PATH.exists():
+                disk = json.loads(_ARCH_META_PATH.read_text(encoding="utf-8"))
+                d_ent = (disk or {}).get(dataset) or {}
+                if (d_ent.get("schema") == _ARCH_IDX_SCHEMA
+                        and d_ent.get("weeks") == weeks and isinstance(d_ent.get("idx"), dict)):
+                    with _ARCH_META_LOCK:
+                        _ARCH_META_CACHE[dataset] = {"idx": d_ent["idx"], "weeks": weeks,
+                                                     "checked_at": now}
+                    print(f"[archmeta] 디스크 캐시 채택 {dataset}: {len(d_ent['idx'])}건", flush=True)
+                    return d_ent["idx"]
+        except Exception as e:
+            print(f"[archmeta] 디스크 캐시 읽기 실패(무시): {e}", flush=True)
+
+    with _ARCH_META_LOCK:
+        ent = _ARCH_META_CACHE.get(dataset)
+    if ent is not None and ent.get("weeks") == weeks:
+        with _ARCH_META_LOCK:
+            _ARCH_META_CACHE[dataset]["checked_at"] = now
+        return ent["idx"]
+
+    # 주차 집합이 바뀌었을 때만 전체 수신
+    try:
+        with urllib.request.urlopen(full_url, timeout=180) as r:
+            tree = json.loads(r.read())
+        idx = _arch_extract(tree if isinstance(tree, dict) else {})
+    except Exception as e:
+        print(f"[archmeta] 전체 조회 실패({dataset}): {e}", flush=True)
+        return ent["idx"] if ent else {}
+
+    with _ARCH_META_LOCK:
+        _ARCH_META_CACHE[dataset] = {"idx": idx, "weeks": weeks, "checked_at": now}
+    try:
+        disk = {}
+        if _ARCH_META_PATH.exists():
+            disk = json.loads(_ARCH_META_PATH.read_text(encoding="utf-8")) or {}
+        disk[dataset] = {"schema": _ARCH_IDX_SCHEMA, "weeks": weeks, "idx": idx}
+        _ARCH_META_PATH.write_text(json.dumps(disk, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        print(f"[archmeta] 디스크 캐시 쓰기 실패(무시): {e}", flush=True)
+    print(f"[archmeta] 인덱스 재빌드 {dataset}: {len(idx)}건 (주차 {len(weeks)}개)", flush=True)
+    return idx
+
+
 def _build_photo_map(dataset: str, date: Optional[str]) -> dict:
     """
     firebase_admin SDK로 workStatus/jongno를 읽어 date 기준 replacement_list 레코드를
@@ -207,6 +351,11 @@ def _build_photo_map(dataset: str, date: Optional[str]) -> dict:
     awms_synced_map: Dict[str, bool] = {}       # mid → awms_synced (전송완료 여부)
     awms_synced_manual_map: Dict[str, bool] = {}  # mid → 수동 마킹 여부 (되돌리기 가능/실전송 구분)
     awms_seal_map: Dict[str, Any] = {}          # mid → awms_seal dict (봉인번호·계정 기록)
+    work_step_map: Dict[str, Any] = {}          # mid → awms_work_step (25/28 원값)
+    cha_map: Dict[str, Any] = {}                # mid → cha (차수 라벨. 3b 차수 필터·데이터탭 표시)
+    # 아카이브 폴백 인덱스 — 주간 아카이브가 라이브에서 스트립한 awms_seal·cha를 되살린다.
+    # (실패해도 빈 dict라 화면은 '-'로 떨어질 뿐 크래시 없음)
+    _arch_meta = _archive_meta_index(dataset)
     # mid 단독 폴백: 같은 날 mid가 유일할 때만 채택 (ts15가 어긋난 수정건 보정용).
     # 중복 mid는 모호하므로 폴백에서 제외(_AMBIG로 표시 후 최종 제거).
     _mid_recs: Dict[str, list] = {}             # mid → [rec, ...] (그날)
@@ -251,7 +400,11 @@ def _build_photo_map(dataset: str, date: Optional[str]) -> dict:
             replaced_at_map[mid] = ra                          # 작업일시 ms (도입전 경계 판정용)
             awms_synced_map[mid] = bool(rec.get("awms_synced"))   # awms 전송완료 여부
             awms_synced_manual_map[mid] = bool(rec.get("awms_synced_manual"))  # 수동 마킹 여부
-            awms_seal_map[mid] = rec.get("awms_seal") or None     # 봉인번호·계정 기록 (없으면 None)
+            # 봉인·차수는 라이브 우선, 없으면 아카이브 원본 폴백(라이브는 스트립돼 0건인 상태)
+            _am = _arch_meta.get(mid) or {}
+            awms_seal_map[mid] = rec.get("awms_seal") or _am.get("awms_seal") or None
+            cha_map[mid] = rec.get("cha") or _am.get("cha") or None
+            work_step_map[mid] = rec.get("awms_work_step") or None
             # 임시저장(미완료) = draft 플래그 또는 신설계기번호/철거검침값 누락 (daily_summary와 동일 규칙)
             draft_map[mid] = bool(
                 rec.get("draft") is True
@@ -279,6 +432,9 @@ def _build_photo_map(dataset: str, date: Optional[str]) -> dict:
         "awms_synced_map": awms_synced_map,
         "awms_synced_manual_map": awms_synced_manual_map,
         "awms_seal_map": awms_seal_map,
+        "cha_map": cha_map,
+        "work_step_map": work_step_map,
+        "arch_meta": _arch_meta,   # 아카이브 원본 폴백(검침값·사진 등)
     }
 
 
@@ -337,6 +493,19 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
     awms_synced_map = maps.get("awms_synced_map", {})
     awms_synced_manual_map = maps.get("awms_synced_manual_map", {})
     awms_seal_map   = maps.get("awms_seal_map", {})
+    cha_map         = maps.get("cha_map", {})
+    work_step_map   = maps.get("work_step_map", {})
+    arch_meta       = maps.get("arch_meta", {}) or {}
+
+    # ★ 고아행 제외 필터는 제거했다(2026-07-30).
+    #   원래 의도: 작업자가 값을 고쳐 replaced_at이 바뀌면 옛 CSV 행이 남아 오판을 만든다 —
+    #   그 행을 화면에서 감추려 했다.
+    #   실제로는 **정상 데이터를 지웠다.** CSV의 ts와 workStatus의 replaced_at이 2~6초 어긋나는
+    #   건이 흔한데(생성 시점 차이), 그걸 전부 "고아"로 보고 걸러버렸다.
+    #   실측 사고: 0626 29171233026(CSV 140101 vs 실제 140103), 0702 29171234729(102238 vs 102232) 등이
+    #   종로맵에는 사진이 보이는데 데이터관리자에서는 행 자체가 사라졌다.
+    #   ts가 어긋난 건은 이미 mid 단독 폴백(mid_rec_map)이 받아주므로 감출 이유가 없다.
+    #   원래 문제였던 고아행 자체는 daily_state.csv에서 직접 제거하는 편이 맞다(2026-07-29 처리 완료).
 
     for row in results.get("meter_values", []):
         row["photo_url"] = None
@@ -348,14 +517,26 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         ts15 = ts_full[:15]
         rec = ts_mid_map.get((ts15, mid)) or mid_rec_map.get(mid)  # ts 어긋난 수정건은 mid 단독 폴백
         if rec:
-            rp = rec.get("removal_photos") or {}
+            # ★아카이브 stub에는 사진·검침값이 없다 — 원본이 남은 아카이브 인덱스로 메운다.
+            _am = arch_meta.get(mid) or {}
+            rp = rec.get("removal_photos") or _am.get("removal_photos") or {}
             row["photo_url"] = rp.get(fid) or None
-            lrp = rec.get("removal_lcd_photos") or {}
+            lrp = rec.get("removal_lcd_photos") or _am.get("removal_lcd_photos") or {}
             row["lcd_photo_url"] = lrp.get(fid) or None
             # ★ on-read 검침 status 재판정(2026-07-02): CSV에 굳은 worker_missing/판정을
             #   workStatus 최신 검침값으로 다시 계산 → 작업자가 나중에 넣은 값 즉시 반영.
             #   (human/human_skip/kepco는 validation_rules가 보존)
-            validation_rules.apply_onread(row, rec.get("removal_values") or {})
+            #
+            # ★★ 단, 아카이브 stub에는 재판정을 걸지 않는다(2026-07-29 사고).
+            #   주간 아카이브가 stub화하면서 removal_values를 통째로 떨어뜨리는데, 그걸 "작업자가
+            #   값을 안 넣었다"로 읽고 빈 값으로 재계산해 **CSV에 멀쩡히 있는 판정을 지워버렸다.**
+            #   실제 사고: 7/16 122건이 화면에서 worker_val 0건 · final 0건 · 전건 worker_missing.
+            #   CSV 원본은 `...,71547,41547,071547,71547,pass2` 로 정상이었다.
+            #   → removal_values가 아예 없는 레코드(=아카이브 stub)는 비교 근거가 없는 것이지
+            #     "값이 비었다"는 증거가 아니므로, CSV 판정을 그대로 살린다.
+            _rv = rec.get("removal_values") or _am.get("removal_values")
+            if isinstance(_rv, dict) and _rv:
+                validation_rules.apply_onread(row, _rv)
         # 서버(검증=daily_cycle)가 YOLO로 크롭한 LCD가 /tmp/daily_cycle에 있으면 그걸 표시(폰 크롭 없어도)
         row["lcd_crop_ts"] = None
         try:
@@ -375,7 +556,8 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         row["awms_synced"]      = bool(awms_synced_map.get(mid))
         row["awms_synced_manual"] = bool(awms_synced_manual_map.get(mid))
         row["awms_seal"]        = awms_seal_map.get(mid)
-        row["cha"]              = rec.get("cha") if rec else None  # 3b 차수 필터
+        row["awms_work_step"]   = work_step_map.get(mid)
+        row["cha"]              = cha_map.get(mid)  # 3b 차수 필터 (라이브 없으면 아카이브 폴백)
 
     for row in results.get("meter_ids", []):
         row["photo_url"] = None
@@ -383,7 +565,7 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         mid = str(row.get("mid", ""))
         rec = ts_mid_map.get((ts, mid)) or mid_rec_map.get(mid)  # ts 어긋난 수정건은 mid 단독 폴백
         if rec:
-            row["photo_url"] = rec.get("new_meter_photo") or None
+            row["photo_url"] = rec.get("new_meter_photo") or (arch_meta.get(mid) or {}).get("new_meter_photo") or None
             # ★ 2단계 단일진실(2026-07-02): 신설번호를 workStatus 최신으로 덮음
             #   → 스왑·작업자변경 즉시 반영(CSV daily_meterid 수동교정 불필요).
             #   CSV의 vision_result/google_result(OCR)는 그대로 대조에 쓰이고,
@@ -403,7 +585,8 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         row["awms_synced"]      = bool(awms_synced_map.get(mid))
         row["awms_synced_manual"] = bool(awms_synced_manual_map.get(mid))
         row["awms_seal"]        = awms_seal_map.get(mid)
-        row["cha"]              = rec.get("cha") if rec else None  # 3b 차수 필터
+        row["awms_work_step"]   = work_step_map.get(mid)
+        row["cha"]              = cha_map.get(mid)  # 3b 차수 필터 (라이브 없으면 아카이브 폴백)
 
     for row in results.get("removal_ids", []):
         row["photo_url"] = None
@@ -413,7 +596,7 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         ts15 = ts_full[:15]
         rec = ts_mid_map.get((ts15, mid)) or mid_rec_map.get(mid)  # ts 어긋난 수정건은 mid 단독 폴백
         if rec:
-            row["photo_url"] = rec.get("old_meter_photo") or None
+            row["photo_url"] = rec.get("old_meter_photo") or (arch_meta.get(mid) or {}).get("old_meter_photo") or None
         row["remark"]           = remark_map.get(mid)
         row["meter_state"]      = meter_state_map.get(mid)
         row["new_meter_mfg_ym"] = new_mfg_ym_map.get(mid)
@@ -426,7 +609,8 @@ def _attach_photo_urls(results: dict, dataset: str, date: Optional[str]) -> None
         row["awms_synced"]      = bool(awms_synced_map.get(mid))
         row["awms_synced_manual"] = bool(awms_synced_manual_map.get(mid))
         row["awms_seal"]        = awms_seal_map.get(mid)
-        row["cha"]              = rec.get("cha") if rec else None  # 3b 차수 필터
+        row["awms_work_step"]   = work_step_map.get(mid)
+        row["cha"]              = cha_map.get(mid)  # 3b 차수 필터 (라이브 없으면 아카이브 폴백)
 
 
 def _merge_unverified(results: dict, dataset: str, date: Optional[str]) -> None:
@@ -584,6 +768,24 @@ class ValidateRequest(BaseModel):
     dataset: str
     date: str  # YYYYMMDD
     only_mids: Optional[List[str]] = None   # 순번 범위 검증 — 이 철거번호들만 OCR (None=전체)
+
+class ForceRevalidateRequest(BaseModel):
+    """행 단위 강제 재판독 (2026-07-30 검증팀).
+
+    배치가 CSV에 status를 한 번 쓰면 daily_cycle이 증분 skip으로 그 행을 다시 안 본다
+    (`if ts in st: continue`). 그래서 [검증 실행]을 다시 눌러도 재판독이 일어나지 않는다.
+    실제로 2026-07-30 no_photo 8건을 고친 방법은 **CSV 행 수동 삭제**였다 — 그 수동 작업을
+    API로 만든 것이 이 엔드포인트다.
+
+    ★daily_cycle 쪽 수정(P0)에 의존하지 않는다. 여기서 대상 행을 지우고 run_daily를 호출하므로
+      P0가 적용되든 안 되든 동작한다. P0가 적용되면 '사진 미도착 건이 애초에 안 굳는' 부분이
+      해결되고, 이 API는 그 뒤에도 '사람이 지금 다시 읽으라고 지시하는' 경로로 남는다.
+    """
+    dataset: str
+    date: str                                  # YYYYMMDD — 이 날짜 행만 건드린다
+    mids: List[str]                            # 대상 계기(그룹) — 최소 1건
+    tracks: Optional[List[str]] = None         # values | new_meter | removal (None=전부)
+    include_human: bool = False                # True면 사람판정(human/human_skip)도 재판독 (기본 보존)
 
 class SuggestRequest(BaseModel):
     dataset: str
@@ -748,6 +950,153 @@ def post_validate(req: ValidateRequest):
     t.start()
 
     return {"job_id": job_id, "status": "running"}
+
+
+# ── 2b. POST /validate/force — 행 단위 강제 재판독 ───────────────────────────────
+#   증분 skip 우회를 CSV 행 삭제로 구현한다(daily_cycle 무수정 = P0 독립).
+_FORCE_TRACKS = {
+    "values":    "STATE_CSV",              # daily_state.csv           ts = YYYYMMDD_HHMMSS_{fid}
+    "new_meter": "METERID_CSV",            # daily_meterid.csv         ts = YYYYMMDD_HHMMSS
+    "removal":   "REMOVAL_METERID_CSV",    # daily_removal_meterid.csv ts = YYYYMMDD_HHMMSS_rm
+}
+# 사람이 판정한 행·준공반영 행은 기본 보존 — 재판독하면 사람 판단이 날아간다.
+_FORCE_PRESERVE = {"human", "human_skip", "kepco"}
+_FORCE_BACKUP_DIR = Path.home() / ".ami-backups" / "val-backend" / "force"
+
+
+def _force_csv_path(track: str, out_dir) -> Path:
+    """트랙별 CSV 실경로. out_dir(샌드박스 데이터셋) 지정 시 그 폴더, 아니면 daily_cycle 정본."""
+    attr = _FORCE_TRACKS[track]
+    if out_dir:
+        fname = Path(getattr(daily_cycle, attr)).name
+        return Path(out_dir) / fname
+    return Path(getattr(daily_cycle, attr))
+
+
+def _force_clear_rows(date: str, mids: set, tracks: list, include_human: bool, out_dir):
+    """대상 행을 CSV에서 제거해 증분 skip을 우회한다. 반환 (removed, kept_human, backup_dir).
+
+    ★안전장치
+      - 반드시 date 접두 + mids 교집합만 지운다. 다른 날짜는 절대 건드리지 않는다.
+      - 지우기 전에 CSV 3종을 타임스탬프 폴더로 백업(repo 밖 ~/.ami-backups).
+      - 사람판정(human/human_skip)·준공(kepco)은 include_human=False면 남긴다.
+      - BOM(utf-8-sig)을 보존해 daily_cycle이 쓰던 형식과 어긋나지 않게 한다.
+    """
+    stamp = datetime.now(KST).strftime("%Y%m%d_%H%M%S")
+    bdir = _FORCE_BACKUP_DIR / stamp
+    bdir.mkdir(parents=True, exist_ok=True)
+    removed: dict = {}
+    kept_human: dict = {}
+
+    for track in tracks:
+        p = _force_csv_path(track, out_dir)
+        if not p.exists():
+            removed[track] = []
+            continue
+        shutil.copy2(p, bdir / p.name)
+        with open(p, encoding="utf-8-sig", newline="") as f:
+            rd = csv.DictReader(f)
+            cols = rd.fieldnames or []
+            rows = list(rd)
+        keep, gone, held = [], [], []
+        for r in rows:
+            ts = str(r.get("ts") or "")
+            hit = ts.startswith(date) and str(r.get("mid") or "") in mids
+            if hit and not include_human and str(r.get("status") or "") in _FORCE_PRESERVE:
+                held.append(ts); keep.append(r); continue
+            if hit:
+                gone.append(ts); continue
+            keep.append(r)
+        if gone:
+            with open(p, "w", encoding="utf-8-sig", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=cols)
+                w.writeheader(); w.writerows(keep)
+        removed[track] = gone
+        kept_human[track] = held
+    return removed, kept_human, str(bdir)
+
+
+@app.post("/validate/force")
+def post_validate_force(req: ForceRevalidateRequest):
+    """행 단위 강제 재판독 — 대상 CSV 행을 지우고 그 계기만 다시 OCR한다.
+
+    화면 [재판독] 버튼의 백엔드. /validate와 같은 잡 락·잡 폴링을 쓴다(동시실행 금지).
+    """
+    global _RUNNING_JOB
+
+    cfg = _load_config()
+    if req.dataset not in cfg.get("datasets", {}):
+        raise HTTPException(status_code=404, detail=f"dataset '{req.dataset}' 없음")
+    try:
+        datetime.strptime(req.date, "%Y%m%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date는 YYYYMMDD 형식")
+    mids = {str(m).strip() for m in (req.mids or []) if str(m).strip()}
+    if not mids:
+        raise HTTPException(status_code=400, detail="mids가 비었습니다 — 재판독 대상을 지정하세요")
+    tracks = [t for t in (req.tracks or list(_FORCE_TRACKS)) if t in _FORCE_TRACKS]
+    if not tracks:
+        raise HTTPException(status_code=400,
+                            detail=f"tracks는 {list(_FORCE_TRACKS)} 중에서 지정하세요")
+
+    with _JOB_LOCK:
+        if _RUNNING_JOB is not None:
+            running_info = _JOBS.get(_RUNNING_JOB, {})
+            raise HTTPException(
+                status_code=409,
+                detail=f"이미 실행 중인 잡이 있습니다: {_RUNNING_JOB} "
+                       f"(dataset={running_info.get('dataset')}, date={running_info.get('date')}). "
+                       f"끝난 뒤 다시 시도하세요."
+            )
+        job_id = "force-" + str(uuid.uuid4())[:6]
+        _RUNNING_JOB = job_id
+
+    _ws_url, _out_dir = _dataset_ocr_ctx(req.dataset)
+    try:
+        removed, kept_human, backup_dir = _force_clear_rows(
+            req.date, mids, tracks, req.include_human, _out_dir)
+    except Exception as e:
+        with _JOB_LOCK:
+            _RUNNING_JOB = None
+        raise HTTPException(status_code=500, detail=f"행 정리 실패(재판독 안 함): {e}")
+
+    n_removed = sum(len(v) for v in removed.values())
+    n_held = sum(len(v) for v in kept_human.values())
+    print(f"[force] dataset={req.dataset} date={req.date} mids={len(mids)} "
+          f"tracks={tracks} 행삭제={n_removed} 사람판정보존={n_held} backup={backup_dir}", flush=True)
+
+    with _JOBS_LOCK:
+        _JOBS[job_id] = {
+            "status": "running", "log": "", "summary": None,
+            "dataset": req.dataset, "date": req.date,
+            "started_at": datetime.now(KST).isoformat(), "finished_at": None,
+            "force": {"removed": removed, "kept_human": kept_human,
+                      "backup_dir": backup_dir, "mids": sorted(mids)},
+        }
+
+    def _run():
+        global _RUNNING_JOB
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                daily_cycle.run_daily(date=req.date, ws_url=_ws_url, out_dir=_out_dir,
+                                      no_sync=True, only_mids=sorted(mids))
+            with _JOBS_LOCK:
+                _JOBS[job_id].update({"status": "done", "log": buf.getvalue(),
+                                      "finished_at": datetime.now(KST).isoformat()})
+        except Exception:
+            with _JOBS_LOCK:
+                _JOBS[job_id].update({"status": "error",
+                                      "log": buf.getvalue() + "\n\n" + traceback.format_exc(),
+                                      "finished_at": datetime.now(KST).isoformat()})
+        finally:
+            with _JOB_LOCK:
+                _RUNNING_JOB = None
+            _invalidate_ws_raw(req.dataset)
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"job_id": job_id, "status": "running", "removed": removed,
+            "kept_human": kept_human, "backup_dir": backup_dir}
 
 
 # ── 3. GET /jobs/{job_id} ────────────────────────────────────────────────────────
@@ -3234,7 +3583,8 @@ _STATUS_LABEL = {
     "human":       "확인완료",
     "human_skip":  "확인완료",   # human_skip도 사람이 완료한 것으로 통합
     "swap_suspect": "정합성의심",
-    "no_photo":    "사진없음",
+    # ★유실이 아니라 "배치 시점에 업로드 전"이라는 뜻 — 오인 방지(2026-07-30, 영준님 승인)
+    "no_photo":    "사진 대기",
     "dl_err":      "다운로드오류",
     "google":      "자동통과(Google)",
     "pass2":       "자동통과(2차)",
@@ -3575,28 +3925,80 @@ def _is_three_phase(meter_no: str, cntr_clas_cd) -> bool:
     return code in _THREE_PHASE_METER_CODES
 
 
-def _db_seal_max(raw: dict, account: str = "") -> tuple:
+def _db_seal_max(raw: dict, account: str = "", dataset: str = "") -> tuple:
     """workStatus 전체에서 기록된 봉인번호(awms_seal.seal_no/seal_no2)의 전역 최대값+자릿수.
     ★봉인은 계정 무관 물리 시퀀스 (영준님 2026-07-17) — account 필터 없이 전역.
-    반환: (max_int, max_width). 다음 봉인 = max_int + 1 (중단 후 재개해도 번호 재사용 안 함)."""
+    반환: (max_int, max_width). 다음 봉인 = max_int + 1 (중단 후 재개해도 번호 재사용 안 함).
+
+    ★라이브만 보면 안 된다(2026-07-29 사고). 주간 아카이브가 METER_KEEP 화이트리스트로
+      stub화하면서 awms_seal을 통째로 떨어뜨려 **라이브 기록이 0건**이 된다. 그러면 여기서
+      db_max=0이 나오고, config.seal_last마저 비면 다음 봉인이 **1번부터 재배정**된다
+      (실제로 발생). 그래서 아카이브 원본 인덱스까지 함께 훑어 커서를 잃지 않게 한다.
+      ※근본적으로는 계기팀이 METER_KEEP에 awms_seal을 추가해야 하지만, 이미 스트립된
+        과거분은 되돌아오지 않으므로 이 폴백은 어느 쪽이든 계속 필요하다.
+    """
     mx, width = 0, 0
-    if not isinstance(raw, dict):
-        return 0, 0
-    for _addr, av in raw.items():
-        if not isinstance(av, dict):
-            continue
-        for _mid, rec in (av.get("replacement_list") or {}).items():
-            if not isinstance(rec, dict):
+
+    def _take(v):
+        nonlocal mx, width
+        if v is not None and str(v).isdigit():
+            mx = max(mx, int(v))
+            width = max(width, len(str(v)))
+
+    if isinstance(raw, dict):
+        for _addr, av in raw.items():
+            if not isinstance(av, dict):
                 continue
-            s = rec.get("awms_seal")
-            if not isinstance(s, dict):
-                continue
-            for k in ("seal_no", "seal_no2"):
-                v = s.get(k)
-                if v is not None and str(v).isdigit():
-                    mx = max(mx, int(v))
-                    width = max(width, len(str(v)))
+            for _mid, rec in (av.get("replacement_list") or {}).items():
+                if not isinstance(rec, dict):
+                    continue
+                s = rec.get("awms_seal")
+                if not isinstance(s, dict):
+                    continue
+                for k in ("seal_no", "seal_no2"):
+                    _take(s.get(k))
+
+    if dataset:
+        try:
+            for _mid, meta in (_archive_meta_index(dataset) or {}).items():
+                s = (meta or {}).get("awms_seal")
+                if isinstance(s, dict):
+                    for k in ("seal_no", "seal_no2"):
+                        _take(s.get(k))
+        except Exception as e:
+            print(f"[seal] 아카이브 봉인 스캔 실패(무시): {e}", flush=True)
+
     return mx, width
+
+
+# ── 봉인박스 (팀 단위 전역 자원) ────────────────────────────────────────────────
+#   ★봉인은 종로팀이 수령한 소모품이라 awms 아이디와 무관하다(영준님 2026-07-29).
+#     배경: 종로/중구는 같은 지사 하청의 다른 회사인데 차수 레벨이 안 맞아 종로팀이 공사중지되면서
+#     종로 작업자가 중구 아이디를 고정 발급받아 쓰고 있다(OTP 불편). 나중에 종로 아이디로 돌아갈 수
+#     있는데, 계정이 바뀌어도 **같은 봉인을 이어서** 쓴다. 그래서 박스에 account를 넣지 않고,
+#     커서도 계정별로 쪼개지 않는다(쪼개면 아이디가 바뀔 때 봉인이 어긋난다).
+#   ★awms_seal.account는 "누가 그 계기를 올렸는지"라는 **등록 이력**으로만 유지한다(봉인 소유 아님).
+#   ★범위·번호·자릿수는 코드에 박지 않는다 — 전부 전송 설정에서 입력/수정/추가한다.
+def _seal_boxes(t_cfg: dict) -> list:
+    """설정된 봉인박스 목록 [{box_id, start, end, closed}]. 시작번호 순 정렬, closed 제외."""
+    out = []
+    for b in (t_cfg.get("seal_boxes") or []):
+        if not isinstance(b, dict) or b.get("closed"):
+            continue
+        s, e = str(b.get("start", "")).strip(), str(b.get("end", "")).strip()
+        if not (s.isdigit() and e.isdigit()) or int(e) < int(s):
+            continue
+        out.append({"box_id": str(b.get("box_id") or ""), "start": int(s), "end": int(e),
+                    "width": max(len(s), len(e))})
+    out.sort(key=lambda x: x["start"])
+    return out
+
+
+def _seal_in_boxes(n: int, boxes: list) -> bool:
+    """봉인번호가 우리 박스 범위 안인가.
+    ★우리 것/남의 것 판별 기준은 **계정이 아니라 범위**다(영준님 2026-07-29).
+      계정을 공유해 쓰므로 같은 아이디에 남의 봉인 이력이 섞인다."""
+    return any(b["start"] <= n <= b["end"] for b in boxes)
 
 
 def _allocate_seals(items: list, start_seal: int, width: int = 0):
@@ -3619,23 +4021,118 @@ def _allocate_seals(items: list, start_seal: int, width: int = 0):
     return out, cur
 
 
-def _seal_state(raw: dict, t_cfg: dict) -> tuple:
-    """전역 봉인 상태: (다음 시작값 int, 자릿수 width).
-    시작 = max(DB 전역최대, config.seal_last) + 1. width = config.seal_width > config.seal_last 길이 > DB 기록 길이."""
+def _resolve_cons_no(dataset: str, t_cfg: dict | None = None) -> tuple:
+    """등록 차수(공사번호) 결정. 반환 (cons_no, source).
+
+    ★어떤 차수 번호도 코드·설정에 고정하지 않는다 (영준님 확정 2026-07-29).
+      1) 사용자가 드롭다운에서 직접 고른 경우(`cons_no_manual=True`) → **그 선택이 최우선**.
+      2) 그 외 → awms 활성차수(LV_CONS_NO)를 **호출 시점에 실시간 조회**해 따라간다.
+         저장값에 의존하지 않으므로 27차·28차로 넘어가도 코드/설정 수정 없이 자동 추종한다.
+      3) 실시간 조회 실패 시에만 마지막으로 알던 값으로 폴백(active_cons_no → cons_no).
+
+    기존 사고: login-snapshot이 '비어있을 때만' 채우는 구조라 옛 23차가 고착 → P4 오등록.
+    그 자리에 26차 같은 다른 고정값을 넣지 않는다. 값이 아니라 **출처**를 바꾼 것이다.
+    """
+    if t_cfg is None:
+        t_cfg = _load_transmit_config().get(dataset, {}) or {}
+    if t_cfg.get("cons_no_manual") and t_cfg.get("cons_no"):
+        return str(t_cfg["cons_no"]), "manual"
+    try:
+        if mtr_direct.session_alive():
+            active = mtr_direct.get_active_cons_no()
+            if active:
+                return active, "active"
+    except Exception:
+        pass
+    return str(t_cfg.get("active_cons_no") or t_cfg.get("cons_no") or ""), "cached"
+
+
+def _resolve_account(dataset: str) -> str:
+    """봉인 기록용 계정 id. 세션 rememberedId 우선, 없으면 config accounts[0].id 폴백.
+
+    ★rememberedId는 awms 로그인 화면에서 '아이디 저장'을 켜야 생기는 쿠키라 대개 비어 있다.
+      실측(2026-07-29): 아카이브 봉인기록 375건 중 367건이 account 빈값 — 누가 쓴 봉인인지
+      구분이 안 됐다. 봉인은 물리 스티커라 '누가 썼는지'가 남아야 해서 config 계정으로 폴백한다.
+    """
+    acct = str(mtr_direct.SESSION.get("rememberedId") or "")
+    if acct:
+        return acct
+    accs = (_load_transmit_config().get(dataset, {}) or {}).get("accounts") or []
+    if accs and isinstance(accs[0], dict):
+        return str(accs[0].get("id") or "")
+    return ""
+
+
+def _seal_state(raw: dict, t_cfg: dict, awms_max: int = 0) -> tuple:
+    """봉인 다음번호 판정. 반환 (다음 시작값 int, 자릿수 width, 판정근거 note).
+
+    ★★ 판정 알고리즘 (영준님 확정 2026-07-29) — 진실원천은 **우리 DB 기록**이다.
+
+      기준선 = max(우리 DB 전역최대 `_db_seal_max`, config.seal_last)
+      1) awms 계정 봉인 최댓값(`awms_max`)을 조회한다.
+      2) 그 값이 **우리 봉인박스 범위**(`seal_box_start` ~ `seal_box_end`) 안이면
+         → **우리가 awms에서 수동 전송한 것**으로 본다. 기준선보다 크면 그 값을 채택한다.
+         (우리 시스템으로 전송이 안 되면 작업자가 awms에서 직접 올린다. 그때 봉인은 소비되지만
+          우리 DB엔 안 남는다. 실측 근거: 우리 사용분 0315258~0315698 중 315261→315328 구간이 비어 있다.)
+      3) 범위 **밖**이면 → 계정을 공유해 쓰는 **남의 봉인**이므로 무시하고 우리 DB 기준으로 이어간다.
+         (종로 작업자가 중구 아이디를 공유해 써서 같은 계정에 남의 이력이 섞인다.)
+      ★판별 기준은 계정이 아니라 **봉인박스 범위**다. 범위 안=우리 것, 범위 밖=남의 것.
+      ★박스 범위가 설정되지 않았으면 awms 값을 **채택하지 않는다**(안전측). 근거 문자열로 드러낸다.
+
+    사고 이력: awms 값을 무조건 채택하던 때 3156981을 받아 3156982가 배정될 뻔했다(실물은 0315700).
+               또 DB 기록이 주간아카이브로 밀려 기준선을 잃자 봉인이 1번부터 배정됐다(METER_KEEP 직결).
+    """
     db_max, db_width = _db_seal_max(raw)
     cfg_last_s = str(t_cfg.get("seal_last") or "")
     cfg_last = int(cfg_last_s) if cfg_last_s.isdigit() else 0
-    start = max(db_max, cfg_last) + 1
+    base = max(db_max, cfg_last)                 # 우리 기록 기준선
     width = int(t_cfg.get("seal_width") or 0) or (len(cfg_last_s) if cfg_last_s.isdigit() else 0) or db_width
-    return start, width
+
+    def _z(v: int) -> str:
+        return str(v).zfill(width) if width else str(v)
+
+    box_s = str(t_cfg.get("seal_box_start") or "")
+    box_e = str(t_cfg.get("seal_box_end") or "")
+    box_lo = int(box_s) if box_s.isdigit() else 0
+    box_hi = int(box_e) if box_e.isdigit() else 0
+
+    note = f"DB 마지막 {_z(base)} 기준" if base else "★기준 없음(DB·설정 모두 비어 있음)"
+
+    if awms_max > 0:
+        if box_lo and box_hi and box_lo <= awms_max <= box_hi:
+            if awms_max > base:
+                note = (f"awms 최댓값 {_z(awms_max)}(우리 봉인박스 {_z(box_lo)}~{_z(box_hi)} 내 "
+                        f"— 수동전송분으로 판단) 반영 → 다음 {_z(awms_max + 1)}")
+                base = awms_max
+            else:
+                note = (f"awms 최댓값 {_z(awms_max)}(범위 내이나 DB 마지막 {_z(base)} 이하) "
+                        f"→ DB 기준 유지")
+        elif box_lo and box_hi:
+            note = (f"awms 최댓값 {_z(awms_max)}(우리 봉인박스 {_z(box_lo)}~{_z(box_hi)} 밖 "
+                    f"— 계정공유 타 작업분) 무시 → DB 마지막 {_z(base)} 기준")
+        else:
+            note = (f"awms 최댓값 {_z(awms_max)} — ★봉인박스 범위 미설정이라 판별 불가, "
+                    f"채택하지 않음 → DB 마지막 {_z(base)} 기준")
+
+    return base + 1, width, note
 
 
 class TransmitConfigReq(BaseModel):
     dataset: str
-    cons_no: str = ""          # 등록 공사번호(차수) — 사업조회 목록에서 선택, 그대로 주입
+    cons_no: str = ""          # 등록 공사번호(차수) — 사업조회 목록에서 선택. 빈값이면 활성차수 자동추종
+    # ★사용자가 드롭다운에서 활성차수와 다른 차수를 고르면 서버가 cons_no_manual=True로 표시하고
+    #   그 선택을 우선한다. 활성차수와 같은 값을 고르면 다시 자동추종(False)으로 돌아간다.
+    #   요청 본문으로 직접 줄 수도 있다(None이면 서버가 자동 판정).
+    cons_no_manual: bool | None = None
     seal_cons_no: str = ""     # 봉인 공사번호 — 별도 선택 가능 (등록차수와 다를 수 있음)
     seal_last: str = ""        # ★전역 마지막 사용 봉인 (계정 무관 물리 시퀀스, zero-padding 원문 '0111111')
-    seal_width: int = 0        # 봉인 자릿수 (0이면 seal_last 길이로 유추)
+    seal_width: int = 0        # 봉인 자릿수 (0이면 seal_last 길이로 유추). 종로 현행 7자리 고정
+    # ★우리 봉인박스 범위 — awms 조회값이 '우리 것'인지 판별하는 유일한 기준(계정 아님).
+    #   범위 안 = 우리가 awms에서 수동전송한 것 → 반영 / 범위 밖 = 계정공유 타 작업분 → 무시.
+    #   미설정이면 awms 값을 채택하지 않는다(안전측).
+    #   None = 기존값 유지 / "" = 명시적 해제(미설정으로 되돌림) / 값 = 설정
+    seal_box_start: str | None = None
+    seal_box_end: str | None = None
     accounts: list = []        # (구) 아이디별 시작 봉인 — 전역 시퀀스 전환으로 배정에는 미사용, 하위호환 보존
 
 
@@ -3653,13 +4150,39 @@ def post_transmit_config(req: TransmitConfigReq):
     cfg = _load_transmit_config()
     prev = cfg.get(req.dataset) or {}
     cfg[req.dataset] = {
+        # ★ prev 먼저 펼쳐 화이트리스트에 없는 키를 보존한다(2026-07-29).
+        #   전엔 dict를 통째로 재구성해서 auto_validate_watch가 매 저장마다 조용히 삭제됐고,
+        #   전송탭에서 봉인/차수를 저장하는 순간 P0 자동검증 워처가 꺼지는 사고가 실제로 났다.
+        **prev,
         "dataset": req.dataset,
         "cons_no": req.cons_no,
         "seal_cons_no": req.seal_cons_no,
         "seal_last": req.seal_last or prev.get("seal_last", ""),
         "seal_width": req.seal_width or prev.get("seal_width", 0),
+        # None이면 기존값 유지, ""면 해제 — 잘못 설정한 범위를 지울 수 있어야 한다.
+        "seal_box_start": prev.get("seal_box_start", "") if req.seal_box_start is None else req.seal_box_start,
+        "seal_box_end": prev.get("seal_box_end", "") if req.seal_box_end is None else req.seal_box_end,
         "accounts": req.accounts,
     }
+
+    # ★차수 수동선택 판정 (2026-07-29) — 특정 차수를 설정에 고정하지 않기 위한 장치.
+    #   사용자가 활성차수와 "다른" 차수를 골랐을 때만 manual=True로 잠그고,
+    #   활성차수와 같은 값을 고르면 자동추종(False)으로 되돌린다.
+    #   → 27차·28차로 넘어가도 manual이 아니면 새 활성차수를 그대로 따라간다.
+    if req.cons_no_manual is not None:
+        manual = bool(req.cons_no_manual)                       # 호출측 명시 지정 우선
+    elif not req.cons_no:
+        manual = False                                          # 비우면 자동추종
+    else:
+        active = str(prev.get("active_cons_no") or "")
+        if not active:
+            try:
+                active = mtr_direct.get_active_cons_no() if mtr_direct.session_alive() else ""
+            except Exception:
+                active = ""
+        manual = bool(active) and str(req.cons_no) != active
+    cfg[req.dataset]["cons_no_manual"] = manual
+
     _save_transmit_config(cfg)
     return {"ok": True, "config": cfg[req.dataset]}
 
@@ -3732,7 +4255,7 @@ def get_transmit_pull_session():
 
 
 @app.get("/transmit/session-direct")
-def get_transmit_session_direct():
+def get_transmit_session_direct(dataset: str = Query("jongno")):
     """맥 보관 세션의 생존 확인 (awms getMainList 재조회). 폰 불필요."""
     has = bool(mtr_direct.SESSION.get("jsessionid"))
     alive = mtr_direct.session_alive() if has else False
@@ -3740,7 +4263,11 @@ def get_transmit_session_direct():
         "ok": True,
         "has_session": has,
         "alive": alive,
-        "account": mtr_direct.SESSION.get("rememberedId") or "",
+        # ★account 폴백 (2026-07-30 검증팀): 폰이 /transmit/push-session으로 밀어넣은 세션에는
+        #   rememberedId가 없다(실측 None) → 화면에 계정이 빈칸으로 떴다. 봉인은 계정 무관이라
+        #   전송에는 영향이 없지만 표시가 비면 "세션이 잘못됐다"로 오인된다.
+        #   전송 기록용 계정 결정과 같은 규칙(_resolve_account)으로 config accounts[0]을 폴백한다.
+        "account": mtr_direct.SESSION.get("rememberedId") or _resolve_account(dataset),
         "ts": mtr_direct.SESSION.get("ts") or 0,
     }
 
@@ -3762,10 +4289,17 @@ def post_transmit_login_snapshot(dataset: str = Query(...), account: str = Query
                                   "seal_last": "", "seal_width": 0, "accounts": []}
     # getMainList(8000).LV_CONS_NO = 봉인 활성차수 → seal_cons_no 기본값.
     # 등록 cons_no는 사업조회(busi_list) 드롭다운에서 사용자가 선택 (둘 다 선택 가능, 다를 수 있음).
+    # ★차수 자동추종 (2026-07-29, 영준님 확정)
+    #   - active_cons_no = awms 활성차수(LV_CONS_NO). 항상 갱신 = 기본값의 출처.
+    #   - 등록 cons_no는 사용자가 드롭다운에서 직접 고른 적 없으면(cons_no_manual=False) 활성차수를 따라간다.
+    #   - ★특정 차수 고정이 아니다. 사용자가 다른 차수를 고르면 manual=True가 되어 그 선택이 이긴다.
+    #   - 기존엔 'if not cons_no'(비어있을 때만)라 옛 차수가 고착됐다 — 23차로 굳어 P4가 오등록됐다.
     if snap.get("cons_no"):
-        ds_cfg["seal_cons_no"] = snap["cons_no"]
-        if not ds_cfg.get("cons_no"):
-            ds_cfg["cons_no"] = snap["cons_no"]
+        active = snap["cons_no"]
+        ds_cfg["active_cons_no"] = active
+        ds_cfg["seal_cons_no"] = active
+        if not ds_cfg.get("cons_no_manual"):
+            ds_cfg["cons_no"] = active
 
     # ★봉인 = 계정 무관 전역 물리 시퀀스. awms 계정별 설정값은 서로 어긋나 있을 수 있음.
     #   시스템 기억(config.seal_last + DB 전역최대)이 진실 — awms 조회값과 비교해 불일치 알림.
@@ -3779,14 +4313,20 @@ def post_transmit_login_snapshot(dataset: str = Query(...), account: str = Query
              or (len(sys_last_s) if sys_last_s.isdigit() else 0)
              or db_width)
 
+    # ★★ 봉인 진실원천 = 우리 DB 기록 (영준님 확정 2026-07-29)
+    #   awms 설정값은 **참고·대조용일 뿐 기준으로 삼지 않는다.**
+    #   이유: 종로 작업자가 중구 아이디를 공유해 쓰고 있어 같은 계정의 awms 봉인설정에
+    #        남의 봉인 이력이 섞인다. 그 값을 채택하면 우리 물리 봉인 시퀀스가 튄다.
+    #   실제 사고(2026-07-29): awms 값 3156981을 자동채택해 3156982가 배정될 뻔했다.
+    #        실물 다음 봉인은 0315700이었다.
+    #   → 자동채택을 제거한다. 기준이 없으면 '없음'을 드러내고 사람이 넣게 한다.
     seal_mismatch = False
     if awms_seal_s.isdigit():
         if sys_last == 0:
-            # 최초: awms 값을 시스템 기억의 기준으로 채택
-            ds_cfg["seal_last"] = awms_seal_s
-            ds_cfg["seal_width"] = width or len(awms_seal_s)
+            # 기준 없음 — awms 값으로 메우지 않는다. 경고만 올린다.
+            seal_mismatch = True
         elif int(awms_seal_s) != sys_last:
-            # 이 계정 awms 설정이 시스템 기억과 어긋남 → 프론트에서 [봉인 동기화] 안내
+            # 계정 공유로 어긋나는 게 정상일 수 있다. 우리 기록이 이긴다.
             seal_mismatch = True
             if not ds_cfg.get("seal_width"):
                 ds_cfg["seal_width"] = width
@@ -3828,6 +4368,62 @@ def post_transmit_seal_sync(dataset: str = Query(...)):
             "account": mtr_direct.SESSION.get("rememberedId") or ""}
 
 
+# ── POST /transmit/stop ───────────────────────────────────────────────────────
+@app.post("/transmit/stop")
+def post_transmit_stop(job_id: str = Query(..., description="중지할 전송 잡 id")):
+    """진행 중인 전송을 안전하게 중지한다.
+
+    ★프로세스를 죽여서 멈추면 진행상태가 유실되고 DB와 awms가 어긋난다(2026-07-29 실사고).
+      이 경로는 잡에 취소 플래그를 세우고, 전송 루프가 **다음 건 시작 전에** 확인해 멈춘다.
+    ★이미 나간 건은 되돌리지 않는다 — 완료(28)는 삭제할 수 없다.
+      임시저장(25)으로 나간 건은 필요하면 POST /transmit/reset-row 로 개별 원복.
+    """
+    with _TRANSMIT_JOBS_LOCK:
+        job = _TRANSMIT_JOBS.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"잡 없음: {job_id}")
+        if job.get("status") not in ("running",):
+            return {"ok": True, "already": job.get("status"), "job_id": job_id,
+                    "done": job.get("done", 0), "total": job.get("total", 0),
+                    "msg": "이미 종료된 잡입니다."}
+        job["cancel"] = True
+        done, total = job.get("done", 0), job.get("total", 0)
+    return {"ok": True, "job_id": job_id, "done": done, "total": total,
+            "msg": f"중지 요청됨 — 진행 중인 건까지 마치고 멈춥니다. (현재 {done}/{total})"}
+
+
+# ── POST /transmit/reset-row ──────────────────────────────────────────────────
+@app.post("/transmit/reset-row")
+def post_transmit_reset_row(
+    dataset: str = Query(...),
+    mid: str = Query(..., description="철거 계기번호"),
+    apply: bool = Query(False, description="기본 dry-run. True여야 실제 삭제"),
+):
+    """임시저장(25) 1건 원복 — awms에서 삭제해 20(대기)으로 되돌린다.
+
+    ★설계 기준 (영준님 확정 2026-07-29):
+      - 25 = 삭제 가능 → 원복은 **25 전용**.
+      - 28 = ★삭제 불가(검침값 수정만 가능). 여기서 28이 오면 거부한다.
+    기본은 dry-run이라 apply=true를 줘야 실제로 지운다.
+
+    ※ DB(workStatus)의 awms_synced/awms_seal 흔적은 **여기서 지우지 않는다.**
+      awms 삭제 후에는 DB와 awms가 어긋나므로(등록됨으로 표시되나 awms엔 없음)
+      호출측이 db_hint를 보고 별도로 정리해야 한다. 되돌리기 어려운 쓰기라 의도적으로 분리했다.
+    """
+    if not mtr_direct.session_alive():
+        raise HTTPException(status_code=502, detail="세션 없음/만료")
+
+    res = mtr_direct.reset_row_25(mid, dry_run=not apply)
+
+    db_hint = ""
+    if apply and res.get("ok"):
+        db_hint = (f"awms 삭제 완료. workStatus/{dataset}/<주소>/replacement_list/{mid} 의 "
+                   f"awms_synced·awms_synced_at·awms_seal 이 남아 있으면 별도 정리 필요"
+                   f"(안 지우면 '이미 등록됨'으로 재등록에서 제외될 수 있음).")
+
+    return {**res, "dataset": dataset, "mid": mid, "db_hint": db_hint}
+
+
 # ── GET /transmit/busilist ────────────────────────────────────────────────────
 @app.get("/transmit/busilist")
 def get_transmit_busilist(dataset: str = Query(..., description="dataset id")):
@@ -3845,6 +4441,41 @@ def get_transmit_busilist(dataset: str = Query(..., description="dataset id")):
     if dataset not in cfg.get("datasets", {}):
         raise HTTPException(status_code=404, detail=f"dataset '{dataset}' 없음")
 
+    # ★맥 direct 우선 (2026-07-29) — 폰 없이도 차수 드롭다운이 채워져야 한다.
+    #   기존엔 CDP 전용이라 폰이 꺼져 있으면 목록이 비어 사용자가 차수를 고를 수 없었다.
+    if mtr_direct.session_alive():
+        direct = mtr_direct.get_busi_list()
+        if direct:
+            # ★활성차수는 저장값이 아니라 실시간 조회로 채운다 (2026-07-30 검증팀).
+            #   기존엔 t_cfg["active_cons_no"]만 읽었다. 그 값은 /transmit/login-snapshot이
+            #   단 한 번 채우는 구조라, 스냅샷을 한 번도 안 돈 config에서는 영구히 빈 문자열이었고
+            #   화면은 기본 선택할 차수를 몰라 공사명을 못 띄웠다(2026-07-30 실제 발생).
+            #   getMainList(봉인조회)가 LV_CONS_NO로 활성차수를 주므로 여기서 바로 읽는다.
+            #   읽은 값은 config에 캐시해 세션이 죽은 뒤에도 마지막 활성차수를 알 수 있게 한다.
+            #   ★봉인 필드(seal_last/seal_cons_no/seal_box_*)는 절대 건드리지 않는다.
+            t_cfg = _load_transmit_config().get(dataset, {})
+            active = str(t_cfg.get("active_cons_no") or "")
+            try:
+                live = mtr_direct.get_active_cons_no()
+            except Exception:
+                live = ""
+            if live and live != active:
+                active = live
+                cfg_all = _load_transmit_config()
+                ds_cfg = cfg_all.setdefault(dataset, {"dataset": dataset})
+                ds_cfg["active_cons_no"] = live
+                _save_transmit_config(cfg_all)
+                print(f"[busilist] 활성차수 실시간 갱신 dataset={dataset} active_cons_no={live}", flush=True)
+            return {
+                "list": [
+                    {"cons_no": b["CONS_NO"], "name": b["CONS_OVVW_CTT"], "seqno": b.get("WHM_SEQNO")}
+                    for b in direct
+                ],
+                "active_cons_no": active,  # 기본값 표시용(awms 활성차수 LV_CONS_NO)
+                "source": "direct",
+            }
+
+    # 폴백: 폰 계기큐 CDP (맥 세션이 없을 때)
     expr = (
         "_awmsGet(AWMS_API + '/mobMtr1000/getBusiList?DEPT1=' + DEFAULT_AWMS.HDQR_CD)"
         ".then(r => JSON.stringify(r))"
@@ -3899,14 +4530,63 @@ def post_transmit_plan(req: TransmitPlanReq):
             three = _is_three_phase(a.get("meter_no", ""), a.get("cntr_clas_cd"))
         items.append({"mid": a["mid"], "three": bool(three)})
 
-    start, width = _seal_state(raw, cfg)
+    # awms 계정 봉인값은 참고용으로만 조회 — 우리 봉인박스 범위 안일 때만 채택된다.
+    _awms_max = 0
+    try:
+        if mtr_direct.session_alive():
+            _awms_max = mtr_direct.get_awms_seal_max()
+    except Exception:
+        pass
+    start, width, seal_note = _seal_state(raw, cfg, _awms_max)
     alloc, nxt = _allocate_seals(items, start, width)
-    acct = str(mtr_direct.SESSION.get("rememberedId") or "")  # 계정 = 세션 아이디 (기록용)
+    acct = _resolve_account(req.dataset)  # 계정 = 세션 아이디, 없으면 config 계정 폴백 (기록용)
     plan: Dict[str, dict] = {mid: {**v, "account": acct} for mid, v in alloc.items()}
-    meta = {"start": start, "next_after": nxt, "count": len(items), "width": width}
+    meta = {"start": start, "next_after": nxt, "count": len(items), "width": width,
+            "note": seal_note, "awms_max": _awms_max}
 
-    return {"dataset": req.dataset, "cons_no": cfg.get("cons_no", ""),
-            "seal_cons_no": cfg.get("seal_cons_no", ""),
+    _cons_no, _cons_src = _resolve_cons_no(req.dataset, cfg)   # 저장값 아닌 실시간 해석
+
+    # ★미리보기용 안전정보 (PM 최종지시 §1-7) — 화면이 경고·차단 배너를 그리는 근거.
+    #   기본 전송이 완료(28)라 되돌릴 수 없다. 여기서 미리 보여주고 run에서 서버가 한 번 더 막는다.
+    _val: dict = {}
+    for _addr, _node in (raw or {}).items():
+        _rl = (_node or {}).get("replacement_list")
+        if isinstance(_rl, dict):
+            for _m, _r in _rl.items():
+                if isinstance(_r, dict):
+                    _val[_m] = bool(_r.get("validated"))
+    _mids = [str(a.get("mid")) for a in req.assignments]
+    _unver = [m for m in _mids if not _val.get(m)]
+
+    _box_e_s = str(cfg.get("seal_box_end") or "")
+    _box_s_s = str(cfg.get("seal_box_start") or "")
+    _z = (lambda v: str(v).zfill(width) if width else str(v))
+    _last_seal = nxt - 1                       # 이번 배정의 마지막 봉인
+    _overflow = bool(_box_e_s.isdigit()) and _last_seal > int(_box_e_s)
+    _box_missing = not (_box_s_s.isdigit() and _box_e_s.isdigit())
+
+    guard = {
+        "total": len(_mids),
+        "verified": len(_mids) - len(_unver),
+        "unverified": len(_unver),
+        "unverified_mids": _unver[:20],
+        "seal_range": f"{_z(start)}~{_z(_last_seal)}",
+        "seal_box": (f"{_z(int(_box_s_s))}~{_z(int(_box_e_s))}" if not _box_missing else ""),
+        "seal_box_missing": _box_missing,
+        "seal_overflow": _overflow,
+        "blocked": bool(_unver) or _box_missing or _overflow,
+        "warning": "완료(28)는 되돌릴 수 없습니다. 전송 후에는 삭제할 수 없고 검침값 수정만 가능합니다.",
+    }
+    if _box_missing:
+        guard["reason"] = "봉인박스 범위를 먼저 등록하세요."
+    elif _overflow:
+        guard["reason"] = f"봉인 범위 초과 — 박스 끝 {_z(int(_box_e_s))}을(를) 넘습니다. 새 박스를 등록하세요."
+    elif _unver:
+        guard["reason"] = f"검증완료되지 않은 건 {len(_unver)}건 — 완료 전송 불가."
+
+    return {"dataset": req.dataset, "cons_no": _cons_no, "cons_no_source": _cons_src,
+            "seal_cons_no": cfg.get("seal_cons_no", ""), "account": acct,
+            "guard": guard,
             "plan": plan, "accounts": {acct: meta}, "seal": meta}
 
 
@@ -3921,6 +4601,7 @@ _TRANSMIT_JOBS: Dict[str, dict] = {}
 _TRANSMIT_JOBS_LOCK = threading.Lock()
 # 폰 계기큐 모니터(GET /monitor/active-job)가 폴링할 "최신 전송 잡" id — 조회 전용 캐시.
 _LATEST_TRANSMIT_JOB_ID: Optional[str] = None
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3946,7 +4627,7 @@ def _cdp_eval_queue(expr: str, *, await_promise: bool = False, timeout: int = 10
     import subprocess
     try:
         r = subprocess.run(
-            ["adb", "shell", "pidof", PKG],
+            [mtr_direct.ADB, "shell", "pidof", PKG],
             timeout=5, capture_output=True, text=True,
         )
         pid_raw = (r.stdout or "").strip().split()
@@ -3960,7 +4641,7 @@ def _cdp_eval_queue(expr: str, *, await_promise: bool = False, timeout: int = 10
     default_sock = f"webview_devtools_remote_{pid}"
     try:
         r2 = subprocess.run(
-            ["adb", "shell", "cat", "/proc/net/unix"],
+            [mtr_direct.ADB, "shell", "cat", "/proc/net/unix"],
             timeout=5, capture_output=True, text=True,
         )
         sock_name = default_sock
@@ -3978,7 +4659,7 @@ def _cdp_eval_queue(expr: str, *, await_promise: bool = False, timeout: int = 10
     # 3) adb forward
     try:
         subprocess.run(
-            ["adb", "forward", f"tcp:{CDP_PORT}", f"localabstract:{sock_name}"],
+            [mtr_direct.ADB, "forward", f"tcp:{CDP_PORT}", f"localabstract:{sock_name}"],
             timeout=5, capture_output=True, check=True,
         )
     except Exception as e:
@@ -4042,7 +4723,7 @@ def _cdp_eval_queue(expr: str, *, await_promise: bool = False, timeout: int = 10
     finally:
         try:
             subprocess.run(
-                ["adb", "forward", "--remove", f"tcp:{CDP_PORT}"],
+                [mtr_direct.ADB, "forward", "--remove", f"tcp:{CDP_PORT}"],
                 timeout=5, capture_output=True,
             )
         except Exception:
@@ -4067,7 +4748,7 @@ def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
     # 화면 깨우기 (freeze 방지, 실패 무시)
     try:
         subprocess.run(
-            ["adb", "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
+            [mtr_direct.ADB, "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
             timeout=5, capture_output=True,
         )
     except Exception:
@@ -4076,7 +4757,7 @@ def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
     # pid 탐색
     try:
         r = subprocess.run(
-            ["adb", "shell", "pidof", PKG],
+            [mtr_direct.ADB, "shell", "pidof", PKG],
             timeout=5, capture_output=True, text=True,
         )
         pid_raw = (r.stdout or "").strip().split()
@@ -4090,7 +4771,7 @@ def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
     default_sock = f"webview_devtools_remote_{pid}"
     try:
         r2 = subprocess.run(
-            ["adb", "shell", "cat", "/proc/net/unix"],
+            [mtr_direct.ADB, "shell", "cat", "/proc/net/unix"],
             timeout=5, capture_output=True, text=True,
         )
         sock_name = default_sock
@@ -4109,7 +4790,7 @@ def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
     # adb forward 설정
     try:
         subprocess.run(
-            ["adb", "forward", f"tcp:{CDP_PORT}", f"localabstract:{sock_name}"],
+            [mtr_direct.ADB, "forward", f"tcp:{CDP_PORT}", f"localabstract:{sock_name}"],
             timeout=5, capture_output=True, check=True,
         )
     except Exception as e:
@@ -4264,7 +4945,7 @@ def _remote_register(dataset: str, mid: str, payload: dict) -> dict:
         # forward 반드시 정리
         try:
             subprocess.run(
-                ["adb", "forward", "--remove", f"tcp:{CDP_PORT}"],
+                [mtr_direct.ADB, "forward", "--remove", f"tcp:{CDP_PORT}"],
                 timeout=5, capture_output=True,
             )
         except Exception:
@@ -4306,6 +4987,15 @@ class TransmitRunReq(BaseModel):
     exec_mode: str = "direct"
     # verify: 실등록 배치 후 awms 재조회 필드대조 (P4 사후검증, direct+live에서만 동작)
     verify: bool = True
+    # ★work_step: 어디까지 올릴지 — "25"(임시저장) / "28"(완료). 화면에서 고른다.
+    #   등록 범위가 25 한정에서 28까지로 확대됐다(PM 최종지시 §1-7, 2026-07-29).
+    #   ★28은 삭제 불가다. resetRows는 25 전용이고 완료건 원복 자동화는 설계상 만들지 않는다.
+    #     검침값 수정만 mobMtr5000/saveRow(EX_WORK_STEP=28+RE_SAVE_YN=Y)로 가능하고 신설번호는 잠긴다.
+    #   ★기본값 = "28"(완료). 평소 동작이 완료 전송이다(영준님 확정 2026-07-29).
+    #     되돌릴 수 없으므로 서버측 안전장치를 함께 둔다 — post_transmit_run 초입 참조:
+    #       ① 검증완료된 건만 통과(미검증 섞이면 400) ② 봉인박스 미등록·범위초과 400.
+    #     "25"를 주면 임시저장까지만 올린다(resetRows로 원복 가능).
+    work_step: str = "28"
 
 
 @app.post("/transmit/run")
@@ -4318,6 +5008,54 @@ def post_transmit_run(req: TransmitRunReq):
         raise HTTPException(status_code=404, detail=f"dataset '{req.dataset}' 없음")
     if not req.assignments:
         raise HTTPException(status_code=400, detail="assignments 비어있음")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # ★완료(28) 안전장치 — 서버측 차단 (PM 최종지시 §1-7, 2026-07-29)
+    #   기본 전송이 완료(28)로 바뀌었다. 완료는 삭제할 수 없다(resetRows는 25 전용).
+    #   화면 경고만으로는 부족하므로 서버에서도 막는다.
+    # ══════════════════════════════════════════════════════════════════════════
+    _t_cfg = _load_transmit_config().get(req.dataset, {}) or {}
+    _is_complete = str(req.work_step) == "28"
+
+    if _is_complete and req.live:
+        # (1) 검증완료된 건만 완료 전송 대상 — 미검증·확인필요가 섞이면 차단
+        _raw_chk = _get_ws_raw(req.dataset) or {}
+        _val: dict = {}
+        for _addr, _node in _raw_chk.items():
+            _rl = (_node or {}).get("replacement_list")
+            if isinstance(_rl, dict):
+                for _m, _r in _rl.items():
+                    if isinstance(_r, dict):
+                        _val[_m] = bool(_r.get("validated"))
+        _bad = [str(a.get("mid")) for a in req.assignments if not _val.get(str(a.get("mid")))]
+        if _bad:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"완료(28) 전송 차단 — 검증완료되지 않은 건 {len(_bad)}건이 섞여 있습니다. "
+                        f"완료는 되돌릴 수 없으므로 검증완료 건만 보낼 수 있습니다. "
+                        f"대상: {', '.join(_bad[:10])}{' 외' if len(_bad) > 10 else ''}"),
+            )
+
+    # (2) 봉인 범위 초과 차단 (2겹 중 서버측) — 박스 미등록도 여기서 막는다
+    _box_s = str(_t_cfg.get("seal_box_start") or "")
+    _box_e = str(_t_cfg.get("seal_box_end") or "")
+    if req.live:
+        if not (_box_s.isdigit() and _box_e.isdigit()):
+            raise HTTPException(
+                status_code=400,
+                detail="봉인박스 범위를 먼저 등록하세요 (설정 → 봉인 시작/끝). 등록 전에는 전송할 수 없습니다.",
+            )
+        _need = sum(2 if _is_three_phase(a.get("meter_no", ""), a.get("cntr_clas_cd")) else 1
+                    for a in req.assignments)
+        _start, _w, _note = _seal_state(_get_ws_raw(req.dataset) or {}, _t_cfg)
+        _last = _start + _need - 1
+        if _last > int(_box_e):
+            _z = (lambda v: str(v).zfill(_w) if _w else str(v))
+            raise HTTPException(
+                status_code=400,
+                detail=(f"봉인 범위 초과 — 이번 전송에 {_need}개가 필요해 {_z(_start)}~{_z(_last)}를 쓰게 되는데 "
+                        f"박스 끝이 {_z(int(_box_e))}입니다. 새 봉인박스를 등록하고 다시 시도하세요."),
+            )
 
     global _LATEST_TRANSMIT_JOB_ID
     job_id = str(uuid.uuid4())[:8]
@@ -4373,7 +5111,10 @@ def post_transmit_run(req: TransmitRunReq):
         try:
             # 전송 설정 로드 (공사번호·봉인 공사번호·전역 봉인 상태)
             t_cfg = _load_transmit_config().get(req.dataset, {})
-            cons_no = t_cfg.get("cons_no", "")
+            # ★차수는 저장값이 아니라 실시간 해석 — 사용자 선택 우선, 없으면 awms 활성차수 추종.
+            cons_no, _cons_src = _resolve_cons_no(req.dataset, t_cfg)
+            _append_log({"phase": "시스템", "ok": True,
+                         "msg": f"등록차수 {cons_no} (출처: {_cons_src})"})
             seal_cons_no = t_cfg.get("seal_cons_no", "") or cons_no  # 봉인차수 별도선택, 없으면 등록차수
 
             # direct 모드 + 실등록이면 세션 선확인 (건별 실패 전에 잡 레벨에서 차단)
@@ -4384,7 +5125,7 @@ def post_transmit_run(req: TransmitRunReq):
             raw = _get_ws_raw(req.dataset) or {}
 
             # 삼상 판정 (루프 전 일괄) — ★봉인은 전역 시퀀스(계정 무관), 계정 = 세션 아이디
-            _session_acct = str(mtr_direct.SESSION.get("rememberedId") or "")
+            _session_acct = _resolve_account(req.dataset)
             items = []
             for a in req.assignments:
                 three = a.get("three")
@@ -4396,7 +5137,15 @@ def post_transmit_run(req: TransmitRunReq):
                 items.append({"mid": a["mid"], "three": bool(three)})
 
             # 전역 봉인 배정 (자릿수 zfill 보존, 단상+1/삼상+2 — DB+config는 전송 전 1회만 읽음)
-            seal_start, seal_width = _seal_state(raw, t_cfg)
+            _awms_seal_max = 0
+            try:
+                _awms_seal_max = mtr_direct.get_awms_seal_max()
+            except Exception:
+                pass
+            seal_start, seal_width, _seal_note = _seal_state(raw, t_cfg, _awms_seal_max)
+            _append_log({"phase": "시스템", "ok": True, "msg": f"봉인 판정: {_seal_note}"})
+            _ws = "28(완료 — ★되돌릴 수 없음)" if str(req.work_step) == "28" else "25(임시저장 — resetRows로 원복 가능)"
+            _append_log({"phase": "시스템", "ok": True, "msg": f"등록 단계: WORK_STEP={_ws}"})
             alloc, seal_next_after = _allocate_seals(items, seal_start, seal_width)
             mid_seal: Dict[str, dict] = {}   # mid → {seal_no, seal_no2, account}
             for mid, seal in alloc.items():
@@ -4451,6 +5200,20 @@ def post_transmit_run(req: TransmitRunReq):
 
             # 건별 전송 루프
             for idx, a in enumerate(req.assignments):
+                # ★[중지] — 매 건 시작 전에 취소 플래그 확인 (POST /transmit/stop 이 세운다).
+                #   이미 나간 건은 되돌리지 않는다(완료 28은 삭제 불가). 다음 건부터 멈춘다.
+                #   프로세스를 죽여서 멈추면 진행상태가 유실되고 DB/awms가 어긋나므로 이 경로를 쓴다.
+                with _TRANSMIT_JOBS_LOCK:
+                    _cancelled = bool(_TRANSMIT_JOBS.get(job_id, {}).get("cancel"))
+                if _cancelled:
+                    _append_log({"phase": "시스템", "ok": True,
+                                 "msg": f"★중지 요청 — {idx}건 전송 후 멈춤. 남은 {len(req.assignments) - idx}건은 보내지 않습니다."})
+                    with _TRANSMIT_JOBS_LOCK:
+                        j = _TRANSMIT_JOBS.get(job_id)
+                        if j is not None:
+                            j["status"] = "cancelled"
+                            j["finished_at"] = datetime.now(KST).isoformat()
+                    break
                 mid = str(a.get("mid", "")).strip()
                 now_ms = int(time.time() * 1000)
                 seal = mid_seal.get(mid, {})
@@ -4511,9 +5274,10 @@ def post_transmit_run(req: TransmitRunReq):
                                 "cons_no": cons_no,
                                 "account": acct,
                             },
-                            # ★영준님 방침(2026-07-20): 완료(28) 절대 금지 — 임시저장(25)까지만.
-                            #   하드코딩 True. 완료가 필요하면 이 코드를 명시적으로 바꿀 것.
-                            "no_complete": True,
+                            # ★등록 범위 = 요청의 work_step ("25" 임시저장 / "28" 완료).
+                            #   PM 최종지시 §1-7(2026-07-29)로 25 한정 제약이 해제됐다.
+                            #   ★28은 되돌릴 수 없다 — 전송 전 확인(검증완료 건만·건수 경고)은 화면 책임.
+                            "no_complete": str(req.work_step) != "28",
                         })
                         remote_result = {
                             "ok": d.get("ok"),
@@ -4535,8 +5299,9 @@ def post_transmit_run(req: TransmitRunReq):
                                     "seal_no2": seal.get("seal_no2", ""),
                                     "removal_values": _rep.get("removal_values") or {},
                                     "mfg_ym": _rep.get("new_meter_mfg_ym") or "",
-                                    # 임시저장(25) 전용이므로 검증도 25 기대
-                                    "work_step": "25",
+                                    # ★실제 전송한 work_step으로 기대값을 잡는다(2026-07-30).
+                                    #   전엔 "25"가 박혀 있어, 28로 잘 나간 87건이 전부 불일치로 찍혔다.
+                                    "work_step": str(req.work_step),
                                 },
                             })
                         # 모듈 상세로그 → 잡 로그에 병기 (건별 1줄, 28 미달 경고 포함)
@@ -4578,6 +5343,10 @@ def post_transmit_run(req: TransmitRunReq):
                         },
                         "awms_synced": True,
                         "awms_synced_at": now_ms,
+                        # ★어디까지 올렸는지(25 임시저장 / 28 완료)를 DB에 남긴다(2026-07-30).
+                        #   전에는 이 값을 저장하지 않아, awms에는 28로 올라갔는데 화면은 근거가 없어
+                        #   기본값인 '임시저장'으로 표시했다("왜 다 임시저장이지?"의 원인).
+                        "awms_work_step": str(req.work_step),
                     })
 
                     ok_count += 1
@@ -4897,7 +5666,7 @@ def post_transmit_login(req: TransmitLoginReq):
     import subprocess
     try:
         subprocess.run(
-            ["adb", "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
+            [mtr_direct.ADB, "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
             timeout=5, capture_output=True,
         )
     except Exception:
@@ -4965,7 +5734,7 @@ def get_transmit_session(dataset: str = Query(...)):
     import subprocess
     try:
         subprocess.run(
-            ["adb", "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
+            [mtr_direct.ADB, "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
             timeout=5, capture_output=True,
         )
     except Exception:
