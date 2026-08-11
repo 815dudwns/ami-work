@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.8",
+  "versionName": "2.2.15",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "맥 입력 화면에 외장형 연결장치(EXT_CONN_DEV, AE만)·집합형(추가)(FCLTY_DIV 30) 체크박스 추가 + 담기 화면에 읽기전용 확인줄"
+  "notes": "수집 첫 화면 버그 수정 — 앱을 새로 켜면 모뎀맥이 아니라 마스터부터 뜨던 것(2.2.13 순서변경이 실제로는 동작 안 했음). 첫 단계를 Step.FIRST 단일 출처로 못박아 재발 차단"
 }
