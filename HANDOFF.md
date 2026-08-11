@@ -43,7 +43,14 @@
 - **ocr-meter**: P0 철거트랙 no_photo 고착 수정·실증 완료, 미결 없음 — `workspaces/ocr-meter/HANDOFF.md` (2026-08-09 회신)
 - **계기팀(gyegi)**: 아미맵 마커 키 분리 코드·마이그·검증 완료(코드 3개는 main에 ff 병합·배포됨). **gyegi 브랜치에 데스크 HANDOFF 커밋 `4c21b735` 1개가 main 미반영** — 문서만이라 배포 영향 없음 — `workspaces/gyegi/HANDOFF.md`
 - **검증팀**: build **1816~1820 배포완료**(no_photo 판정큐 승격 · 모바일 적응형 · 공사명 복구 · 행단위 재판독 · 사진열기+라벨). **F1/F2와 전송 막힘 5건은 영준님 결정 대기** — `workspaces/검증팀/HANDOFF.md` (commit 87b9e971)
-- **통신팀**: 대기. 2026-08-11 아미큐 2.2.10~2.2.15 연속 작업 완료(설비옵션·큐/이력 UI·사진규격·수집순서·자동업뎃 수리) 전부 배포됨. **tongsin ↔ main 동기화 완료(54→0)**, 팀 카드에 '작업 전 판별 절차'(main 차이 확인 + 배포경로 grep 증명) 등재 — `workspaces/통신팀/HANDOFF.md`
+- **통신팀**: 대기. 2026-08-11 아미큐 2.2.8~2.2.15 연속 작업 완료(설비옵션·큐/이력 UI·사진규격·수집순서·자동업뎃 수리) 전부 배포됨. **tongsin ↔ main 재동기화 완료(오후 15커밋, merge `527c669c`)**, 팀 카드에 '작업 전 판별 절차'(main 차이 확인 + 배포경로 grep 증명) 등재 — 아래 §통신팀 데스크 · `workspaces/통신팀/HANDOFF.md`
+
+### 통신팀 데스크 (tongsin) — 2026-08-11 세션 종료 시점
+- **오늘 한 일**: ①awms 설비등록 **외장형 연결장치(EXT_CONN_DEV)·집합형(추가)(FCLTY_DIV 30)** 신설 — 백엔드 `_saveact_core` 산출 + 네이티브 입력 UI, 실등록 로그 확인(`extConn=Y addl=True fclty=30 result:1`) ②**아미큐 2.2.8~2.2.15 8연속 배포**(cst-app 9커밋, versionCode 47) — 연결장치 체크박스 AE 게이트 제거(2.2.9)·큐 사진/설비정보 노출+담긴 뒤 [수정] 편집·이력 날짜그룹/개별삭제/계기개수(2.2.10~11)·사진 1200/q60+큐 썸네일 캐시(2.2.12)·수집 첫 화면을 모뎀맥으로(2.2.13, **콜드스타트 미동작 → 2.2.15에서 실제 반영**)·**자동업데이트 수리**(2.2.14, DownloadManager 의존 제거) ③백엔드 **stale 감시 신설** — `GET /api/health`(boot_ts·sha256·mtime·stale)·기동 첫 줄 로그·`[saveact]` 경고·`cst-input/restart.sh`(전송 중이면 확인 후 재구동) ④고압철거 277건 데이터셋(`data/gapap-data.json`) 아미맵 투입 + approximate 15건 좌표 재보정(카카오→네이버 캐스케이드).
+- **라이브 확인**: 백엔드 8766 `stale:false`(기동 12:07 > app.py mtime 12:06) — 129d0bf6이 남긴 "재구동 안 함" 상태는 해소됨. cst-app 미커밋 0.
+- **작업자 전달 필요(미전달)**: **2.2.13 이하가 깔린 폰은 자동업데이트로 못 받는다**(옛 Updater). 한 번은 브라우저로 직접 설치 — `https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk`. 2.2.14부터는 인앱 업데이트 정상.
+- **미커밋 2건(승인 대기)**: `scripts/build_gapap_20260810.py`(고압철거 데이터셋 생성 스크립트 — **데이터는 main에 커밋됐는데 만든 스크립트가 untracked라 지금은 재현 불가**) · `research/ocr_sample_collect_설계_20260727.md`(7/27 설계문서, 구현은 이미 완료).
+- **미결(통신팀 소관)**: ①앱 시작 시 업데이트 자동확인(현재 설정 탭 진입 때만 체크) ②EXIF 사진 순서 오름차순 자동배치(영준님 확인 대기) ③변대주 `DATA_NUM` 재전송 실검증 ④A33 adb 접근 막혀 헬퍼 fetch 캡처(awms 저장상태 자동 pull) 정체 ⑤**cst-app은 원격 없는 로컬 전용 repo — 오늘 9커밋도 이 맥에만 있다**(private repo push 승인 대기, 위치는 `~/Projects/ami-work/cst-app`이며 `.gitignore` 제외라 워크트리엔 안 보임).
 
 
 ## 진행중 트랙
@@ -105,7 +112,7 @@
 ## 블로커
 - (제주 완료0 / 종로 미연계 = 영준님 지시로 제외)
 - (맥 업데이트 후유증 = 2026-07-17 재부팅으로 완전 해소. launchd 5종 자동기동+터널 URL 자동 재발행+양쪽 앱 접속 검증완료 — lsof·브라우저 스폰 정상. 도메인 사면 named 터널로 URL 영구고정 예정)
-- **★★cst-app(아미큐 네이티브) 백업 없음 — 유실 위험 (2026-07-27 발견, 미해결)**: `cst-app/`은 **remote 없는 로컬 전용 git repo**이고 커밋이 1개("init cst-app workspace")뿐. 아미큐 앱 소스가 이 맥에만 존재해 맥이 죽으면 앱이 통째로 사라진다. v2.2.5 OOM 픽스도 커밋 안 된 채 방치돼 있던 걸 이번에 별도 커밋(475df8f)으로 분리했다. **private repo 만들어 push 필요 — 영준님 승인 대기.**
+- **★★cst-app(아미큐 네이티브) 백업 없음 — 유실 위험 (2026-07-27 발견, 미해결·2026-08-11 악화)**: 경로 `~/Projects/ami-work/cst-app`(ami-work `.gitignore` 제외라 워크트리엔 안 보인다). **remote 없는 로컬 전용 git repo**로 커밋 14개 전부 이 맥에만 있다 — 8/11 하루에만 9커밋(2.2.8~2.2.15)이 쌓였다. 맥이 죽으면 아미큐 앱 소스가 통째로 사라진다. **private repo 만들어 push 필요 — 영준님 승인 대기.**
 - **★A33 폰 연결 불가로 2건 정체**: USB 미연결 + 무선디버깅 포트는 토글마다 변경. 막힌 것 = ①헬퍼 fetch 캡처(awms 저장상태 자동 pull) ②APK 직접설치(현재는 앱 열 때 자동업데이트로 우회). **영준님이 무선디버깅 포트 주시면 즉시 착수.** 단 백엔드 재기동 로그에 **A33 tailnet 접속은 잡힘**(폰 자체는 tailnet에 붙어 있음).
 - **★아미큐 변대주 DATA_NUM 재전송 실검증 대기** — backend 재구동됨, 현장 재전송 결과 미확인
 - **★지식 재구조화 v1 완료 (2026-07-15)** — 옵시디언 core5+systems18 카드+git동기화(obsidian-vault private)+비주얼(홈대시보드·Canvas). **영준님 할 일: 옵시디언에 Obsidian Git 자동백업 설정 + 폰 옵시디언 repo 연결.** repo=시스템별 진입점 CLAUDE.md. 3층(옵정본/메모리recall/repo진입점). [[ami_knowledge_restructure_v1]]. ★public ami-work/CLAUDE.md 계정 정리했으나 js/auth.js 평문(클라인증)=이미 노출, 서버인증 전환 별도과제(감사 검토요청 메일 발송).
