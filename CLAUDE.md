@@ -62,7 +62,7 @@
 | 앱(호칭) | 버전 위치 | 현재 버전 | 갱신일 |
 |---|---|---|---|
 | **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` / APK | `v0626b-아이디선택` / APK 오버레이fetch | 2026-06-26 |
-| **아미큐**(통신큐·통신팀) | `cst-app` `versionName`(네이티브) / `cst-input/cst-version.json`(자동업뎃) | `2.2.4` (Code93은 QR스캐너(scan)에만 — 모뎀맥 바코드는 QR버튼으로 스캔. 바코드전용(scanBarcode)는 CODE128/39만 유지) | 2026-07-15 |
+| **아미큐**(통신큐·통신팀) | `cst-input/cst-version.json` `versionName`(자동업뎃) / `cst-app` `versionName`(네이티브) · **UI=`cst-input/www/` · saveAct빌더=`cst-input/backend/app.py`** | `2.2.7` (공사명 원본표시 + 설정탭 작업자명 + 이력탭 전체삭제) | 2026-08-11 |
 | **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260702.4` / `v20260706.1` (workStatus 미러 IndexedDB 이전=iOS quota 해결. map.js ?v=20260706b) | 2026-07-06 |
 | **종로 보조앱**(jongno-snap) | `snap.html` `APP_VER` + 라벨 / snap-version.json / APK | `v20260707.7` (사진 재촬영 덮어쓰기 / 실시간QR / 카메라선택. ★범프 시 3곳 APP_VER+라벨2 갱신) | 2026-07-07 |
 | **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260624a` | 2026-06-24 |
@@ -70,6 +70,8 @@
 | **OTP수집기**(awms-otp-collector) | `versionName` | `1.0.1` (카톡 백그라운드만 정리. ★네이티브 자동배포X, APK수동설치) | 2026-07-03 |
 | **awms-bridge-inject**(리모컨 공용) | `awms-bridge-inject.js` `VER` | `v80` | 2026-06-20 |
 | **명륜 팀배분**(myungroon) | `jongno-combined/myungroon.html` `myungroon_app_version` / 메뉴라벨 | `20260624.1` | 2026-06-24 |
+
+★**`ami-queue-www/`는 죽은 옛 웹뷰다 — 아미큐 아님, 고쳐도 폰 반영 0**(2026-08-11 실증). 아미큐 실체는 `cst-input/`.
 
 규칙: 계기큐·아미큐 JS는 github 원격로드라 `APP_VER`+push만으로 반영(APK는 네이티브 변경 시만). 종로맵은 `APP_VERSION`+`?v=`+메뉴라벨 함께([[jongno_app_version_deploy]]). 아미맵 `FORCE_LOGOUT_VERSION`은 긴급 시만([[ami_work_init_logout_fix]]).
 
