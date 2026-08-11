@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.14",
+  "versionName": "2.2.15",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "자동업데이트 수리 — 시스템 다운로드관리자 의존 제거(앱이 직접 HTTP 수신). 진행률을 앱 화면에 표시, 실패 사유(HTTP코드·저장공간·크기불일치)를 그대로 표시, 받은 파일 크기·APK 형식 검증 후 설치"
+  "notes": "수집 첫 화면 버그 수정 — 앱을 새로 켜면 모뎀맥이 아니라 마스터부터 뜨던 것(2.2.13 순서변경이 실제로는 동작 안 했음). 첫 단계를 Step.FIRST 단일 출처로 못박아 재발 차단"
 }
