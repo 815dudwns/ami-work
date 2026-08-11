@@ -10,7 +10,7 @@ const SACT_TMPL = {
     REMV_MEMO: '', INST_M: '', INST_S: '', IND_CBD_DIV_CD: '', FAC1: '', LINE_FAIR: '',
     USE_CT: '', USE_POWER: '', AM_BAND: '', FILM_BAND: '', GRADEL: '', G_WIRE: '', DATA_NUM: '',
     INSTR_NUM: '', GN_NAME: '', BUSI_NUM: 'C11G250023', FCLTY_DIV: '10', MODEM_DIV: '10',
-    EXT_CONN_DEV: 'N', BUNGI: '', LINE_TYPE: '', VISIT_DIV: '',
+    EXT_CONN_DEV: '', BUNGI: '', LINE_TYPE: '', VISIT_DIV: '',
     WORKER1_SEQ: '729201', WORKER2_SEQ: '58414', WORKER3_SEQ: '',
     EXT_FCTY_ID: '', EXT_DCU_ID: '', MAC_MODEM: '', NEW_DCU_MAC: '', EXT_DCU_MAC: '',
     GUBUN: '01', TGT_DIV_CD: '', BONBU_CD: '', CUST_NO: '', METER_ID: '',
@@ -50,9 +50,7 @@ function _masterEntries(m, dept2, item) {
     e.MAC_MODEM = m.mac || '';
     e.MB_METER_ID = m.mbMeterId || '';     // 단독형은 ''(datapush가 이미 비움)
     e.MB_CNT = m.mbCnt || '';              // 단독형은 ''
-    // 연결장치는 AE(HW4040)만 Y 가능 — awms 화면도 INST_M != HW4040 이면 이 필드를 disabled 처리한다.
-    // 그 외에는 빈문자열이 아니라 'N'. getDetail 실측 24건(AE 20 포함) 전부 'N'이었고, 슬래이브도 'N'이다.
-    e.EXT_CONN_DEV = (im === 'HW4040') ? (m.extConn === 'Y' ? 'Y' : 'N') : 'N';
+    e.EXT_CONN_DEV = (im === 'HW4040') ? (m.extConn || 'N') : '';   // AE타입만
     _applyConfig(e, item);
     return Object.entries(e);
 }

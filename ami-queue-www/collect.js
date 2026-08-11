@@ -323,8 +323,7 @@ function _ensureQrScanner(cb) {
 
 // ── 수집 세션 (단일 마스터 + 슬래이브 사진들). 드래그 매칭(영준님 2026-06-14). ──
 // _coll = { addr,jisa,workMode,key,hamType,settings,
-//   master:{meterNo,type,mac,suffix,ext,addl,bdju,siteComm,workDiv,slots:{pre,mac,post1,post2}},  // slots[k]={url}
-//     ext = 외장형 연결장치(EXT_CONN_DEV) 'Y'/'N', addl = 집합형(추가) 체크 → FCLTY_DIV 30
+//   master:{meterNo,type,mac,suffix,ext,bdju,siteComm,workDiv,slots:{pre,mac,post1,post2}},  // slots[k]={url}
 //   slaves:[{meterNo,type,photo}] }  // 사진 1장 = 슬래이브 1개
 function _setColl(addr, jisa, rawMeters, workMode, key) {
     const set = _amiqSettings();
@@ -343,7 +342,7 @@ function _setColl(addr, jisa, rawMeters, workMode, key) {
         hamType: '단독', settings: set,
         master: {
             meterNo: firstNo, type, siteComm, bdju: firstRaw.변대주 || '',
-            mac: '', suffix: _inferSuffix(type, '', siteComm), ext: 'N', addl: false, workDiv: 'M1010',
+            mac: '', suffix: _inferSuffix(type, '', siteComm), ext: 'N', workDiv: 'M1010',
             slots: { pre: null, mac: null, post1: null, post2: null },
         },
         // 지도에서 마스터 고르면 그 주소 나머지 계기 = 슬래이브로 따라옴(번호 세팅, 사진은 현장 매칭)
@@ -354,19 +353,15 @@ function _setColl(addr, jisa, rawMeters, workMode, key) {
 }
 
 // ── 마스터 필드 (input은 oninput=값만 저장 → 타이핑 focus 보존, onblur=렌더로 표시 갱신) ──
-// 타입이 AE(HW4040)가 아니게 되면 연결장치는 N으로 되돌린다 — awms도 INST_M 변경 시 EXT_CONN_DEV='N'으로 초기화한다(화면소스 watcher 실측).
-window.collMSetNo = function (v) { if (!_coll) return; const m = _coll.master; m.meterNo = String(v || '').trim(); m.type = _collParseType(m.meterNo) || ''; if (m.type !== 'AE') m.ext = 'N'; m.suffix = _inferSuffix(m.type, m.mac, m.siteComm); if (m.meterNo.length >= 11) _lookupMaster(m.meterNo); };
+window.collMSetNo = function (v) { if (!_coll) return; const m = _coll.master; m.meterNo = String(v || '').trim(); m.type = _collParseType(m.meterNo) || ''; m.suffix = _inferSuffix(m.type, m.mac, m.siteComm); if (m.meterNo.length >= 11) _lookupMaster(m.meterNo); };
 window.collMSetMac = function (v) { if (!_coll) return; const m = _coll.master; m.mac = String(v || '').trim(); m.suffix = _inferSuffix(m.type, m.mac, m.siteComm); };
 window.collMBlur = function () { renderCollect(); };
 window.collMSetSuffix = function (v) { if (_coll) { _coll.master.suffix = v; renderCollect(); } };
 window.collMSetExt = function (c) { if (_coll) _coll.master.ext = c ? 'Y' : 'N'; };
-// 집합형(추가) — 체크 시 FCLTY_DIV 20(집합기본) 대신 30(집합추가). 헤더 시설유형 표시가 바뀌므로 재렌더.
-window.collMSetAddl = function (c) { if (_coll) { _coll.master.addl = !!c; renderCollect(); } };
 window.collMSetWorkDiv = function (v) { if (_coll) _coll.master.workDiv = v; };
 // 작업방식/함체 = 탭 한방에 토글 (영준님 2026-06-14)
 window.collToggleMode = function () { if (_coll) { _coll.workMode = _coll.workMode === '일반' ? '동행' : '일반'; renderCollect(); } };
-// 함체가 집합이 아니게 되면 집합형(추가)는 해제한다 — 비활성 상태로 체크가 남아 30이 새 나가는 것 방지.
-window.collToggleHam = function () { if (_coll) { _coll.hamType = _coll.hamType === '단독' ? '집합' : '단독'; if (_coll.hamType !== '집합') _coll.master.addl = false; renderCollect(); } };
+window.collToggleHam = function () { if (_coll) { _coll.hamType = _coll.hamType === '단독' ? '집합' : '단독'; renderCollect(); } };
 window.collClose = function () { const el = document.getElementById('collect-overlay'); if (el) el.style.display = 'none'; };
 
 // 마스터 계기번호 → site-data 자동채움(주소·통신·변대주·지사). 최신 호출만 반영.
@@ -516,12 +511,9 @@ function _hot(x, y, sel) {
 }
 
 // ── 시설유형 자동산출 ──
-// addl = "집합형(추가)" 수동 체크. 아미큐는 마스터를 한 건씩 담아 order를 모르므로,
-// 같은 함체에 이미 다른 마스터가 등록돼 있는 경우를 작업자가 직접 표시한다(영준님 2026-08-11).
-// 함체가 '집합'일 때만 의미가 있고, masterCount>1(order) 경로는 기존 그대로 둔다.
-function _fcltyOf(masterCount, order, slaveCount, hamType, addl) {
+function _fcltyOf(masterCount, order, slaveCount, hamType) {
     if (masterCount <= 1) {
-        if (hamType === '집합') return addl ? { div: '30', label: '집합추가' } : { div: '20', label: '집합기본' };
+        if (hamType === '집합') return { div: '20', label: '집합기본' };
         return slaveCount > 0 ? { div: '40', label: '집합단독' } : { div: '10', label: '단독형' };
     }
     return order === 0 ? { div: '20', label: '집합기본' } : { div: '30', label: '집합추가' };
@@ -565,8 +557,7 @@ function renderCollect() {
     const set = _coll.settings || _amiqSettings();
     const dept2 = (typeof JISA_DEPT2 !== 'undefined' && JISA_DEPT2[_coll.jisa]) || '';
     const m = _coll.master;
-    const fclty = _fcltyOf(1, 0, _coll.slaves.length, _coll.hamType, m.addl);
-    const hamJip = _coll.hamType === '집합';   // 집합형(추가)는 함체가 집합일 때만 활성
+    const fclty = _fcltyOf(1, 0, _coll.slaves.length, _coll.hamType);
     const commName = _SUFFIX_COMM[m.suffix] || '';
     const commSel = COMM_OPTS.map(([v, l]) => `<option value="${v}"${m.suffix === v ? ' selected' : ''}>${_esc(l)}</option>`).join('');
 
@@ -583,10 +574,7 @@ function renderCollect() {
         + `<button onclick="collScanMac()" style="flex:0 0 50px;padding:9px 0;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700">QR</button>`
         + `<select onchange="collMSetSuffix(this.value)" style="flex:0 0 90px;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px">${commSel}</select></div>`
         + (commName ? '' : `<div style="font-size:10px;color:#dc2626;padding:0 10px 6px">통신방식 미판별 — 직접 선택</div>`)
-        + `<div style="padding:0 10px 8px;display:flex;gap:14px;flex-wrap:wrap">`
-        + (m.type === 'AE' ? `<label style="font-size:12px;display:flex;align-items:center;gap:6px"><input type="checkbox" ${m.ext === 'Y' ? 'checked' : ''} onchange="collMSetExt(this.checked)">외장형 연결장치(etype)</label>` : '')
-        + `<label style="font-size:12px;display:flex;align-items:center;gap:6px;color:${hamJip ? '#111827' : '#9ca3af'}" title="${hamJip ? '체크하면 시설유형이 집합기본(20) 대신 집합추가(30)로 올라갑니다' : '함체를 집합으로 바꾸면 활성화됩니다'}"><input type="checkbox" ${m.addl ? 'checked' : ''}${hamJip ? '' : ' disabled'} onchange="collMSetAddl(this.checked)">집합형(추가)</label>`
-        + `</div>`
+        + (m.type === 'AE' ? `<div style="padding:0 10px 8px"><label style="font-size:12px;display:flex;align-items:center;gap:6px"><input type="checkbox" ${m.ext === 'Y' ? 'checked' : ''} onchange="collMSetExt(this.checked)">외장형 연결장치(etype)</label></div>` : '')
         + (_showBdju(m.suffix) && m.bdju ? `<div style="font-size:11px;color:#6b7280;padding:0 10px 6px">변대주 ${_esc(m.bdju)}</div>` : '')
         + `<div style="padding:8px 10px;background:#f8fafc">`
         + `<div style="font-size:11px;color:#6b7280;margin-bottom:6px">마스터 사진 — 4장 올리면 자동배치, 슬롯끼리 끌어 순서변경</div>`
@@ -646,7 +634,7 @@ window.collSubmit = async function () {
     if (noNo.length && !confirm('계기번호 없는 슬래이브 ' + noNo.length + '건. 계속할까요?')) return;
     const set = _coll.settings || _amiqSettings();
     const slaveCnt = inclSlaves.length;
-    const fclty = _fcltyOf(1, 0, slaveCnt, _coll.hamType, m.addl);
+    const fclty = _fcltyOf(1, 0, slaveCnt, _coll.hamType);
     const cnt = 1 + slaveCnt;
     const ph = k => (m.slots[k] && m.slots[k].url) || '';   // slots[k]={url} → dataURL
     const boxMaster = {
@@ -655,7 +643,7 @@ window.collSubmit = async function () {
         fcltyDiv: fclty.div, fcltyLabel: fclty.label,
         mbMeterId: fclty.div === '10' ? '' : m.meterNo,
         mbCnt: fclty.div === '10' ? '' : String(cnt),
-        ext: m.ext || 'N', extConn: m.ext || 'N', fcltyAddl: !!m.addl, bdju: m.bdju || '', workDiv: m.workDiv || 'M1010',
+        ext: m.ext || 'N', extConn: m.ext || 'N', bdju: m.bdju || '', workDiv: m.workDiv || 'M1010',
         photos: { pre: ph('pre'), mac: ph('mac'), post1: ph('post1'), post2: ph('post2') },
         slaves: inclSlaves.map(s => ({ meterNo: s.meterNo, meterType: s.type, bungi: _bungi(m.suffix, s.type), photo: s.photo || '' })),
     };
@@ -674,7 +662,7 @@ window.collSubmit = async function () {
         if (restSlaves.length) {
             // 남은 계기로 계속 — 마스터 리셋, 남은 슬래이브만 유지(다시 포함 상태로)
             restSlaves.forEach(s => { s.incl = true; });
-            _coll.master = { meterNo: '', type: '', siteComm: '', bdju: '', mac: '', suffix: '', ext: 'N', addl: false, workDiv: 'M1010', slots: { pre: null, mac: null, post1: null, post2: null } };
+            _coll.master = { meterNo: '', type: '', siteComm: '', bdju: '', mac: '', suffix: '', ext: 'N', workDiv: 'M1010', slots: { pre: null, mac: null, post1: null, post2: null } };
             _coll.slaves = restSlaves;
             log('남은 ' + restSlaves.length + '건으로 계속 — 다음 마스터 지정', 'warn');
             renderCollect();

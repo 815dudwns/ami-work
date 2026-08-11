@@ -1,7 +1,7 @@
 // AMI Queue — 메인 (로그 패널 / 세션 / 초기화). Phase A: 목록 표시·삭제만.
 
 // 앱 버전 (원격로드 반영 확인용 — 화면 헤더에 표시). 갱신 시 CLAUDE.md 버전표도 갱신.
-const APP_VER = 'v0811a-집합형추가';
+const APP_VER = 'v0614f-여러그룹';
 
 // ── 화면 처리상황 패널 ──────────────────────────
 function _statusPanel() {
