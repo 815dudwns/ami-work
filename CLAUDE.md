@@ -62,7 +62,7 @@
 | 앱(호칭) | 버전 위치 | 현재 버전 | 갱신일 |
 |---|---|---|---|
 | **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` / APK | `v0626b-아이디선택` / APK 오버레이fetch | 2026-06-26 |
-| **아미큐**(통신큐·통신팀) | `cst-app` `versionName`(네이티브) / `cst-input/cst-version.json`(자동업뎃) | `2.2.4` (Code93은 QR스캐너(scan)에만 — 모뎀맥 바코드는 QR버튼으로 스캔. 바코드전용(scanBarcode)는 CODE128/39만 유지) | 2026-07-15 |
+| **아미큐**(통신큐·통신팀) | `cst-app` `versionName`(네이티브) / `cst-input/cst-version.json`(자동업뎃) / `ami-queue-www/app.js` `APP_VER`(원격로드 JS, push만) | `2.2.4`(네이티브 — Code93은 QR스캐너(scan)에만. 바코드전용(scanBarcode)는 CODE128/39만 유지) / `v0811a-집합형추가`(수집폼에 집합형(추가) 체크박스 = FCLTY_DIV 30, EXT_CONN_DEV 빈문자열→'N') | 2026-08-11 |
 | **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260702.4` / `v20260706.1` (workStatus 미러 IndexedDB 이전=iOS quota 해결. map.js ?v=20260706b) | 2026-07-06 |
 | **종로 보조앱**(jongno-snap) | `snap.html` `APP_VER` + 라벨 / snap-version.json / APK | `v20260707.7` (사진 재촬영 덮어쓰기 / 실시간QR / 카메라선택. ★범프 시 3곳 APP_VER+라벨2 갱신) | 2026-07-07 |
 | **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260624a` | 2026-06-24 |
