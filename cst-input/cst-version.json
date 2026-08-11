@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.8",
+  "versionName": "2.2.9",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "맥 입력 화면에 외장형 연결장치(EXT_CONN_DEV, AE만)·집합형(추가)(FCLTY_DIV 30) 체크박스 추가 + 담기 화면에 읽기전용 확인줄"
+  "notes": "2.2.8 버그수정 — 맥 화면 연결장치 체크박스가 AE 게이트로 아예 안 뜨던 것 해제(계기번호는 다음 화면에서 확정됨). 함체 유형 토글·시설유형 미리보기를 맥 화면에 함께 표시"
 }
