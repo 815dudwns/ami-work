@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.12",
+  "versionName": "2.2.13",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "사진 규격 4096/q85 → 1200/q60 (전송량 약 9배 감소). 큐 목록에서 사진 썸네일 제거(장수·슬레이브 계기번호는 텍스트로) + LazyColumn 전환으로 버벅임 해소. 사진 확인은 [수정] 화면에서"
+  "notes": "수집 순서 변경 — 모뎀맥이 첫 화면(맥 → 마스터사진 → 슬레이브사진 → 계기번호확인 → 담기). 함체 유형 토글은 맥 화면 하나로 통합(마스터 화면 중복 제거)"
 }
