@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.13",
+  "versionName": "2.2.14",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "수집 순서 변경 — 모뎀맥이 첫 화면(맥 → 마스터사진 → 슬레이브사진 → 계기번호확인 → 담기). 함체 유형 토글은 맥 화면 하나로 통합(마스터 화면 중복 제거)"
+  "notes": "자동업데이트 수리 — 시스템 다운로드관리자 의존 제거(앱이 직접 HTTP 수신). 진행률을 앱 화면에 표시, 실패 사유(HTTP코드·저장공간·크기불일치)를 그대로 표시, 받은 파일 크기·APK 형식 검증 후 설치"
 }
