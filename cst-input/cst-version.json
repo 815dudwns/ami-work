@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.7",
+  "versionName": "2.2.8",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "공사명 원본표시(축약 폐기) + 설정탭 작업자명 + 이력 탭 전체삭제 버튼 추가"
+  "notes": "맥 입력 화면에 외장형 연결장치(EXT_CONN_DEV, AE만)·집합형(추가)(FCLTY_DIV 30) 체크박스 추가 + 담기 화면에 읽기전용 확인줄"
 }

@@ -914,19 +914,29 @@ def _saveact_core(body):
     bdju = str(body.get("bdju", "")).strip()
     dcu_id = bdju if (work_div == "M1010" and bdju and master_suffix in ("10", "20", "90")) else ""
     # 함체유형(영준님 2026-07-02): 단독+슬0→단독형(10, 대표계기·함내수 빈칸) / 단독+슬有→집합형단독(40) / 집합→그대로(20)
+    # 집합형(추가)(영준님 2026-08-11): 같은 함체에 이미 다른 마스터가 등록돼 있으면 폰에서 addl 체크 → 20 대신 30.
+    #   아미큐는 마스터를 한 건씩 담아 awms의 order(몇 번째 마스터인지)를 모르므로 작업자가 직접 표시한다.
+    #   단독형(10)·집합형단독(40) 경로는 건드리지 않는다 — 집합일 때만 의미가 있다.
     ham = str(body.get("ham", "")).strip()
+    addl = str(body.get("addl", "")).strip().lower() in ("1", "true", "y", "yes")
     solo_blank = (ham == "단독" and len(slaves) == 0)   # 단독형: 대표계기·함내수 빈칸
-    fclty = "10" if solo_blank else ("40" if ham == "단독" else "20")
+    fclty = "10" if solo_blank else ("40" if ham == "단독" else ("30" if addl else "20"))
+    # 외장형 연결장치(EXT_CONN_DEV) — awms 실측 2026-08-11(getDetail): 값은 'Y'/'N', getMainList엔 키 자체가 없다.
+    #   awms 화면도 INST_M != HW4040(AE)이면 이 셀렉트를 disabled 시키고 INST_M 변경 시 'N'으로 되돌린다.
+    #   → AE가 아니면 폰이 뭘 보냈든 'N'으로 강제. 빈문자열 금지([[awms_saveact_500_fix]] 계열).
+    ext_conn = "Y" if (m_instM == "HW4040" and str(body.get("extConn", "")).strip().upper() == "Y") else "N"
     # 마스터
     mf = _common(mb, mac, m_instM, mb, n, m_inst_s, bungi="")
     mf["MODEM_DIV"] = "10"; mf["WORK_DIV"] = work_div; mf["FCLTY_DIV"] = fclty
+    mf["EXT_CONN_DEV"] = ext_conn   # 슬레이브는 _MASTER_BASE 기본값 'N' 그대로 — 연결장치는 마스터만 수집
     if solo_blank:
         # 빈값 ""은 awms Java parseInt 폭발(→500/실패). 빈칸=키 자체를 omit ([[awms_saveact_500_fix]] 패턴)
         mf.pop("MB_METER_ID", None); mf.pop("MB_CNT", None)
     if dcu_id:
         mf["DATA_NUM"] = dcu_id   # ★변대주 전산화번호 = awms 화면 '변대주' 칸(필드명 DATA_NUM). DCU_ID·차수는 awms 자동생성 (영준님 헬퍼 실측 2026-07-15: DCU_ID 아님)
     res_m = saveact_post(mf, _photos_to_files(m.get("photos", {}), tmpd))
-    print(f"[saveact] master {mb} ham={ham or '집합'} fclty={fclty} → {res_m}", flush=True)  # 진단 로그
+    print(f"[saveact] master {mb} ham={ham or '집합'} addl={addl} fclty={fclty} "
+          f"instM={m_instM} extConn={ext_conn} → {res_m}", flush=True)  # 진단 로그
     try:   # OCR 실패표본 매칭(슬롯5=계기판 사진) — saveAct 흐름과 완전분리
         p5 = m.get("photos", {}).get("5")
         if p5:
