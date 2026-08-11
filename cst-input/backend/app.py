@@ -39,6 +39,49 @@ AWMS = "https://awms.kdn.com/ami/mob/cst/mobCst1000"
 CDP_PORT = 9222
 KST = timezone(timedelta(hours=9))
 
+# ── 코드 신선도(stale) 감시 ──────────────────────────────
+# 사고 2026-08-11: app.py를 고치고 커밋까지 했는데 백엔드를 재구동하지 않아 **12일 된 코드가 계속 돌았다**.
+#   그 프로세스엔 addl/EXT_CONN_DEV 산출이 아예 없어서 폰을 두 번 고쳐도(2.2.8/2.2.9) 아무 변화가 없었고,
+#   원인을 찾는 데 반나절이 갔다. uvicorn --reload 는 감시범위(ami-work 전체 .py 465개)와
+#   전송 중 재시작 유실 때문에 쓰지 않는다 — 대신 "안 했으면 즉시 들키게" 만든다.
+# 판정: 디스크의 app.py mtime > 프로세스 기동시각  ->  stale.
+BOOT_TS = datetime.now(KST)                      # 모듈 로드 = 프로세스 기동
+_SRC = Path(__file__).resolve()
+
+
+def _src_info():
+    """(mtime(KST), sha256 앞12) — 읽기 전용. 실패해도 예외를 밖으로 내지 않는다."""
+    try:
+        st = _SRC.stat()
+        return (datetime.fromtimestamp(st.st_mtime, KST),
+                hashlib.sha256(_SRC.read_bytes()).hexdigest()[:12])
+    except Exception:
+        return (None, "")
+
+
+def _git_head():
+    """돌고 있는 코드가 어느 커밋인지 대조용. 읽기 전용, 실패 시 빈 문자열."""
+    try:
+        return subprocess.run(["git", "-C", str(_SRC.parent), "rev-parse", "--short", "HEAD"],
+                              capture_output=True, text=True, timeout=2).stdout.strip()
+    except Exception:
+        return ""
+
+
+def _is_stale():
+    mt, _ = _src_info()
+    return bool(mt and mt > BOOT_TS)
+
+
+def _stale_note():
+    """stale일 때만 로그에 붙일 한 줄. 아니면 빈 문자열."""
+    if not _is_stale():
+        return ""
+    mt, sha = _src_info()
+    return (f"\n!! 백엔드 코드가 디스크보다 오래됐다 — 기동 {BOOT_TS:%Y-%m-%d %H:%M:%S} < "
+            f"app.py {mt:%Y-%m-%d %H:%M:%S} (sha {sha}). `cst-input/restart.sh` 로 재구동해야 반영된다.")
+
+
 # ── OCR 실패 표본 수집 (계약: docs/data-contract.md §스키마소유자ocr-meter/쓰기통신팀, 2026-07-27) ──
 # 스키마 정본=ocr-meter, 쓰기=통신팀. 임의 필드변경 금지 — 바꿀 땐 ocr-meter 합의 후 append-only.
 # worktree-상대참조 금지(data-contract 원칙) — SHARED_OCR_POC 절대경로 상수로만 참조.
@@ -352,6 +395,30 @@ app = FastAPI(title="통신팀 awms 맥 입력장치")
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])  # 폰 앱/터널에서 호출
+
+
+# ── 헬스체크: 지금 돌고 있는 코드가 디스크와 같은가 (부작용 없는 읽기 전용) ──
+# stale=true 면 app.py를 고친 뒤 재구동을 안 한 것이다. `cst-input/restart.sh` 로 재구동해야 반영된다.
+@app.get("/api/health")
+def api_health():
+    mt, sha = _src_info()
+    return {
+        "ok": True,
+        "boot_ts": BOOT_TS.isoformat(),
+        "app_py_mtime": mt.isoformat() if mt else "",
+        "app_py_sha256_12": sha,
+        "git_head": _git_head(),
+        "stale": _is_stale(),
+        "hint": ("app.py를 고치고 재구동을 안 했다 — cst-input/restart.sh"
+                 if _is_stale() else "기동이 소스보다 최신 — 정상"),
+    }
+
+
+# 기동 로그 — 돌고 있는 코드를 한 줄로 못박는다(로그만 봐도 어느 버전인지 안다).
+_BOOT_MT, _BOOT_SHA = _src_info()
+print(f"[boot] {BOOT_TS:%Y-%m-%d %H:%M:%S} app.py sha={_BOOT_SHA} "
+      f"mtime={_BOOT_MT:%Y-%m-%d %H:%M:%S} git={_git_head() or '?'}", flush=True)
+
 _load_session()   # 재기동 시 디스크 세션 복원 (무USB 자립)
 _load_config()    # 폰이 지정한 설정값(지사/동행/계정) 복원 — 기본값 리셋 방지(설정값으로 등록)
 if SESSION.get("jsessionid"):
@@ -935,8 +1002,9 @@ def _saveact_core(body):
     if dcu_id:
         mf["DATA_NUM"] = dcu_id   # ★변대주 전산화번호 = awms 화면 '변대주' 칸(필드명 DATA_NUM). DCU_ID·차수는 awms 자동생성 (영준님 헬퍼 실측 2026-07-15: DCU_ID 아님)
     res_m = saveact_post(mf, _photos_to_files(m.get("photos", {}), tmpd))
+    # 진단 로그. stale이면 경고를 같이 붙인다 — 전송 1건 만에 "옛 코드로 돌고 있다"가 드러난다.
     print(f"[saveact] master {mb} ham={ham or '집합'} addl={addl} fclty={fclty} "
-          f"instM={m_instM} extConn={ext_conn} → {res_m}", flush=True)  # 진단 로그
+          f"instM={m_instM} extConn={ext_conn} → {res_m}{_stale_note()}", flush=True)
     try:   # OCR 실패표본 매칭(슬롯5=계기판 사진) — saveAct 흐름과 완전분리
         p5 = m.get("photos", {}).get("5")
         if p5:
