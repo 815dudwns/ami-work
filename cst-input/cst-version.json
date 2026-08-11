@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.11",
+  "versionName": "2.2.12",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "큐 [수정] 버튼 신설 — 대표계기/맥/통신방식/함체/변대주/신설기설/연결장치/집합형추가/슬레이브 번호·삭제까지 편집(사진 교체 제외). 큐 카드는 읽기전용 + 슬레이브 사진·번호 노출. 이력 날짜별 계기 개수 표시"
+  "notes": "사진 규격 4096/q85 → 1200/q60 (전송량 약 9배 감소, 모뎀맥 바코드 판독률 실측 96% 유지). 큐 썸네일 축소디코딩+캐시·LazyColumn 전환으로 버벅임 해소"
 }
