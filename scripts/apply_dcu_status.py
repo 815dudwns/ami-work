@@ -101,7 +101,10 @@ def load_reference(path=XLSX):
         #   (실측: 동명간 29L6R1 = 회선 해지·계기 0/0 인데 23개 개소에 PLC).
         #   ★'계기 없음'은 제외 조건이 아니다 — DCU 는 살아 있고 아직 계기가 안 물린 것뿐이라
         #     오히려 우리가 PLC 로 시공할 대상이다(2026-08-12 실측 중 과잉 제거 127건을 되돌렸다).
-        line_state = str(r[12] or '').strip()
+        #   ★인덱스 주의: r[12]=통신사, r[13]=회선상태. 처음에 r[12]로 잘못 짚어 가드가
+        #     통째로 무력화됐고(통신사 값은 해지·정지가 아니므로 전부 통과) 죽은 회선에
+        #     PLC 가 96건 다시 붙었다. 컬럼을 바꿀 땐 헤더를 실제로 찍어 확인하라.
+        line_state = str(r[13] or '').strip()
         if line_state in ('해지', '정지'):
             continue
         cm_name[(dept, nm)][comm] += 1
@@ -118,7 +121,12 @@ def apply_to(records, removal, comm):
     stat = collections.Counter()
 
     for x in records:
-        name = (x.get('인입주') or x.get('변대주') or '').strip()
+        # ★변대주 먼저. DCU 가 달리는 전주는 변대주이고, 인입주는 계기로 들어가는 다른 전주라
+        #   대장의 '변대주명'과 맞출 값이 아니다(영준님 2026-08-12: "변대주가 중요하지 인입주는 아님").
+        #   인입주를 앞에 두는 바람에 변대주로는 걸리는 개소 7건이 철거예정 태그를 못 받았다
+        #   (그중 4건이 '해지' 판정 — 철거될 DCU 인데 표시가 없어 PLC 로 시공할 뻔했다).
+        #   인입주는 변대주가 비었을 때의 폴백으로만 남긴다.
+        name = (x.get('변대주') or x.get('인입주') or '').strip()
         dept = (x.get('지사') or '').strip()
         nk = nkey(name)
         did = nkey(x.get('DCUID'))
