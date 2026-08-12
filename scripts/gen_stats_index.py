@@ -39,28 +39,44 @@ def to_items(v):
 # 완료분을 빼면 지사별 누적 완료 실적이 stats에서 사라지므로 분모에 되살린다.
 # ★ 로컬 최신 파일 기준(2026-07-04): Firebase siteData(26588)엔 신규 14,516이 미반영이라
 #   로컬이 정확. site-data.json(작업대상=미완료+신규) + 완료 아카이브(들) 합산.
+# ★리스트 구분(list)을 함께 싣는다 — stats 전체 탭에서 리스트를 골라 볼 수 있게
+#   (영준님 지시 2026-08-12: "통계탭에서 리스트 선택할 수 있게"). 값은 짧게 쓴다(용량).
+#     s=실효(site-data) · a=완료 아카이브 · r=재방문 · g=고압철거
 import glob
-items = to_items(json.loads((ROOT / "data" / "site-data.json").read_text(encoding="utf-8")))
+items = []   # (list코드, 레코드)
+for it in to_items(json.loads((ROOT / "data" / "site-data.json").read_text(encoding="utf-8"))):
+    items.append(("s", it))
 for _f in sorted(glob.glob(str(ROOT / "data" / "site-data-completed-archive-*.json"))):
-    items += to_items(json.loads(Path(_f).read_text(encoding="utf-8")))
+    for it in to_items(json.loads(Path(_f).read_text(encoding="utf-8"))):
+        items.append(("a", it))
 
 # 재방문(별도 데이터셋, 로컬 정적파일 — Firebase siteData엔 없음)
 _rw = ROOT / "data" / "rework-data.json"
 if _rw.exists():
-    items += to_items(json.loads(_rw.read_text(encoding="utf-8")))
+    for it in to_items(json.loads(_rw.read_text(encoding="utf-8"))):
+        items.append(("r", it))
+
+# 고압철거(주덕기 0810, 별개 개념이라 기본 분모에는 안 들어가지만 골라 볼 수 있게 싣는다)
+_gp = ROOT / "data" / "gapap-data.json"
+if _gp.exists():
+    for it in to_items(json.loads(_gp.read_text(encoding="utf-8"))):
+        items.append(("g", it))
 
 index = [
     {
         "지사": it.get("지사", "") or "",
         "주소": it.get("주소", "") or "",
         "계기번호": str(it.get("계기번호", "") or ""),
+        "l": code,
     }
-    for it in items
+    for code, it in items
     if isinstance(it, dict)
 ]
 
 # 공백 없는 콤팩트 JSON (GitHub Pages gzip 전제)
 OUT.write_text(json.dumps(index, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 size_mb = OUT.stat().st_size / 1e6
+from collections import Counter
 print(f"stats-site-index.json 생성: {len(index):,}건 / {size_mb:.2f} MB (원본 siteData ~22MB → 인덱스)")
+print("  리스트별:", dict(Counter(x["l"] for x in index)))
 print(f"  생성시각(KST): {datetime.now(ZoneInfo('Asia/Seoul')).isoformat()}")
