@@ -498,11 +498,17 @@ function renderMetersList() {
         const subParts = [];
         // 1) 통신방식 (빨강) · 변대주 한글명 · 인입주
         if (meter.통신방식) subParts.push(`<span class="comm-type">${meter.통신방식}</span>`);
-        // 변대주 — 이름만 보여준다. 번호는 붙이지 않는다(영준님 2026-08-06):
-        //   DCU ID 줄이 이미 10자리를 보여주고 복사만 8자리로 자른다. 대장에서 이름으로 찾은
-        //   변대주번호는 같을 땐 그 복사값과 중복이고, 16%(1,080건)는 우리 DCUID와 아예
-        //   달라서(동명 변대주로 추정) 틀린 번호를 보여주게 된다.
-        if (meter.변대주) subParts.push(`변대주 ${meter.변대주}`);
+        // 변대주 — 이름 + 전산화번호.
+        //   2026-08-06 에 번호를 뺀 것은 **큰 글씨(상위)에서 강등**한다는 뜻이었고, 디테일에는
+        //   있어야 한다(영준님 2026-08-12 정정). 그때 문제였던 "대장에서 이름으로 찾은 번호가
+        //   16% 어긋난다"는 여기 해당하지 않는다 — 아래 값은 별도 소스가 아니라 **DCUID 에서
+        //   끝 2자리(DCU 차수)를 뗀 도출값**이라 DCU ID 줄과 항상 정합한다.
+        //   ★숫자형 DCUID 는 전산화번호가 아니라 LTE 회선번호(012 생략)라 붙이지 않는다.
+        if (meter.변대주) {
+            const dcuRaw = meter.DCUID || '';
+            const bdjuNo = /[A-Za-z]/.test(dcuRaw) ? dcuRaw.slice(0, -2) : '';
+            subParts.push(`변대주 ${meter.변대주}${bdjuNo ? ` (${bdjuNo})` : ''}`);
+        }
         if (meter.인입주) subParts.push(`인입주 ${meter.인입주}`);
         // 2) 사업차수 (신·전)
         if (meter['사업차수']) {
@@ -567,8 +573,8 @@ function renderMetersList() {
                 subParts.push(`통신 ${meter.통신방식_전}→${meter.통신방식}`);
             else if (meter.통신방식)
                 subParts.push(`통신 ${meter.통신방식}`);
-            if (meter.DCUID)     subParts.push(`DCU ${meter.DCUID}`);
-            if (meter.변대주)     subParts.push(`변대주 ${meter.변대주}`);
+            // DCU·변대주는 위 1)에서 이미 찍는다 — 여기서 또 push 하면 재방문 개소만
+            //   같은 값이 두 번 나온다(전산화번호가 붙으면서 더 눈에 띄어 정리, 2026-08-12).
         }
         // 9) 고압철거 전용 필드 (category=고압): 철거할 모뎀 MAC + 현장 위치 비고
         //   원본(주덕기 0810 리스트)에 DCUID·변대주가 통째로 비어 있어, 계기를 특정하는 값은
