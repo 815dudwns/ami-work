@@ -30,6 +30,8 @@ const ACCOUNTS = [
     { id: 'user25', pw: '1111', name: '신완식', role: 'user' },
     { id: 'user26', pw: '1111', name: '안병삼', role: 'user' },
     // 종로 부조장 = 우영준(영준님 본인) = admin 계정으로 겸임 (별도 user 발급 안 함)
+    // --- KDN 계정 (발주처 담당자 — 작업자가 아니라 userNN 번호를 쓰지 않는다) ---
+    { id: 'kdn01', pw: '1111', name: '주덕기', role: 'user' },
     // --- validator 계정 (데이터검증 사장님·직원용) ---
     // ★ 영준님이 실제 계정으로 교체할 것 (id/pw/name 모두)
     { id: 'validator01', pw: '9999', name: '검증담당자', role: 'validator' },

@@ -64,6 +64,12 @@
         .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 560px; }
         #tab-all table { min-width: 640px; }
+        /* 리스트 선택 바 (전체 탭) */
+        .list-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+        .list-btn { padding: 6px 12px; font-size: 13px; border: 1px solid #d1d5db; background: #fff;
+                    color: #374151; border-radius: 999px; cursor: pointer; }
+        .list-btn.active { background: #1d4ed8; border-color: #1d4ed8; color: #fff; font-weight: 700; }
+        .list-count { margin-left: auto; font-size: 12px; color: #6b7280; font-variant-numeric: tabular-nums; }
         th, td { padding: 9px 6px; text-align: center; border-bottom: 1px solid #e5e7eb; }
         th { background: #f9fafb; color: #374151; font-weight: 700; font-size: 12px; position: sticky; top: 0; }
         td.name { text-align: left; font-weight: 600; padding-left: 10px; white-space: nowrap; }
@@ -327,10 +333,45 @@ function aggByBranch(fbSiteData, workStatus) {
     return byGu;
 }
 
+// ── 리스트(데이터셋) 선택 — 전체 탭 분모를 리스트별로 골라 본다 ──────────
+//   (영준님 지시 2026-08-12: "통계탭에서 리스트 선택할 수 있게")
+//   인덱스의 l 코드: s=실효 · a=완료 아카이브 · r=재방문 · g=고압철거.
+//   기본값은 '실효'다 — 지금 작업 대상이 실효 리스트이고, 아카이브까지 합치면
+//   과거 완료분이 섞여 현재 진척이 흐려진다. 예전 누적치는 '전체 누적'으로 볼 수 있다.
+const LIST_OPTS = [
+    { key: 's',   label: '실효' },
+    { key: 'r',   label: '재방문' },
+    { key: 'g',   label: '고압철거' },
+    { key: 'a',   label: '완료 아카이브' },
+    { key: 'all', label: '전체 누적' },
+];
+let _listSel = 's';
+
+function filterByList(fbSiteData) {
+    if (_listSel === 'all') return fbSiteData;
+    return fbSiteData.filter(it => (it.l || 's') === _listSel);
+}
+
+function renderListPicker(shown, total) {
+    const btns = LIST_OPTS.map(o =>
+        `<button class="list-btn${o.key === _listSel ? ' active' : ''}" onclick="setList('${o.key}')">${o.label}</button>`
+    ).join('');
+    return `<div class="list-bar">${btns}<span class="list-count">${shown.toLocaleString()}건 / 전체 ${total.toLocaleString()}</span></div>`;
+}
+
+function setList(k) {
+    _listSel = k;
+    if (_lastRender) render(_lastRender[0], _lastRender[1], _lastRender[2]);
+}
+
+let _lastRender = null;   // [fbSiteData, workStatus, dateStr] — 리스트 전환 시 재조회 없이 다시 그린다
+
 // ── 렌더 ───────────────────────────────────────────────
 function render(fbSiteData, workStatus, dateStr) {
+    _lastRender = [fbSiteData, workStatus, dateStr];
     // ── 전체(지사별) 탭: 날짜 무관 누적 ──
-    const byBranch = aggByBranch(fbSiteData, workStatus);
+    const listRows = filterByList(fbSiteData);
+    const byBranch = aggByBranch(listRows, workStatus);
     const branchRows = Object.entries(byBranch).sort((a, b) => allMeters(b[1].meters) - allMeters(a[1].meters));
     const branchTotal = emptyBranch();
     for (const [, agg] of branchRows) {
@@ -385,6 +426,7 @@ function render(fbSiteData, workStatus, dateStr) {
             ${dayBody || (renderSummary(dayTotal) + renderTable('구', guRows, dayTotal))}
         </div>
         <div class="tab-panel ${_activeTab === 'all' ? 'active' : ''}" id="tab-all">
+            ${renderListPicker(listRows.length, fbSiteData.length)}
             ${renderBranchSummary(branchTotal)}
             ${renderBranchTable(branchRows, branchTotal)}
         </div>

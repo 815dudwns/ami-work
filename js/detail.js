@@ -208,10 +208,13 @@ function showDetail(address, meters, addresses, statusKeys) {
             dcuHtml = `<span>${dcu}</span>`;
             copyVal = dcu;
         }
-        const poleCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="DCU ID 복사" style="margin-left:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
-        // 이 줄이 보여주는 값은 DCUID다 — 예전 라벨이 '변대주'라 현장에서 변대주명과
-//   헷갈렸다(영준님 2026-08-06). 변대주명은 계기별 상세줄에 따로 나온다.
-        commonPoleEl.innerHTML = `DCU ID ${dcuHtml}${poleCopyBtn}`;
+        const poleCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="변대주 전산화번호 복사" style="margin-left:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+        // 라벨 '변대주' + 전산화번호 + 차수(회색) + 통신방식 (영준님 2026-08-12 확정).
+        //   값이 전산화번호이고 변대주 한글명은 아래 상세줄에 따로 나오므로 2026-08-06 에
+        //   'DCU ID' 로 바꿨던 헷갈림은 생기지 않는다. 통신방식은 대장에서 확정된 값이다.
+        const commTxt = meters[0].통신방식
+            ? `<span style="margin-left:10px;color:#dc2626;">${meters[0].통신방식}</span>` : '';
+        commonPoleEl.innerHTML = `변대주 ${dcuHtml}${poleCopyBtn}${commTxt}`;
         commonPoleEl.style.display = 'block';
         commonPoleEl.querySelector('.pole-copy-btn').addEventListener('click', (e) => {
             e.stopPropagation();
@@ -227,8 +230,10 @@ function showDetail(address, meters, addresses, statusKeys) {
     //   DCUID 가 없어 위 블록이 숨겨진 경우에도 태그가 있으면 줄을 살린다.
     const dcuTag = meters.find(m => m.dcu_철거예정)?.dcu_철거예정 || '';
     if (dcuTag) {
-        const poleName = meters.find(m => m.인입주 || m.변대주);
-        const nameTxt = (poleName && (poleName.인입주 || poleName.변대주)) || '';
+        // ★DCU 는 변대주에 붙는다 — 철거예정 판정도 변대주 기준이므로 인입주를 쓰면 안 된다
+        //   (영준님 2026-08-12). 인입주를 먼저 보던 탓에 다른 전주 이름이 태그 옆에 찍혔다.
+        const poleName = meters.find(m => m.변대주);
+        const nameTxt = (poleName && poleName.변대주) || '';
         const isRemove = dcuTag.indexOf('철거') !== -1;
         const tagHtml =
             `<div style="margin-top:${commonPoleEl.style.display === 'block' ? '4px' : '0'};` +
@@ -498,11 +503,21 @@ function renderMetersList() {
         const subParts = [];
         // 1) 통신방식 (빨강) · 변대주 한글명 · 인입주
         if (meter.통신방식) subParts.push(`<span class="comm-type">${meter.통신방식}</span>`);
-        // 변대주 — 이름만 보여준다. 번호는 붙이지 않는다(영준님 2026-08-06):
-        //   DCU ID 줄이 이미 10자리를 보여주고 복사만 8자리로 자른다. 대장에서 이름으로 찾은
-        //   변대주번호는 같을 땐 그 복사값과 중복이고, 16%(1,080건)는 우리 DCUID와 아예
-        //   달라서(동명 변대주로 추정) 틀린 번호를 보여주게 된다.
-        if (meter.변대주) subParts.push(`변대주 ${meter.변대주}`);
+        // 변대주 — 이름 + 전산화번호.
+        //   2026-08-06 에 번호를 뺀 것은 **큰 글씨(상위)에서 강등**한다는 뜻이었고, 디테일에는
+        //   있어야 한다(영준님 2026-08-12 정정). 그때 문제였던 "대장에서 이름으로 찾은 번호가
+        //   16% 어긋난다"는 여기 해당하지 않는다 — 아래 값은 별도 소스가 아니라 **DCUID 에서
+        //   끝 2자리(DCU 차수)를 뗀 도출값**이라 DCU ID 줄과 항상 정합한다.
+        //   ★숫자형 DCUID 는 전산화번호가 아니라 LTE 회선번호(012 생략)라 붙이지 않는다.
+        if (meter.변대주) {
+            const dcuRaw = meter.DCUID || '';
+            const bdjuNo = /[A-Za-z]/.test(dcuRaw) ? dcuRaw.slice(0, -2) : '';
+            subParts.push(`변대주 ${meter.변대주}${bdjuNo ? ` (${bdjuNo})` : ''}`);
+        }
+        // DCU 상태(회선상태·장애여부) 표시는 뺐다 — 영준님 2026-08-12: 우리 대상은 원본이
+        //   'DCU 장애여부 = 정상' 으로 걸러 받은 개소라 다 정상이고, 확정적으로 받은 것은
+        //   3번 시트(철거/유지 판정)뿐이다. 그 판정은 위 큰 글씨에 이미 나온다.
+        //   필드(dcu_회선상태·dcu_장애여부)는 데이터에 남겨 두었다 — 필요하면 되살린다.
         if (meter.인입주) subParts.push(`인입주 ${meter.인입주}`);
         // 2) 사업차수 (신·전)
         if (meter['사업차수']) {
@@ -567,8 +582,8 @@ function renderMetersList() {
                 subParts.push(`통신 ${meter.통신방식_전}→${meter.통신방식}`);
             else if (meter.통신방식)
                 subParts.push(`통신 ${meter.통신방식}`);
-            if (meter.DCUID)     subParts.push(`DCU ${meter.DCUID}`);
-            if (meter.변대주)     subParts.push(`변대주 ${meter.변대주}`);
+            // DCU·변대주는 위 1)에서 이미 찍는다 — 여기서 또 push 하면 재방문 개소만
+            //   같은 값이 두 번 나온다(전산화번호가 붙으면서 더 눈에 띄어 정리, 2026-08-12).
         }
         // 9) 고압철거 전용 필드 (category=고압): 철거할 모뎀 MAC + 현장 위치 비고
         //   원본(주덕기 0810 리스트)에 DCUID·변대주가 통째로 비어 있어, 계기를 특정하는 값은
