@@ -1,0 +1,5 @@
+{
+  "versionName": "1.0.79",
+  "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/awms-helper.apk",
+  "notes": "모뎀맥 바코드(Code 93) QR 스캐너 인식 추가 + 인앱 자동업데이트 복구(앱이 직접 받고 진행률·실패사유를 화면에 표시)"
+}
