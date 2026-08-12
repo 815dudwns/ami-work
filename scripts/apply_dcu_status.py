@@ -94,6 +94,16 @@ def load_reference(path=XLSX):
         comm = str(r[8] or '').strip()
         if not comm:
             continue
+        # ★회선이 죽은 DCU 는 통신방식을 싣지 않는다 (영준님 2026-08-12: "안 써있어야지").
+        #   이 시트의 '인입망 통신방식' 칸은 19,007행 전부 채워져 있다 — DCU 가 등록된 방식일 뿐
+        #   지금 살아 있다는 뜻이 아니다. 생사는 '회선상태'(r[12], 개통/정지/해지)와
+        #   '장애여부'(r[3])가 말한다. 이 조건이 없어서 해지된 DCU 의 PLC 가 개소에 붙었다
+        #   (실측: 동명간 29L6R1 = 회선 해지·계기 0/0 인데 23개 개소에 PLC).
+        #   ★'계기 없음'은 제외 조건이 아니다 — DCU 는 살아 있고 아직 계기가 안 물린 것뿐이라
+        #     오히려 우리가 PLC 로 시공할 대상이다(2026-08-12 실측 중 과잉 제거 127건을 되돌렸다).
+        line_state = str(r[12] or '').strip()
+        if line_state in ('해지', '정지'):
+            continue
         cm_name[(dept, nm)][comm] += 1
         for k in (nkey(r[3]), nkey(r[6])):
             if k:

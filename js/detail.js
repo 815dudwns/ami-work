@@ -509,6 +509,21 @@ function renderMetersList() {
             const bdjuNo = /[A-Za-z]/.test(dcuRaw) ? dcuRaw.slice(0, -2) : '';
             subParts.push(`변대주 ${meter.변대주}${bdjuNo ? ` (${bdjuNo})` : ''}`);
         }
+        // DCU 상태 — 한전 '전체DCU 현황' 대장의 회선상태·장애여부(영준님 지시 2026-08-12).
+        //   회선이 해지·정지면 그 변대주로는 PLC 시공이 안 된다. 현장에 가서야 알면 늦으므로
+        //   빨강으로 띄운다. 계기 없음/검침실패/PING FAIL 은 DCU 는 살아 있으나 확인이 필요한
+        //   상태라 주황. 정상이면 굳이 줄을 늘리지 않는다.
+        {
+            const line = meter.dcu_회선상태 || '';
+            const fault = meter.dcu_장애여부 || '';
+            const dead = (line === '해지' || line === '정지');
+            const warn = fault && fault !== '정상';
+            if (dead || warn) {
+                const txt = [dead ? `DCU ${line}` : '', warn ? fault : ''].filter(Boolean).join('·');
+                const color = dead ? '#dc2626' : '#d97706';
+                subParts.push(`<span style="color:${color};font-weight:600;">${txt}</span>`);
+            }
+        }
         if (meter.인입주) subParts.push(`인입주 ${meter.인입주}`);
         // 2) 사업차수 (신·전)
         if (meter['사업차수']) {
