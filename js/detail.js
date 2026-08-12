@@ -227,8 +227,10 @@ function showDetail(address, meters, addresses, statusKeys) {
     //   DCUID 가 없어 위 블록이 숨겨진 경우에도 태그가 있으면 줄을 살린다.
     const dcuTag = meters.find(m => m.dcu_철거예정)?.dcu_철거예정 || '';
     if (dcuTag) {
-        const poleName = meters.find(m => m.인입주 || m.변대주);
-        const nameTxt = (poleName && (poleName.인입주 || poleName.변대주)) || '';
+        // ★DCU 는 변대주에 붙는다 — 철거예정 판정도 변대주 기준이므로 인입주를 쓰면 안 된다
+        //   (영준님 2026-08-12). 인입주를 먼저 보던 탓에 다른 전주 이름이 태그 옆에 찍혔다.
+        const poleName = meters.find(m => m.변대주);
+        const nameTxt = (poleName && poleName.변대주) || '';
         const isRemove = dcuTag.indexOf('철거') !== -1;
         const tagHtml =
             `<div style="margin-top:${commonPoleEl.style.display === 'block' ? '4px' : '0'};` +
