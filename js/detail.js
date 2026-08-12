@@ -208,10 +208,13 @@ function showDetail(address, meters, addresses, statusKeys) {
             dcuHtml = `<span>${dcu}</span>`;
             copyVal = dcu;
         }
-        const poleCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="DCU ID 복사" style="margin-left:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
-        // 이 줄이 보여주는 값은 DCUID다 — 예전 라벨이 '변대주'라 현장에서 변대주명과
-//   헷갈렸다(영준님 2026-08-06). 변대주명은 계기별 상세줄에 따로 나온다.
-        commonPoleEl.innerHTML = `DCU ID ${dcuHtml}${poleCopyBtn}`;
+        const poleCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="변대주 전산화번호 복사" style="margin-left:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+        // 라벨 '변대주' + 전산화번호 + 차수(회색) + 통신방식 (영준님 2026-08-12 확정).
+        //   값이 전산화번호이고 변대주 한글명은 아래 상세줄에 따로 나오므로 2026-08-06 에
+        //   'DCU ID' 로 바꿨던 헷갈림은 생기지 않는다. 통신방식은 대장에서 확정된 값이다.
+        const commTxt = meters[0].통신방식
+            ? `<span style="margin-left:10px;color:#dc2626;">${meters[0].통신방식}</span>` : '';
+        commonPoleEl.innerHTML = `변대주 ${dcuHtml}${poleCopyBtn}${commTxt}`;
         commonPoleEl.style.display = 'block';
         commonPoleEl.querySelector('.pole-copy-btn').addEventListener('click', (e) => {
             e.stopPropagation();
@@ -511,21 +514,10 @@ function renderMetersList() {
             const bdjuNo = /[A-Za-z]/.test(dcuRaw) ? dcuRaw.slice(0, -2) : '';
             subParts.push(`변대주 ${meter.변대주}${bdjuNo ? ` (${bdjuNo})` : ''}`);
         }
-        // DCU 상태 — 한전 '전체DCU 현황' 대장의 회선상태·장애여부(영준님 지시 2026-08-12).
-        //   회선이 해지·정지면 그 변대주로는 PLC 시공이 안 된다. 현장에 가서야 알면 늦으므로
-        //   빨강으로 띄운다. 계기 없음/검침실패/PING FAIL 은 DCU 는 살아 있으나 확인이 필요한
-        //   상태라 주황. 정상이면 굳이 줄을 늘리지 않는다.
-        {
-            const line = meter.dcu_회선상태 || '';
-            const fault = meter.dcu_장애여부 || '';
-            const dead = (line === '해지' || line === '정지');
-            const warn = fault && fault !== '정상';
-            if (dead || warn) {
-                const txt = [dead ? `DCU ${line}` : '', warn ? fault : ''].filter(Boolean).join('·');
-                const color = dead ? '#dc2626' : '#d97706';
-                subParts.push(`<span style="color:${color};font-weight:600;">${txt}</span>`);
-            }
-        }
+        // DCU 상태(회선상태·장애여부) 표시는 뺐다 — 영준님 2026-08-12: 우리 대상은 원본이
+        //   'DCU 장애여부 = 정상' 으로 걸러 받은 개소라 다 정상이고, 확정적으로 받은 것은
+        //   3번 시트(철거/유지 판정)뿐이다. 그 판정은 위 큰 글씨에 이미 나온다.
+        //   필드(dcu_회선상태·dcu_장애여부)는 데이터에 남겨 두었다 — 필요하면 되살린다.
         if (meter.인입주) subParts.push(`인입주 ${meter.인입주}`);
         // 2) 사업차수 (신·전)
         if (meter['사업차수']) {
