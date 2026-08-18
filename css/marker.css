@@ -19,6 +19,8 @@
 .custom-marker.yellow .marker-number { color: #1f2937; }
 .custom-marker.skt .marker-number { color: #ffffff; font-size: 9px; top: 4px; font-weight: 800; }
 .custom-marker.tou .marker-number { color: #ffffff; font-size: 9px; top: 4px; font-weight: 800; }
+/* 고압철거 — 숫자 대신 한글 한 글자('교'=철거+재설치 / '철'=철거). 숫자보다 굵게 */
+.custom-marker.gapap .marker-number { font-size: 9px; top: 4px; font-weight: 800; }
 
 /* 마커 위 보조 라벨 — "재" (재작업), 박스 없이 텍스트만 흰 외곽선 */
 .marker-fraction {

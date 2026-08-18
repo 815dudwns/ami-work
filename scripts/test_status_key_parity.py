@@ -10,20 +10,22 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from status_key import build_status_key_index, load_rows  # noqa: E402
+from status_key import DATASETS, build_status_key_index, load_rows  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# ★드라이버는 데이터셋 목록을 인자(JSON)로 받는다. 예전엔 여기에 하드코딩해 두어
+#   status_key.py 와 따로 놀았고, 그래서 '고압(gapap) 누락'을 이 검사가 못 잡았다(2026-08-18).
 JS_DRIVER = r"""
 const fs=require('fs'), path=require('path'), vm=require('vm');
-const ROOT=process.argv[2], DATA=process.argv[3], OUT=process.argv[4];
-const DATASETS=[['site-data.json','실효'],['skt-data.json','skt'],
-                ['tou-data.json','tou'],['rework-data.json','재방문']];
+const ROOT=process.argv[2], DATA=process.argv[3], OUT=process.argv[4], DSFILE=process.argv[5];
+const DATASETS=JSON.parse(fs.readFileSync(DSFILE,'utf8'));
 const rows=[];
 for (const [f,cat] of DATASETS){
   const p=path.join(DATA,f);
@@ -39,12 +41,56 @@ fs.writeFileSync(OUT, JSON.stringify({byMarker:obj, split:idx.splitAddresses}));
 """
 
 
+def map_js_datasets():
+    """js/map.js 의 활성 DATASETS 를 읽는다 — 주석 처리된 줄은 뺀다.
+
+    반환: [(파일이름, category), ...] / 못 읽으면 None.
+    실제 앱이 로드하는 목록이 진실이고, status_key.py 는 그걸 따라가야 한다.
+    """
+    path = os.path.join(ROOT, "js", "map.js")
+    try:
+        with open(path, encoding="utf-8") as f:
+            src = f.read()
+    except OSError:
+        return None
+    m = re.search(r"const DATASETS\s*=\s*\[(.*?)\];", src, re.S)
+    if not m:
+        return None
+    out = []
+    for line in m.group(1).splitlines():
+        s = line.strip()
+        if not s or s.startswith("//"):
+            continue
+        f_m = re.search(r"file:\s*'([^']+)'", s)
+        c_m = re.search(r"category:\s*'([^']+)'", s)
+        if f_m and c_m:
+            out.append((os.path.basename(f_m.group(1)), c_m.group(1)))
+    return out
+
+
+def warn_dataset_drift():
+    """status_key.py 의 DATASETS 가 실제 앱(js/map.js)과 어긋나면 경고."""
+    app = map_js_datasets()
+    if app is None:
+        print("[경고] js/map.js 의 DATASETS 를 읽지 못했다 — 목록 대조를 건너뛴다")
+        return
+    mine, theirs = set(DATASETS), set(app)
+    if mine == theirs:
+        print("[목록] status_key.py == js/map.js ({}개)".format(len(mine)))
+        return
+    print("[경고] status_key.py 의 DATASETS 가 실제 앱(js/map.js)과 다르다.")
+    print("       앱에만 있음: {}".format(sorted(theirs - mine) or "(없음)"))
+    print("       배치에만 있음: {}".format(sorted(mine - theirs) or "(없음)"))
+    print("       ※앱에만 있는 데이터셋은 배치가 상태키를 다르게 계산한다 — 옛 키에 쓰게 된다.")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default=os.path.join(ROOT, "data"))
     args = ap.parse_args()
     data_dir = os.path.abspath(args.data_dir)
     print("데이터:", data_dir)
+    warn_dataset_drift()
 
     rows = load_rows(data_dir)
     py_map, py_split = build_status_key_index(rows)
@@ -54,9 +100,13 @@ def main():
     with tempfile.TemporaryDirectory() as td:
         drv = os.path.join(td, "driver.js")
         out = os.path.join(td, "out.json")
+        dsf = os.path.join(td, "datasets.json")
         with open(drv, "w", encoding="utf-8") as f:
             f.write(JS_DRIVER)
-        r = subprocess.run([("node"), drv, ROOT, data_dir, out],
+        # 양쪽이 같은 목록을 보게 한다 — 목록까지 하드코딩하면 검사가 헛돈다.
+        with open(dsf, "w", encoding="utf-8") as f:
+            json.dump([list(d) for d in DATASETS], f, ensure_ascii=False)
+        r = subprocess.run([("node"), drv, ROOT, data_dir, out, dsf],
                            capture_output=True, text=True)
         if r.returncode != 0:
             print("[오류] node 실행 실패:\n", r.stderr)

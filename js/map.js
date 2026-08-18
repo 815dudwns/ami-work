@@ -445,6 +445,19 @@ function spreadOverlappingMarkers(grouped) {
     });
 }
 
+// 고압철거 마커 라벨 — 숫자(건수) 대신 한전기준을 한 글자로 보여준다(영준님 지시 2026-08-18).
+//   철거+재설치 -> '교' / 철거 -> '철'
+//   ※데이터셋은 한전기준이 있는 168건만 남겼다(빈칸 83건 제외, apply_gapap_sheet2_fields.py).
+//     그래서 빈칸용 라벨('고압')은 없앴고, 한 마커 안에서 교/철이 섞이는 개소도 현재 0곳이다.
+//     그래도 원천이 바뀌어 섞이면 작업량이 큰 쪽('교')을 보여준다 — 가서 보니 교체더라는
+//     누락을 막기 위한 보수적 선택. 계기별 실제 값은 디테일에서 계기마다 따로 표시된다.
+function gapapMarkerLabel(meters) {
+    const rules = new Set((meters || []).map(m => (m && m.한전기준) || ''));
+    if (rules.has('철거+재설치')) return '교';
+    if (rules.has('철거')) return '철';
+    return '';   // 한전기준 없는 건은 데이터셋에 없다(있으면 라벨 없이 핀만)
+}
+
 // 단일 마커 생성 및 지도에 추가
 function createMarker(position, address, meters, category, addresses, statusKeys) {
     // 표시용 지번 목록(패널 제목 등). 단일이면 [address].
@@ -456,6 +469,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const meterCount = meters.length + addedCount;
     const isSkt = category === 'skt';
     const isTou = category === 'tou';
+    const isGapap = category === '고압';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
     let color = isApproximate ? 'yellow' : 'green';
@@ -465,17 +479,21 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     if (state === 'complete') color = 'gray';
     else if (state === 'hold') color = 'blue';
     else if (state === 'fail') color = 'red';
-    // SKT는 라벨 'SK', TOU는 'TOU', 일반은 개수 (approximate+pending이면 '?')
+    // 좌표 부정확(approximate)이고 아직 미완이면 '?' — 고압도 예외 없이 이 규칙이 먼저다
+    //   (영준님 2026-08-18: "? 는 교/철 무시. ? 우선." 교/철은 디테일에서 확인한다).
+    const isUnknownSpot = isApproximate && state === 'pending';
+    // SKT는 'SK', TOU는 'TOU', 고압은 한전기준 글자, 일반은 개수
     let markerLabel;
     if (isSkt) markerLabel = 'SK';
     else if (isTou) markerLabel = 'TOU';
-    else markerLabel = (isApproximate && state === 'pending') ? '?' : meterCount;
+    else if (isGapap) markerLabel = isUnknownSpot ? '?' : gapapMarkerLabel(meters);
+    else markerLabel = isUnknownSpot ? '?' : meterCount;
     // rework(재)면 숫자 위에 '재' 뱃지. 재방문 데이터셋은 rework=true라 개수+'재'로 표시.
     const touHasRework = isTou && meters.some(m => m.tou_type === 'rework');
     const isRework = aggregateRework(keyList) || touHasRework;
 
     const markerContent = `
-        <div class="custom-marker ${color}">
+        <div class="custom-marker ${color}${isGapap ? ' gapap' : ''}">
             <svg viewBox="0 0 20 26" xmlns="http://www.w3.org/2000/svg">
                 <path class="pin-body" d="M10 0C4.48 0 0 4.48 0 10c0 6.72 10 16 10 16s10-9.28 10-16C20 4.48 15.52 0 10 0z"/>
                 <circle class="pin-circle" cx="10" cy="10" r="5.5" fill="white"/>
@@ -522,6 +540,7 @@ function repaintMarker(marker) {
     const isApproximate = marker.meters.some(m => m.좌표정확도 === 'approximate');
     const isSkt = marker.category === 'skt';
     const isTou = marker.category === 'tou';
+    const isGapap = marker.category === '고압';
 
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
@@ -532,15 +551,18 @@ function repaintMarker(marker) {
     else if (state === 'fail') color = 'red';
 
     const el = marker.element.querySelector('.custom-marker');
-    if (el) el.className = `custom-marker ${color}`;
+    // ★색 클래스만 갈아끼우면 gapap(글자라벨용) 클래스가 날아간다 — 함께 붙인다.
+    if (el) el.className = `custom-marker ${color}${isGapap ? ' gapap' : ''}`;
 
     const addedCount = aggregateAddedCount(addrList);
     const totalCount = marker.meters.length + addedCount;
     const labelEl = marker.element.querySelector('.marker-number');
+    const isUnknownSpot = isApproximate && state === 'pending';   // 고압 포함 — '?' 가 교/철보다 먼저
     if (labelEl) {
         if (isSkt) labelEl.textContent = 'SK';
         else if (isTou) labelEl.textContent = 'TOU';
-        else labelEl.textContent = (isApproximate && state === 'pending') ? '?' : totalCount;
+        else if (isGapap) labelEl.textContent = isUnknownSpot ? '?' : gapapMarkerLabel(marker.meters);
+        else labelEl.textContent = isUnknownSpot ? '?' : totalCount;
     }
 
     // 재작업 라벨 동기화 (TOU는 항목 단위 rework 체크). 재방문은 rework=true라 숫자+'재'.
