@@ -589,11 +589,31 @@ function renderMetersList() {
         //   원본(주덕기 0810 리스트)에 DCUID·변대주가 통째로 비어 있어, 계기를 특정하는 값은
         //   MAC 뿐이다. 비고는 "지하2층 전기실"처럼 계기를 찾아가는 위치 안내라 필수.
         if (meter.category === '고압') {
+            // 한전기준 = 이 개소에 한전이 지시한 작업 성격(철거+재설치 / 철거).
+            //   마커 글자라벨('교'/'철')의 출처라 계기별 실제 값을 여기서 확인한다.
+            //   ※빈칸 건은 데이터셋에서 제외됐다(251 -> 168, apply_gapap_sheet2_fields.py).
+            if (meter.한전기준) {
+                subParts.push(`<span style="color:#dc2626;font-weight:700;">한전기준 ${meter.한전기준}</span>`);
+            }
             if (meter.모뎀MAC) {
                 const macCopyBtn = `<button class="copy-btn" data-copy="${meter.모뎀MAC}" title="모뎀MAC 복사" style="margin-left:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
                 subParts.push(`MAC ${meter.모뎀MAC}${macCopyBtn}`);
             }
-            if (meter.비고) subParts.push(`<span style="color:#2563eb;">${meter.비고}</span>`);
+            // 지사 = 관할 지사(영준님 지시 2026-08-18). 소재지 구가 아니라 관리 주체라
+            //   지하철처럼 구와 어긋나는 개소가 있다(남양주 별내동 -> 동대문중랑지사).
+            //   그래서 주소 계열 바로 위에 붙여 함께 읽히게 둔다. 168건 전부 값이 있다.
+            if (meter.지사) subParts.push(`지사 ${meter.지사}`);
+            // 주소2 = 원천 엑셀의 개소명(예: '경춘선 갈매역'). 지번만으로 못 찾는 현장이라 싣는다.
+            if (meter.주소2) subParts.push(`주소2 ${meter.주소2}`);
+            // 비고1/비고2 는 원천의 두 칸을 그대로 가져온 것이고, 기존 `비고` 는 그 둘을
+            //   ' / ' 로 합친 값이다(하위호환으로 데이터에는 남겨 둔다). 화면에 둘 다 찍으면
+            //   같은 문장이 두 번 나오므로, 나뉜 값이 있으면 그쪽을 쓰고 없을 때만 합본을 쓴다.
+            if (meter.비고1 || meter.비고2) {
+                if (meter.비고1) subParts.push(`<span style="color:#2563eb;">비고1 ${meter.비고1}</span>`);
+                if (meter.비고2) subParts.push(`<span style="color:#2563eb;">비고2 ${meter.비고2}</span>`);
+            } else if (meter.비고 && meter.비고 !== '0') {   // 원천에 '0'만 든 칸이 1건 있다
+                subParts.push(`<span style="color:#2563eb;">${meter.비고}</span>`);
+            }
         }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
         const details = detailParts.join(', ');
