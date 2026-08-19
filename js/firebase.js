@@ -164,13 +164,56 @@ function saveCheckedLocal(checkedMap) {
     localStorage.setItem(CHECKED_KEY, JSON.stringify(checkedMap));
 }
 
-function applyLocalChecked() {
-    const checked = loadCheckedLocal();
-    Object.keys(checked).forEach(addr => {
-        if (workStatus[addr]) {
-            workStatus[addr].checkedMeters = checked[addr];
-        }
+// CHECKED_KEY 보험의 보관 범위 — 최근 7일치 체크만 담는다.
+//   목적이 '아직 서버에 못 보낸 체크의 보존'이라 오래된 건 담을 이유가 없다(서버에 이미 있고
+//   merge 가 되살린다). 전량이면 637KB, 7일치면 55KB — quota 보험이 되레 quota를 먹으면 안 된다.
+const CHECK_BACKUP_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+// ★2026-08-19 교체: 옛 applyLocalChecked() 는 checkedMeters 를 로컬 스냅샷으로 '통째 덮어써서'
+//   mergeOneAddress 가 ts union 으로 제대로 합쳐놓은 남의 체크를 초기 로드 때마다 되돌렸다.
+//   (실증: 폰 A가 계기 3개 체크·완료해도 폰 B는 1개만 보이고, 새로고침해도 매번 재발.
+//    meterChecks 는 안 덮어 두 필드가 어긋나기까지 했다. 화면은 checkedMeters 만 읽는다.)
+//
+//   지금은 '덮어쓰기'가 아니라 'meterChecks 에 ts 와 함께 주입'만 한다. 합칠지 말지 판단은
+//   mergeOneAddress 의 union 에 맡긴다 — 판단 지점이 하나여야 어긋나지 않는다.
+//   옛 배열 형식({주소:[계기...]})은 ts=0 으로 읽는다. 서버에 같은 항목이 있으면 언제나
+//   서버가 이기고, 서버가 모르는 로컬 전용 체크만 살아남는다(그게 이 보험의 목적이다).
+function mergeLocalCheckBackup() {
+    let backup;
+    try {
+        backup = loadCheckedLocal();
+    } catch (e) {
+        console.warn('[check] 로컬 체크 백업 읽기 실패(무시):', e.message);
+        return;
+    }
+    if (!backup || typeof backup !== 'object') return;
+
+    let injected = 0;
+    Object.entries(backup).forEach(([addr, val]) => {
+        if (!workStatus[addr] || !val) return;
+        if (!workStatus[addr].meterChecks) workStatus[addr].meterChecks = {};
+        const mc = workStatus[addr].meterChecks;
+
+        // 옛 형식은 배열, 새 형식은 { 인코딩계기: {checked, ts} }
+        const entries = Array.isArray(val)
+            ? val.map(m => [encodeKey(m), { checked: true, ts: 0 }])
+            : Object.entries(val);
+
+        entries.forEach(([m, v]) => {
+            if (!v) return;
+            const cur = mc[m];
+            // 더 새로운 것만 반영. 같거나 오래됐으면 기존(=서버에서 온 것)을 유지한다.
+            if (!cur || (v.ts || 0) > (cur.ts || 0)) {
+                mc[m] = { checked: !!v.checked, ts: v.ts || 0 };
+                injected++;
+            }
+        });
+
+        workStatus[addr].checkedMeters = Object.entries(mc)
+            .filter(([, v]) => v && v.checked)
+            .map(([m]) => decodeKey(m));
     });
+    if (injected) console.log('[check] 로컬 백업에서 주입한 체크:', injected, '건');
 }
 
 // ── 이벤트 기반 상태 변경 함수 ────────────────────────────────
@@ -264,11 +307,21 @@ function saveCheckEvent(address, meter, checked) {
         _fallback();
     }
 
-    // 체크 별도 localStorage 갱신 — quota-safe
+    // 체크 별도 localStorage 갱신 — quota-safe (STORAGE_KEY 저장이 실패해도 이건 작아서 산다)
+    //   ★ts 를 담은 meterChecks 형식으로 저장한다. 옛 형식(계기 배열)은 ts 가 없어 union 판정이
+    //     불가능했고, 그래서 읽을 때 통째 덮어쓸 수밖에 없었다 — 그게 이번 버그의 뿌리였다.
+    //   ★최근 7일치만 담는다. 이 보험은 '아직 못 보낸 체크' 용이라 옛것은 담을 이유가 없다.
     try {
+        const cutoff = Date.now() - CHECK_BACKUP_WINDOW_MS;
         const allChecked = {};
         Object.keys(workStatus).forEach(addr => {
-            if (workStatus[addr]?.checkedMeters?.length) allChecked[addr] = workStatus[addr].checkedMeters;
+            const mc = workStatus[addr] && workStatus[addr].meterChecks;
+            if (!mc) return;
+            const recent = {};
+            Object.entries(mc).forEach(([m, v]) => {
+                if (v && (v.ts || 0) > cutoff) recent[m] = v;
+            });
+            if (Object.keys(recent).length) allChecked[addr] = recent;
         });
         saveCheckedLocal(allChecked);
     } catch (e) {
@@ -381,7 +434,14 @@ function mergeOneAddress(addr, rawVal) {
     Object.entries(fb.meterChecks || {}).forEach(([m, v]) => {
         if (!mc[m] || ((v && v.ts) || 0) >= ((mc[m] && mc[m].ts) || 0)) mc[m] = v;
     });
-    const mergedChecked = Object.entries(mc).filter(([, v]) => v && v.checked).map(([m]) => decodeKey(m));
+    let mergedChecked = Object.entries(mc).filter(([, v]) => v && v.checked).map(([m]) => decodeKey(m));
+    // ★legacy 폴백(2026-08-19): meterChecks 가 아예 없고 서버가 옛 checkedMeters 배열만 가진
+    //   레코드가 실서버에 32건 있다. union 결과만 쓰면 그 32건은 체크가 [] 로 지워진다.
+    //   지금까지 안 터진 건 옛 applyLocalChecked() 가 로컬 스냅샷으로 되살려주고 있었기 때문이라,
+    //   그 호출을 걷어내는 이번 수정과 반드시 짝으로 가야 한다.
+    if (!Object.keys(mc).length && Array.isArray(rawVal && rawVal.checkedMeters)) {
+        mergedChecked = fb.checkedMeters || [];
+    }
 
     if (fbTime > localTime) {
         // Firebase가 더 최신 — 단 meterChecks/checkedMeters는 위 union 결과로(내 미전송 체크 유실 방지)
@@ -402,7 +462,8 @@ function mergeFirebaseData(firebaseData) {
         mergeOneAddress(decodeKey(encodedAddr), val);
     });
 
-    applyLocalChecked();
+    // ★applyLocalChecked() 호출 제거(2026-08-19). 여기서 로컬 스냅샷으로 덮으면
+    //   위 mergeOneAddress 가 ts union 으로 합쳐놓은 남의 체크가 되돌아간다.
     localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
 }
 
@@ -488,7 +549,11 @@ function attachStatusListeners() {
     // payload(snapshot)는 버리고 "완료 신호"로만 사용.
     statusRef.once('value', () => {
         _initialLoadDone = true;
-        applyLocalChecked();
+        // ★applyLocalChecked() 호출 제거(2026-08-19) — 이 자리가 버그의 현장이었다.
+        //   초기 수신이 끝나 mergeOneAddress 가 전 주소를 제대로 합쳐놓은 직후에
+        //   로컬 스냅샷으로 checkedMeters 를 통째 덮어써 남의 체크를 되돌렸고,
+        //   바로 아래 persistAll() 이 그 잘못된 값을 저장까지 했다.
+        //   로컬 백업 주입은 initFirebase() 에서 로드 직후 1회만 한다(merge 이전).
         persistAll();
         if (typeof refreshAllMarkers === 'function') refreshAllMarkers();
         console.log('[Firebase] 증분 리스너 초기 로드 완료, 주소수:', Object.keys(workStatus).length);
@@ -520,6 +585,11 @@ async function initFirebase() {
             workStatus = {};
         }
     }
+
+    // ★로컬 체크 백업 주입은 여기서 1회 — 반드시 merge 이전이어야 한다.
+    //   merge 이후에 하면(옛 applyLocalChecked 자리) 서버에서 받은 남의 체크를 되돌린다.
+    //   여기서 넣어두면 뒤이은 mergeOneAddress 의 ts union 이 서버 것과 알아서 저울질한다.
+    mergeLocalCheckBackup();
 
     if (firebaseOk) {
         // 미전송 이벤트 큐 먼저 전송
