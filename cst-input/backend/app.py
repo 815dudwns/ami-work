@@ -545,7 +545,8 @@ def _busi_name(busi_num) -> str:
 _JONGNO_SD = ROOT.parent / "jongno-combined" / "data" / "jongno-site-data.json"
 _AMIWORK_SD = ROOT / "data" / "site-data.json"
 _JONGNO_WS_URL = "https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/workStatus/jongno.json"
-_bdju_cache = {"jsd": None, "asd": None, "ws": None, "ws_ts": 0.0}
+_bdju_cache = {"jsd": None, "asd": None, "ws": None, "ws_ts": 0.0,
+               "jsd_mtime": None, "asd_mtime": None}
 
 
 def _decode_jongno_key(k: str) -> str:
@@ -563,6 +564,29 @@ def _load_sd(path):
         return []
 
 
+def _sd_cached(key: str, path):
+    """site-data 캐시 — 파일이 바뀌면 다시 읽는다(mtime 비교).
+
+    ★2026-08-19 사고: 예전엔 최초 1회만 읽고 영구 보관했다. 8/11 기동 이후 site-data 를
+      고쳐도 백엔드는 옛 내용을 계속 들고 있었고, 계기 08550162098 의 변대주가 옛 값
+      38554464(LTE 회선번호)로 나갔다(맞는 값은 9625E421, 전산화번호·K-DCU 개소).
+      재구동 전에는 스스로 회복할 방법이 없었다.
+
+    ★TTL 이 아니라 mtime 을 쓰는 이유: site-data 는 8MB 다. 시간이 지났다고 다시 파싱하면
+      바뀐 게 없어도 매번 비용을 낸다. mtime 은 stat 한 번(마이크로초)이고, 파일이 바뀔
+      때만 재파싱한다. 종로 workStatus 는 원격 URL 이라 mtime 이 없어 기존 3분 TTL 유지.
+    """
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        mtime = None
+    if _bdju_cache[key] is None or _bdju_cache[key + "_mtime"] != mtime:
+        _bdju_cache[key] = _load_sd(path)
+        _bdju_cache[key + "_mtime"] = mtime
+        print(f"[bdju] {key} 재적재: {len(_bdju_cache[key])}건 mtime={mtime}", flush=True)
+    return _bdju_cache[key]
+
+
 def _jongno_ws():
     now = time.time()
     if _bdju_cache["ws"] is None or now - _bdju_cache["ws_ts"] > 180:   # 3분 캐시
@@ -577,8 +601,7 @@ def _jongno_ws():
 
 def _bdju_donghang(mid: str) -> str:
     ws = _jongno_ws()
-    if _bdju_cache["jsd"] is None:
-        _bdju_cache["jsd"] = _load_sd(_JONGNO_SD)
+    jsd = _sd_cached("jsd", _JONGNO_SD)
     for k, v in ws.items():
         if not isinstance(v, dict):
             continue
@@ -588,7 +611,7 @@ def _bdju_donghang(mid: str) -> str:
         for oldid, r in rl.items():
             if isinstance(r, dict) and str(r.get("new_meter_id", "")) == mid:
                 addr = _decode_jongno_key(k).strip()
-                for m in _bdju_cache["jsd"]:
+                for m in jsd:
                     if str(m.get("계기번호")) == str(oldid) or str(m.get("주소", "")).strip() == addr:
                         b = str(m.get("변대주") or "").strip()
                         if b:
@@ -597,9 +620,7 @@ def _bdju_donghang(mid: str) -> str:
 
 
 def _bdju_ilban(mid: str) -> str:
-    if _bdju_cache["asd"] is None:
-        _bdju_cache["asd"] = _load_sd(_AMIWORK_SD)
-    for m in _bdju_cache["asd"]:
+    for m in _sd_cached("asd", _AMIWORK_SD):
         if str(m.get("계기번호")) == mid:
             d = str(m.get("DCUID") or "").strip()
             return d[:8] if len(d) >= 8 else ""
