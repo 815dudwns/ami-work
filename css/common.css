@@ -116,6 +116,18 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothi
     accent-color: #10b981;
     cursor: pointer;
 }
+/* 날짜 트리 — 합동시공처럼 매일 쌓이는 데이터셋의 자식 체크박스.
+   날짜가 늘어나도 패널이 화면 밖으로 자라지 않게 높이를 묶고 스크롤을 준다. */
+.category-panel .date-subtree {
+    margin: -2px 0 4px 18px;
+    padding-left: 8px;
+    border-left: 2px solid #e5e7eb;
+    max-height: 150px;
+    overflow-y: auto;
+}
+.category-panel .date-subtree label { padding: 3px 4px; font-size: 12px; color: #4b5563; }
+.category-panel .date-subtree input[type="checkbox"] { width: 14px; height: 14px; }
+
 @media (max-width: 640px) { .category-filter { top: 50px; left: 8px; } .category-toggle { font-size: 14px; padding: 8px 14px; } }
 
 /* ===== 좌상단 메뉴 트리거 버튼 ===== */

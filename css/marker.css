@@ -36,4 +36,6 @@
     font-weight: 700;
     text-shadow: 0 0 2px white, 0 0 2px white, 0 0 2px white, 0 0 2px white;
 }
+/* 합동시공 뱃지 '합' — 재작업 '재'(빨강)와 구분되게 파랑. 같은 슬롯을 쓴다 */
+.marker-fraction.tag-hapdong { color: #2563eb; }
 

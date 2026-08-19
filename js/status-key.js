@@ -41,7 +41,9 @@ const STATUS_KEY_SEP = '|';
 // 자기 이름을 상태키에 박는 카테고리 — 다른 리스트와 상태를 절대 공유하지 않는다.
 //   성격이 다른 리스트가 또 들어오면 여기에 한 줄 추가하면 된다.
 //   ★scripts/status_key.py 의 NAMESPACED_CATEGORIES 와 같아야 한다.
-const NAMESPACED_CATEGORIES = ['고압'];
+//   ★합동(2026-08-19 추가): 노원·성북·종로가 실효 리스트와 주소가 대량으로 겹친다.
+//     처음부터 '주소|합동' 으로 넣는다 — 나중에 고치면 이미 쌓인 작업분이 고아가 된다.
+const NAMESPACED_CATEGORIES = ['고압', '합동'];
 
 // 마커 식별자 — map.js loadMarkers()의 그룹핑 키와 같은 형식이어야 한다.
 function markerKeyOf(item) {

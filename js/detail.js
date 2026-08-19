@@ -615,6 +615,22 @@ function renderMetersList() {
                 subParts.push(`<span style="color:#2563eb;">${meter.비고}</span>`);
             }
         }
+        // 10) 합동시공 전용 필드 (category=합동): 다른 지역 계기팀이 계기만 갈고 간 개소.
+        //   원본(awms FMPMTR 연간대상 실효계기 목록)에 변대주·DCUID·통신방식·MAC 이 아예 없다.
+        //   그래서 현장에서 계기를 특정하는 값은 **철거계기번호**뿐이라 반드시 보여준다.
+        //   ★없는 값을 유추해 채우지 않았다(2026-08-12 DCUID 유사매칭 864건 오염 전례).
+        if (meter.category === '합동') {
+            subParts.push('<span style="color:#2563eb;font-weight:700;">합동시공·모뎀미시공</span>');
+            if (meter.작업일) {
+                const d = String(meter.작업일);
+                subParts.push(`계기교체 ${d.length === 8 ? `${d.slice(4, 6)}/${d.slice(6)}` : d}`);
+            }
+            if (meter.계기번호_전) subParts.push(`철거계기 ${meter.계기번호_전}`);
+            if (meter.업체) subParts.push(`${meter.업체}`);
+            if (meter.저압고압) subParts.push(`${meter.저압고압}`);
+            if (meter.계약전력) subParts.push(`계약 ${meter.계약전력}kW`);
+            if (meter.공사번호) subParts.push(`공사 ${meter.공사번호}`);
+        }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
         const details = detailParts.join(', ');
 

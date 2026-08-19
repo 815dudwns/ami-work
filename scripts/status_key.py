@@ -52,13 +52,14 @@ DATASETS = [
     ("site-data.json", "실효"),
     ("rework-data.json", "재방문"),
     ("gapap-data.json", "고압"),
+    ("hapdong-data.json", "합동"),
     # ("skt-data.json", "skt"),
     # ("tou-data.json", "tou"),
 ]
 
 # 자기 이름을 상태키에 박는 카테고리 — 다른 리스트와 상태를 절대 공유하지 않는다.
 #   성격이 다른 리스트가 또 들어오면 여기에 한 줄 추가하면 된다.
-NAMESPACED_CATEGORIES = ("고압",)
+NAMESPACED_CATEGORIES = ("고압", "합동")
 
 
 def marker_key_of(item):
