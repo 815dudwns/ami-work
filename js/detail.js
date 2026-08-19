@@ -41,7 +41,10 @@ function showDetail(address, meters, addresses, statusKeys) {
         return !!t && !DIRTY_RE.test(t);
     };
     const pick = (...vals) => vals.find(isUsable) || '';
-    const jibunAddr = pick(meters[0] && meters[0].주소, address);
+    // 지번 — 합동시공은 원문 주소가 '도로명 4(창동 676-32,1층좌)' 꼴이라 그대로 쓰면 읽기 나쁘다.
+    //   카카오가 확인해 준 지번주소가 있으면 그것을 먼저 쓰고, 없으면 예전대로 원문을 쓴다.
+    //   (다른 데이터셋에는 지번주소 필드가 없어 동작이 그대로다. 동호수는 계기별 상세줄에 나온다.)
+    const jibunAddr = pick(meters[0] && meters[0].지번주소, meters[0] && meters[0].주소, address);
     const roadAddr  = pick(meters[0] && meters[0].도로명주소);
 
     // 헤더 = 도로명 우선(있으면), 없으면 지번
@@ -531,7 +534,9 @@ function renderMetersList() {
         if (meter.고객번호) subParts.push(`고객 ${meter.고객번호}`);
         // 5) 실효 미사용 컬럼 살리기 (값 있고 의미 있을 때만)
         if (meter.검기만료년월) subParts.push(`검기만료 ${meter.검기만료년월}`);
-        if (meter.교체사유) subParts.push(`사유 ${meter.교체사유}`);
+        // 합동은 교체사유가 전 건 '합동시공' 고정이라, 아래 10)의 '합동시공·모뎀미시공' 과
+        //   겹쳐 "사유 합동시공 · 합동시공·모뎀미시공" 으로 두 번 나왔다. 강조된 쪽만 남긴다.
+        if (meter.교체사유 && meter.category !== '합동') subParts.push(`사유 ${meter.교체사유}`);
         if (meter.DCU장애여부 && meter.DCU장애여부 !== '정상') {
             subParts.push(`<span style="color:#dc2626;font-weight:700;">DCU ${meter.DCU장애여부}</span>`);
         }
@@ -621,6 +626,9 @@ function renderMetersList() {
         //   ★없는 값을 유추해 채우지 않았다(2026-08-12 DCUID 유사매칭 864건 오염 전례).
         if (meter.category === '합동') {
             subParts.push('<span style="color:#2563eb;font-weight:700;">합동시공·모뎀미시공</span>');
+            // 동호수 — 한 건물에 계기가 여럿인 개소(창동 657-109 는 7세대)에서 계기를 가르는
+            //   유일한 값이라 앞에 둔다. 원문 주소에서만 뽑을 수 있다(카카오는 층·호를 모른다).
+            if (meter.동호수) subParts.push(`<span style="font-weight:700;">동호수 ${meter.동호수}</span>`);
             if (meter.작업일) {
                 const d = String(meter.작업일);
                 subParts.push(`계기교체 ${d.length === 8 ? `${d.slice(4, 6)}/${d.slice(6)}` : d}`);

@@ -71,3 +71,9 @@ research/admin-validation/backend/session_mtr.json
 research/admin-validation/backend/transmit_config.json
 research/admin-validation/backend/archive_meta_index.json
 research/admin-validation/backend/*.bak-*
+
+# 합동시공 awms 원본 덤프 (2026-08-19) — 매일 7천여 줄이 쌓여 .git 이 다시 부푼다.
+#   ★파일 자체는 로컬에 남긴다. build_hapdong_data.py 가 이걸 읽어 재빌드하므로
+#     지우면 재수집 없이는 복구가 안 된다. 추적만 안 한다.
+#   geocode-cache.json 은 추적을 유지한다 — 작고, 있으면 재조회(카카오 호출)를 아낀다.
+data/inbox_hapdong/*_raw_*.json

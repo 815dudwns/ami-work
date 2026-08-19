@@ -38,6 +38,10 @@ OUT = ROOT / 'data' / 'hapdong-data.json'
 GEO_CACHE = INBOX / 'geocode-cache.json'
 WORKERS = 8
 
+# 종로 보강 원천 — 종로맵 대장. awms FMPMTR 응답에는 변대주·DCU 정보가 없지만
+#   종로는 우리 데이터가 따로 있다(영준님 지시 2026-08-19).
+JONGNO_SRC = ROOT / 'jongno-combined' / 'data' / 'jongno-site-data.json'
+
 # 계기번호 3~4자리(0-base [2:4]) -> 계기타입. CLAUDE.md 데이터규칙.
 #   ★엑셀/원본 값 믿지 말고 계기번호로 직접 파싱한다.
 #   매핑에 없는 코드는 빈값(영준님 지시) — 아는 척하지 않는다.
@@ -104,8 +108,95 @@ def _dong_beonji(tokens):
     return None, None
 
 
+def _jibun_tail(addr):
+    """지번 비교용 (법정동, 번지). 번지는 부번까지 그대로 — '109' 와 '109-3' 을 구별해야 한다.
+
+    ★geocode_cascade._jibun_key 는 못 쓴다. 그쪽은 본번만 봐서 109 와 109-3 을 같다고 본다
+      (좌표 판정에는 그게 맞지만, 지번주소 칸에 넣을 값의 검증에는 못 쓴다).
+    """
+    tokens = str(addr or '').split()
+    for i, p in enumerate(tokens):
+        if ROADNAME_RE.search(p) or not DONG_RE.match(p):
+            continue
+        for q in tokens[i + 1:]:
+            m = BEONJI_RE.match(q)
+            if m:
+                return (p, m.group(1))
+        return (p, None)
+    return (None, None)
+
+
+def _looks_like_jibun(text):
+    """'창동 676-32' 처럼 법정동 + 번지 꼴인가. 괄호 안이 지번인지 판별하는 데 쓴다."""
+    dong, beonji = _dong_beonji(str(text or '').split())
+    return bool(dong and beonji)
+
+
+def _tail_after_beonji(head):
+    """괄호 앞 본문에서 '지번(또는 도로명 번호)' 뒤에 남는 문자열.
+
+    '...보문동1가 274번지 202호' -> '202호'   (번지 뒤 잔여)
+    '...창동 676-54 2층'         -> '2층'
+    '...도봉로110바길 4'          -> ''       (도로명 번호가 끝)
+    '...보문동1가 178번지'        -> ''       ('번지'는 번지 토큰에 붙어 있다)
+    """
+    tokens = str(head or '').split()
+    anchor = -1
+    for i, p in enumerate(tokens):
+        # 도로명 + 번호
+        if ROADNAME_RE.search(p) and i + 1 < len(tokens) and BEONJI_RE.match(tokens[i + 1]):
+            anchor = max(anchor, i + 1)
+        # 법정동 + 번지
+        elif DONG_RE.match(p):
+            for j in range(i + 1, len(tokens)):
+                if BEONJI_RE.match(tokens[j]):
+                    anchor = max(anchor, j)
+                    break
+    if anchor < 0:
+        return ''
+    return ' '.join(tokens[anchor + 1:]).strip()
+
+
+def split_detail(addr):
+    """주소 원문 -> 동호수. **지번·도로명은 여기서 만들지 않는다**(카카오 응답에서 받는다).
+
+    괄호 안이 항상 지번이 아니다 — '(좌)' '(수석)' 처럼 지번이 아닌 메모가 섞여 있어서,
+    규칙으로 쪼개 지번 칸에 넣으면 그대로 오염된다(영준님 지시 2026-08-19). 그래서 원문에서는
+    카카오가 알 수 없는 **동호수만** 떼어 낸다.
+
+    규칙 (원본 4형태를 모두 통과한다)
+      괄호+콤마 있음  '...4(창동 676-32,1층좌)'          -> 첫 콤마 뒤 전부      '1층좌'
+                      '...35-3(창동 657-117,1층1호 ,좌측대문)' -> '1층1호 ,좌측대문'
+      괄호+콤마 없음  '...45(창동 657-55)'                -> 괄호 안이 지번이면 없음
+                      '...119번지 (수석)'                 -> 지번이 아니면 그 내용  '수석'
+      괄호 없음       '...창동 676-54 2층'                -> 번지 뒤 잔여          '2층'
+                      '...보문동1가 178번지'              -> 없음
+    괄호 앞 본문에 남는 것(예 '274번지 202호' 의 '202호')도 함께 붙인다.
+    """
+    a = str(addr or '')
+    if not a.strip():
+        return ''
+
+    head = a.split('(')[0]
+    m = re.search(r'\(([^)]*)\)?', a)
+    inner = m.group(1) if m else ''
+
+    if ',' in inner:
+        paren_detail = inner.split(',', 1)[1].strip()
+    elif inner.strip() and not _looks_like_jibun(inner):
+        paren_detail = inner.strip()
+    else:
+        paren_detail = ''
+
+    parts = [p for p in (_tail_after_beonji(head), paren_detail) if p]
+    return ' '.join(parts).strip()
+
+
 def split_addr(addr):
-    """주소 원문 -> (도로명, 지번) 지오코딩용 질의쌍.
+    """주소 원문 -> (도로명, 지번) **지오코딩 질의용** 쌍. 저장값이 아니다.
+
+    ★2026-08-19: 저장되는 도로명주소·지번주소는 카카오 응답에서 받는다(영준님 지시).
+      이 함수의 결과는 카카오에 무엇을 물어볼지 정하는 데만 쓴다.
 
     awms 주소는 두 형태로 온다.
       A) '서울특별시 도봉구 도봉로110바길 4(창동 676-32,1층좌)'
@@ -172,12 +263,24 @@ def load_geo_cache():
     return {}
 
 
+# 캐시 한 칸의 길이. [accuracy, address, lat, lng, method, road, jibun]
+#   ★2026-08-19 에 road·jibun 두 칸이 늘었다(도로명/지번을 갈라 저장). 짧은 옛 항목은
+#     버리지 않고 **재조회해서 덮어쓴다** — 지우면 그 주소를 다시 못 찾을 때 손실이 된다.
+CACHE_LEN = 7
+
+
 def geocode_all(pairs, cache):
-    """[(jibun, road)] -> {키: [accuracy, address, lat, lng, method]}. 캐시 재사용."""
-    todo = [p for p in pairs if f'{p[0]} {p[1]}' not in cache]
+    """[(jibun, road)] -> {키: [accuracy, address, lat, lng, method, road, jibun]}. 캐시 재사용."""
+    def stale(k):
+        v = cache.get(k)
+        return not isinstance(v, list) or len(v) < CACHE_LEN
+
+    todo = [p for p in pairs if stale(f'{p[0]} {p[1]}')]
     if not todo:
         return cache
-    print(f'지오코딩 대상 {len(todo):,}건 (캐시 재사용 {len(pairs) - len(todo):,}건)', flush=True)
+    old = sum(1 for p in pairs if f'{p[0]} {p[1]}' in cache and stale(f'{p[0]} {p[1]}'))
+    print(f'지오코딩 대상 {len(todo):,}건 '
+          f'(캐시 재사용 {len(pairs) - len(todo):,}건 / 옛 스키마 재조회 {old:,}건)', flush=True)
 
     counter = {'done': 0, 'exact': 0, 'approx': 0, 'fail': 0}
     lock = threading.Lock()
@@ -190,7 +293,8 @@ def geocode_all(pairs, cache):
         futures = [ex.submit(work, p) for p in todo]
         for fut in as_completed(futures):
             p, hit = fut.result()
-            cache[f'{p[0]} {p[1]}'] = [hit.accuracy, hit.address, hit.lat, hit.lng, hit.method]
+            cache[f'{p[0]} {p[1]}'] = [hit.accuracy, hit.address, hit.lat, hit.lng,
+                                       hit.method, hit.road, hit.jibun]
             with lock:
                 counter['done'] += 1
                 counter['exact' if hit.accuracy == 'exact'
@@ -210,7 +314,6 @@ def to_record(r, batch_day):
     jisa = dept if (not dept or dept.endswith('직할') or dept.endswith('지사')) else dept + '지사'
 
     addr = clean_addr(r.get('WRK_PLCE_ADDR_CTT'))
-    road, _ = split_addr(addr)
 
     meter = norm_meter(r.get('WHM_NO10'))        # 부설계기 = 교체 후 현재 계기
     meter_prev = norm_meter(r.get('WHM_NO'))     # 철거계기
@@ -223,8 +326,13 @@ def to_record(r, batch_day):
     pwr = r.get('CNTR_PWR')
     return {
         '지사': jisa,
+        # ★'주소' 는 awms 원문 그대로 보존한다. 파싱을 나중에 고치려면 원문이 있어야 한다.
         '주소': addr,
-        '도로명주소': road,
+        # 도로명주소·지번주소는 뒤에서 **카카오 응답**으로 채운다(원문 파싱 금지).
+        '도로명주소': '',
+        '지번주소': '',
+        # 동호수만 원문에서 뗀다 — 카카오는 층·호를 모른다.
+        '동호수': split_detail(addr),
         '계기번호': meter,
         '계기타입': parse_meter_type(meter),
         '계기번호_전': meter_prev,
@@ -238,6 +346,9 @@ def to_record(r, batch_day):
         '인입주': '',
         '변대주': '',
         'DCUID': '',
+        # 전산화번호 — 종로분만 enrich_jongno 가 채운다(표시엔 안 쓰이고 대조·복구용).
+        '변대주전산화': '',
+        '인입주전산화': '',
         '모뎀MAC': '',
         'dcu_철거예정': '',
         'DCU장애여부': '',
@@ -257,6 +368,110 @@ def to_record(r, batch_day):
         '작업자': (r.get('USER_NM') or '').strip(),
         'CONS_TGT_SEQNO': r.get('CONS_TGT_SEQNO'),
     }
+
+
+# ─── 종로 보강 ─────────────────────────────────────────────────────────────
+
+def norm_id(v):
+    """고객번호·계기번호 대조용 정규화 — 앞의 0 만 떼고 그대로 비교한다.
+    합동(awms)은 10자리 zero-pad '0116163882', 종로맵은 9자리 '141611851' 로 온다."""
+    return str(v if v is not None else '').strip().lstrip('0')
+
+
+def _load_jongno_index():
+    """종로맵 대장 -> {(고객번호, 계기번호): [행, ...]}. 키는 정규화된 값."""
+    if not JONGNO_SRC.exists():
+        print(f'경고: 종로 원천 없음 — {JONGNO_SRC} (보강 건너뜀)', file=sys.stderr)
+        return {}
+    rows = json.loads(JONGNO_SRC.read_text(encoding='utf-8'))
+    idx = {}
+    for r in rows:
+        idx.setdefault((norm_id(r.get('고객번호')), norm_id(r.get('계기번호'))), []).append(r)
+    return idx
+
+
+def enrich_jongno(recs):
+    """종로(서울본부직할 + 공사번호 끝 383)분에 변대주·인입주·DCUID·통신방식을 채운다.
+
+    ★두 키(고객번호 + 철거계기번호)가 **모두** 같은 한 행에 맞을 때만 채운다.
+      한쪽만 맞으면 채우지 않는다. 실측 2026-08-19분 78건은 전부 두 키가 맞아 손실이 없고,
+      앞으로 누적될 때의 오매칭을 막는 방어선이다.
+    ★정확일치만. 유사매칭·이름매칭 금지 — 2026-08-12 에 변대주 한글명 유사매칭으로 864건을
+      오염시킨 전례가 있다(창신지 26 에 창신지 27 의 DCUID). 전주명은 연번이어도
+      전산화번호는 연번이 아니다.
+    ★매칭 실패하거나 원천에도 값이 없으면 **빈값을 유지한다**. 틀린 값보다 빈칸이 낫다.
+    ★종로 외 지사(노원도봉·강북성북·광진성동)는 원본에 이 정보가 아예 없다. 손대지 않는다.
+
+    ※필드 의미 주의 (2026-08-19 실측) — 두 데이터셋의 '변대주' 는 담는 값이 서로 다르다.
+        아미맵(site-data): 변대주='연촌간 39L5'(전주명) · DCUID='9726G1525M'(전산화번호+2)
+                           인입주='금문간 22L1L1'(전주명)
+        종로맵          : 변대주='9926G874'(전산화번호) · 변대주라벨='안국로 R7-1'(전주명)
+                           인입주전산화='9926G881'(전산화번호) · 인입주번호='안국로 R7-1'(전주명)
+      그래서 이름이 같은 칸끼리 옮기면 전주명 자리에 전산화번호가 들어가 화면이 깨진다
+      (js/detail.js 는 변대주를 전주명으로, DCUID 를 전산화번호로 그린다).
+      **의미 기준으로 옮긴다** — 변대주<-변대주라벨, 인입주<-인입주번호.
+      전산화번호도 버리지 않고 변대주전산화·인입주전산화 로 함께 싣는다(표시엔 안 쓰인다).
+    """
+    idx = _load_jongno_index()
+    if not idx:
+        return {'대상': 0, '채움': 0}
+
+    stat = {'대상': 0, '채움': 0, '원천빈값': 0, '미매칭': 0, '규칙위반': 0, '모호': 0}
+    problems = []
+
+    for e in recs:
+        if e.get('지사') != '서울본부직할' or not str(e.get('공사번호') or '').endswith('383'):
+            continue
+        stat['대상'] += 1
+
+        hit = idx.get((norm_id(e.get('고객번호')), norm_id(e.get('계기번호_전'))))
+        if not hit:
+            stat['미매칭'] += 1
+            continue
+
+        # 같은 키에 원천 행이 여럿이고 값이 갈리면 무엇이 맞는지 알 수 없다 — 채우지 않는다.
+        if len(hit) > 1:
+            vals = {(str(x.get('변대주라벨') or ''), str(x.get('DCUID') or ''),
+                     str(x.get('통신방식') or ''), str(x.get('인입주번호') or '')) for x in hit}
+            if len(vals) > 1:
+                stat['모호'] += 1
+                problems.append(f"모호(원천 {len(hit)}행, 값 불일치): 고객 {e.get('고객번호')}")
+                continue
+        src = hit[0]
+
+        # ★DCUID = 변대주 전산화번호 + 뒤 2자리. 어긋나면 둘 중 하나가 틀린 것이라 채우지 않는다.
+        dcuid = str(src.get('DCUID') or '').strip()
+        pole_no = str(src.get('변대주') or '').strip()
+        if dcuid and pole_no and not (dcuid.startswith(pole_no) and len(dcuid) == len(pole_no) + 2):
+            stat['규칙위반'] += 1
+            problems.append(f"DCUID 규칙 위반: 고객 {e.get('고객번호')} 변대주 {pole_no} / DCUID {dcuid}")
+            continue
+
+        # 원천에 있는 값만 덮어쓴다. 빈값으로 기존 값을 지우지 않는다.
+        moved = {
+            '변대주': src.get('변대주라벨'),
+            '인입주': src.get('인입주번호'),
+            'DCUID': dcuid,
+            '통신방식': src.get('통신방식'),
+            '변대주전산화': pole_no,
+            '인입주전산화': src.get('인입주전산화'),
+        }
+        got = False
+        for k, v in moved.items():
+            v = str(v if v is not None else '').strip()
+            if v:
+                e[k] = v
+                got = True
+        if got:
+            stat['채움'] += 1
+        else:
+            stat['원천빈값'] += 1
+
+    if problems:
+        print('  ★보강 보류 건:', flush=True)
+        for p in problems[:20]:
+            print('   -', p, flush=True)
+    return stat
 
 
 def main():
@@ -288,24 +503,33 @@ def main():
     cache = geocode_all(sorted(pairs), cache)
     GEO_CACHE.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding='utf-8')
 
-    stat = {'exact': 0, 'approximate': 0, 'fail': 0, 'no_addr': 0}
+    stat = {'exact': 0, 'approximate': 0, 'fail': 0, 'no_addr': 0, '지번불일치': 0}
     for e in recs:
         road, jibun = split_addr(e['주소'])
         if not (road or jibun):
             e['좌표정확도'] = 'fail'
             stat['no_addr'] += 1
             continue
-        acc, got_addr, lat, lng, _method = cache[f'{jibun} {road}']
+        acc, got_addr, lat, lng, _method, got_road, got_jibun = cache[f'{jibun} {road}']
         e['lat'] = lat
         e['lng'] = lng
         e['좌표정확도'] = acc if acc else 'fail'
-        # 도로명이 원본에 없는 형태(B형)면 지오코딩이 돌려준 도로명을 채운다.
-        #   조건 둘: exact 로 잡힌 것만(approximate 는 이웃 지번이라 남의 도로명이 붙는다),
-        #   그리고 응답이 **정말 도로명일 때만**. 카카오는 도로명이 없는 지번엔 지번을 그대로
-        #   돌려주는데(보문동1가 178), 그걸 도로명 칸에 넣으면 디테일 헤더가 원본과 다른
-        #   지번을 보여준다(109 -> 109-3 실측). 유추한 주소를 얹지 않는다.
-        if not e['도로명주소'] and acc == 'exact' and got_addr and is_road_address(got_addr):
-            e['도로명주소'] = got_addr
+        # ★도로명주소·지번주소는 카카오가 준 값 그대로 넣는다(영준님 지시 2026-08-19).
+        #   원문 파싱으로 만들지 않는다 — 괄호 안이 지번이 아닌 행('(좌)' '(수석)')이 있어
+        #   규칙으로 쪼개면 그 메모가 지번 칸에 들어간다.
+        #   ★exact 일 때만 채운다. approximate 는 이웃 지번이나 동 중심이라 **그 주소가 아니다**.
+        #     틀린 주소를 보여주느니 빈칸이 낫다(원문은 '주소' 에 그대로 남아 있다).
+        #   ★도로명이 없는 옛 지번은 got_road 가 빈값으로 온다 — 그대로 빈값이 정상이다.
+        #   ★응답 지번이 **물어본 지번과 같을 때만** 넣는다. 좌표 판정(exact)은 본번만 맞으면
+        #     통과라, '보문동1가 109번지' 를 물었는데 109-3 이 돌아와도 exact 다(실측 1건).
+        #     좌표로는 충분해도 지번주소 칸에 넣으면 남의 지번을 보여주게 된다.
+        if acc == 'exact':
+            if got_road and is_road_address(got_road):
+                e['도로명주소'] = got_road
+            if got_jibun and _jibun_tail(got_jibun) == _jibun_tail(jibun):
+                e['지번주소'] = got_jibun
+            elif got_jibun:
+                stat['지번불일치'] += 1
         stat[acc if acc in stat else 'fail'] += 1
 
     # 3) 기존 파일과 병합 — 유니크 키 = CONS_TGT_SEQNO
@@ -324,13 +548,31 @@ def main():
     # 작업일 내림차순(최신 먼저) + 지사/주소로 안정 정렬
     merged.sort(key=lambda e: (e.get('작업일') or '', ), reverse=True)
 
+    # 4) 종로 보강 — ★병합 뒤 전체에 적용한다. 그날치에만 걸면 다음 실행에서 옛 건이
+    #    다시 빈값이 되고, 원천이 갱신돼도 반영되지 않는다.
+    print()
+    ez = enrich_jongno(merged)
+    print(f"종로 보강: 대상 {ez['대상']} / 채움 {ez['채움']} / 원천빈값 {ez.get('원천빈값', 0)}"
+          f" / 미매칭 {ez.get('미매칭', 0)} / 규칙위반 {ez.get('규칙위반', 0)} / 모호 {ez.get('모호', 0)}")
+
     OUT.write_text(json.dumps(merged, ensure_ascii=False, indent=1), encoding='utf-8')
 
     import collections
     print()
     print(f'저장: {OUT} — 총 {len(merged):,}건 (신규/갱신 {len(recs):,})')
     print(f"좌표: exact={stat['exact']} approximate={stat['approximate']} "
-          f"fail={stat['fail']} 주소없음={stat['no_addr']}")
+          f"fail={stat['fail']} 주소없음={stat['no_addr']} "
+          f"· 응답지번이 물어본 지번과 달라 지번주소 비움={stat['지번불일치']}")
+    # 주소 3분할 점검 — ★지번 칸에 '좌' '수석' 같은 비지번이 들어가는 것이 이 작업의 핵심 실패모드다.
+    n_road = sum(1 for e in merged if str(e.get('도로명주소') or '').strip())
+    n_jibun = sum(1 for e in merged if str(e.get('지번주소') or '').strip())
+    n_detail = sum(1 for e in merged if str(e.get('동호수') or '').strip())
+    bad = [e for e in merged if str(e.get('지번주소') or '').strip()
+           and not _looks_like_jibun(e['지번주소'])]
+    print(f'주소 3분할: 도로명 {n_road} / 지번 {n_jibun} / 동호수 {n_detail} '
+          f'(총 {len(merged)}) · 지번 칸 비지번 오염 {len(bad)}건')
+    for e in bad[:10]:
+        print(f"   ★비지번: {e.get('지번주소')!r} <- {e.get('주소')!r}")
     print('지사별:', dict(collections.Counter(e['지사'] for e in merged)))
     print('작업일별:', dict(collections.Counter(e['작업일'] for e in merged)))
     print('계기타입별:', dict(collections.Counter(e['계기타입'] or '(빈값)' for e in merged)))

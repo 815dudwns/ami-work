@@ -25,6 +25,8 @@
     from geocode_cascade import resolve
     hit = resolve(jibun='서울특별시 마포구 아현동 85-17', road='')
     # hit.accuracy ('exact'|'approximate'|'fail') / .address / .lat / .lng / .method
+    # hit.road (도로명, 없으면 '') / .jibun (지번)  <- 2026-08-19 추가
+    #   ★.address 는 '도로명 or 지번' 이 섞인 표시용이다. 둘을 갈라 써야 하면 .road/.jibun 을 봐라.
 """
 
 import re
@@ -39,7 +41,11 @@ KAKAO_ADDRESS_URL = 'https://dapi.kakao.com/v2/local/search/address.json'
 KAKAO_KEYWORD_URL = 'https://dapi.kakao.com/v2/local/search/keyword.json'
 NAVER_URL = 'https://maps.apigw.ntruss.com/map-geocode/v2/geocode'
 
-Hit = namedtuple('Hit', 'accuracy address lat lng method')
+# road/jibun 은 2026-08-19 추가 — 응답의 도로명과 지번을 **따로** 들고 나온다.
+#   address 는 예전부터 '도로명 or 지번' 이 섞인 표시용 값이라 그것만으로는 둘을 못 가른다.
+#   기본값이 있어 기존 5인자 Hit(...) 생성과 .accuracy/.address/.lat/.lng/.method 접근은 그대로다.
+Hit = namedtuple('Hit', 'accuracy address lat lng method road jibun')
+Hit.__new__.__defaults__ = ('', '')
 
 _kakao = requests.Session()
 _kakao.headers.update({'Authorization': f'KakaoAK {require_env("KAKAO_REST_API_KEY")}'})
@@ -139,13 +145,16 @@ def _kakao_get(url, params, retries=4):
     return []
 
 
+# 조회 함수는 (표시용주소, 지번, 위도, 경도, 도로명) 5개를 돌려준다.
+#   ★도로명이 없는 옛 지번은 road 가 빈 문자열이다 — 그 경우 빈값 그대로 넘긴다.
+#     예전처럼 지번을 도로명 자리에 채워 넣으면 호출부가 둘을 구분할 수 없다.
 def kakao_address(query):
     if not query:
         return None
     for d in _kakao_get(KAKAO_ADDRESS_URL, {'query': query})[:1]:
         road = (d.get('road_address') or {}).get('address_name', '')
         jibun = (d.get('address') or {}).get('address_name', '')
-        return (road or jibun or query), jibun, float(d['y']), float(d['x'])
+        return (road or jibun or query), jibun, float(d['y']), float(d['x']), road
     return None
 
 
@@ -154,7 +163,8 @@ def kakao_keyword(query):
         return None
     for d in _kakao_get(KAKAO_KEYWORD_URL, {'query': query, 'size': 1})[:1]:
         return (d.get('road_address_name') or d.get('address_name') or query,
-                d.get('address_name') or '', float(d['y']), float(d['x']))
+                d.get('address_name') or '', float(d['y']), float(d['x']),
+                d.get('road_address_name') or '')
     return None
 
 
@@ -172,7 +182,7 @@ def naver_address(query):
             for a in r.json().get('addresses', [])[:1]:
                 jibun = a.get('jibunAddress') or ''
                 road = a.get('roadAddress') or ''
-                return (road or jibun or query), jibun, float(a['y']), float(a['x'])
+                return (road or jibun or query), jibun, float(a['y']), float(a['x']), road
             return None
         except Exception:
             time.sleep(0.3)
@@ -200,7 +210,7 @@ def resolve(jibun='', road=''):
             continue
         got = fn(q)
         if got:
-            return Hit('exact', got[0], got[2], got[3], method)
+            return Hit('exact', got[0], got[2], got[3], method, got[4], got[1])
 
     # 네이버 — 카카오에 없는 지번을 갖고 있다. 단 근접응답 판별이 필요하다.
     # ★본번 검색(_parent_beonji)보다 반드시 먼저. 부번을 버리고 찾은 값보다
@@ -211,19 +221,20 @@ def resolve(jibun='', road=''):
         have = _jibun_key(got[1] or got[0])
         exact = bool(want and have and want == have)
         return Hit('exact' if exact else 'approximate', got[0], got[2], got[3],
-                   'naver' if exact else 'naver_nearby')
+                   'naver' if exact else 'naver_nearby', got[4], got[1])
 
     # 부번을 버린 본번 검색 — 요청한 지번이 아니므로 approximate
     parent = _parent_beonji(jibun)
     if parent:
         got = kakao_address(parent) or kakao_keyword(parent)
         if got:
-            return Hit('approximate', got[0], got[2], got[3], 'kakao_jibun_parent')
+            return Hit('approximate', got[0], got[2], got[3], 'kakao_jibun_parent',
+                       got[4], got[1])
 
     dong = extract_dong(jibun) or extract_dong(road)
     if dong:
         got = kakao_address(dong) or kakao_keyword(dong) or naver_address(dong)
         if got:
-            return Hit('approximate', got[0], got[2], got[3], 'dong_center')
+            return Hit('approximate', got[0], got[2], got[3], 'dong_center', got[4], got[1])
 
     return Hit('fail', road or jibun, None, None, 'none')
