@@ -81,7 +81,6 @@ def _stale_note():
     return (f"\n!! 백엔드 코드가 디스크보다 오래됐다 — 기동 {BOOT_TS:%Y-%m-%d %H:%M:%S} < "
             f"app.py {mt:%Y-%m-%d %H:%M:%S} (sha {sha}). `cst-input/restart.sh` 로 재구동해야 반영된다.")
 
-
 # ── OCR 실패 표본 수집 (계약: docs/data-contract.md §스키마소유자ocr-meter/쓰기통신팀, 2026-07-27) ──
 # 스키마 정본=ocr-meter, 쓰기=통신팀. 임의 필드변경 금지 — 바꿀 땐 ocr-meter 합의 후 append-only.
 # worktree-상대참조 금지(data-contract 원칙) — SHARED_OCR_POC 절대경로 상수로만 참조.
@@ -335,7 +334,7 @@ def infer_inst_m(meter_no: str) -> str:
 # 정본 마스터 80필드 / 슬레이브 52필드. 봉인 빈값은 그대로(정본도 빈문자열 전송, FormData).
 _MASTER_BASE = {
     "ROW_TYPE": "2", "FILTER_ROW": "N", "WORK_DIV": "M1010", "FLAG": "M10",
-    "WORK_STEP": "28", "MTR_WITH_YN": "Y", "FCLTY_DIV": "20", "EXT_CONN_DEV": "N",
+    "WORK_STEP": "28", "MTR_WITH_YN": "Y", "FCLTY_DIV": "20",
     "GUBUN": "01", "DCU_SIGONG_CD": "N", "TDU_USE_YN": "N", "mbInsertCnt": "0",
     "ERR_LIST": "[]", "SEAL_UPD": "N", "DANGER_INFO_FLAG": "2",
     # BUILTIN_YN = 사전체결여부(awms 2026-07-27 신규필드, 영준님 확정 2026-07-27). 항상 N.
@@ -424,6 +423,7 @@ _load_config()    # 폰이 지정한 설정값(지사/동행/계정) 복원 — 
 if SESSION.get("jsessionid"):
     pull_workgroup()   # 재기동 시 세션 있으면 awms 저장 작업조(WORKER2_SEQ) 즉시 반영 — 20118 노출 구간 제거
 _cleanup_old_temp(0)   # 기동 시 남은 임시 사진폴더 전부 정리(in-flight 없음)
+# (전송 아카이브 30일 정리 = _archive_cleanup(), 함수 정의 직후에서 기동 1회 호출)
 
 
 @app.get("/api/session")
@@ -937,6 +937,106 @@ def _photos_to_files(photos, tmpd):
     return out
 
 
+# ── 큐/전송 아카이브 (영준님 2026-07-29: "올리더라도 지우지 말고 1달 보관") ──────────
+# 배경: saveAct 후 tmpd를 즉시 rmtree 해서, 큐에서 지운 건의 계기·모뎀맥·사진을 복원할 길이
+#       전혀 없었다(2026-07-29 삭제큐 2건 복원 실패 사고). 전송 성공해도 30일간 남긴다.
+# 위치는 레포 밖 홈 하위 — 사진이 쌓이므로 git에 절대 들어가면 안 됨.
+ARCHIVE_DIR = Path.home() / ".ami-cst-archive"
+ARCHIVE_KEEP_DAYS = 30
+
+
+def _archive_cleanup(keep_days=ARCHIVE_KEEP_DAYS):
+    """보관기간(기본 30일) 지난 일자폴더 삭제. 폴더명(YYYYMMDD) 기준, 파싱 실패 시 mtime.
+    ★기동 시에도 호출되므로 무슨 일이 있어도 예외를 밖으로 던지지 않는다(백엔드 기동 실패 방지)."""
+    try:
+        if not ARCHIVE_DIR.exists():
+            return
+        limit = datetime.now(KST).date() - timedelta(days=keep_days)
+        for d in ARCHIVE_DIR.iterdir():
+            try:
+                if not d.is_dir():
+                    continue
+                try:
+                    day = datetime.strptime(d.name, "%Y%m%d").date()
+                except ValueError:
+                    day = datetime.fromtimestamp(d.stat().st_mtime, KST).date()
+                if day < limit:
+                    shutil.rmtree(d, ignore_errors=True)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _archive_begin(body):
+    """전송 시작 시 잡 폴더 생성 + 요청 스냅샷 기록. 실패해도 None 반환(전송엔 영향 0)."""
+    try:
+        _archive_cleanup()
+        now = datetime.now(KST)
+        m = body.get("master") or {}
+        mb = str(m.get("meterNo", "")).strip() or "unknown"
+        jd = ARCHIVE_DIR / now.strftime("%Y%m%d") / f"{now.strftime('%H%M%S')}_{mb}"
+        jd.mkdir(parents=True, exist_ok=True)
+        _archive_write(jd, patch={
+            "ts": now.isoformat(),
+            "mode": body.get("mode", ""), "ham": body.get("ham", ""),
+            "bdju": body.get("bdju", ""), "commSuffix": body.get("commSuffix", ""),
+            "config": {k: CONFIG.get(k, "") for k in
+                       ("DEPT1", "DEPT2", "BUSI_NUM", "WORKER1_SEQ", "WORKER2_SEQ", "WITH_YN")},
+            "master": {"meterNo": m.get("meterNo", ""), "mac": m.get("mac", ""),
+                       "photoSlots": sorted((m.get("photos") or {}).keys())},
+            "slaves": [{"meterNo": s.get("meterNo", ""),
+                        "photoSlots": sorted((s.get("photos") or {}).keys())}
+                       for s in body.get("slaves", [])],
+            "sent": [], "status": "sending",
+        })
+        return jd
+    except Exception:
+        return None
+
+
+def _archive_write(jd, patch=None, sent=None, status=None):
+    """job.json 갱신(읽기-병합-쓰기). 아카이브 실패는 전송을 막지 않는다(전부 삼킴)."""
+    if not jd:
+        return
+    try:
+        f = jd / "job.json"
+        job = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+        if patch:
+            job.update(patch)
+        if sent:
+            job.setdefault("sent", []).append(sent)
+        if status:
+            job["status"] = status
+            job["finishedAt"] = datetime.now(KST).isoformat()
+        f.write_text(json.dumps(job, ensure_ascii=False, indent=1), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _archive_photos(jd, role, files: dict):
+    """전송에 쓴 사진을 잡 폴더로 복사. base64 재적재 없이 copy2 (큐 OOM 전례 회피).
+    files = {'ATCH_FILE_ID_5_SRC': 임시경로, ...} → 반환 {슬롯: 저장파일명}.
+    ★전송(post) 전에 호출한다 — 전송이 터져도 사진은 남게."""
+    saved = {}
+    if not jd:
+        return saved
+    for k, v in (files or {}).items():
+        if not k.endswith("_SRC"):
+            continue
+        slot = k[len("ATCH_FILE_ID_"):-len("_SRC")]
+        name = f"{role}_{slot}.jpg"
+        try:
+            shutil.copy2(v, jd / name)
+            saved[slot] = name
+        except Exception:
+            pass
+    return saved
+
+
+_archive_cleanup()   # 기동 시 보관기간(30일) 지난 전송 아카이브 정리
+
+
 def _saveact_precheck():
     """전송 전 게이트(세션·공사설정). 두 엔드포인트(classic/stream) 공용. 실패 시 HTTPException."""
     if not session_alive():
@@ -955,10 +1055,17 @@ def _saveact_core(body):
     classic 엔드포인트는 이 제너레이터를 소비해 done의 results만 반환(출력 바이트 동일 유지).
     stream 엔드포인트는 각 이벤트를 NDJSON 한 줄로 흘려보냄.
     ★ fid3/fid4 마스터→슬레이브 공유·순차 로직은 종전과 동일 — 감싸기만."""
+    # ★폰이 실제로 보낸 원본 키 — 2026-08-11 진단(체크박스가 반영 안 된다는 보고).
+    #   "폰이 안 보냄"과 "백엔드가 무시함"을 가르는 유일한 증거. 사진 base64는 찍지 않는다.
+    print(f"[saveact:raw] keys={sorted(body.keys())} "
+          f"extConn={body.get('extConn')!r} addl={body.get('addl')!r} "
+          f"ham={body.get('ham')!r} mode={body.get('mode')!r} "
+          f"master.meterNo={(body.get('master') or {}).get('meterNo')!r}", flush=True)
     tmpd = Path(tempfile.mkdtemp(prefix="cstsave_"))
     m = body["master"]; mb = m["meterNo"]; mac = m["mac"]
     slaves = body.get("slaves", [])
     n = 1 + len(slaves)
+    arch = _archive_begin(body)   # ★큐/사진 30일 보관 — 전송 성공해도 지우지 않음
     yield {"type": "start", "total": n}
     # ── 마스터 통신방식(suffix) 확정: 직접선택(commSuffix) 우선 → 자동판별 → LTE는 계기유형으로 ──
     m_instM = infer_inst_m(mb)
@@ -988,23 +1095,30 @@ def _saveact_core(body):
     addl = str(body.get("addl", "")).strip().lower() in ("1", "true", "y", "yes")
     solo_blank = (ham == "단독" and len(slaves) == 0)   # 단독형: 대표계기·함내수 빈칸
     fclty = "10" if solo_blank else ("40" if ham == "단독" else ("30" if addl else "20"))
-    # 외장형 연결장치(EXT_CONN_DEV) — awms 실측 2026-08-11(getDetail): 값은 'Y'/'N', getMainList엔 키 자체가 없다.
-    #   awms 화면도 INST_M != HW4040(AE)이면 이 셀렉트를 disabled 시키고 INST_M 변경 시 'N'으로 되돌린다.
-    #   → AE가 아니면 폰이 뭘 보냈든 'N'으로 강제. 빈문자열 금지([[awms_saveact_500_fix]] 계열).
-    ext_conn = "Y" if (m_instM == "HW4040" and str(body.get("extConn", "")).strip().upper() == "Y") else "N"
+    # 외장형 연결장치(EXT_CONN_DEV) — awms 실측 2026-08-11(getDetail): 값은 'Y'/'N'.
+    #   ★기본값을 넣지 않는다(영준님 2026-08-11): 이제까지 이 키 없이 등록해 왔고 문제가 없었다.
+    #   우리가 'N'을 채우기 시작한 것은 이번 작업의 부작용이다 — 체크했을 때만 'Y'를 싣고,
+    #   아니면 키 자체를 omit 한다(빈문자열은 500 위험 [[awms_saveact_500_fix]]).
+    #   AE(HW4040)가 아니면 awms가 이 필드를 잠그므로 Y를 보내지 않는다.
+    ext_conn = "Y" if (m_instM == "HW4040" and str(body.get("extConn", "")).strip().upper() == "Y") else ""
     # 마스터
     mf = _common(mb, mac, m_instM, mb, n, m_inst_s, bungi="")
     mf["MODEM_DIV"] = "10"; mf["WORK_DIV"] = work_div; mf["FCLTY_DIV"] = fclty
-    mf["EXT_CONN_DEV"] = ext_conn   # 슬레이브는 _MASTER_BASE 기본값 'N' 그대로 — 연결장치는 마스터만 수집
+    if ext_conn: mf["EXT_CONN_DEV"] = ext_conn   # 체크했을 때만. 슬레이브는 아예 안 보냄(마스터만 수집)
     if solo_blank:
         # 빈값 ""은 awms Java parseInt 폭발(→500/실패). 빈칸=키 자체를 omit ([[awms_saveact_500_fix]] 패턴)
         mf.pop("MB_METER_ID", None); mf.pop("MB_CNT", None)
     if dcu_id:
         mf["DATA_NUM"] = dcu_id   # ★변대주 전산화번호 = awms 화면 '변대주' 칸(필드명 DATA_NUM). DCU_ID·차수는 awms 자동생성 (영준님 헬퍼 실측 2026-07-15: DCU_ID 아님)
-    res_m = saveact_post(mf, _photos_to_files(m.get("photos", {}), tmpd))
+    mp = _photos_to_files(m.get("photos", {}), tmpd)
+    m_saved = _archive_photos(arch, "master", mp)   # 전송 전 보관(전송 실패해도 사진 남김)
+    res_m = saveact_post(mf, mp)
     # 진단 로그. stale이면 경고를 같이 붙인다 — 전송 1건 만에 "옛 코드로 돌고 있다"가 드러난다.
     print(f"[saveact] master {mb} ham={ham or '집합'} addl={addl} fclty={fclty} "
           f"instM={m_instM} extConn={ext_conn} → {res_m}{_stale_note()}", flush=True)
+    _archive_write(arch, sent={"role": "master", "meterNo": mb, "fields": mf,
+                               "photos": m_saved, "resp": res_m,
+                               "ok": bool(res_m.get("result") == 1)})
     try:   # OCR 실패표본 매칭(슬롯5=계기판 사진) — saveAct 흐름과 완전분리
         p5 = m.get("photos", {}).get("5")
         if p5:
@@ -1027,10 +1141,15 @@ def _saveact_core(body):
             sf["DATA_NUM"] = dcu_id                         # 변대주 = 마스터와 동일(그룹 공유). 필드=DATA_NUM(DCU_ID 아님)
         photos = {"ATCH_FILE_ID_3": fid3, "ATCH_FILE_ID_4": fid4}
         sp = _photos_to_files(s.get("photos", {}), tmpd)
+        s_saved = _archive_photos(arch, f"slave{i + 1}", sp)   # 전송 전 보관
         if sp.get("ATCH_FILE_ID_5_SRC"):
             photos["ATCH_FILE_ID_5_SRC"] = sp["ATCH_FILE_ID_5_SRC"]
         res_s = saveact_post(sf, photos)
         print(f"[saveact] slave {s['meterNo']} fclty={fclty} → {res_s}", flush=True)  # 진단 로그
+        _archive_write(arch, sent={"role": "slave", "meterNo": s["meterNo"], "fields": sf,
+                                   "photos": s_saved, "resp": res_s,
+                                   "sharedFileIds": {"ATCH_FILE_ID_3": fid3, "ATCH_FILE_ID_4": fid4},
+                                   "ok": bool(res_s.get("result") == 1)})
         try:   # OCR 실패표본 매칭(슬롯5=계기판 사진) — saveAct 흐름과 완전분리
             sp5 = s.get("photos", {}).get("5")
             if sp5:
@@ -1040,7 +1159,8 @@ def _saveact_core(body):
         results.append({"role": "slave", "meterNo": s["meterNo"], "resp": res_s})
         yield {"type": "item", "role": "slave", "meterNo": s["meterNo"], "idx": i + 2, "total": n,
                "ok": bool(res_s.get("result") == 1)}
-    shutil.rmtree(tmpd, ignore_errors=True)   # 전송 완료 → 임시 사진 정리(맥 누적 방지)
+    shutil.rmtree(tmpd, ignore_errors=True)   # 임시폴더만 정리(원본은 ARCHIVE_DIR에 30일 보관)
+    _archive_write(arch, status="done")
     yield {"type": "done", "results": results}
 
 
