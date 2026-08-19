@@ -112,7 +112,9 @@ async function loadSiteDataCached(file) {
 
 // 지도 초기화 (카카오맵 생성 + 마커 로드)
 async function initMap() {
-    workStatus = loadStatusLocal();
+    // 보관소는 IndexedDB(비동기)로 옮겼다 — 첫 화면을 옛 상태로라도 즉시 그리기 위해
+    //   여기서 먼저 읽는다. initFirebase 도 같은 함수를 쓰며, 두 번 읽어도 싸다.
+    workStatus = await loadStatusStored();
     const container = document.getElementById('map');
 
     // 마지막 지도 위치/줌 레벨 복원
@@ -579,6 +581,24 @@ function repaintMarker(marker) {
     } else if (fracEl) {
         fracEl.remove();
     }
+}
+
+// 상태키 여러 개를 한 번에 다시 칠한다 — 초기 수신 중 묶음 반영용.
+//   ★왜 필요한가: updateMarkerColor()는 호출마다 markers 전체를 훑는다(4천여 개).
+//     초기 수신 1만여 건에 대해 건별로 부르면 훑기가 1만 번이라 폰이 멎는다.
+//     그래서 예전엔 아예 안 그렸고(_initialLoadDone 가드), 그동안 옛 화면이 보였다.
+//     묶음으로 받으면 훑기가 '배치당 1회'로 줄어 같은 일을 훨씬 싸게 한다.
+//   반환: 실제로 다시 칠한 마커 수(검증·계측용).
+function repaintMarkersForKeys(keySet) {
+    if (!keySet || !keySet.size || !markers.length) return 0;
+    let painted = 0;
+    markers.forEach(m => {
+        const ks = m.statusKeys || m.addresses || [m.address];
+        for (let i = 0; i < ks.length; i++) {
+            if (keySet.has(ks[i])) { repaintMarker(m); painted++; return; }
+        }
+    });
+    return painted;
 }
 
 // 전체 마커 색상 일괄 갱신 (Firebase 동기화 후 호출)
