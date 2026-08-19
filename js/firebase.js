@@ -758,6 +758,132 @@ function schedulePaint(statusKey) {
 // child_added / child_changed / child_removed + once('value') 를 같은 동기 블록에서 부착
 // → Firebase SDK가 1개 서버 구독을 공유해 초기 다운로드가 1회로 처리됨.
 // ★ 주의: 이 함수 밖에서 statusRef.get() 등 추가 읽기 금지 (2배 다운로드 방지)
+// ── 델타 동기화 (2026-08-19, 3단계) ──────────────────────────
+//
+// 지금까지는 페이지를 열 때마다 workStatus 전량(3.05MB)을 다시 받았다. 96%가 이미 끝난
+// 완료건이고, 지도 -> 통계 -> 지도 로 오갈 때마다 되풀이됐다. LTE 실측으로 첫 데이터가
+// 22.8초 뒤에 도착한다 — 다른 폰의 완료가 한참 반영 안 되던 실체가 이것이다.
+//
+// 바꾼 방식: 마지막으로 받은 syncAt 이후에 바뀐 레코드만 받는다.
+//   orderByChild('syncAt').startAt(lastSyncAt + 1)
+//   쿼리 리스너 하나가 '초기 델타'와 '실시간 반영'을 겸한다. 남이 레코드를 고치면
+//   syncAt 이 커져 쿼리 범위에 들어오므로 child_added 가 즉시 뜬다.
+//   syncAt 은 단조증가라 한번 들어온 레코드가 범위를 벗어나지 않는다 — 따라서 이 구조에서
+//   child_removed 는 곧 '서버에서 지워졌다'는 뜻이다.
+//
+// ★rules 에 workStatus/$dataset .indexOn "syncAt" 이 있어야 한다(2026-08-19 적용 완료).
+//   없으면 서버가 전건을 훑어 오히려 느려진다.
+const WS_SYNCAT_KEY = 'ami_work_status_syncAt';   // 마지막으로 받은 syncAt (IndexedDB)
+const WS_SCHEMA_VERSION = 2;                       // 구조가 바뀌면 올린다 -> 전량 재수신
+const WS_SCHEMA_KEY = 'ami_work_status_schema';
+const FULL_RESYNC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;   // 주 1회 키 대조
+const WS_AUDIT_KEY = 'ami_work_status_audit_at';
+
+let _lastSyncAt = 0;
+let _isDeltaMode = false;
+
+// 로컬이 가진 syncAt 의 최댓값 — 델타 시작점. 서버가 찍은 값만 쓰므로 폰 시계가 안 끼어든다.
+function maxSyncAtOf(ws) {
+    let mx = 0;
+    Object.keys(ws || {}).forEach(k => {
+        const v = ws[k] && ws[k].syncAt;
+        if (typeof v === 'number' && v > mx) mx = v;
+    });
+    return mx;
+}
+
+// 델타로 갈지 전량으로 갈지 결정한다.
+//   ★전량으로 되돌아가는 길을 넉넉히 열어 둔 것이 이 설계의 자가치유다.
+//     델타가 싸기 때문에(하루치 14KB) 의심스러우면 되감는 쪽을 택할 수 있다.
+async function decideSyncMode() {
+    let stored = 0, schema = 0;
+    try {
+        if (typeof idbGet === 'function') {
+            stored = (await idbGet(WS_SYNCAT_KEY)) || 0;
+            schema = (await idbGet(WS_SCHEMA_KEY)) || 0;
+        }
+    } catch (e) { /* 못 읽으면 전량으로 간다 */ }
+
+    const local = maxSyncAtOf(workStatus);
+    const have = Object.keys(workStatus).length;
+
+    if (schema !== WS_SCHEMA_VERSION) {
+        console.log('[Delta] 스키마 버전 불일치 — 전량 수신');
+        return { delta: false, from: 0 };
+    }
+    if (!have) {
+        console.log('[Delta] 로컬이 비었다 — 전량 수신');
+        return { delta: false, from: 0 };
+    }
+    // 저장된 값과 실제 데이터 중 작은 쪽에서 시작한다(저장이 앞서 있으면 구멍이 생긴다).
+    const from = Math.min(stored || local, local || stored);
+    if (!from) {
+        console.log('[Delta] syncAt 을 가진 레코드가 없다 — 전량 수신(1단계 배포 이전 데이터)');
+        return { delta: false, from: 0 };
+    }
+    return { delta: true, from };
+}
+
+async function rememberSyncAt(v) {
+    try {
+        if (typeof idbSet === 'function') {
+            await idbSet(WS_SYNCAT_KEY, v);
+            await idbSet(WS_SCHEMA_KEY, WS_SCHEMA_VERSION);
+        }
+    } catch (e) { /* 저장 실패해도 다음 로드에서 데이터로 다시 구한다 */ }
+}
+
+// 삭제 감지 — 주 1회 키만 받아(전량의 20.8%) 로컬에만 있는 유령을 걷어낸다.
+//   델타는 '바뀐 것'만 주므로 지워진 레코드는 영영 오지 않는다. 그 구멍을 이걸로 막는다.
+async function auditDeletions(force) {
+    let last = 0;
+    try { if (typeof idbGet === 'function') last = (await idbGet(WS_AUDIT_KEY)) || 0; } catch (e) {}
+    if (!force && Date.now() - last < FULL_RESYNC_INTERVAL_MS) return;
+    try {
+        // ★반드시 REST 의 shallow 로 받는다. compat SDK 에는 shallow 옵션이 없어서
+        //   once('value', null, {shallow:true}) 로 부르면 세 번째 인자를 조용히 무시하고
+        //   전량(2.4MB)을 내려받는다 — 아끼려고 넣은 대조가 되레 제일 비싼 호출이 된다.
+        //   (2026-08-19 실측으로 잡았다. 키만 받으면 634KB, 전량의 20.8%다.)
+        const url = firebaseConfig.databaseURL + '/workStatus/charger4eleccar.json?shallow=true';
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const serverKeys = await res.json();
+        if (!serverKeys || typeof serverKeys !== 'object') return;
+        const alive = new Set(Object.keys(serverKeys).map(decodeKey));
+        const ghosts = Object.keys(workStatus).filter(a => !alive.has(a));
+        if (ghosts.length) {
+            ghosts.forEach(a => { delete workStatus[a]; });
+            console.log('[Delta] 서버에 없는 로컬 레코드 정리:', ghosts.length, '건');
+            persistStatus(0);
+            if (typeof refreshAllMarkers === 'function') refreshAllMarkers();
+        }
+        try { if (typeof idbSet === 'function') await idbSet(WS_AUDIT_KEY, Date.now()); } catch (e) {}
+    } catch (e) {
+        console.warn('[Delta] 삭제 대조 실패(무시):', e.message);
+    }
+}
+
+// 작업자용 최종 수단 — 로컬을 비우고 전량을 다시 받는다.
+//   지금까지는 이런 수단이 아예 없어서, 폰이 이상하면 앱 데이터를 지우는 수밖에 없었다.
+async function forceFullResync() {
+    try {
+        if (typeof idbSet === 'function') {
+            await idbSet(WS_SYNCAT_KEY, 0);
+            await idbSet(WS_SCHEMA_KEY, 0);
+        }
+    } catch (e) {}
+    location.reload();
+}
+
+
+let _deltaSource = null;
+
+// 받은 레코드의 syncAt 을 따라가며 다음 델타 시작점을 갱신한다.
+function trackSyncAt(val) {
+    const v = val && val.syncAt;
+    if (typeof v === 'number' && v > _lastSyncAt) _lastSyncAt = v;
+}
+
 function attachStatusListeners() {
     _initialLoadDone = false;
     _syncSeen = 0;
@@ -767,11 +893,21 @@ function attachStatusListeners() {
     //   즉 기다리는 동안에는 셀 건수가 없다. 건수만으로 표시하면 정작 기다리는 구간이 빈다.
     //   0.6초 안에 끝나면 띄우지 않는다 — 빠른 로드에 알약이 깜빡이면 시끄럽다.
     setTimeout(() => {
-        if (!_initialLoadDone) showSyncProgress('작업상태 받는 중');
+        if (!_initialLoadDone && !_isDeltaMode) showSyncProgress('작업상태 받는 중');
     }, 600);
 
-    statusRef.on('child_added', snap => {
+    // ★델타냐 전량이냐 — 여기서 갈린다. 두 경우 모두 아래 리스너 코드가 그대로 쓰인다.
+    const src = _isDeltaMode
+        ? statusRef.orderByChild('syncAt').startAt(_lastSyncAt + 1)
+        : statusRef;
+    _deltaSource = src;
+    console.log(_isDeltaMode
+        ? `[Delta] 델타 수신 — syncAt > ${_lastSyncAt}`
+        : '[Delta] 전량 수신');
+
+    src.on('child_added', snap => {
         const addr = decodeKey(snap.key);
+        trackSyncAt(snap.val());
         mergeOneAddress(addr, snap.val());
         if (_initialLoadDone) {
             persistAndPaint(addr);
@@ -787,8 +923,9 @@ function attachStatusListeners() {
         }
     });
 
-    statusRef.on('child_changed', snap => {
+    src.on('child_changed', snap => {
         const addr = decodeKey(snap.key);
+        trackSyncAt(snap.val());
         mergeOneAddress(addr, snap.val());
         if (_initialLoadDone) {
             persistAndPaint(addr);
@@ -797,7 +934,7 @@ function attachStatusListeners() {
         }
     });
 
-    statusRef.on('child_removed', snap => {
+    src.on('child_removed', snap => {
         const addr = decodeKey(snap.key);
         delete workStatus[addr];
         if (_initialLoadDone) {
@@ -808,7 +945,7 @@ function attachStatusListeners() {
 
     // 초기 전체 수신 완료 신호 — child_added와 다운로드를 공유하므로 별도 get() 없음.
     // payload(snapshot)는 버리고 "완료 신호"로만 사용.
-    statusRef.once('value', () => {
+    src.once('value', () => {
         _initialLoadDone = true;
         // ★applyLocalChecked() 호출 제거(2026-08-19) — 이 자리가 버그의 현장이었다.
         //   초기 수신이 끝나 mergeOneAddress 가 전 주소를 제대로 합쳐놓은 직후에
@@ -821,11 +958,19 @@ function attachStatusListeners() {
         persistAll();
         if (typeof refreshAllMarkers === 'function') refreshAllMarkers();
         const n = Object.keys(workStatus).length;
-        if (_syncSeen > PAINT_BATCH_MAX) {
+        // 다음 델타 시작점을 남긴다. 로컬 데이터에서도 최댓값을 다시 구해 더 큰 쪽을 쓴다.
+        _lastSyncAt = Math.max(_lastSyncAt, maxSyncAtOf(workStatus));
+        rememberSyncAt(_lastSyncAt);
+        if (_isDeltaMode) {
+            console.log('[Delta] 델타 수신 완료 —', _syncSeen, '건 / 다음 시작점', _lastSyncAt);
+            hideSyncProgress();
+        } else if (_syncSeen > PAINT_BATCH_MAX) {
             showSyncProgress('작업상태 최신 ' + n.toLocaleString(), 1800);
         } else {
             hideSyncProgress();
         }
+        // 삭제 감지 — 주 1회. 델타는 '지워진 것'을 알려주지 않는다.
+        auditDeletions(false);
         console.log('[Firebase] 증분 리스너 초기 로드 완료, 주소수:', n, '/ 수신', _syncSeen);
     });
 }
@@ -863,6 +1008,11 @@ async function initFirebase() {
     if (firebaseOk) {
         // 미전송 이벤트 큐 먼저 전송
         await flushEventQueue();
+
+        // 델타냐 전량이냐 결정 — 로컬이 비었거나 스키마가 바뀌었으면 전량으로 간다
+        const mode = await decideSyncMode();
+        _isDeltaMode = mode.delta;
+        _lastSyncAt = mode.from;
 
         // 풀다운로드 폴링 대신 증분 리스너 부착
         // ★ attachStatusListeners 안에서 child_* + once('value') 를 같은 동기 블록 부착
