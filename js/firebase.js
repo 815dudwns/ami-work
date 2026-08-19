@@ -30,20 +30,110 @@ function decodeKey(str) {
         .replace(/_sl_/g,     '/');
 }
 
+// ── syncAt — 델타 동기화용 서버 시각 (2026-08-19, 1단계) ──────
+//
+// 왜 updatedAt 을 안 쓰고 새 필드를 두는가:
+//   updatedAt 은 '사람이 일한 시각'이라는 뜻을 이미 갖고 있고 stats.html 이 그 날짜로
+//   일별 실적을 집계한다(stats.html: isSameLocalDay(ws.updatedAt, dateStr)).
+//   동기화 편의로 체크할 때마다 updatedAt 을 올리면 완료 실적이 체크한 날로 옮겨간다
+//   — 실측하니 지금 데이터에서만 30건이 이동한다. 조용히 틀리는 종류라 더 나쁘다.
+//   그래서 '이 레코드가 마지막으로 바뀐 시각'은 별도 필드로 둔다.
+//
+// 왜 서버 시각인가:
+//   updatedAt 은 폰이 찍는다. 폰 시계가 틀리면 델타가 새거나 겹친다.
+//   또 기존 updatedAt 은 표기가 섞여 있어(+09:00 10,660건 / Z 2,123건) 문자열 정렬이
+//   시간순과 169군데 어긋난다. 숫자 서버시각이면 정렬이 곧 시간순이다.
+//
+// ★workStatus 를 쓰는 모든 경로가 이걸 통과해야 한다. 하나라도 빠지면 그 변경이
+//   델타에서 샌다 — 이 작업에서 가장 저지르기 쉬운 실수라 헬퍼로 묶었다.
+function _serverNow() {
+    try {
+        return firebase.database.ServerValue.TIMESTAMP;
+    } catch (e) {
+        return Date.now();   // SDK 미로드 등 예외 — 폰 시각이라도 넣는다(없는 것보단 낫다)
+    }
+}
+
+// 단일 주소 update 객체에 syncAt 을 붙인다. (경로: statusRef.child(주소).update(patch))
+function withSyncAt(patch) {
+    const out = Object.assign({}, patch);
+    out.syncAt = _serverNow();
+    return out;
+}
+
+// multi-path update 객체에 대상 주소들의 syncAt 을 붙인다.
+//   (경로: statusRef.update({ '주소/필드': 값, ... }) — 주소 접두사별로 하나씩)
+function addSyncAtForPaths(updates, encodedAddrs) {
+    encodedAddrs.forEach(p => { updates[`${p}/syncAt`] = _serverNow(); });
+    return updates;
+}
+
 // ── 이벤트 큐 ─────────────────────────────────────────────────
 function loadEventQueue() {
     const saved = localStorage.getItem(EVENTS_KEY);
     return saved ? JSON.parse(saved) : [];
 }
 
+// ★2026-08-19: 예전엔 try/catch 가 없어 quota 예외가 그대로 던져졌고, 호출부의
+//   `catch (_) {}` 가 그걸 조용히 삼켰다. 그러면 전송도 큐도 실패한 채 화면만 완료로
+//   보이고, 새로고침하면 그 완료가 사라진다 — 작업자는 끝까지 모른다.
+//   큐는 '아직 서버에 못 보낸 작업'이라 이 앱에서 가장 잃으면 안 되는 데이터다.
+//   실패하면 조용히 넘어가지 말고 (1) 자리를 만들어 다시 시도하고 (2) 그래도 안 되면 알린다.
 function saveEventQueue(queue) {
-    localStorage.setItem(EVENTS_KEY, JSON.stringify(queue));
+    try {
+        localStorage.setItem(EVENTS_KEY, JSON.stringify(queue));
+        return true;
+    } catch (e) {
+        console.warn('[queue] 저장 실패 — 자리 확보 후 재시도:', e.message);
+        // ★우선순위 역전 바로잡기: 옛 workStatus 미러(최대 4.3M자)는 서버에서 다시 받으면
+        //   되지만, 큐는 다시 만들 수 없다. 자리를 다투면 미러를 버린다.
+        try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+        try { localStorage.removeItem(CHECKED_KEY); } catch (_) {}
+        try {
+            localStorage.setItem(EVENTS_KEY, JSON.stringify(queue));
+            console.warn('[queue] 자리 확보 후 저장 성공');
+            return true;
+        } catch (e2) {
+            console.error('[queue] 저장 최종 실패 — 미전송 작업이 유실될 수 있다:', e2.message);
+            notifySendProblem('저장 공간이 가득 찼습니다. 앱을 껐다 켜 주세요.');
+            return false;
+        }
+    }
+}
+
+// 전송·저장 문제를 작업자에게 알린다. 지금까지는 console 뿐이라 화면에 아무것도 안 떴다.
+//   지도 위 알약(sync-pill)을 재사용한다 — 새 UI 를 만들지 않는다.
+function notifySendProblem(msg) {
+    try {
+        if (typeof showSyncProgress === 'function') {
+            showSyncProgress('전송 실패 — ' + msg, 8000);
+        }
+    } catch (_) {}
 }
 
 function addEvent(ev) {
     const queue = loadEventQueue();
     queue.push({ ...ev, id: Date.now().toString(36) + Math.random().toString(36).slice(2) });
-    saveEventQueue(queue);
+    return saveEventQueue(queue);
+}
+
+
+// 직접 전송이 실패했을 때의 공통 폴백 — 완료·체크가 같은 길을 타게 한다.
+//   저장까지 실패하면 조용히 넘어가지 않고 작업자에게 알린다.
+function queueFallback(ev, label, flushMs) {
+    let saved = false;
+    try {
+        saved = addEvent(ev);
+    } catch (e) {
+        console.error('[queue] 폴백 중 예외:', e && e.message);
+        saved = false;
+    }
+    if (saved) {
+        if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced(flushMs || 2500);
+    } else {
+        notifySendProblem((label || '작업') + '이 저장되지 않았습니다. 다시 눌러 주세요.');
+    }
+    return saved;
 }
 
 // 큐를 Firebase에 전송 (이벤트별 update, set 안 씀)
@@ -102,6 +192,14 @@ async function flushEventQueue() {
         }
     });
 
+    // ★이 큐가 건드린 모든 주소에 syncAt 을 붙인다(델타 누락 방지).
+    //   state/check/fail 세 갈래가 같은 주소를 건드릴 수 있으므로 주소 집합으로 모은다.
+    const touched = new Set();
+    Object.values(stateMap).forEach(ev => touched.add(encodeKey(ev.address)));
+    Object.values(checkMap).forEach(ev => touched.add(encodeKey(ev.address)));
+    Object.values(failMap).forEach(ev  => touched.add(encodeKey(ev.address)));
+    addSyncAtForPaths(updates, [...touched]);
+
     // 전송 전 큐 id 스냅샷 — await 중 추가된 이벤트를 삭제하지 않기 위한 race condition 방지
     const sentIds = new Set(queue.map(e => e.id));
 
@@ -149,10 +247,91 @@ function loadStatusLocal() {
     return saved ? JSON.parse(saved) : {};
 }
 
+// ── workStatus 보관소: localStorage -> IndexedDB (2026-08-19, 델타 2단계) ─────
+//
+// ★왜 옮기나 (실측): workStatus 미러가 4,308,232자(UTF-8 4.47MB)다. iOS localStorage 한도는
+//   5MB 이고 WebKit 은 UTF-16(자당 2바이트)으로 세는 판본이 있어 8.6MB 로 계산될 수 있다.
+//   저장이 실패하면 미러가 안 남고, 다음에 앱을 열면 로컬이 비어 전량 수신(LTE 22.8초)이
+//   끝날 때까지 빈 화면이 된다 — 영준님이 보신 "처음 열면 완료가 하나도 없다"가 이것이다.
+//   게다가 미러가 자리를 다 먹으면 작은 이벤트 큐 저장까지 밀려 완료가 통째 유실된다.
+// IndexedDB 는 이 한도가 사실상 없고, site-data 16MB 캐시가 이미 같은 경로로 돌고 있다.
+const WS_IDB_KEY = 'ami_work_status_v2';
+
+async function loadStatusStored() {
+    // 1순위 IndexedDB
+    try {
+        if (typeof idbGet === 'function') {
+            const v = await idbGet(WS_IDB_KEY);
+            if (v && typeof v === 'object' && Object.keys(v).length) {
+                console.log('[Local] IndexedDB 로드, 주소수:', Object.keys(v).length);
+                return v;
+            }
+        }
+    } catch (e) {
+        console.warn('[Local] IndexedDB 읽기 실패 — localStorage 로 폴백:', e.message);
+    }
+    // 2순위 localStorage(옛 보관소) — 있으면 옮기고 원본을 지운다
+    try {
+        const old = loadStatusLocal();
+        if (old && Object.keys(old).length) {
+            console.log('[Local] localStorage 에서 이전, 주소수:', Object.keys(old).length);
+            try {
+                if (typeof idbSet === 'function') await idbSet(WS_IDB_KEY, old);
+                // ★옮긴 뒤에만 지운다. 지우기 전에 실패하면 데이터가 사라진다.
+                localStorage.removeItem(STORAGE_KEY);
+                console.log('[Local] 이전 완료 — localStorage 자리 반환(약 4.3M자)');
+            } catch (e) {
+                console.warn('[Local] IDB 이전 실패 — localStorage 원본 유지:', e.message);
+            }
+            return old;
+        }
+    } catch (e) {
+        console.warn('[Local] localStorage 읽기 실패:', e.message);
+    }
+    return {};
+}
+
+// 저장은 단일 경로로 모은다 — 예전엔 8군데서 제각기 localStorage 에 썼다.
+let _persistTimer = null;
+let _persistDirty = false;
+
+async function persistStatusNow() {
+    _persistDirty = false;
+    try {
+        if (typeof idbSet === 'function') {
+            await idbSet(WS_IDB_KEY, workStatus);
+            return true;
+        }
+    } catch (e) {
+        console.warn('[persist] IndexedDB 저장 실패:', e.message);
+    }
+    // IDB 를 못 쓰는 환경 — 옛 경로로라도 남긴다(용량 초과면 조용히 포기)
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
+        return true;
+    } catch (e) {
+        console.warn('[quota] localStorage 폴백 저장도 실패:', e.message);
+        return false;
+    }
+}
+
+// 3초 디바운스 + 화면 이탈 시 즉시 — 4MB 직렬화를 자주 돌리지 않기 위해서다.
+function persistStatus(delay = 3000) {
+    _persistDirty = true;
+    if (_persistTimer) clearTimeout(_persistTimer);
+    _persistTimer = setTimeout(() => { _persistTimer = null; persistStatusNow(); }, delay);
+}
+function persistStatusFlush() {
+    if (_persistTimer) { clearTimeout(_persistTimer); _persistTimer = null; }
+    if (_persistDirty) return persistStatusNow();
+    return Promise.resolve(true);
+}
+
 // saveStatus — failedMeters 전용 로컬 저장 (Firebase 미전송)
 // 주의: state/checkedMeters 변경은 saveStateEvent/saveCheckEvent 사용
 function saveStatus(status) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(status));
+    // 저장소는 persistStatus 로 일원화 — status 는 workStatus 그 자체다.
+    persistStatus();
 }
 
 function loadCheckedLocal() {
@@ -235,11 +414,7 @@ function saveStateEvent(address, state, reason, updatedBy, updatedByName) {
     }
     // localStorage 미러 — 저장공간(quota) 초과해도 앱 동작/전송을 막지 않는다.
     //   (미러는 즉시표시용일 뿐, 권위는 Firebase. quota여도 아래 직접 전송으로 서버 반영 보장.)
-    try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
-    } catch (e) {
-        console.warn('[quota] workStatus 미러 저장 실패 — 무시하고 전송 진행:', e.message);
-    }
+    persistStatus(0);   // 작업자가 누른 것 — 지체 없이 저장한다
 
     const ev = {
         address,
@@ -260,12 +435,13 @@ function saveStateEvent(address, state, reason, updatedBy, updatedByName) {
         upd[`${p}/updatedBy`]     = updatedBy || '';
         upd[`${p}/updatedByName`] = updatedByName || '';
         if (state !== 'pending') upd[`${p}/rework`] = false;
+        upd[`${p}/syncAt`] = _serverNow();   // 델타 동기화용 서버 시각
         statusRef.update(upd).catch(err => {
             console.warn('[state] 직접 전송 실패, 큐 폴백:', err && err.message);
-            try { addEvent(ev); if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced(); } catch (_) {}
+            queueFallback(ev, '완료·보류 기록');
         });
     } else {
-        try { addEvent(ev); if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced(); } catch (_) {}
+        queueFallback(ev, '완료·보류 기록');
     }
 }
 
@@ -284,24 +460,23 @@ function saveCheckEvent(address, meter, checked) {
     if (!workStatus[address].meterChecks) workStatus[address].meterChecks = {};
     workStatus[address].meterChecks[encodeKey(meter)] = { checked, ts: _ts };
     // 미러 — quota 초과해도 막지 않음(권위는 Firebase)
-    try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
-    } catch (e) {
-        console.warn('[quota] check 미러 저장 실패 — 무시하고 전송 진행:', e.message);
-    }
+    persistStatus(0);
 
-    const _fallback = () => {
-        try {
-            addEvent({ address, type: checked ? 'check' : 'uncheck', meter, ts: _ts });
-            if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced(400);
-        } catch (_) {}
-    };
+    // ★완료와 같은 처리로 모은다(2026-08-19). 전엔 체크만 별도 폴백이라 실패 처리가 갈렸고,
+    //   판단 지점이 둘이면 반드시 어긋난다(오늘 체크 버그가 그랬다).
+    const _fallback = () => queueFallback(
+        { address, type: checked ? 'check' : 'uncheck', meter, ts: _ts }, '계기 체크', 400);
 
     // 체크도 Firebase 직접 전송 — quota로 큐가 막혀도 서버 반영 보장. 실패 시 큐 폴백.
     if (statusRef) {
         const p = encodeKey(address);
         const m = encodeKey(meter);
-        statusRef.child(p).child('meterChecks').child(m).set({ checked, ts: _ts })
+        // ★한 번의 update 로 meterChecks 와 syncAt 을 함께 쓴다(2026-08-19).
+        //   전엔 meterChecks 만 set 해서 부모가 안 바뀌었고, 그래서 '체크만 한 건'은
+        //   델타에 영영 안 잡혔다. 이게 과거에 델타를 접었던 실체다.
+        //   ※state·updatedBy·updatedByName·updatedAt 은 건드리지 않는다 — 체크는 상태 변경이
+        //     아니다. 통계(pending 건너뛰기·일자 집계)와 작업자 표시에 영향이 없다.
+        statusRef.child(p).update(withSyncAt({ [`meterChecks/${m}`]: { checked, ts: _ts } }))
             .catch(err => { console.warn('[check] 직접 전송 실패, 큐 폴백:', err && err.message); _fallback(); });
     } else {
         _fallback();
@@ -362,6 +537,9 @@ function buildOneFromFirebase(val) {
         rework:        val.rework === true,
         previousCompleteAt: val.previousCompleteAt || '',
         previousCompleteBy: val.previousCompleteBy || '',
+        // 델타 동기화용 서버 시각. 3단계(델타 쿼리)에서 lastSyncAt 계산에 쓴다.
+        //   ★숫자다. 없으면 0 — 1단계 배포 전에 쓰인 레코드가 여기 해당한다.
+        syncAt:        (typeof val.syncAt === 'number') ? val.syncAt : 0,
         checkedMeters,
         meterChecks,  // 원본 보관 (ts 비교용)
         added_meters: val.added_meters || {},   // 사용자 추가 계기 (admin 등)
@@ -391,7 +569,8 @@ async function saveAddedMeter(address, meterId, extra) {
         ...(extra || {}),
     };
     const p = encodeKey(address);
-    await statusRef.child(`${p}/added_meters/${meterId}`).set(data);
+    // 추가계기도 델타에 잡히도록 syncAt 을 같이 쓴다(한 번의 update).
+    await statusRef.child(p).update(withSyncAt({ [`added_meters/${meterId}`]: data }));
     // 로컬 반영
     if (!workStatus[address]) {
         workStatus[address] = { state: 'pending', checkedMeters: [], reason: '', added_meters: {} };
@@ -399,18 +578,19 @@ async function saveAddedMeter(address, meterId, extra) {
     if (!workStatus[address].added_meters) workStatus[address].added_meters = {};
     workStatus[address].added_meters[meterId] = data;
     // localStorage 즉시 반영 — 재진입/앱 재시작 시 사라지지 않게 (Firebase set 직후 바로 미러)
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus)); } catch (e) {}
+    persistStatus(0);
     return data;
 }
 
 async function removeAddedMeter(address, meterId) {
     if (!statusRef) throw new Error('Firebase 미초기화');
     const p = encodeKey(address);
-    await statusRef.child(`${p}/added_meters/${meterId}`).remove();
+    // 삭제도 변경이다 — null 로 지우면서 syncAt 을 올려 델타에 태운다.
+    await statusRef.child(p).update(withSyncAt({ [`added_meters/${meterId}`]: null }));
     if (workStatus[address] && workStatus[address].added_meters) {
         delete workStatus[address].added_meters[meterId];
     }
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus)); } catch (e) {}
+    persistStatus(0);
 }
 
 // ── 증분 리스너용 단일 주소 머지 ─────────────────────────────
@@ -464,7 +644,7 @@ function mergeFirebaseData(firebaseData) {
 
     // ★applyLocalChecked() 호출 제거(2026-08-19). 여기서 로컬 스냅샷으로 덮으면
     //   위 mergeOneAddress 가 ts union 으로 합쳐놓은 남의 체크가 되돌아간다.
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
+    persistStatus();
 }
 
 // Firebase에서 workStatus 읽기 (레거시 — 더 이상 initFirebase에서 호출 안 함, 외부 호환용 유지)
@@ -486,19 +666,23 @@ async function syncFromFirebase() {
 
 // ── 증분 리스너 ───────────────────────────────────────────────
 
-// localStorage 디바운스 저장 (burst 시 다수 child_changed가 몰려도 1회만 저장)
-let _persistTimer = null;
+// 저장 래퍼 — 실제 저장은 persistStatus(단일 경로, IndexedDB)가 한다.
+//   옛 이름을 남겨 둔 이유는 호출처가 여럿이라서다.
 function persistAll() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus)); } catch (e) {}
+    persistStatus(0);
 }
 function persistAllDebounced() {
-    if (_persistTimer) clearTimeout(_persistTimer);
-    _persistTimer = setTimeout(persistAll, 300);
+    persistStatus();   // 3초 디바운스 — 저장 경로는 persistStatus 하나로 모았다
 }
 
 // child_changed 1건: 마커 즉시 갱신 + localStorage 디바운스 저장
 function persistAndPaint(addr) {
-    if (typeof updateMarkerColor === 'function') updateMarkerColor(addr);
+    // ★마커 갱신은 묶음으로 돌린다(2026-08-19). updateMarkerColor 는 호출마다 markers 전체를
+    //   훑으므로, 다른 작업자 여러 명의 변경이 몰리면 훑기가 그 수만큼 반복된다.
+    //   묶으면 '배치당 1회'로 줄고, 지연은 최대 PAINT_MIN_GAP_MS 라 눈에 띄지 않는다.
+    //   ※내가 누른 완료는 detail.js updateStatus() 가 그 자리에서 updateMarkerColor 를
+    //     부르므로 즉시 반영된다 — 이 지연은 남의 변경에만 걸린다.
+    schedulePaint(addr);
     // 같은 주소(합친 마커면 구성 지번 포함) 상세 패널이 열려 있으면 체크박스 목록도 실시간 갱신
     //   (지금까지 마커 색만 갱신 → 패널 열어둔 작업자는 닫았다 다시 열어야 남의 체크가 보였음)
     try {
@@ -514,25 +698,102 @@ function persistAndPaint(addr) {
 // 초기 전체 수신 완료 플래그
 let _initialLoadDone = false;
 
+// ── 초기 수신 중 묶음 렌더 (2026-08-19) ──────────────────────
+// 문제: 초기 전체 수신(1만여 건)이 끝날 때까지 화면을 안 그려서, 그동안 로컬 캐시의
+//   옛 화면이 보였다. 다른 폰의 완료가 한참 반영 안 되는 증상의 실체가 이것이다.
+//   페이지 로드마다 반복되고, 통계는 별도 페이지라 갔다 오면 또 그렇다.
+// 해법: 가드를 없애지 않는다(원래 목적인 CPU/렌더 폭발 방지는 지켜야 한다).
+//   도착분을 모아 '배치당 마커 1회 훑기'로 반영한다. 건별로 그리면 markers 전체 훑기가
+//   수신 건수만큼 반복돼(1만 x 4천) 폰이 멎는다 — 그게 원래 가드를 넣은 이유였다.
+const PAINT_BATCH_MAX = 200;      // 한 배치 최대 주소 수
+const PAINT_MIN_GAP_MS = 200;     // 배치 사이 최소 간격 — 화면 신선도와 CPU의 절충
+let _pendingPaint = new Set();    // 다시 칠할 상태키
+let _paintTimer = null;
+let _lastPaintAt = 0;
+let _syncSeen = 0;                // 초기 수신 진행 건수(표시용)
+
+// 진행 표시 — 상단 중앙 알약. 초기 전체 수신일 때만 띄운다.
+//   델타 몇십 건에도 띄우면 시끄럽기만 하다.
+function showSyncProgress(text, autoHideMs) {
+    const el = (typeof document !== 'undefined') && document.getElementById('sync-pill');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.add('show');
+    if (el._hideTimer) { clearTimeout(el._hideTimer); el._hideTimer = null; }
+    if (autoHideMs) {
+        el._hideTimer = setTimeout(() => { el.classList.remove('show'); el._hideTimer = null; }, autoHideMs);
+    }
+}
+function hideSyncProgress() {
+    const el = (typeof document !== 'undefined') && document.getElementById('sync-pill');
+    if (el) el.classList.remove('show');
+}
+
+function flushPaintQueue() {
+    _paintTimer = null;
+    if (!_pendingPaint.size) return;
+    const keys = _pendingPaint;
+    _pendingPaint = new Set();
+    _lastPaintAt = Date.now();
+    // ★그리기만 한다. 저장(persistAll)은 여기서 하지 않는다 —
+    //   3MB 직렬화를 배치마다 돌리면 그리기보다 저장이 더 비싸진다.
+    if (typeof repaintMarkersForKeys === 'function') repaintMarkersForKeys(keys);
+}
+
+function schedulePaint(statusKey) {
+    if (statusKey) _pendingPaint.add(statusKey);
+    if (_paintTimer) return;
+    // 배치가 다 차면 다음 프레임에 즉시, 아니면 최소 간격을 지켜 예약
+    const wait = (_pendingPaint.size >= PAINT_BATCH_MAX)
+        ? 0
+        : Math.max(0, PAINT_MIN_GAP_MS - (Date.now() - _lastPaintAt));
+    // ★requestAnimationFrame 은 this 가 window 여야 한다. const 에 담아 맨 호출하면
+    //   "Illegal invocation" 으로 죽어 배치가 영영 안 돈다(실측으로 잡은 버그).
+    const raf = fn => (typeof requestAnimationFrame === 'function')
+        ? requestAnimationFrame(fn) : setTimeout(fn, 16);
+    _paintTimer = setTimeout(() => { _paintTimer = null; raf(flushPaintQueue); }, wait);
+}
+
 // 증분 리스너 부착 — syncFromFirebase 대체 (풀다운로드 없음)
 // child_added / child_changed / child_removed + once('value') 를 같은 동기 블록에서 부착
 // → Firebase SDK가 1개 서버 구독을 공유해 초기 다운로드가 1회로 처리됨.
 // ★ 주의: 이 함수 밖에서 statusRef.get() 등 추가 읽기 금지 (2배 다운로드 방지)
 function attachStatusListeners() {
     _initialLoadDone = false;
+    _syncSeen = 0;
+
+    // ★진행 표시는 '받는 중'을 먼저 띄운다. 실측하니 데이터는 네트워크를 기다렸다가
+    //   한 덩어리로 도착한다(데스크톱 858ms 대기 후 40ms 안에 12,934건 전부).
+    //   즉 기다리는 동안에는 셀 건수가 없다. 건수만으로 표시하면 정작 기다리는 구간이 빈다.
+    //   0.6초 안에 끝나면 띄우지 않는다 — 빠른 로드에 알약이 깜빡이면 시끄럽다.
+    setTimeout(() => {
+        if (!_initialLoadDone) showSyncProgress('작업상태 받는 중');
+    }, 600);
 
     statusRef.on('child_added', snap => {
-        mergeOneAddress(decodeKey(snap.key), snap.val());
+        const addr = decodeKey(snap.key);
+        mergeOneAddress(addr, snap.val());
         if (_initialLoadDone) {
-            persistAndPaint(decodeKey(snap.key));
+            persistAndPaint(addr);
+        } else {
+            // 초기 수신 중 — 묶음으로 그린다(저장은 수신 완료 후 1회)
+            _syncSeen++;
+            schedulePaint(addr);
+            // 느린 기기에선 전달이 여러 번에 나뉘어 온다(실측: CPU 20배 조이면 43번 끊김).
+            //   그때는 건수까지 보여준다. 한 덩어리로 오면 이 갱신은 화면에 안 남는다.
+            if (_syncSeen % PAINT_BATCH_MAX === 0) {
+                showSyncProgress('작업상태 받는 중 ' + _syncSeen.toLocaleString());
+            }
         }
-        // 초기 burst 중에는 once('value') 후 일괄 처리 → CPU/렌더 폭발 방지
     });
 
     statusRef.on('child_changed', snap => {
-        mergeOneAddress(decodeKey(snap.key), snap.val());
+        const addr = decodeKey(snap.key);
+        mergeOneAddress(addr, snap.val());
         if (_initialLoadDone) {
-            persistAndPaint(decodeKey(snap.key));
+            persistAndPaint(addr);
+        } else {
+            schedulePaint(addr);
         }
     });
 
@@ -554,9 +815,18 @@ function attachStatusListeners() {
         //   로컬 스냅샷으로 checkedMeters 를 통째 덮어써 남의 체크를 되돌렸고,
         //   바로 아래 persistAll() 이 그 잘못된 값을 저장까지 했다.
         //   로컬 백업 주입은 initFirebase() 에서 로드 직후 1회만 한다(merge 이전).
+        // 남은 배치를 먼저 비우고(중복 그리기 방지) 저장 -> 전체 갱신 순으로 마무리한다.
+        _pendingPaint.clear();
+        if (_paintTimer) { clearTimeout(_paintTimer); _paintTimer = null; }
         persistAll();
         if (typeof refreshAllMarkers === 'function') refreshAllMarkers();
-        console.log('[Firebase] 증분 리스너 초기 로드 완료, 주소수:', Object.keys(workStatus).length);
+        const n = Object.keys(workStatus).length;
+        if (_syncSeen > PAINT_BATCH_MAX) {
+            showSyncProgress('작업상태 최신 ' + n.toLocaleString(), 1800);
+        } else {
+            hideSyncProgress();
+        }
+        console.log('[Firebase] 증분 리스너 초기 로드 완료, 주소수:', n, '/ 수신', _syncSeen);
     });
 }
 
@@ -566,11 +836,10 @@ async function initFirebase() {
 
     const firebaseOk = initFirebaseApp();
 
-    // 1순위: localStorage
-    const local = loadStatusLocal();
+    // 1순위: 로컬 보관소(IndexedDB, 없으면 옛 localStorage 에서 이전)
+    const local = await loadStatusStored();
     if (local && Object.keys(local).length > 0) {
         workStatus = local;
-        console.log('[Local] localStorage에서 로드 완료, 주소수:', Object.keys(workStatus).length);
     } else {
         // 2순위: data/work-status.json
         try {
@@ -578,7 +847,7 @@ async function initFirebase() {
             if (!res.ok) throw new Error('fetch 실패: ' + res.status);
             const data = await res.json();
             workStatus = data;
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            persistStatus(0);
             console.log('[Local] data/work-status.json 로드 완료, 주소수:', Object.keys(workStatus).length);
         } catch (e) {
             console.warn('[Local] work-status.json 로드 실패:', e.message);
@@ -608,9 +877,10 @@ async function initFirebase() {
             } else {
                 // 백그라운드 전환 — 디바운스 대기 중인 미전송분 즉시 전송 (앱 종료 대비)
                 flushEventQueueNow();
+                persistStatusFlush();   // 저장 디바운스도 함께 비운다(앱이 죽어도 남게)
             }
         });
         // 탭/앱 완전 종료 직전에도 미전송분 시도 (best-effort)
-        window.addEventListener('pagehide', () => { flushEventQueueNow(); });
+        window.addEventListener('pagehide', () => { flushEventQueueNow(); persistStatusFlush(); });
     }
 }
