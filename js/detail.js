@@ -12,6 +12,52 @@ let currentStatusKeys = [];
 // 현재 정렬 모드: 'none' | 'dup' | 'maker'
 let currentSortMode = 'none';
 
+// ── 변대주 공통 표시 판정 (큰 글씨 블록) ──────────────────────────────────
+//   ★예전엔 DCUID 만 봤다. 그래서 LTE 개소(DCU 를 안 쓰니 DCUID 가 원본에도 없다)는
+//     블록이 통째로 안 뜨고 **변대주까지 같이 사라졌다**(영준님 지적 2026-08-19,
+//     합동 종로 4마커). 전산화번호가 있으면 DCUID 가 없어도 띄운다.
+//   ※두 값을 함께 비교한다 — 전산화번호만 보면 PLC+K-DCU 가 섞인 마커(명륜3가 1-1054)가
+//     '같다'로 뭉쳐진다. 그 마커는 계기마다 DCU 가 달라 개별 표시로 내려가는 게 맞다.
+//   ※값이 빈 계기가 섞여 있으면(원천에 없는 1건) 공통으로 보지 않는다 — 나머지와 같다는
+//     근거가 없다. 그 마커는 계기별로 각자 찍힌다.
+function poleIdOf(m) {
+    return `${(m && m.변대주전산화) || ''}|${(m && m.DCUID) || ''}`;
+}
+function isPoleCommon(meters) {
+    if (!meters || !meters.length) return false;
+    if (!(meters[0].변대주전산화 || meters[0].DCUID)) return false;
+    return meters.every(m => poleIdOf(m) === poleIdOf(meters[0]));
+}
+
+// 변대주 한 줄의 HTML — { html, copyVal }.
+//   ★새 형식(전산화번호 + 괄호 전주명)은 **변대주전산화 필드가 있을 때만** 쓴다.
+//     실효·재방문·고압은 그 필드가 없다(site-data 10,404건 전부). 그 경우 예전 그대로 그린다.
+//     종로맵(jongno-combined/js/detail.js)과 형식·복사값을 맞춘 것이다.
+function poleDisplay(m, iconSvg, btnStyle) {
+    const poleNo = (m && m.변대주전산화) || '';
+    const dcu = (m && m.DCUID) || '';
+    let valHtml, copyVal;
+    if (poleNo) {
+        // DCU 차수(끝 2자리)는 전산화번호에 이어 붙은 형태일 때만 회색으로 뗀다. LTE 는 없다.
+        const tail = (dcu && dcu.indexOf(poleNo) === 0 && dcu.length === poleNo.length + 2)
+            ? `<span class="seg-dup">${dcu.slice(-2)}</span>` : '';
+        valHtml = `<span>${poleNo}</span>${tail}`;
+        copyVal = poleNo;
+    } else if (/[A-Za-z]/.test(dcu)) {
+        const dcuMain = dcu.slice(0, -2);
+        valHtml = `<span>${dcuMain}</span><span class="seg-dup">${dcu.slice(-2)}</span>`;
+        copyVal = dcuMain;
+    } else {
+        valHtml = `<span>${dcu}</span>`;
+        copyVal = dcu;
+    }
+    // 괄호 안 전주명 — 종로맵과 같은 보조 표기(흐리게). 전산화번호가 있을 때만 붙인다.
+    const nameHtml = (poleNo && m.변대주)
+        ? ` <span style="opacity:0.7;font-weight:normal;">(${m.변대주})</span>` : '';
+    const btn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="변대주 전산화번호 복사" style="${btnStyle}">${iconSvg}</button>`;
+    return { html: `${valHtml}${nameHtml}${btn}`, copyVal };
+}
+
 // 주소 클릭 시 상세 패널 표시
 function showDetail(address, meters, addresses, statusKeys) {
     currentAddress = address;
@@ -196,32 +242,20 @@ function showDetail(address, meters, addresses, statusKeys) {
     // 변대주(전산화/DCUID)가 모두 같은 경우 공통 표시
     // - 영문자 포함: DCU 케이스 → 끝 2자리(차수+번호) 강조 + 복사 시 절단
     // - 숫자만: LTE 케이스 (DCU 미사용) → 강조 없음 + 전체 복사
-    const allSameDcu = meters.length > 0 && meters.every(m => m.DCUID === meters[0].DCUID);
     const commonPoleEl = document.getElementById('common-pole');
-    const hasDcuId = !!meters[0].DCUID;
-    if (allSameDcu && hasDcuId) {
-        const dcu = meters[0].DCUID;
-        const isDcuType = /[A-Za-z]/.test(dcu);
-        let dcuHtml, copyVal;
-        if (isDcuType) {
-            const dcuMain = dcu.slice(0, -2);
-            dcuHtml = `<span>${dcuMain}</span><span class="seg-dup">${dcu.slice(-2)}</span>`;
-            copyVal = dcuMain;
-        } else {
-            dcuHtml = `<span>${dcu}</span>`;
-            copyVal = dcu;
-        }
-        const poleCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="변대주 전산화번호 복사" style="margin-left:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
-        // 라벨 '변대주' + 전산화번호 + 차수(회색) + 통신방식 (영준님 2026-08-12 확정).
-        //   값이 전산화번호이고 변대주 한글명은 아래 상세줄에 따로 나오므로 2026-08-06 에
-        //   'DCU ID' 로 바꿨던 헷갈림은 생기지 않는다. 통신방식은 대장에서 확정된 값이다.
+    if (isPoleCommon(meters)) {
+        const POLE_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+        const pole = poleDisplay(meters[0], POLE_ICON, 'margin-left:6px;');
+        // 라벨 '변대주' + 전산화번호 + 차수(회색) + (전주명) + 통신방식.
+        //   전주명 괄호는 종로맵과 형식을 맞춘 것이다(영준님 지적 2026-08-19).
+        //   통신방식은 대장에서 확정된 값이다.
         const commTxt = meters[0].통신방식
             ? `<span style="margin-left:10px;color:#dc2626;">${meters[0].통신방식}</span>` : '';
-        commonPoleEl.innerHTML = `변대주 ${dcuHtml}${poleCopyBtn}${commTxt}`;
+        commonPoleEl.innerHTML = `변대주 ${pole.html}${commTxt}`;
         commonPoleEl.style.display = 'block';
         commonPoleEl.querySelector('.pole-copy-btn').addEventListener('click', (e) => {
             e.stopPropagation();
-            copyMeterNo(copyVal);
+            copyMeterNo(pole.copyVal);
         });
     } else {
         commonPoleEl.style.display = 'none';
@@ -439,9 +473,9 @@ function renderMetersList() {
     const sortedMeters = getSortedMeters();
     currentMeters = origCurrent;
     const status = workStatus[currentStatusKey] || { state: 'pending', checkedMeters: [], reason: '' };
-    // 큰 글씨(공통) 영역에 표시되었는지 — DCUID 기준으로 판단
-    const allSameDcu = meters.length > 0 && meters.every(m => m.DCUID === meters[0].DCUID);
-    const commonDcuShown = allSameDcu && !!meters[0].DCUID;
+    // 큰 글씨(공통) 영역에 표시되었는지 — 위 showDetail 과 **같은 판정**을 쓴다(isPoleCommon).
+    //   따로 계산하면 둘이 어긋나 변대주가 두 번 나오거나 아예 사라진다.
+    const commonDcuShown = isPoleCommon(meters);
     const failedMeters = status.failedMeters || {};
 
     // 뒤 2자리 중복 그룹 계산 (중복 계기번호 색상 구분용)
@@ -474,23 +508,15 @@ function renderMetersList() {
         const checked = (status.checkedMeters || []).includes(meter.계기번호) ? 'checked' : '';
         const parsedType = parseType(meter.계기번호) || meter.계기타입;
         const detailParts = [];
-        // DCUID 큰 글씨 — 공통 표시 안 될 때만 개별 표시
-        // 영문자 포함: DCU 케이스 → 끝 2자리 강조 + 복사 시 절단
-        // 숫자만: LTE 케이스 → 강조 없음 + 전체 복사
-        if (!commonDcuShown && meter.DCUID) {
-            const dcu = meter.DCUID;
-            const isDcuType = /[A-Za-z]/.test(dcu);
-            let pHtml, copyVal;
-            if (isDcuType) {
-                const dcuMain = dcu.slice(0, -2);
-                pHtml = `<span>${dcuMain}</span><span class="seg-dup">${dcu.slice(-2)}</span>`;
-                copyVal = dcuMain;
-            } else {
-                pHtml = `<span>${dcu}</span>`;
-                copyVal = dcu;
-            }
-            const pCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="DCU ID 복사" style="margin-left:3px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
-            detailParts.push(`DCU ID ${pHtml}${pCopyBtn}`);
+        // 변대주/DCU 큰 글씨 — 공통 표시 안 될 때만 개별 표시.
+        //   ★조건이 공통 블록과 같아야 한다(전산화번호 또는 DCUID). DCUID 만 보면 LTE 개소가
+        //     공통에서도 개별에서도 빠져 변대주가 어디에도 안 나온다(영준님 지적 2026-08-19).
+        //   전산화번호가 있으면 라벨도 '변대주'로 맞춘다 — 실제로 그리는 값이 변대주이기 때문.
+        //   없으면 예전 그대로 'DCU ID'(영문자면 끝 2자리 강조 + 복사 시 절단, 숫자만이면 전체).
+        if (!commonDcuShown && (meter.변대주전산화 || meter.DCUID)) {
+            const P_ICON = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+            const p = poleDisplay(meter, P_ICON, 'margin-left:3px;');
+            detailParts.push(`${meter.변대주전산화 ? '변대주' : 'DCU ID'} ${p.html}`);
         }
         // 상호 (있을 때)
         if (meter.상호 && meter.상호 !== '0') detailParts.push(`상호 ${meter.상호}`);
@@ -514,14 +540,23 @@ function renderMetersList() {
         //   ★숫자형 DCUID 는 전산화번호가 아니라 LTE 회선번호(012 생략)라 붙이지 않는다.
         if (meter.변대주) {
             const dcuRaw = meter.DCUID || '';
-            const bdjuNo = /[A-Za-z]/.test(dcuRaw) ? dcuRaw.slice(0, -2) : '';
+            // 전산화번호 — 변대주전산화(합동 종로)가 있으면 그것을 쓴다. LTE 는 DCUID 가 없어
+            //   예전 방식(DCUID 에서 끝 2자리 절단)으로는 번호가 아예 안 나왔다.
+            //   그 필드가 없는 실효·재방문·고압은 예전 그대로 도출값을 쓴다.
+            const bdjuNo = meter.변대주전산화 || (/[A-Za-z]/.test(dcuRaw) ? dcuRaw.slice(0, -2) : '');
             subParts.push(`변대주 ${meter.변대주}${bdjuNo ? ` (${bdjuNo})` : ''}`);
         }
         // DCU 상태(회선상태·장애여부) 표시는 뺐다 — 영준님 2026-08-12: 우리 대상은 원본이
         //   'DCU 장애여부 = 정상' 으로 걸러 받은 개소라 다 정상이고, 확정적으로 받은 것은
         //   3번 시트(철거/유지 판정)뿐이다. 그 판정은 위 큰 글씨에 이미 나온다.
         //   필드(dcu_회선상태·dcu_장애여부)는 데이터에 남겨 두었다 — 필요하면 되살린다.
-        if (meter.인입주) subParts.push(`인입주 ${meter.인입주}`);
+        // 인입주 — 변대주 줄과 같은 형식(이름 + 전산화번호). 전산화번호가 실린 데이터셋만 붙는다.
+        //   ★DCU 판정에는 절대 쓰지 않는다. DCU 는 변대주에 붙는다(영준님 2026-08-12 확정,
+        //     아래 dcu_철거예정 줄 주석 참조). 여기는 표시 전용이다.
+        if (meter.인입주) {
+            const inNo = meter.인입주전산화 || '';
+            subParts.push(`인입주 ${meter.인입주}${inNo ? ` (${inNo})` : ''}`);
+        }
         // 2) 사업차수 (신·전)
         if (meter['사업차수']) {
             const prev = meter['사업차수_전'];
