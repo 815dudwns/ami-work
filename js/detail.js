@@ -792,9 +792,23 @@ function updateStatus(state) {
 function resetStatus() {
     if (!workStatus[currentStatusKey]) return;
 
+    // ★되돌린 사람을 기록한다(영준님 2026-08-18: "초기화 이력은 지도에 표시 X. 우리 이력에만 남게").
+    //   전엔 빈 문자열을 넘겨 updatedBy/updatedByName 이 덮여, 누가 되돌렸는지 추적이 안 됐다
+    //   (2026-08-18 중계동505 2건·진관동 88 1건이 그래서 미상으로 남음).
+    //   지도에는 안 나온다 — 표시부가 이미 pending 을 거른다:
+    //     updateWorkerInfo() 는 state==='pending' 이면 숨김 / map.js 는 updatedByName 을 안 읽음
+    //     / stats.html 은 pending 을 집계에서 continue.
+    const session = authGetSession();
+
     // state만 pending으로 (체크박스/불가 유지) — 합친 마커는 구성 지번 전부
     const targets = (currentStatusKeys && currentStatusKeys.length) ? currentStatusKeys : [currentStatusKey];
-    targets.forEach(addr => { if (workStatus[addr]) saveStateEvent(addr, 'pending', '', '', ''); });
+    targets.forEach(addr => {
+        if (workStatus[addr]) {
+            saveStateEvent(addr, 'pending', '',
+                session ? session.id   : '',
+                session ? session.name : '');
+        }
+    });
 
     updateMarkerColor(currentStatusKey);
     showDetail(currentAddress, currentMeters, currentAddresses, currentStatusKeys);
