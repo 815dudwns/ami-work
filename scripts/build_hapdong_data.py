@@ -543,6 +543,14 @@ def main():
         k = str(k) if k is not None else f"{e.get('계기번호')}|{e.get('작업일')}"
         if k not in by_key:
             order.append(k)
+        else:
+            # ★WORK_DATE 가 빈 행은 작업일을 배치 일자로 떨어뜨린다(to_record). 그런 건이
+            #   다음 날 목록에 또 잡히면 날짜가 매일 그날로 끌려다닌다(실측: CONS_TGT_SEQNO
+            #   2494072 가 8/19 -> 8/20 으로 이동). 원본에 작업일시가 없으면 **처음 본 날짜를
+            #   유지한다** — 배치 일자는 추정이고, 먼저 본 쪽이 실제에 가깝다.
+            prev_day = by_key[k].get('작업일')
+            if prev_day and not str(e.get('작업일시') or '').strip():
+                e['작업일'] = prev_day
         by_key[k] = e
     merged = [by_key[k] for k in order]
     # 작업일 내림차순(최신 먼저) + 지사/주소로 안정 정렬
