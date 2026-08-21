@@ -199,7 +199,7 @@ def to_map(r, coord):
         'skt_불가사유': clean(r[C['불가사유']]),
         'skt_비고': clean(r[C['비고']]),
         'skt_kdn_작업일': clean(r[C['KDN작업일']]),
-        'skt_kdn_작업이력': clean(r[C['KDN작업이력']]),
+        'skt_kdn_이력': clean(r[C['KDN작업이력']]),
         'lp_이력': lp_rows(r),
         'lp_최근판정': lp_best(r, len(LP_ROUNDS) - 1),
         'lp_최근회차': LP_ROUNDS[-1],

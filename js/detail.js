@@ -58,38 +58,49 @@ function poleDisplay(m, iconSvg, btnStyle) {
     return { html: `${valHtml}${nameHtml}${btn}`, copyVal };
 }
 
-// ── LP 수신 이력 (SKT 중계기) ─────────────────────────────────────────────
-//   영준님 지시 2026-08-21 "디테일에 LP 1,2 다 써라". 회차별 LP1/LP2 를 나란히 놓아
-//   **언제부터 붙었는지·끊긴 적이 있는지**가 한눈에 보이게 한다. 없는 회차는 빈칸.
-//   ★'9/24'·'36/96' 은 정상이다 — 24개 중 9개라 미달로 보이지만 아니다(한전 판정 실증).
-//     실패는 '0/24' 뿐이라 그것만 빨강으로 구분한다. '#N/A' 는 빌더가 빈값으로 만들어 온다.
-function lpHistoryHtml(meter) {
+// ── LP 수신 이력 한 줄 요약 (SKT 중계기) ──────────────────────────────────
+//   영준님 지시 2026-08-21 "디테일에 표로 넣지 말고 그냥 말로."
+//   회차 x LP1/LP2 표를 그렸다가 걷어냈다 — 지도에 올린 41건은 전부 미작업이라 표가
+//   사실상 빈칸이었다(38건은 7회 전부 빈값). 내용이 있는 건 3건뿐인데 7행짜리 표를
+//   41건 전부에 그리고 폰에서 가로 스크롤까지 붙일 값어치가 없었다.
+//   ★데이터(lp_이력)는 그대로 둔다. 완료건이 들어오거나 회차가 쌓이면 다시 쓸 수 있다.
+//
+//   판정은 회차마다 **LP1·LP2 중 좋은 쪽**으로 본다 — 한쪽만 값이 있는 개소가 많아
+//   하나만 보면 오판한다. ★'9/24'·'36/96' 은 정상이다(24개 중 9개라 미달로 보이지만
+//   한전이 정상으로 판정한 실증이 있다). 실패는 '0/24' 뿐이다.
+//   -> { text, bad } 를 돌려준다. bad(0수신)일 때만 빨강으로 그린다.
+function lpSummary(meter) {
     const rows = meter && meter.lp_이력;
-    if (!Array.isArray(rows) || !rows.length) return '';
-    const esc = (s) => String(s == null ? '' : s)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    // 전 회차가 비었으면 표 대신 한 줄 — 그 자체가 '한 번도 안 붙었다'는 정보다.
-    if (!rows.some(r => r.lp1 || r.lp2)) {
-        return `<div class="lp-history"><span class="lp-none">LP 수신 이력 없음 (${rows.length}회 전부)</span></div>`;
-    }
-    // '260414' -> '04/14'
+    if (!Array.isArray(rows) || !rows.length) return null;
+
+    // '260612' -> '06/12'. 원본 표기를 그대로 내보내지 않는다.
     const label = (v) => {
         const s = String(v || '');
         return s.length === 6 ? `${s.slice(2, 4)}/${s.slice(4)}` : s;
     };
-    const cell = (v) => {
-        const t = esc(v);
-        if (!t) return '<td></td>';
-        return `<td class="${v === '0/24' ? 'lp-bad' : 'lp-ok'}">${t}</td>`;
+
+    const verdict = rows.map(r => {
+        const vals = [r.lp1, r.lp2].map(v => String(v == null ? '' : v).trim()).filter(Boolean);
+        if (!vals.length) return { state: '수신없음', value: '' };
+        const ok = vals.find(v => v !== '0/24');
+        return ok ? { state: '정상', value: ok } : { state: '0수신', value: '0/24' };
+    });
+
+    // 한 번도 안 붙은 개소 — 그 자체가 정보다(현재 41건 중 38건)
+    if (verdict.every(v => v.state === '수신없음')) return { text: 'LP 수신 이력 없음', bad: false };
+
+    const last = verdict[verdict.length - 1];
+    if (last.state === '정상') {
+        return { text: `LP 정상 ${last.value} (${label(rows[rows.length - 1].회차)})`, bad: false };
+    }
+
+    // 지금 상태가 언제부터 이어지는지 — 같은 판정이 연속된 첫 회차까지 거슬러 올라간다.
+    let i = verdict.length - 1;
+    while (i > 0 && verdict[i - 1].state === last.state) i--;
+    return {
+        text: `LP ${last.state} — ${label(rows[i].회차)}부터 ${verdict.length - i}회 연속`,
+        bad: last.state === '0수신',
     };
-    const head = rows.map(r => `<td>${esc(label(r.회차))}</td>`).join('');
-    const l1 = rows.map(r => cell(r.lp1)).join('');
-    const l2 = rows.map(r => cell(r.lp2)).join('');
-    return `<div class="lp-history"><table>` +
-        `<tr class="lp-head"><th>회차</th>${head}</tr>` +
-        `<tr><th>LP1</th>${l1}</tr>` +
-        `<tr><th>LP2</th>${l2}</tr>` +
-        `</table></div>`;
 }
 
 // 주소 클릭 시 상세 패널 표시
@@ -619,6 +630,11 @@ function renderMetersList() {
             if (meter.skt_kdn_이력)    subParts.push(`이력 ${meter.skt_kdn_이력}`);
             if (meter.skt_비고)        subParts.push(`비고 ${meter.skt_비고}`);
         }
+        // LP 수신 이력 — 표가 아니라 **한 줄 문장**이다(영준님 2026-08-21 "그냥 말로").
+        //   카테고리가 아니라 lp_이력 필드 유무로 건다 — 나중에 다른 리스트가 LP 를 싣고
+        //   들어와도 그대로 나온다. 실효·재방문·고압·합동은 필드가 없어 아무것도 안 그린다.
+        const lp = lpSummary(meter);
+        if (lp) subParts.push(lp.bad ? `<span style="color:#dc2626;">${lp.text}</span>` : lp.text);
         // 7) TOU 전용 필드 (category=tou일 때)
         if (meter.category === 'tou') {
             if (meter.재 || meter.tou_type === 'rework')
@@ -709,7 +725,6 @@ function renderMetersList() {
             if (meter.공사번호) subParts.push(`공사 ${meter.공사번호}`);
         }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
-        const lpHistory = lpHistoryHtml(meter);
         const details = detailParts.join(', ');
 
         // 계기번호 4구간 색상 분리
@@ -768,7 +783,6 @@ function renderMetersList() {
                     <button class="${failBtnClass}" data-meter="${meter.계기번호}">${failBtnLabel}</button>
                     ${details ? `<div class="meter-details">${details}</div>` : ''}
                     ${subDetails}
-                    ${lpHistory}
                     ${addedInfo}
                     ${failInputHtml}
                 </div>
