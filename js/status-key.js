@@ -43,7 +43,9 @@ const STATUS_KEY_SEP = '|';
 //   ★scripts/status_key.py 의 NAMESPACED_CATEGORIES 와 같아야 한다.
 //   ★합동(2026-08-19 추가): 노원·성북·종로가 실효 리스트와 주소가 대량으로 겹친다.
 //     처음부터 '주소|합동' 으로 넣는다 — 나중에 고치면 이미 쌓인 작업분이 고아가 된다.
-const NAMESPACED_CATEGORIES = ['고압', '합동'];
+//   ★skt(2026-08-21 추가): SKT 중계기 41건이 서울 7개 지사에 흩어져 있어 실효 리스트와
+//     주소가 겹칠 여지가 크다. 성격도 다른 사업이라 상태를 공유하면 안 된다.
+const NAMESPACED_CATEGORIES = ['고압', '합동', 'skt'];
 
 // 마커 식별자 — map.js loadMarkers()의 그룹핑 키와 같은 형식이어야 한다.
 function markerKeyOf(item) {

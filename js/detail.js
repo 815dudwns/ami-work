@@ -58,6 +58,40 @@ function poleDisplay(m, iconSvg, btnStyle) {
     return { html: `${valHtml}${nameHtml}${btn}`, copyVal };
 }
 
+// ── LP 수신 이력 (SKT 중계기) ─────────────────────────────────────────────
+//   영준님 지시 2026-08-21 "디테일에 LP 1,2 다 써라". 회차별 LP1/LP2 를 나란히 놓아
+//   **언제부터 붙었는지·끊긴 적이 있는지**가 한눈에 보이게 한다. 없는 회차는 빈칸.
+//   ★'9/24'·'36/96' 은 정상이다 — 24개 중 9개라 미달로 보이지만 아니다(한전 판정 실증).
+//     실패는 '0/24' 뿐이라 그것만 빨강으로 구분한다. '#N/A' 는 빌더가 빈값으로 만들어 온다.
+function lpHistoryHtml(meter) {
+    const rows = meter && meter.lp_이력;
+    if (!Array.isArray(rows) || !rows.length) return '';
+    const esc = (s) => String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // 전 회차가 비었으면 표 대신 한 줄 — 그 자체가 '한 번도 안 붙었다'는 정보다.
+    if (!rows.some(r => r.lp1 || r.lp2)) {
+        return `<div class="lp-history"><span class="lp-none">LP 수신 이력 없음 (${rows.length}회 전부)</span></div>`;
+    }
+    // '260414' -> '04/14'
+    const label = (v) => {
+        const s = String(v || '');
+        return s.length === 6 ? `${s.slice(2, 4)}/${s.slice(4)}` : s;
+    };
+    const cell = (v) => {
+        const t = esc(v);
+        if (!t) return '<td></td>';
+        return `<td class="${v === '0/24' ? 'lp-bad' : 'lp-ok'}">${t}</td>`;
+    };
+    const head = rows.map(r => `<td>${esc(label(r.회차))}</td>`).join('');
+    const l1 = rows.map(r => cell(r.lp1)).join('');
+    const l2 = rows.map(r => cell(r.lp2)).join('');
+    return `<div class="lp-history"><table>` +
+        `<tr class="lp-head"><th>회차</th>${head}</tr>` +
+        `<tr><th>LP1</th>${l1}</tr>` +
+        `<tr><th>LP2</th>${l2}</tr>` +
+        `</table></div>`;
+}
+
 // 주소 클릭 시 상세 패널 표시
 function showDetail(address, meters, addresses, statusKeys) {
     currentAddress = address;
@@ -675,6 +709,7 @@ function renderMetersList() {
             if (meter.공사번호) subParts.push(`공사 ${meter.공사번호}`);
         }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
+        const lpHistory = lpHistoryHtml(meter);
         const details = detailParts.join(', ');
 
         // 계기번호 4구간 색상 분리
@@ -733,6 +768,7 @@ function renderMetersList() {
                     <button class="${failBtnClass}" data-meter="${meter.계기번호}">${failBtnLabel}</button>
                     ${details ? `<div class="meter-details">${details}</div>` : ''}
                     ${subDetails}
+                    ${lpHistory}
                     ${addedInfo}
                     ${failInputHtml}
                 </div>

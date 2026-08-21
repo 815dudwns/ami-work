@@ -77,3 +77,8 @@ research/admin-validation/backend/*.bak-*
 #     지우면 재수집 없이는 복구가 안 된다. 추적만 안 한다.
 #   geocode-cache.json 은 추적을 유지한다 — 작고, 있으면 재조회(카카오 호출)를 아낀다.
 data/inbox_hapdong/*_raw_*.json
+
+# 주덕기 반장 원본 엑셀 (2026-08-21) — 보관본은 data/skt-full-*.json 이 대신한다.
+#   엑셀·zip 을 그대로 추적하면 .git 만 부풀고 내용은 JSON 과 중복이다. 파일은 로컬에 남긴다.
+data/inbox_jdg_*/*.xlsx
+data/inbox_jdg_*/*.zip

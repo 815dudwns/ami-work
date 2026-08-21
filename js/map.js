@@ -52,10 +52,13 @@ const DATASETS = [
     // 합동시공 — 다른 지역 계기팀이 계기만 갈고 간 개소(모뎀 미시공). 매일 그날치가 쌓이므로
     //   dateField 를 주면 카테고리 밑에 날짜 체크박스 트리가 자동 생성된다(populateCategoryFilter).
     { file: './data/hapdong-data.json', category: '합동', label: '합', uiLabel: '합동시공', dateField: '작업일' },
-    // 2026-08-02 영준님 지시로 skt·tou 내림 — 0730 리스트와 재방문만 남긴다.
-    //   데이터 파일(data/skt-data.json·tou-data.json)은 지우지 않았다. 되살리려면 이 배열에
-    //   아래 두 줄을 되돌리고 getSelectedCategories 의 ALL 에도 다시 넣어야 한다.
-    // { file: './data/skt-data.json',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
+    // SKT 중계기 — SKT 중계기가 붙은 개소에 AMI 모뎀을 설치해 달라는 요청(주덕기 반장 2026-08-21).
+    //   ★올라간 것은 **미작업 41건뿐**이다. 완료 187·작업불요 53 을 함께 올리면 할 일이 묻힌다
+    //   (영준님 지시). 원본 281건은 data/skt-full-20260814.json 에 따로 보관한다.
+    //   2026-08-02 에 내렸다가 되살렸다 — 그때 파일을 지우지 않아 그대로 켤 수 있었다.
+    { file: './data/skt-data.json',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
+    // TOU 는 여전히 내려둔 상태다(2026-08-02). 되살리려면 아래 줄을 되돌리고
+    //   getSelectedCategories 의 ALL 에도 다시 넣어야 한다.
     // { file: './data/tou-data.json',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
 ];
 
@@ -405,7 +408,7 @@ function populateCategoryFilter() {
 
 // 카테고리 필터 — 체크된 카테고리만 표시 (localStorage 저장)
 function getSelectedCategories() {
-    const ALL = ['실효', '재방문', '고압', '합동'];   // skt·tou 내림(2026-08-02) — DATASETS 주석 참조
+    const ALL = ['실효', '재방문', '고압', '합동', 'skt'];   // tou 만 내림 상태 — DATASETS 주석 참조
     const saved = localStorage.getItem('ami_selected_categories');
     if (saved) try {
         const set = new Set(JSON.parse(saved));

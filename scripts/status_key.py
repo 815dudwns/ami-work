@@ -45,21 +45,21 @@ import os
 STATUS_KEY_SEP = "|"
 
 # 마커로 뜨는 데이터셋 — js/map.js 의 DATASETS 와 같아야 한다.
-#   ※skt·tou 는 2026-08-02 영준님 지시로 map.js 에서 내렸다. 여기서도 주석처리해 둔다
-#     (데이터 파일 자체가 없어 키에는 영향이 없었지만, 목록이 어긋나면 parity 검사가
-#      매번 경고를 뿜어 진짜 어긋남을 가린다). 되살릴 땐 map.js 와 함께 되살려라.
+#   ※skt 는 2026-08-21 에 되살렸다(SKT 중계기 미작업 41건). tou 만 내림 상태로 남는다.
+#     목록이 어긋나면 parity 검사가 매번 경고를 뿜어 진짜 어긋남을 가린다.
+#     되살리거나 내릴 땐 map.js 와 **함께** 고쳐라.
 DATASETS = [
     ("site-data.json", "실효"),
     ("rework-data.json", "재방문"),
     ("gapap-data.json", "고압"),
     ("hapdong-data.json", "합동"),
-    # ("skt-data.json", "skt"),
+    ("skt-data.json", "skt"),
     # ("tou-data.json", "tou"),
 ]
 
 # 자기 이름을 상태키에 박는 카테고리 — 다른 리스트와 상태를 절대 공유하지 않는다.
 #   성격이 다른 리스트가 또 들어오면 여기에 한 줄 추가하면 된다.
-NAMESPACED_CATEGORIES = ("고압", "합동")
+NAMESPACED_CATEGORIES = ("고압", "합동", "skt")
 
 
 def marker_key_of(item):

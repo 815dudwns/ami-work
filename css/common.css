@@ -264,3 +264,17 @@ a.am-row { color: #111827; }
 
 /* user-bar를 메뉴 안에 배치할 때 fixed 해제 (display:none으로 원본 숨기고 메뉴 안에는 별도 구성) */
 .app-menu .am-hidden-links { display: none; }
+
+/* LP 수신 이력 표 (SKT 중계기) — 회차 x LP1/LP2.
+   회차가 7개라 좁은 폰에서는 넘친다. 표 안에서만 가로 스크롤시키고
+   본문이 가로로 밀리지 않게 한다. */
+.lp-history { margin-top: 4px; overflow-x: auto; }
+.lp-history table { border-collapse: collapse; font-size: 11px; }
+.lp-history th, .lp-history td {
+    border: 1px solid #e5e7eb; padding: 2px 6px; text-align: center; white-space: nowrap;
+}
+.lp-history th { background: #f9fafb; color: #6b7280; font-weight: 600; }
+.lp-history .lp-head td { color: #6b7280; background: #f9fafb; }
+.lp-history .lp-ok  { color: #166534; }   /* 9/24·36/96 도 정상이다 */
+.lp-history .lp-bad { color: #b91c1c; }   /* 0/24 = 수신 0 */
+.lp-history .lp-none { font-size: 11px; color: #9ca3af; }
