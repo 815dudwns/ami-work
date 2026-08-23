@@ -82,8 +82,13 @@ def clean_addr(raw):
 #   ★geocode_cascade._dong_token_index 는 못 쓴다 — '동/읍/면' 을 요구해서 awms 표기인
 #     '명륜3가'(=명륜동3가)를 놓치고 주소 전체를 검색어로 만든다(실측 종로 다수).
 DONG_RE = re.compile(r'^[가-힣][가-힣0-9]*(?:동|가|읍|면)\d*$')
-# 번지 토큰: '676-32' / '178번지'
-BEONJI_RE = re.compile(r'^(\d+(?:-\d+)?)(?:번지)?$')
+# 번지 토큰: '676-32' / '178번지' / '산2-13'
+#   ★산번지의 '산' 은 **번지에 포함해서** 잡는다(2026-08-21 실측). 빼고 조회하면 '명륜3가 2-13'
+#     이라는 **다른 필지**를 묻게 된다. 붙여 쓴 '산2-13' 을 번지로 못 읽으면 질의가 동까지만
+#     내려가고, 카카오가 동 중심 좌표를 exact 로 돌려줘 마커가 엉뚱한 곳에 박힌다(3건 실증).
+#     '방학동 산 69-31' 처럼 띄어 쓴 형태는 예전에도 통과했지만 그건 '산' 을 건너뛴 것이라
+#     운이 좋았던 경우다 — 여기서 같이 정식으로 잡는다.
+BEONJI_RE = re.compile(r'^((?:산\s*)?\d+(?:-\d+)?)(?:번지)?$')
 # 도로명 토큰: '도봉로110바길' / '노해로62길' / '삼양로'
 ROADNAME_RE = re.compile(r'(로|길)$')
 
@@ -96,11 +101,21 @@ def is_road_address(a):
 
 
 def _dong_beonji(tokens):
-    """토큰열에서 (동, 번지)를 뽑는다. 못 찾으면 (동, None) 또는 (None, None)."""
+    """토큰열에서 (동, 번지)를 뽑는다. 못 찾으면 (동, None) 또는 (None, None).
+
+    ★'산' 을 띄어 쓴 표기('방학동 산 69-31')도 번지에 붙여 읽는다 — _jibun_tail 과 **같은 규칙**
+      이어야 한다. 한쪽만 고치면 질의는 '방학동 69-31'(산 빠짐)로 나가고 대조는 '산69-31' 로
+      해서, 맞는 지번인데도 어긋난 것으로 판정해 비워 버린다(2026-08-21 실측 1건 회귀).
+    """
     for i, p in enumerate(tokens):
         if ROADNAME_RE.search(p) or not DONG_RE.match(p):
             continue
-        for q in tokens[i + 1:]:
+        rest = tokens[i + 1:]
+        for j, q in enumerate(rest):
+            if q == '산' and j + 1 < len(rest):
+                mm = BEONJI_RE.match(rest[j + 1])
+                if mm:
+                    return p, '산 ' + mm.group(1).replace(' ', '')
             mm = BEONJI_RE.match(q)
             if mm:
                 return p, mm.group(1)
@@ -118,10 +133,18 @@ def _jibun_tail(addr):
     for i, p in enumerate(tokens):
         if ROADNAME_RE.search(p) or not DONG_RE.match(p):
             continue
-        for q in tokens[i + 1:]:
+        rest = tokens[i + 1:]
+        for j, q in enumerate(rest):
+            # ★'산' 을 띄어 쓴 표기를 붙여 읽는다. awms 는 '산2-13', 카카오는 '산 2-13' 으로
+            #   같은 필지를 다르게 쓴다(2026-08-21 실측). 표기 차이로 대조가 어긋나면
+            #   맞는 지번인데도 비워 버린다.
+            if q == '산' and j + 1 < len(rest):
+                m = BEONJI_RE.match(rest[j + 1])
+                if m:
+                    return (p, '산' + m.group(1).replace(' ', ''))
             m = BEONJI_RE.match(q)
             if m:
-                return (p, m.group(1))
+                return (p, m.group(1).replace(' ', ''))
         return (p, None)
     return (None, None)
 
@@ -305,6 +328,27 @@ def geocode_all(pairs, cache):
     return cache
 
 
+# ─── 작업일 보정 ───────────────────────────────────────────────────────────
+# awms WORK_DATE 는 **앱 작성 시각**이지 현장 시각이 아니다. 조들이 밤에 몰아 쓰면
+#   다음날로 찍힌다(2026-08-21 종로 53건이 전부 22:16~22:43 이었다).
+#   실제 작업일이 다른 것이 **확인된 배치만** 여기에 명시한다.
+#   ★규칙이 아니라 목록이다. '밤 시간이면 전날'로 일반화하면 확인되지 않은 건까지 끌어다 옮긴다.
+#   ※'작업일시' 원본은 손대지 않는다 — 왜 날짜가 다른지 나중에 추적할 수 있어야 한다.
+WORK_DAY_OVERRIDES = [
+    # 2026-08-21 수집분 서울본부직할(공사번호 끝 383 = 종로) 53건 -> 실제 작업일 8/20
+    #   (영준님 확인). 같은 배치의 다른 지사 120건은 8/21 그대로다.
+    {'batch': '20260821', '지사': '서울본부직할', '공사번호끝': '383', '작업일': '20260820'},
+]
+
+
+def override_work_day(batch_day, jisa, cons_no, work_day):
+    for o in WORK_DAY_OVERRIDES:
+        if (str(batch_day) == o['batch'] and jisa == o['지사']
+                and str(cons_no or '').endswith(o['공사번호끝'])):
+            return o['작업일']
+    return work_day
+
+
 # ─── 변환 ──────────────────────────────────────────────────────────────────
 
 def to_record(r, batch_day):
@@ -322,6 +366,8 @@ def to_record(r, batch_day):
     # WORK_DATE 가 빈 행이 있다(2026-08-19분 1건). 날짜 트리에 빈 노드가 생기지 않게
     #   배치 일자로 떨어뜨린다. 원본 문자열(작업일시)은 빈 채로 남겨 구분 가능하게 둔다.
     work_day = wd[:10].replace('-', '') if len(wd) >= 10 else str(batch_day)
+    # 확인된 배치만 실제 작업일로 되돌린다(위 WORK_DAY_OVERRIDES). 작업일시는 원본 그대로 둔다.
+    work_day = override_work_day(batch_day, jisa, r.get('CONS_NO'), work_day)
 
     pwr = r.get('CNTR_PWR')
     return {
@@ -526,7 +572,10 @@ def main():
         if acc == 'exact':
             if got_road and is_road_address(got_road):
                 e['도로명주소'] = got_road
-            if got_jibun and _jibun_tail(got_jibun) == _jibun_tail(jibun):
+            #   ★번지 없이 동까지만 온 응답은 넣지 않는다. 그건 지번이 아니라 동 중심
+            #     폴백이다(질의가 동까지만 내려간 경우 카카오가 그대로 exact 로 돌려준다).
+            got_tail = _jibun_tail(got_jibun)
+            if got_jibun and got_tail[1] and got_tail == _jibun_tail(jibun):
                 e['지번주소'] = got_jibun
             elif got_jibun:
                 stat['지번불일치'] += 1
