@@ -418,6 +418,26 @@ def to_record(r, batch_day):
 
 # ─── 종로 보강 ─────────────────────────────────────────────────────────────
 
+# 좌표를 종로맵 값으로 바꿀 때, 이 거리 이상 벌어지면 **바꾸지 않고 보고한다**.
+#   둘 다 exact 인데 수백 m 떨어져 있으면 어느 쪽이 맞는지 자동으로는 알 수 없다.
+#   그때는 손대지 않는 쪽이 안전하다 — 틀린 좌표로 덮으면 작업자가 엉뚱한 데로 간다.
+#   ※실측 2026-08-24: 종로 131건 중 128건이 10m 이내였고, 벌어진 3건은 전부
+#     '명륜3가 산2-13' 이었다. 종로맵 쪽 주소에 '산' 이 빠져('2-13') 다른 필지로 잡힌 것이라
+#     우리 좌표가 맞았다(역지오코딩 대조: 우리 좌표 -> '명륜3가 산 2-13', 종로맵 좌표 -> '명륜3가 2-13').
+COORD_SWAP_MAX_M = 50
+
+
+def _dist_m(lat1, lng1, lat2, lng2):
+    """두 좌표 사이 거리(m). 하버사인."""
+    import math
+    R = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
 def norm_id(v):
     """고객번호·계기번호 대조용 정규화 — 앞의 0 만 떼고 그대로 비교한다.
     합동(awms)은 10자리 zero-pad '0116163882', 종로맵은 9자리 '141611851' 로 온다."""
@@ -462,7 +482,8 @@ def enrich_jongno(recs):
     if not idx:
         return {'대상': 0, '채움': 0}
 
-    stat = {'대상': 0, '채움': 0, '원천빈값': 0, '미매칭': 0, '규칙위반': 0, '모호': 0}
+    stat = {'대상': 0, '채움': 0, '원천빈값': 0, '미매칭': 0, '규칙위반': 0, '모호': 0,
+            '좌표교체': 0, '좌표보류': 0, '좌표없음': 0}
     problems = []
 
     for e in recs:
@@ -492,6 +513,31 @@ def enrich_jongno(recs):
             stat['규칙위반'] += 1
             problems.append(f"DCUID 규칙 위반: 고객 {e.get('고객번호')} 변대주 {pole_no} / DCUID {dcuid}")
             continue
+
+        # ─ 좌표를 종로맵 값으로 교체 (영준님 지시 2026-08-24) ─
+        #   종로 개소는 종로맵에 이미 좌표가 있다. 우리가 주소 문자열로 다시 뽑으면 파싱·응답
+        #   편차가 생기니(산번지 건이 그 예다) 매칭된 값을 그대로 쓴다.
+        #   ★매칭 실패하거나 원천에 좌표가 없으면 기존 좌표를 **유지**한다. 비우지 않는다.
+        #   ★멀리 떨어진 건은 바꾸지 않고 보고한다 — 어느 쪽이 맞는지 자동으로는 못 가른다.
+        slat, slng = src.get('lat'), src.get('lng')
+        if slat is not None and slng is not None:
+            if e.get('lat') is None or e.get('lng') is None:
+                e['lat'], e['lng'] = slat, slng
+                e['좌표정확도'] = src.get('좌표정확도') or e.get('좌표정확도') or ''
+                stat['좌표교체'] += 1
+            else:
+                d = _dist_m(e['lat'], e['lng'], slat, slng)
+                if d <= COORD_SWAP_MAX_M:
+                    e['lat'], e['lng'] = slat, slng
+                    e['좌표정확도'] = src.get('좌표정확도') or e.get('좌표정확도') or ''
+                    stat['좌표교체'] += 1
+                else:
+                    stat['좌표보류'] += 1
+                    problems.append(
+                        f"좌표 {d:.0f}m 차이라 교체 보류(기존 유지): {e.get('주소')} "
+                        f"| 우리 {e['lat']:.6f},{e['lng']:.6f} <-> 종로맵 {slat:.6f},{slng:.6f}")
+        else:
+            stat['좌표없음'] += 1
 
         # 원천에 있는 값만 덮어쓴다. 빈값으로 기존 값을 지우지 않는다.
         moved = {
@@ -611,6 +657,9 @@ def main():
     ez = enrich_jongno(merged)
     print(f"종로 보강: 대상 {ez['대상']} / 채움 {ez['채움']} / 원천빈값 {ez.get('원천빈값', 0)}"
           f" / 미매칭 {ez.get('미매칭', 0)} / 규칙위반 {ez.get('규칙위반', 0)} / 모호 {ez.get('모호', 0)}")
+    print(f"종로 좌표: 종로맵 값으로 교체 {ez.get('좌표교체', 0)}"
+          f" / 멀어서 기존 유지 {ez.get('좌표보류', 0)} (기준 {COORD_SWAP_MAX_M}m)"
+          f" / 원천에 좌표 없음 {ez.get('좌표없음', 0)}")
 
     OUT.write_text(json.dumps(merged, ensure_ascii=False, indent=1), encoding='utf-8')
 
