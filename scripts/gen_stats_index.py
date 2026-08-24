@@ -65,7 +65,11 @@ if _gp.exists():
 # 합동시공 · SKT 중계기 — 지도에 올라간 데이터셋은 통계에서도 골라 볼 수 있어야 한다.
 #   ★이 둘은 상태키가 네임스페이스('주소|합동'·'주소|skt')다. stats.html 이 그 키를 읽도록
 #     고친 뒤에 넣어야 한다 — 못 읽는 상태로 넣으면 완료한 것도 전부 미작업으로 잡힌다.
-for _code, _name in (("h", "hapdong-data.json"), ("k", "skt-data.json")):
+#   ★합동은 백업본(hapdong-data-archive.json)도 함께 읽는다. 지도에는 최근 며칠치만 남기고
+#     오래된 작업일은 빼지만(build_hapdong_data.py RETAIN_DAYS), 통계는 누적 실적이라
+#     뺀 것도 분모에 있어야 한다. 실효가 site-data + 완료 아카이브를 합산하는 것과 같다.
+for _code, _name in (("h", "hapdong-data.json"), ("h", "hapdong-data-archive.json"),
+                     ("k", "skt-data.json")):
     _p = ROOT / "data" / _name
     if _p.exists():
         for it in to_items(json.loads(_p.read_text(encoding="utf-8"))):

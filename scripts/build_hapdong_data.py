@@ -35,8 +35,23 @@ from geocode_cascade import resolve as geo_resolve, _dong_token_index
 ROOT = Path(__file__).resolve().parent.parent
 INBOX = ROOT / 'data' / 'inbox_hapdong'
 OUT = ROOT / 'data' / 'hapdong-data.json'
+ARCHIVE = ROOT / 'data' / 'hapdong-data-archive.json'
 GEO_CACHE = INBOX / 'geocode-cache.json'
 WORKERS = 8
+
+# ─── 보존 기간 ─────────────────────────────────────────────────────────────
+# 지도에 남기는 기간(일). 이보다 오래된 작업일은 지도 데이터에서 빼고 백업으로 옮긴다.
+#   영준님 지시 2026-08-24 "3일 지난 것은 백업하고 지도에서 안 보이게".
+#   ★상수 한 줄만 고치면 기간이 바뀐다.
+#   ★자동으로 돌지 않는다(영준님 정정 2026-08-24 "내가 업데이트 할 때 같이 해라. 빼는 것도").
+#     스케줄러·자동 트리거 없이 **빌더를 돌릴 때만** 함께 처리된다. 그리고 기준일은 오늘이
+#     아니라 **데이터의 최신 작업일**이다 — 새 수집분이 들어와야 경계가 움직인다.
+#     오늘 날짜를 기준으로 삼으면 수집을 안 한 날에도 시간만 지나면 지도에서 사라진다.
+#   ★workStatus(완료 기록)는 건드리지 않는다 — 데이터만 빼고 Firebase 상태는 그대로 둔다.
+#     지우면 작업 이력이 사라지고, 같은 주소가 다시 들어올 때 빈 상태로 시작한다.
+#   ★뺀 것은 버리지 않는다. 통계는 누적 실적이라 백업분까지 분모에 넣는다
+#     (scripts/gen_stats_index.py 가 이 백업 파일도 읽는다).
+RETAIN_DAYS = 3
 
 # 종로 보강 원천 — 종로맵 대장. awms FMPMTR 응답에는 변대주·DCU 정보가 없지만
 #   종로는 우리 데이터가 따로 있다(영준님 지시 2026-08-19).
@@ -628,9 +643,12 @@ def main():
         stat[acc if acc in stat else 'fail'] += 1
 
     # 3) 기존 파일과 병합 — 유니크 키 = CONS_TGT_SEQNO
+    #    ★백업본도 함께 읽는다. 지도에서 뺀 건이라도 원본 raw 가 없어지면 되살릴 길이 없다.
+    #      여기서 같이 들고 있어야 보존 기간을 늘렸을 때 그대로 돌아온다.
     existing = []
-    if OUT.exists():
-        existing = json.loads(OUT.read_text(encoding='utf-8'))
+    for _src in (ARCHIVE, OUT):
+        if _src.exists():
+            existing += json.loads(_src.read_text(encoding='utf-8'))
     by_key = {}
     order = []
     for e in existing + recs:
@@ -661,11 +679,29 @@ def main():
           f" / 멀어서 기존 유지 {ez.get('좌표보류', 0)} (기준 {COORD_SWAP_MAX_M}m)"
           f" / 원천에 좌표 없음 {ez.get('좌표없음', 0)}")
 
-    OUT.write_text(json.dumps(merged, ensure_ascii=False, indent=1), encoding='utf-8')
+    # 5) 보존 기간 — 오래된 작업일은 지도 데이터에서 빼고 백업으로 옮긴다.
+    #    기준일 = **데이터의 최신 작업일**. 오늘 날짜가 아니다 — 수집을 안 한 날에도
+    #    시간만 지나면 지도에서 사라지는 것을 막는다(영준님 정정 2026-08-24).
+    days = sorted({str(e.get('작업일') or '') for e in merged if str(e.get('작업일') or '').isdigit()})
+    cutoff = ''
+    if days:
+        from datetime import datetime as _dt, timedelta as _td
+        base = _dt.strptime(days[-1], '%Y%m%d').date()
+        cutoff = (base - _td(days=RETAIN_DAYS - 1)).strftime('%Y%m%d')
+    live = [e for e in merged if not cutoff or str(e.get('작업일') or '') >= cutoff]
+    archived = [e for e in merged if cutoff and str(e.get('작업일') or '') < cutoff]
+
+    OUT.write_text(json.dumps(live, ensure_ascii=False, indent=1), encoding='utf-8')
+    if archived or ARCHIVE.exists():
+        ARCHIVE.write_text(json.dumps(archived, ensure_ascii=False, indent=1), encoding='utf-8')
 
     import collections
     print()
-    print(f'저장: {OUT} — 총 {len(merged):,}건 (신규/갱신 {len(recs):,})')
+    print(f'보존 {RETAIN_DAYS}일 — 지도에 남길 최소 작업일 {cutoff or "(전체)"}')
+    print(f'  지도 {len(live):,}건 / 백업 {len(archived):,}건 -> {ARCHIVE.name}')
+    if archived:
+        print('  백업으로 뺀 작업일:', dict(collections.Counter(e['작업일'] for e in archived)))
+    print(f'저장: {OUT} — 지도 {len(live):,}건 (병합 총 {len(merged):,} · 신규/갱신 {len(recs):,})')
     print(f"좌표: exact={stat['exact']} approximate={stat['approximate']} "
           f"fail={stat['fail']} 주소없음={stat['no_addr']} "
           f"· 응답지번이 물어본 지번과 달라 지번주소 비움={stat['지번불일치']}")
@@ -675,13 +711,13 @@ def main():
     n_detail = sum(1 for e in merged if str(e.get('동호수') or '').strip())
     bad = [e for e in merged if str(e.get('지번주소') or '').strip()
            and not _looks_like_jibun(e['지번주소'])]
-    print(f'주소 3분할: 도로명 {n_road} / 지번 {n_jibun} / 동호수 {n_detail} '
+    print(f'주소 3분할(백업 포함 전체): 도로명 {n_road} / 지번 {n_jibun} / 동호수 {n_detail} '
           f'(총 {len(merged)}) · 지번 칸 비지번 오염 {len(bad)}건')
     for e in bad[:10]:
         print(f"   ★비지번: {e.get('지번주소')!r} <- {e.get('주소')!r}")
-    print('지사별:', dict(collections.Counter(e['지사'] for e in merged)))
-    print('작업일별:', dict(collections.Counter(e['작업일'] for e in merged)))
-    print('계기타입별:', dict(collections.Counter(e['계기타입'] or '(빈값)' for e in merged)))
+    print('지도 지사별:', dict(collections.Counter(e['지사'] for e in live)))
+    print('지도 작업일별:', dict(collections.Counter(e['작업일'] for e in live)))
+    print('지도 계기타입별:', dict(collections.Counter(e['계기타입'] or '(빈값)' for e in live)))
 
 
 if __name__ == '__main__':

@@ -168,24 +168,54 @@ function initFB() {
     }
 }
 
+// 주소 정규화(이중공백) — 여러 곳에서 같은 규칙을 써야 해서 전역으로 뺐다.
+const normAddr = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+
+// Firebase 키 인코딩 되돌리기(js/firebase.js encodeKey 의 역). 주소에 '.' 이 든 개소가 있다.
+//   ★날짜 탭(작업자별·구별)에서만 쓴다. workStatus 키를 직접 훑는 곳이 여기뿐이다.
+const decodeStatusKey = (k) => String(k)
+    .replace(/_dot_/g, '.').replace(/_hash_/g, '#').replace(/_dollar_/g, '$')
+    .replace(/_slash_/g, '/').replace(/_lbr_/g, '[').replace(/_rbr_/g, ']');
+
+// 상태키 네임스페이스를 쓰는 카테고리인가 (js/status-key.js 가 단일 출처).
+function isNamespacedCat(cat) {
+    if (!cat) return false;
+    return (typeof NAMESPACED_CATEGORIES !== 'undefined')
+        ? NAMESPACED_CATEGORIES.includes(cat) : true;
+}
+
+// 작업자별·구별 탭의 계기 조회 색인 — 통계 인덱스로 만든다.
+//   ★예전엔 data/site-data.json(실효만)을 통째로 받아 주소로 색인했다. 두 겹으로 막혀 있었다.
+//     1) 실효 리스트에만 있는 계기라 고압·합동·SKT·재방문 개소는 조회 자체가 안 됐고
+//     2) 완료된 실효 개소는 site-data 에서 빠지므로(완료제거) 그것마저 못 찾았다.
+//        그래서 완료 처리한 개소 대부분이 '계기 0' 으로 집계되고 있었다.
+//   인덱스는 완료 아카이브까지 들고 있어 둘 다 풀리고, 전체 탭이 이미 받는 파일이라
+//   따로 더 받지도 않는다(큰 원본 파일 다운로드가 통째로 사라진다).
 async function loadSiteData() {
     if (_metersByAddr) return _metersByAddr;
-    const resp = await fetch('data/site-data.json', { cache: 'no-cache' });   // force-cache 제거 — 어제 갱신 데이터를 브라우저 캐시가 막던 문제
-    if (!resp.ok) throw new Error('site-data.json 로드 실패');
-    const arr = await resp.json();
+    const idx = await loadFbSiteData();
     const map = {};
-    const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();   // 이중공백 정규화
-    const addKey = (k, item) => { if (!k) return; if (!map[k]) map[k] = []; if (map[k].indexOf(item) < 0) map[k].push(item); };
-    for (const item of arr) {
-        // 지번 + 도로명 둘 다 키로 (workStatus가 도로명으로 들어오는 건 매칭) + 공백 정규화 키
-        [item['주소'], item['도로명주소']].forEach((a) => {
-            if (!a) return;
-            addKey(a, item);
-            addKey(norm(a), item);
-        });
+    const push = (k, item) => { if (!k) return; (map[k] = map[k] || []).push(item); };
+    for (const it of idx) {
+        const addr = normAddr(it['주소']);
+        if (!addr) continue;
+        const cat = LIST_CATEGORY[it.l || 's'];
+        // ★네임스페이스 카테고리는 '주소|카테고리' 키에만 넣는다. 맨주소에 함께 넣으면
+        //   같은 주소의 실효 개소를 조회할 때 고압·합동 계기가 딸려 들어온다.
+        if (isNamespacedCat(cat)) push(addr + '|' + cat, it);
+        else push(addr, it);
     }
     _metersByAddr = map;
     return map;
+}
+
+// workStatus 키 -> 그 개소의 계기 목록.
+//   '주소|고압' 같은 네임스페이스 키를 그대로 찾고, 못 찾으면 맨주소로 떨어뜨린다
+//   (갈린 키 '주소|도로명|...' 와 네임스페이스 이전 기록이 그쪽으로 잡힌다).
+function metersOfStatusKey(key) {
+    if (!_metersByAddr) return [];
+    const a = normAddr(decodeStatusKey(key));
+    return _metersByAddr[a] || _metersByAddr[a.split('|')[0]] || [];
 }
 
 // 전체(지사별) 탭 분모 = Firebase siteData 였으나, 매 조회마다 22MB 통째 다운로드가
@@ -193,12 +223,20 @@ async function loadSiteData() {
 // data/stats-site-index.json = Firebase siteData에서 지사·주소·계기번호 3필드만 추출
 // (aggByBranch가 쓰는 필드 전부). GitHub Pages 서빙이라 Firebase 비용 0.
 // ★ 갱신: upload_sitedata.py 후 반드시 `python3 scripts/gen_stats_index.py` 실행.
+let _fbSiteDataPromise = null;
 async function loadFbSiteData() {
     if (_fbSiteData) return _fbSiteData;
-    const resp = await fetch('data/stats-site-index.json', { cache: 'no-cache' });
-    if (!resp.ok) throw new Error('stats-site-index.json 로드 실패 (scripts/gen_stats_index.py 실행 필요)');
-    _fbSiteData = await resp.json();
-    return _fbSiteData;
+    // ★진행 중인 요청을 재사용한다. loadSiteData 도 이 인덱스를 쓰는데 둘이 동시에 시작하면
+    //   같은 파일을 두 번 받게 된다.
+    if (!_fbSiteDataPromise) {
+        _fbSiteDataPromise = (async () => {
+            const resp = await fetch('data/stats-site-index.json', { cache: 'no-cache' });
+            if (!resp.ok) throw new Error('stats-site-index.json 로드 실패 (scripts/gen_stats_index.py 실행 필요)');
+            _fbSiteData = await resp.json();
+            return _fbSiteData;
+        })();
+    }
+    return _fbSiteDataPromise;
 }
 
 document.getElementById('dateInput').addEventListener('change', loadAndRender);
@@ -422,7 +460,7 @@ function render(fbSiteData, workStatus, dateStr) {
         const ws = workStatus[addr];
         if (!ws || !ws.state || ws.state === 'pending') continue;
         if (!isSameLocalDay(ws.updatedAt, dateStr)) continue;
-        const meters = (_metersByAddr && (_metersByAddr[addr] || _metersByAddr[String(addr).replace(/\s+/g, ' ').trim()])) || [];
+        const meters = metersOfStatusKey(addr);
         items.push({
             address: addr,
             state: ws.state,
