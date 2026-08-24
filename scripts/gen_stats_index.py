@@ -62,12 +62,35 @@ if _gp.exists():
     for it in to_items(json.loads(_gp.read_text(encoding="utf-8"))):
         items.append(("g", it))
 
+# 합동시공 · SKT 중계기 — 지도에 올라간 데이터셋은 통계에서도 골라 볼 수 있어야 한다.
+#   ★이 둘은 상태키가 네임스페이스('주소|합동'·'주소|skt')다. stats.html 이 그 키를 읽도록
+#     고친 뒤에 넣어야 한다 — 못 읽는 상태로 넣으면 완료한 것도 전부 미작업으로 잡힌다.
+for _code, _name in (("h", "hapdong-data.json"), ("k", "skt-data.json")):
+    _p = ROOT / "data" / _name
+    if _p.exists():
+        for it in to_items(json.loads(_p.read_text(encoding="utf-8"))):
+            items.append((_code, it))
+
+
+def _round6(v):
+    """좌표를 소수 6자리로. 개소(고유 좌표) 집계용이라 자리수를 줄여 파일 크기를 아낀다.
+    ★자리수를 더 줄이면 가까운 개소가 하나로 뭉칠 수 있다. 줄이기 전에 반드시
+      js/map.js 의 마커 병합 결과와 대조해 개수가 같은지 확인할 것."""
+    return None if v is None else round(float(v), 6)
+
+
 index = [
     {
         "지사": it.get("지사", "") or "",
         "주소": it.get("주소", "") or "",
         "계기번호": str(it.get("계기번호", "") or ""),
         "l": code,
+        # 개소 집계용 좌표. js/map.js 는 category+좌표로 마커를 묶는다 — 주소 문자열로 세면
+        #   같은 건물이 동·호수 표기 때문에 여러 개소로 갈린다.
+        #   좌표가 없는 행도 있다(원본에 주소가 비어 지오코딩이 실패한 건). 그건 null 로 두고
+        #   stats 쪽에서 주소로 폴백해 센다 — 행을 버리지 않는다.
+        "lat": _round6(it.get("lat")),
+        "lng": _round6(it.get("lng")),
     }
     for code, it in items
     if isinstance(it, dict)
