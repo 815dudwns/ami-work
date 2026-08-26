@@ -656,7 +656,14 @@ OCR_SWIFT = ROOT / "research" / "ocr_poc" / "visionocr_batch.swift"
 #   4. 인접 1줄 결합 하이픈 앵커: y차≤0.05인 바로 아랫줄과 결합해서도 하이픈 탐색
 # 유지: 상단18%컷·Amigo 패턴 A\d{10}·over-read 폴백. E6(2줄+ digits 윈도우) 금지.
 _METER_11 = re.compile(r'\b(\d{11})\b')
-_AMIGO_PAT = re.compile(r'\b(A\d{10})\b', re.IGNORECASE)
+# ★접두 문자를 특정하지 않는다 (2026-08-26, 영준님 지적 "LA 접두를 못 읽는다").
+#   예전엔 'A + 숫자 10자리'(_AMIGO_PAT) 만 따로 잡아서, 'LA530122916' 처럼 접두가 두 글자면
+#   Amigo 경로에서 빠지고 숫자 11자리 경로에서도 자릿수가 모자라 통째로 못 읽었다.
+#   계기타입은 **3~4번째 자리**로 판정하므로 앞에 무엇이 붙든 상관없다. 그래서 접두 목록을
+#   늘리는 대신 '영숫자 11자리' 를 후보로 잡고, 아래 타입코드 필터로 걸러 낸다.
+#   ★넓혀도 오검출이 늘지 않는 이유 = 모든 후보에 digits[2:4] in _METER_TYPE_CODES 를
+#     강제하기 때문이다(E5 처방 1). 'REPLACEMENT' 같은 영문 11자는 [2:4]='PL' 이라 걸러진다.
+_ALNUM_11 = re.compile(r'\b([0-9A-Z]{11})\b', re.IGNORECASE)
 # E5 처방 3: 끝 4자리(-\d{4}) 삭제 → (\d{6,7}) 로 완화. 부가번호(-1607 등) 없어도 통과.
 _METER_HYPHEN = re.compile(r'(\d{2})\s*[-]\s*(\d{2})\s*[-]\s*(\d{6,7})')
 _AMIGO_HYPHEN = re.compile(r'A0\s*[-]\s*55\s*[-]\s*(\d{7,8})', re.IGNORECASE)
@@ -683,9 +690,13 @@ def _extract_meter_no(lines):
     cand_hyphen, cand11, candA = [], [], []
 
     for idx, (y, conf, text) in enumerate(lines):
-        # Amigo 패턴 (A\d{10})
-        for m in _AMIGO_PAT.finditer(text):
-            candA.append((y, conf, m.group(1).upper()))
+        # 문자 접두 계기 (A0530163039 · LA530122916 …) — 접두 종류를 세지 않는다.
+        #   영숫자 11자리 중 **문자가 섞인 것**을 여기로 보낸다(순수 숫자는 아래 cand11).
+        #   타입코드 필터를 통과한 것만 담으므로 잡문자열은 걸러진다.
+        for m in _ALNUM_11.finditer(text):
+            w = m.group(1).upper()
+            if not w.isdigit() and w[2:4] in _METER_TYPE_CODES:
+                candA.append((y, conf, w))
         for m in _AMIGO_HYPHEN.finditer(text):
             amigo = 'A055' + re.sub(r'[^0-9]', '', m.group(1))
             if len(amigo) == 11:
@@ -704,9 +715,10 @@ def _extract_meter_no(lines):
 
         # E5 처방 1+2: 라인내 11자리 — 타입코드 필터 강제
         # 처방 2: 공백·하이픈 제거 후 정확히 11자리이면 채택
-        digits_only = re.sub(r'[\s\-]', '', text)
-        if re.match(r'^\d{11}$', digits_only) and digits_only[2:4] in _METER_TYPE_CODES:
-            cand11.append((y, conf, digits_only))
+        digits_only = re.sub(r'[\s\-]', '', text).upper()
+        if re.match(r'^[0-9A-Z]{11}$', digits_only) and digits_only[2:4] in _METER_TYPE_CODES:
+            # 문자가 섞였으면 위와 같은 이유로 문자접두 후보 쪽에 넣는다(우선순위 유지).
+            (cand11 if digits_only.isdigit() else candA).append((y, conf, digits_only))
         else:
             # 처방 1: \b\d{11}\b 매치 후 타입코드 유효한 것만
             for m in _METER_11.finditer(text):
