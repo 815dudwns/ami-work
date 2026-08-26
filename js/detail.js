@@ -714,8 +714,13 @@ function renderMetersList() {
             // 동호수 — 한 건물에 계기가 여럿인 개소(창동 657-109 는 7세대)에서 계기를 가르는
             //   유일한 값이라 앞에 둔다. 원문 주소에서만 뽑을 수 있다(카카오는 층·호를 모른다).
             if (meter.동호수) subParts.push(`<span style="font-weight:700;">동호수 ${meter.동호수}</span>`);
-            if (meter.작업일) {
-                const d = String(meter.작업일);
+            // 계기교체 날짜 — ★'작업일시'(awms 원본)를 먼저 쓴다.
+            //   '작업일' 은 지도 날짜 트리용 값이라 묶여 있을 수 있다. 소급 반영분은 여러 날에
+            //   걸쳐 한 일을 한 날짜로 모아 올리므로, 그걸 그리면 실제 작업일이 가려진다
+            //   (영준님 2026-08-26 "작업날짜 디테일에 쓰고"). 원본이 없으면 작업일로 떨어뜨린다.
+            const raw작업 = String(meter.작업일시 || '').slice(0, 10).replace(/-/g, '');
+            const d = raw작업 || String(meter.작업일 || '');
+            if (d) {
                 subParts.push(`계기교체 ${d.length === 8 ? `${d.slice(4, 6)}/${d.slice(6)}` : d}`);
             }
             if (meter.계기번호_전) subParts.push(`철거계기 ${meter.계기번호_전}`);
