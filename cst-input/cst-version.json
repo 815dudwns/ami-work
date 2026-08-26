@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.15",
+  "versionName": "2.2.16",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "수집 첫 화면 버그 수정 — 앱을 새로 켜면 모뎀맥이 아니라 마스터부터 뜨던 것(2.2.13 순서변경이 실제로는 동작 안 했음). 첫 단계를 Step.FIRST 단일 출처로 못박아 재발 차단"
+  "notes": "계기번호 접두 문자 제한 제거 — LA 같은 접두가 붙어도 읽는다. 길이 11자리면 통과하고 계기타입은 3~4번째 자리로 판정한다(접두 종류를 세지 않는다)."
 }
