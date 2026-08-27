@@ -134,7 +134,9 @@ def read_sheet(wb, name):
 
 
 # 원천 주소 오타 교정 — 근거를 적고 건별로만 연다. 일괄 추정 교정은 하지 않는다.
-#   `주소` 필드에는 원문을 그대로 남기고, 지오코딩 질의만 바꾼다.
+#   ★`주소` 필드까지 교정한다(영준님 지시 2026-08-27 "연세로로 고쳐"). 지오코딩 질의만
+#     바꾸고 원문을 남겨 두면 지도 주소에 없는 도로가 그대로 뜬다.
+#     교정 전 원문은 이 표와 커밋 메시지에 남는다.
 ADDR_FIX = {
     # 계기번호2: (도로명질의, 지번질의, 사유)
     "79450102396": (
@@ -224,6 +226,7 @@ def make_record(r, s1, geo_cache):
     raw_addr = re.sub(r"\s+", " ", norm(r.get("주소"))).strip()
     if m2 in ADDR_FIX:
         road_q, jibun_q, _why = ADDR_FIX[m2]
+        raw_addr = road_q          # 주소 원문도 교정본으로 바꾼다
     else:
         road_q, jibun_q = split_addr(raw_addr)
 
