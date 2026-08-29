@@ -1120,6 +1120,14 @@ def _saveact_core(body):
     #   DCU_ID = 변대주 전산화번호(DCUID 앞8자, 끝2 제외) 그대로. +00 아님. 기설(M1030)은 미입력. iot-plc(80)·IP-HPGP(85) 미사용. 마스터·슬레이브 동일.
     bdju = str(body.get("bdju", "")).strip()
     dcu_id = bdju if (work_div == "M1010" and bdju and master_suffix in ("10", "20", "90")) else ""
+    # ★DCU_ID 는 우리가 직접 채운다 (2026-08-29). 2026-07-15 실측 당시엔 DATA_NUM만 보내면 awms가
+    #   DCU_ID를 자동생성했으나, awms가 2026-07-27 개편(BUILTIN_YN 신규필드와 같은 시점)된 뒤로
+    #   자동생성이 사라져 saveAct 직접호출 건만 DCU_ID가 빈 채 저장됐다 → LP 미수신·미개통 누적.
+    #   awms 화면으로 넣은 건은 화면이 DCU_ID를 함께 실어 보내므로 멀쩡했다.
+    # 값 = 변대주 전산화번호 + 접미. 접미는 기술타입 하나로 갈린다(awms 실데이터 전수 대조):
+    #   KS-PLC(10) = '64' / K-DCU(90)·HPGP(20) = '6'. 예외는 0.1% 미만의 오입력 수준.
+    # ★한전 DCU 대장(간선망_해지_정지대상.xlsx)의 DCU ID를 넣지 마라 — awms 표기와 일치율 0이다.
+    dcu_full = (dcu_id + ("64" if master_suffix == "10" else "6")) if dcu_id else ""
     # 함체유형(영준님 2026-07-02): 단독+슬0→단독형(10, 대표계기·함내수 빈칸) / 단독+슬有→집합형단독(40) / 집합→그대로(20)
     # 집합형(추가)(영준님 2026-08-11): 같은 함체에 이미 다른 마스터가 등록돼 있으면 폰에서 addl 체크 → 20 대신 30.
     #   아미큐는 마스터를 한 건씩 담아 awms의 order(몇 번째 마스터인지)를 모르므로 작업자가 직접 표시한다.
@@ -1142,7 +1150,8 @@ def _saveact_core(body):
         # 빈값 ""은 awms Java parseInt 폭발(→500/실패). 빈칸=키 자체를 omit ([[awms_saveact_500_fix]] 패턴)
         mf.pop("MB_METER_ID", None); mf.pop("MB_CNT", None)
     if dcu_id:
-        mf["DATA_NUM"] = dcu_id   # ★변대주 전산화번호 = awms 화면 '변대주' 칸(필드명 DATA_NUM). DCU_ID·차수는 awms 자동생성 (영준님 헬퍼 실측 2026-07-15: DCU_ID 아님)
+        mf["DATA_NUM"] = dcu_id     # ★변대주 전산화번호 = awms 화면 '변대주' 칸(필드명 DATA_NUM)
+        mf["DCU_ID"] = dcu_full     # 변대주+접미. awms 자동생성이 2026-07-27 개편으로 사라져 직접 채운다
     mp = _photos_to_files(m.get("photos", {}), tmpd)
     m_saved = _archive_photos(arch, "master", mp)   # 전송 전 보관(전송 실패해도 사진 남김)
     res_m = saveact_post(mf, mp)
@@ -1171,7 +1180,8 @@ def _saveact_core(body):
         sf["MODEM_DIV"] = "20"; sf["WORK_DIV"] = "M1010"   # 슬레이브는 항상 신설(마스터만 기설 M1030)
         sf["FCLTY_DIV"] = fclty                            # 슬레이브도 함체유형 동일(단독+슬有=40 / 집합=20)
         if dcu_id:
-            sf["DATA_NUM"] = dcu_id                         # 변대주 = 마스터와 동일(그룹 공유). 필드=DATA_NUM(DCU_ID 아님)
+            sf["DATA_NUM"] = dcu_id                         # 변대주 = 마스터와 동일(그룹 공유)
+            sf["DCU_ID"] = dcu_full                         # 접미도 마스터 통신방식으로 확정(같은 PLC선)
         photos = {"ATCH_FILE_ID_3": fid3, "ATCH_FILE_ID_4": fid4}
         sp = _photos_to_files(s.get("photos", {}), tmpd)
         s_saved = _archive_photos(arch, f"slave{i + 1}", sp)   # 전송 전 보관
