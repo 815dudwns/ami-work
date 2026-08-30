@@ -420,8 +420,9 @@ function getSortedMeters() {
     if (currentSortMode === 'dup') {
         // 뒤 2자리 기준 그룹 정렬 (같은 뒤2자리끼리 인접)
         return [...meters].sort((a, b) => {
-            const sa = a.계기번호.slice(-2);
-            const sb = b.계기번호.slice(-2);
+            // 장애 데이터셋은 한 레코드가 MAC 그룹이라 계기번호가 없다 — 널가드 필수.
+            const sa = String(a.계기번호 || '').slice(-2);
+            const sb = String(b.계기번호 || '').slice(-2);
             if (sa !== sb) return sa.localeCompare(sb);
             return meters.indexOf(a) - meters.indexOf(b); // 그룹 내 원래 순서 유지
         });
@@ -429,8 +430,8 @@ function getSortedMeters() {
     if (currentSortMode === 'maker') {
         // 앞 2자리 기준 그룹 정렬 (같은 메이커 코드끼리 인접)
         return [...meters].sort((a, b) => {
-            const pa = a.계기번호.slice(0, 2);
-            const pb = b.계기번호.slice(0, 2);
+            const pa = String(a.계기번호 || '').slice(0, 2);
+            const pb = String(b.계기번호 || '').slice(0, 2);
             if (pa !== pb) return pa.localeCompare(pb);
             return meters.indexOf(a) - meters.indexOf(b); // 그룹 내 원래 순서 유지
         });
@@ -526,7 +527,8 @@ function renderMetersList() {
     // 뒤 2자리 중복 그룹 계산 (중복 계기번호 색상 구분용)
     const suffix2Map = {};
     meters.forEach(m => {
-        const s = m.계기번호.slice(-2);
+        if (!m.계기번호) return;            // 장애(MAC 그룹) 레코드는 계기번호가 없다
+        const s = String(m.계기번호).slice(-2);
         if (!suffix2Map[s]) suffix2Map[s] = [];
         suffix2Map[s].push(m.계기번호);
     });
@@ -545,7 +547,7 @@ function renderMetersList() {
     // 검색 필터
     const searchVal = (document.getElementById('meter-search')?.value || '').replace(/\D/g, '');
     const filtered = (searchVal.length >= 2)
-        ? sortedMeters.filter(m => m.계기번호.includes(searchVal))
+        ? sortedMeters.filter(m => String(m.계기번호 || '').includes(searchVal))
         : sortedMeters;
 
     const metersList = document.getElementById('meters-list');
