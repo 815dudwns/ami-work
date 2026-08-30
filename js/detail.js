@@ -1079,9 +1079,6 @@ function jangaeTreeHtml(g) {
     const worker = [g.작업자1, g.작업자2].filter(Boolean).join('·');
     if (worker) head.push(esc(worker));
     if (g.외장형연결장치) head.push(`연결장치 ${esc(g.외장형연결장치)}`);
-    head.push(g.개통여부 === '개통'
-        ? `<span style="color:#16a34a;font-weight:700;">개통</span>`
-        : `<span style="color:#dc2626;font-weight:700;">미개통</span>`);
 
     const rows = (g.계기목록 || []).map(m => {
         const bad = !!m.장애;

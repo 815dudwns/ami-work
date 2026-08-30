@@ -609,8 +609,12 @@ function markerTagText(isHapdong, isRework) {
     return isRework ? '재' : '';
 }
 
-// 장애 마커 — 숫자는 **실패(장애) 계기수**다(영준님 지시). 한 레코드가 MAC 그룹이라
-//   같은 주소에 MAC 이 여러 개면 그 합이 된다. 개통 여부는 위 뱃지('개')로 따로 보인다.
+// 장애 마커 숫자 — 큰 숫자는 그룹 **전체 계기수**, 아래 작은 칸에 **장애 계기수**를 얹는다
+//   (영준님 2026-08-31 "마커의 개수는 계기수(장애 계기수)"). 한 레코드가 MAC 그룹이라
+//   같은 주소에 MAC 이 여럿이면 둘 다 합산한다. 323그룹 중 77개는 두 수가 다르다.
+function jangaeMeterCount(meters) {
+    return (meters || []).reduce((s, m) => s + (Number(m && m.계기수) || 0), 0);
+}
 function jangaeFailCount(meters) {
     return (meters || []).reduce((s, m) => s + (Number(m && m.장애수) || 0), 0);
 }
@@ -654,13 +658,14 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     if (isSkt) markerLabel = 'SK';
     else if (isTou) markerLabel = 'TOU';
     else if (isGapap) markerLabel = isUnknownSpot ? '?' : gapapMarkerLabel(meters);
-    else if (isJangae) markerLabel = isUnknownSpot ? '?' : jangaeFailCount(meters);
+    else if (isJangae) markerLabel = isUnknownSpot ? '?' : jangaeMeterCount(meters);
     else markerLabel = isUnknownSpot ? '?' : meterCount;
     // rework(재)면 숫자 위에 '재' 뱃지. 재방문 데이터셋은 rework=true라 개수+'재'로 표시.
     const touHasRework = isTou && meters.some(m => m.tou_type === 'rework');
     const isRework = aggregateRework(keyList) || touHasRework;
-    const tagText = markerTagText(isHapdong, isRework);
-    // 개통 뱃지는 뺐다(영준님 2026-08-31 "개통은 표시 지워") — 개통 여부는 모달 헤더에서 본다.
+    let tagText = markerTagText(isHapdong, isRework);
+    // 개통 뱃지는 뺐다(영준님 2026-08-31 "개통은 표시 지워") — 개통 여부는 모달에서도 안 쓴다.
+    if (isJangae) tagText = String(jangaeFailCount(meters));   // 아래 작은 칸 = 장애 계기수
 
     const markerContent = `
         <div class="custom-marker ${color}${isGapap ? ' gapap' : ''}${isJangae ? ' jangae' : ''}">
@@ -734,7 +739,7 @@ function repaintMarker(marker) {
         if (isSkt) labelEl.textContent = 'SK';
         else if (isTou) labelEl.textContent = 'TOU';
         else if (isGapap) labelEl.textContent = isUnknownSpot ? '?' : gapapMarkerLabel(marker.meters);
-        else if (isJangae) labelEl.textContent = isUnknownSpot ? '?' : jangaeFailCount(marker.meters);
+        else if (isJangae) labelEl.textContent = isUnknownSpot ? '?' : jangaeMeterCount(marker.meters);
         else labelEl.textContent = isUnknownSpot ? '?' : totalCount;
     }
 
