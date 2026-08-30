@@ -1147,16 +1147,16 @@ def _saveact_core(body):
     addl = str(body.get("addl", "")).strip().lower() in ("1", "true", "y", "yes")
     solo_blank = (ham == "단독" and len(slaves) == 0)   # 단독형: 대표계기·함내수 빈칸
     fclty = "10" if solo_blank else ("40" if ham == "단독" else ("30" if addl else "20"))
-    # 외장형 연결장치(EXT_CONN_DEV) — awms 실측 2026-08-11(getDetail): 값은 'Y'/'N'.
-    #   ★기본값을 넣지 않는다(영준님 2026-08-11): 이제까지 이 키 없이 등록해 왔고 문제가 없었다.
-    #   우리가 'N'을 채우기 시작한 것은 이번 작업의 부작용이다 — 체크했을 때만 'Y'를 싣고,
-    #   아니면 키 자체를 omit 한다(빈문자열은 500 위험 [[awms_saveact_500_fix]]).
-    #   AE(HW4040)가 아니면 awms가 이 필드를 잠그므로 Y를 보내지 않는다.
-    ext_conn = "Y" if (m_instM == "HW4040" and str(body.get("extConn", "")).strip().upper() == "Y") else ""
+    # 외장형 연결장치(EXT_CONN_DEV) — 값은 'Y'/'N'.
+    #   ★체크 안 하면 'N' 고정이다(영준님 2026-08-31). 키를 빼는 게 아니라 N 을 넣는다.
+    #   awms 화면(MOBCST1000)도 같다: INST_M watch 가 매번 'N' 으로 리셋하고, select 는
+    #   INST_M != 'HW4040' 이면 disabled 라 AE 가 아니면 N 에서 못 벗어난다. 실측도 헬퍼 등록건 100% 채움.
+    #   따라서 AE(HW4040) + 작업자 체크 일 때만 'Y', 그 외는 전부 'N'.
+    ext_conn = "Y" if (m_instM == "HW4040" and str(body.get("extConn", "")).strip().upper() == "Y") else "N"
     # 마스터
     mf = _common(mb, mac, m_instM, mb, n, m_inst_s, bungi="")
     mf["MODEM_DIV"] = "10"; mf["WORK_DIV"] = work_div; mf["FCLTY_DIV"] = fclty
-    if ext_conn: mf["EXT_CONN_DEV"] = ext_conn   # 체크했을 때만. 슬레이브는 아예 안 보냄(마스터만 수집)
+    mf["EXT_CONN_DEV"] = ext_conn   # 항상 싣는다(미체크=N). 화면 기본값과 동일
     if solo_blank:
         # 빈값 ""은 awms Java parseInt 폭발(→500/실패). 빈칸=키 자체를 omit ([[awms_saveact_500_fix]] 패턴)
         mf.pop("MB_METER_ID", None); mf.pop("MB_CNT", None)
@@ -1189,6 +1189,7 @@ def _saveact_core(body):
         s_bungi = "무선" if (master_suffix == "92" and s_instM == "HW4050") else "0.5"
         sf = _common(s["meterNo"], mac, s_instM, mb, n, s_inst_s, bungi=s_bungi)
         sf["MODEM_DIV"] = "20"; sf["WORK_DIV"] = "M1010"   # 슬레이브는 항상 신설(마스터만 기설 M1030)
+        sf["EXT_CONN_DEV"] = "N"                           # 슬레이브 체크는 안 받는다 → 미체크=N (헬퍼 실측도 전건 N)
         sf["FCLTY_DIV"] = fclty                            # 슬레이브도 함체유형 동일(단독+슬有=40 / 집합=20)
         if dcu_id:
             sf["DATA_NUM"] = dcu_id                         # 변대주 = 마스터와 동일(그룹 공유)
