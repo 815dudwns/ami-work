@@ -614,10 +614,6 @@ function markerTagText(isHapdong, isRework) {
 function jangaeFailCount(meters) {
     return (meters || []).reduce((s, m) => s + (Number(m && m.장애수) || 0), 0);
 }
-function jangaeOpened(meters) {
-    return (meters || []).some(m => m && m.개통여부 === '개통');
-}
-
 function gapapMarkerLabel(meters) {
     const rules = new Set((meters || []).map(m => (m && m.한전기준) || ''));
     if (rules.has('철거+재설치')) return '교';
@@ -663,8 +659,8 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     // rework(재)면 숫자 위에 '재' 뱃지. 재방문 데이터셋은 rework=true라 개수+'재'로 표시.
     const touHasRework = isTou && meters.some(m => m.tou_type === 'rework');
     const isRework = aggregateRework(keyList) || touHasRework;
-    let tagText = markerTagText(isHapdong, isRework);
-    if (isJangae && jangaeOpened(meters)) tagText = '개';   // 개통된 그룹 표시(영준님 지시)
+    const tagText = markerTagText(isHapdong, isRework);
+    // 개통 뱃지는 뺐다(영준님 2026-08-31 "개통은 표시 지워") — 개통 여부는 모달 헤더에서 본다.
 
     const markerContent = `
         <div class="custom-marker ${color}${isGapap ? ' gapap' : ''}${isJangae ? ' jangae' : ''}">
