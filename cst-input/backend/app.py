@@ -297,6 +297,11 @@ COMM_SUFFIX_LABELS = [
 ]
 _COMM_LABEL = dict(COMM_SUFFIX_LABELS)
 
+# DCU_ID 접미의 통신방식 코드 — awms MOBCST1000 화면 watch 핸들러 switch 문 그대로 옮긴 것.
+# 화면은 INST_S.slice(6,8)(=통신방식 suffix)로 분기한다. 여기 없는 코드면 화면은 DCU_ID를 비운다.
+_DCU_COMM_CODE = {"10": "4", "20": "", "30": "5", "40": "6", "50": "7",
+                  "60": "", "70": "", "80": "", "85": "", "90": "", "91": "", "92": ""}
+
 
 def commtype_for(mac: str, meter_no: str = ""):
     """모뎀맥 → 통신방식 자동판별 결과 (프론트 표시/직접선택 판단용).
@@ -1123,11 +1128,17 @@ def _saveact_core(body):
     # ★DCU_ID 는 우리가 직접 채운다 (2026-08-29). 2026-07-15 실측 당시엔 DATA_NUM만 보내면 awms가
     #   DCU_ID를 자동생성했으나, awms가 2026-07-27 개편(BUILTIN_YN 신규필드와 같은 시점)된 뒤로
     #   자동생성이 사라져 saveAct 직접호출 건만 DCU_ID가 빈 채 저장됐다 → LP 미수신·미개통 누적.
-    #   awms 화면으로 넣은 건은 화면이 DCU_ID를 함께 실어 보내므로 멀쩡했다.
-    # 값 = 변대주 전산화번호 + 접미. 접미는 기술타입 하나로 갈린다(awms 실데이터 전수 대조):
-    #   KS-PLC(10) = '64' / K-DCU(90)·HPGP(20) = '6'. 예외는 0.1% 미만의 오입력 수준.
+    # ★조회 API 가 아니라 awms '화면이 계산해서' 넣는 값이다. 아래는 그 계산식을 그대로 옮긴 것.
+    #   원본 = MOBCST1000 화면 watch 핸들러 'mainList.currentRow.DATA_NUM'
+    #   경로 https://awms.kdn.com/service/ami/html/sub/mob/cst/MOBCST1000.html?app=MOBCST
+    #     dcu_id = DATA_NUM + (BIZ_DGR 없으면 '6' 아니면 BIZ_DGR) + 통신방식코드(_DCU_COMM_CODE)
+    #   통신방식코드에 없는 코드면 화면은 DCU_ID 를 빈값으로 만든다(default: dcu_id = "").
+    #   ★접미를 '64'/'6' 리터럴로 굳히지 마라 — 그건 BIZ_DGR 가 빈값(=6)일 때만 맞는 결과다.
     # ★한전 DCU 대장(간선망_해지_정지대상.xlsx)의 DCU ID를 넣지 마라 — awms 표기와 일치율 0이다.
-    dcu_full = (dcu_id + ("64" if master_suffix == "10" else "6")) if dcu_id else ""
+    biz_dgr = str(CONFIG.get("BIZ_DGR", "") or "").strip()   # awms 작업조 설정값. 현재는 빈값 → '6'
+    dcu_full = ""
+    if dcu_id and master_suffix in _DCU_COMM_CODE:
+        dcu_full = dcu_id + (biz_dgr or "6") + _DCU_COMM_CODE[master_suffix]
     # 함체유형(영준님 2026-07-02): 단독+슬0→단독형(10, 대표계기·함내수 빈칸) / 단독+슬有→집합형단독(40) / 집합→그대로(20)
     # 집합형(추가)(영준님 2026-08-11): 같은 함체에 이미 다른 마스터가 등록돼 있으면 폰에서 addl 체크 → 20 대신 30.
     #   아미큐는 마스터를 한 건씩 담아 awms의 order(몇 번째 마스터인지)를 모르므로 작업자가 직접 표시한다.
