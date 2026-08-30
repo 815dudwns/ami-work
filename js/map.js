@@ -57,6 +57,13 @@ const DATASETS = [
     //   (영준님 지시). 원본 281건은 data/skt-full-20260814.json 에 따로 보관한다.
     //   2026-08-02 에 내렸다가 되살렸다 — 그때 파일을 지우지 않아 그대로 켤 수 있었다.
     { file: './data/skt-data.json',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
+    // 장애 — 주덕기 과장 '모뎀작업리스트' 첫 시트(장애 대상). 다른 데이터셋과 단위가 다르다:
+    //   한 레코드 = 모뎀 MAC 그룹 하나(계기가 아니라). `계기목록`에 그 그룹 계기가 전부 들어 있고,
+    //   장애 시트에 있던 계기만 `장애:true` 다. 나머지는 시트2(모뎀작업리스트)에서 끌어온 정상 계기다.
+    //   ★한 주소에 MAC 이 둘 이상인 곳이 20개 있다 — 모달에서 MAC 별로 트리를 따로 그린다.
+    //   ★`DCUID`·`변대주명` 은 awms 값이 아니라 계기번호로 우리 데이터에서 찾아온 진짜 값이다
+    //     (awms DCU_ID 는 변대주+64/6 형태라 한전 대장과 체계가 다르다).
+    { file: './data/jangae-data.json', category: '장애', label: null, uiLabel: '장애' },
     // TOU 는 여전히 내려둔 상태다(2026-08-02). 되살리려면 아래 줄을 되돌리고
     //   getSelectedCategories 의 ALL 에도 다시 넣어야 한다.
     // { file: './data/tou-data.json',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
@@ -408,7 +415,7 @@ function populateCategoryFilter() {
 
 // 카테고리 필터 — 체크된 카테고리만 표시 (localStorage 저장)
 function getSelectedCategories() {
-    const ALL = ['실효', '재방문', '고압', '합동', 'skt'];   // tou 만 내림 상태 — DATASETS 주석 참조
+    const ALL = ['실효', '재방문', '고압', '합동', 'skt', '장애'];   // tou 만 내림 상태 — DATASETS 주석 참조
     const saved = localStorage.getItem('ami_selected_categories');
     if (saved) try {
         const set = new Set(JSON.parse(saved));
@@ -602,6 +609,15 @@ function markerTagText(isHapdong, isRework) {
     return isRework ? '재' : '';
 }
 
+// 장애 마커 — 숫자는 **실패(장애) 계기수**다(영준님 지시). 한 레코드가 MAC 그룹이라
+//   같은 주소에 MAC 이 여러 개면 그 합이 된다. 개통 여부는 위 뱃지('개')로 따로 보인다.
+function jangaeFailCount(meters) {
+    return (meters || []).reduce((s, m) => s + (Number(m && m.장애수) || 0), 0);
+}
+function jangaeOpened(meters) {
+    return (meters || []).some(m => m && m.개통여부 === '개통');
+}
+
 function gapapMarkerLabel(meters) {
     const rules = new Set((meters || []).map(m => (m && m.한전기준) || ''));
     if (rules.has('철거+재설치')) return '교';
@@ -622,6 +638,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const isTou = category === 'tou';
     const isGapap = category === '고압';
     const isHapdong = category === '합동';
+    const isJangae = category === '장애';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
     let color = isApproximate ? 'yellow' : 'green';
@@ -641,14 +658,16 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     if (isSkt) markerLabel = 'SK';
     else if (isTou) markerLabel = 'TOU';
     else if (isGapap) markerLabel = isUnknownSpot ? '?' : gapapMarkerLabel(meters);
+    else if (isJangae) markerLabel = isUnknownSpot ? '?' : jangaeFailCount(meters);
     else markerLabel = isUnknownSpot ? '?' : meterCount;
     // rework(재)면 숫자 위에 '재' 뱃지. 재방문 데이터셋은 rework=true라 개수+'재'로 표시.
     const touHasRework = isTou && meters.some(m => m.tou_type === 'rework');
     const isRework = aggregateRework(keyList) || touHasRework;
-    const tagText = markerTagText(isHapdong, isRework);
+    let tagText = markerTagText(isHapdong, isRework);
+    if (isJangae && jangaeOpened(meters)) tagText = '개';   // 개통된 그룹 표시(영준님 지시)
 
     const markerContent = `
-        <div class="custom-marker ${color}${isGapap ? ' gapap' : ''}">
+        <div class="custom-marker ${color}${isGapap ? ' gapap' : ''}${isJangae ? ' jangae' : ''}">
             <svg viewBox="0 0 20 26" xmlns="http://www.w3.org/2000/svg">
                 <path class="pin-body" d="M10 0C4.48 0 0 4.48 0 10c0 6.72 10 16 10 16s10-9.28 10-16C20 4.48 15.52 0 10 0z"/>
                 <circle class="pin-circle" cx="10" cy="10" r="5.5" fill="white"/>
@@ -697,6 +716,7 @@ function repaintMarker(marker) {
     const isTou = marker.category === 'tou';
     const isGapap = marker.category === '고압';
     const isHapdong = marker.category === '합동';
+    const isJangae = marker.category === '장애';
 
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
@@ -708,7 +728,7 @@ function repaintMarker(marker) {
 
     const el = marker.element.querySelector('.custom-marker');
     // ★색 클래스만 갈아끼우면 gapap(글자라벨용) 클래스가 날아간다 — 함께 붙인다.
-    if (el) el.className = `custom-marker ${color}${isGapap ? ' gapap' : ''}`;
+    if (el) el.className = `custom-marker ${color}${isGapap ? ' gapap' : ''}${isJangae ? ' jangae' : ''}`;
 
     const addedCount = aggregateAddedCount(addrList);
     const totalCount = marker.meters.length + addedCount;
@@ -718,6 +738,7 @@ function repaintMarker(marker) {
         if (isSkt) labelEl.textContent = 'SK';
         else if (isTou) labelEl.textContent = 'TOU';
         else if (isGapap) labelEl.textContent = isUnknownSpot ? '?' : gapapMarkerLabel(marker.meters);
+        else if (isJangae) labelEl.textContent = isUnknownSpot ? '?' : jangaeFailCount(marker.meters);
         else labelEl.textContent = isUnknownSpot ? '?' : totalCount;
     }
 

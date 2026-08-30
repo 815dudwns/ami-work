@@ -119,3 +119,18 @@
 .dup-row-7 { background: hsl(140, 100%, 96%); border-color: hsl(140, 80%, 87%); }
 .dup-row-8 { background: hsl(160, 100%, 96%); border-color: hsl(160, 80%, 87%); }
 .dup-row-9 { background: hsl(180, 100%, 96%); border-color: hsl(180, 80%, 87%); }
+
+/* ── 장애 트리 (category=장애) ─────────────────────────────────────────
+   한 레코드 = 모뎀 MAC 그룹. 헤더(MAC·기술타입·변대주·개통) 밑에 그룹 계기를 전부 건다.
+   장애 시트에 있던 계기만 .jangae-bad 로 붉게 — 정상은 정상으로 둔다(영준님 지시). */
+.jangae-group { border: 1px solid #e5e7eb; border-radius: 8px; margin: 8px 0; overflow: hidden; }
+.jangae-head { background: #f3f4f6; padding: 7px 10px; border-bottom: 1px solid #e5e7eb; }
+.jangae-mac { font-weight: 800; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+.jangae-count { float: right; font-size: 12px; font-weight: 700; color: #dc2626; }
+.jangae-head-sub { font-size: 11px; color: #6b7280; margin-top: 3px; line-height: 1.5; }
+.jangae-meter { padding: 5px 10px 5px 18px; border-bottom: 1px solid #f3f4f6; font-size: 12px; }
+.jangae-meter:last-child { border-bottom: none; }
+.jangae-meter-no { font-family: ui-monospace, Menlo, monospace; font-weight: 700; }
+.jangae-meter-sub { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+.jangae-bad { background: #fef2f2; }
+.jangae-bad .jangae-meter-no { color: #dc2626; }

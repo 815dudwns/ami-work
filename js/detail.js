@@ -550,6 +550,12 @@ function renderMetersList() {
 
     const metersList = document.getElementById('meters-list');
     metersList.innerHTML = filtered.map(meter => {
+        // 장애 데이터셋은 단위가 다르다 — 한 레코드가 **모뎀 MAC 그룹**이라 계기 한 줄이 아니라
+        //   MAC 헤더 + 그 밑 계기 트리를 그린다. 같은 주소에 MAC 이 둘이면 트리가 둘 생긴다
+        //   (영준님 지시 2026-08-31 "맥이 여러개면 모달 안에 트리가 두개").
+        //   계기목록에는 시트2(모뎀작업리스트)에서 끌어온 **정상 계기까지** 들어 있고,
+        //   장애 시트에 있던 것만 `장애:true` 다 — 정상은 정상으로 두고 장애만 색을 준다.
+        if (meter.category === '장애') return jangaeTreeHtml(meter);
         const checked = (status.checkedMeters || []).includes(meter.계기번호) ? 'checked' : '';
         const parsedType = parseType(meter.계기번호) || meter.계기타입;
         const detailParts = [];
@@ -1052,4 +1058,57 @@ async function collectToAmiqueue(address, meters) {
             alert('아미큐 앱이 열리지 않았습니다.\n폰에서 아미큐 설치 후 다시 시도하거나,\n아미큐 [수집] 버튼에 key를 입력하세요:\n\n' + key);
         }
     }, 1500);
+}
+
+
+// 장애 트리 — MAC 하나를 헤더 + 계기 목록으로 그린다.
+//   MAC 속성: 기술타입·변대주·작업일·작업자·연결장치·개통여부 (영준님 지시).
+//   ★DCUID 는 awms 값을 쓰지 않는다 — awms DCU_ID 는 `변대주+64/6` 이라 한전 대장과 체계가 다르다.
+//     여기 실린 DCUID/변대주명은 계기번호로 우리 데이터에서 찾아온 진짜 값이다.
+function jangaeTreeHtml(g) {
+    const esc = v => String(v == null ? '' : v);
+    const COPY = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+    const head = [];
+    if (g.기술타입) head.push(`<b>${esc(g.기술타입)}</b>`);
+    if (g.변대주명) head.push(`변대주 ${esc(g.변대주명)}`);
+    else if (g.변대주) head.push(`변대주 ${esc(g.변대주)}`);
+    if (g.DCUID) head.push(`DCU ${esc(g.DCUID)}`);
+    if (g.작업일) head.push(`작업 ${esc(g.작업일).slice(5)}`);
+    const worker = [g.작업자1, g.작업자2].filter(Boolean).join('·');
+    if (worker) head.push(esc(worker));
+    if (g.외장형연결장치) head.push(`연결장치 ${esc(g.외장형연결장치)}`);
+    head.push(g.개통여부 === '개통'
+        ? `<span style="color:#16a34a;font-weight:700;">개통</span>`
+        : `<span style="color:#dc2626;font-weight:700;">미개통</span>`);
+
+    const rows = (g.계기목록 || []).map(m => {
+        const bad = !!m.장애;
+        const st = m.상태 === '실패' ? '실패' : (m.상태 === '성공' ? '성공' : (m.상태 || '미판정'));
+        const stColor = m.상태 === '성공' ? '#16a34a' : (m.상태 === '실패' ? '#dc2626' : '#9ca3af');
+        const sub = [];
+        if (m.모뎀유형) sub.push(esc(m.모뎀유형));
+        if (m.계기타입) sub.push(esc(m.계기타입));
+        if (m.시설유형) sub.push(esc(m.시설유형));
+        if (m.작업구분) sub.push(esc(m.작업구분));
+        if (m.분기기) sub.push(`분기 ${esc(m.분기기)}`);
+        if (m.LP) sub.push(`LP ${esc(m.LP)}`);
+        return `
+            <div class="jangae-meter${bad ? ' jangae-bad' : ''}">
+                <span class="jangae-meter-no">${esc(m.계기번호)}</span>
+                <button class="copy-btn" data-copy="${esc(m.계기번호)}" title="계기번호 복사">${COPY}</button>
+                <span style="color:${stColor};font-weight:700;margin-left:4px;">${st}</span>
+                <div class="jangae-meter-sub">${sub.join(' · ')}</div>
+            </div>`;
+    }).join('');
+
+    return `
+        <div class="jangae-group">
+            <div class="jangae-head">
+                <span class="jangae-mac">${esc(g.모뎀MAC)}</span>
+                <button class="copy-btn" data-copy="${esc(g.모뎀MAC)}" title="모뎀MAC 복사">${COPY}</button>
+                <span class="jangae-count">장애 ${g.장애수 || 0}/${g.계기수 || 0}</span>
+                <div class="jangae-head-sub">${head.join(' · ')}</div>
+            </div>
+            ${rows}
+        </div>`;
 }
