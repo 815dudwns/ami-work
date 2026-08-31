@@ -134,3 +134,5 @@
 .jangae-meter-sub { font-size: 11px; color: #9ca3af; margin-top: 2px; }
 .jangae-bad { background: #fef2f2; }
 .jangae-bad .jangae-meter-no { color: #dc2626; }
+/* 장애 트리 — 주택명·호수. 한 건물에 계기가 여럿일 때 계기를 가르는 값이라 눈에 띄게 둔다. */
+.jangae-ho { margin-left: 6px; font-weight: 700; color: #1f2937; font-size: 12px; }

@@ -1084,7 +1084,13 @@ function jangaeTreeHtml(g) {
         const bad = !!m.장애;
         const st = m.상태 === '실패' ? '실패' : (m.상태 === '성공' ? '성공' : (m.상태 || '미판정'));
         const stColor = m.상태 === '성공' ? '#16a34a' : (m.상태 === '실패' ? '#dc2626' : '#9ca3af');
+        // 주택명·호수 — 한 건물에 계기가 여럿인 개소에서 계기를 가르는 유일한 값이라
+        //   계기번호 옆에 크게 둔다(영준님 지시). 장애 시트엔 없어 계기번호로 우리 데이터에서
+        //   끌어왔다 — 2,837건 중 1,489건(52%) 채워졌고 나머지는 원천에 없다.
+        const ho = String(m.공동주택명 || '').trim();
+        const hoHtml = ho ? `<span class="jangae-ho">${esc(ho)}</span>` : '';
         const sub = [];
+        if (m.상호) sub.push(`상호 ${esc(m.상호)}`);
         if (m.모뎀유형) sub.push(esc(m.모뎀유형));
         if (m.계기타입) sub.push(esc(m.계기타입));
         if (m.시설유형) sub.push(esc(m.시설유형));
@@ -1095,6 +1101,7 @@ function jangaeTreeHtml(g) {
             <div class="jangae-meter${bad ? ' jangae-bad' : ''}">
                 <span class="jangae-meter-no">${esc(m.계기번호)}</span>
                 <button class="copy-btn" data-copy="${esc(m.계기번호)}" title="계기번호 복사">${COPY}</button>
+                ${hoHtml}
                 <span style="color:${stColor};font-weight:700;margin-left:4px;">${st}</span>
                 <div class="jangae-meter-sub">${sub.join(' · ')}</div>
             </div>`;
