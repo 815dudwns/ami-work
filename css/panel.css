@@ -130,20 +130,14 @@
 .jangae-head-sub { font-size: 11px; color: #6b7280; margin-top: 3px; line-height: 1.5; }
 .jangae-meter { padding: 5px 10px 5px 18px; border-bottom: 1px solid #f3f4f6; font-size: 12px; }
 .jangae-meter:last-child { border-bottom: none; }
-.jangae-meter-no { font-family: ui-monospace, Menlo, monospace; font-weight: 700; }
 .jangae-meter-sub { font-size: 11px; color: #9ca3af; margin-top: 2px; }
 .jangae-bad { background: #fef2f2; }
-.jangae-bad .jangae-meter-no { color: #dc2626; }
+/* 장애 계기는 행 배경으로만 표시한다 — 계기번호 색은 4구간 체계(seg-*)를 살린다. */
 /* 장애 트리 — 주택명·호수. 한 건물에 계기가 여럿일 때 계기를 가르는 값이라 눈에 띄게 둔다. */
 .jangae-ho { margin-left: 6px; font-weight: 700; color: #1f2937; font-size: 12px; }
-/* 장애 계기번호 뒤 2자리 — 한 개소에 끝자리가 겹치면 강조해 헷갈리지 않게 한다
-   (영준님 2026-09-02). 행 배경은 실효 모달과 같은 dup-row-N 을 재사용한다. */
-.jangae-no-tail { font-weight: 900; }
-.jangae-no-tail.dup { background: #111; color: #fff; padding: 0 3px; border-radius: 3px; }
-.jangae-meter.dup-row-0, .jangae-meter.dup-row-1, .jangae-meter.dup-row-2,
-.jangae-meter.dup-row-3, .jangae-meter.dup-row-4, .jangae-meter.dup-row-5,
-.jangae-meter.dup-row-6, .jangae-meter.dup-row-7, .jangae-meter.dup-row-8,
-.jangae-meter.dup-row-9 { border-left: 3px solid currentColor; }
+/* 장애 계기번호 — 실효 모달과 같은 4구간 색상(.meter-no-seg/.seg-*)을 그대로 쓴다.
+   중복 행 배경도 같은 dup-row-N 이라 별도 규칙이 필요 없다(영준님 2026-09-02). */
+.jangae-meter .meter-no-seg { font-family: ui-monospace, Menlo, monospace; font-weight: 700; }
 .jangae-seq { margin-left: 6px; font-size: 11px; font-weight: 700; padding: 1px 5px; border-radius: 3px; color: #fff; }
 .c0 { background: #dc2626; } .c1 { background: #2563eb; } .c2 { background: #16a34a; }
 .c3 { background: #d97706; } .c4 { background: #7c3aed; } .c5 { background: #db2777; }

@@ -1105,7 +1105,16 @@ function jangaeTreeHtml(g, idx = 0, tot = 1) {
         const bad = !!m.장애;
         const no = String(m.계기번호 || '');
         const suf = no.slice(-2);
-        const dupCls = dupIdx[suf] !== undefined ? ` dup-row-${dupIdx[suf] % 10}` : '';
+        const isDup = dupIdx[suf] !== undefined;
+        const dupCls = isDup ? ` dup-row-${dupIdx[suf] % 10}` : '';
+        // 계기번호 4구간 색상 — 실효 모달과 **같은 체계**를 그대로 쓴다(영준님 2026-09-02).
+        //   메이커2 / 타입코드2 / 중간 / 끝2(중복이면 seg-dup 빨강)
+        const noHtml = `<span class="meter-no-seg">`
+            + `<span class="seg-maker">${esc(no.slice(0, 2))}</span>`
+            + `<span class="seg-type">${esc(no.slice(2, 4))}</span>`
+            + `<span class="seg-mid">${esc(no.slice(4, -2))}</span>`
+            + `<span class="${isDup ? 'seg-dup' : 'seg-last'}">${esc(suf)}</span>`
+            + `</span>`;
         const st = m.상태 === '실패' ? '실패' : (m.상태 === '성공' ? '성공' : (m.상태 || '미판정'));
         const stColor = m.상태 === '성공' ? '#16a34a' : (m.상태 === '실패' ? '#dc2626' : '#9ca3af');
         // 주택명·호수 — 한 건물에 계기가 여럿인 개소에서 계기를 가르는 유일한 값이라
@@ -1123,7 +1132,7 @@ function jangaeTreeHtml(g, idx = 0, tot = 1) {
         if (m.LP) sub.push(`LP ${esc(m.LP)}`);
         return `
             <div class="jangae-meter${bad ? ' jangae-bad' : ''}${dupCls}">
-                <span class="jangae-meter-no">${esc(no.slice(0, -2))}<span class="jangae-no-tail${dupCls ? ' dup' : ''}">${esc(no.slice(-2))}</span></span>
+                ${noHtml}
                 <button class="copy-btn" data-copy="${esc(m.계기번호)}" title="계기번호 복사">${COPY}</button>
                 ${hoHtml}
                 <span style="color:${stColor};font-weight:700;margin-left:4px;">${st}</span>
