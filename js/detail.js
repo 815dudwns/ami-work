@@ -1090,8 +1090,22 @@ function jangaeTreeHtml(g, idx = 0, tot = 1) {
     if (worker) head.push(esc(worker));
     if (g.외장형연결장치) head.push(`연결장치 ${esc(g.외장형연결장치)}`);
 
+    // 계기번호 뒤 2자리 중복 — 한 개소에 같은 끝자리가 여럿이면 현장에서 헷갈린다.
+    //   실효 모달의 dup-row-N 과 같은 체계를 쓴다(영준님 2026-09-02 "계기에 해놔야지").
+    const sufCount = {};
+    (g.계기목록 || []).forEach(m => {
+        const t = String(m.계기번호 || '').slice(-2);
+        if (t) sufCount[t] = (sufCount[t] || 0) + 1;
+    });
+    const dupIdx = {};
+    let di = 0;
+    Object.keys(sufCount).sort().forEach(t => { if (sufCount[t] > 1) dupIdx[t] = di++; });
+
     const rows = (g.계기목록 || []).map(m => {
         const bad = !!m.장애;
+        const no = String(m.계기번호 || '');
+        const suf = no.slice(-2);
+        const dupCls = dupIdx[suf] !== undefined ? ` dup-row-${dupIdx[suf] % 10}` : '';
         const st = m.상태 === '실패' ? '실패' : (m.상태 === '성공' ? '성공' : (m.상태 || '미판정'));
         const stColor = m.상태 === '성공' ? '#16a34a' : (m.상태 === '실패' ? '#dc2626' : '#9ca3af');
         // 주택명·호수 — 한 건물에 계기가 여럿인 개소에서 계기를 가르는 유일한 값이라
@@ -1108,8 +1122,8 @@ function jangaeTreeHtml(g, idx = 0, tot = 1) {
         if (m.분기기) sub.push(`분기 ${esc(m.분기기)}`);
         if (m.LP) sub.push(`LP ${esc(m.LP)}`);
         return `
-            <div class="jangae-meter${bad ? ' jangae-bad' : ''}">
-                <span class="jangae-meter-no">${esc(m.계기번호)}</span>
+            <div class="jangae-meter${bad ? ' jangae-bad' : ''}${dupCls}">
+                <span class="jangae-meter-no">${esc(no.slice(0, -2))}<span class="jangae-no-tail${dupCls ? ' dup' : ''}">${esc(no.slice(-2))}</span></span>
                 <button class="copy-btn" data-copy="${esc(m.계기번호)}" title="계기번호 복사">${COPY}</button>
                 ${hoHtml}
                 <span style="color:${stColor};font-weight:700;margin-left:4px;">${st}</span>
@@ -1120,7 +1134,7 @@ function jangaeTreeHtml(g, idx = 0, tot = 1) {
     return `
         <div class="jangae-group">
             <div class="jangae-head">
-                <span class="jangae-mac">${esc(mac.slice(0, -2))}<span class="jangae-mac-tail c${idx % 6}">${esc(mac.slice(-2))}</span></span>
+                <span class="jangae-mac">${esc(mac)}</span>
                 <button class="copy-btn" data-copy="${esc(mac)}" title="모뎀MAC 복사">${COPY}</button>
                 ${tot > 1 ? `<span class="jangae-seq c${idx % 6}">MAC ${idx + 1}/${tot}</span>` : ''}
                 <span class="jangae-count">장애 ${g.장애수 || 0}/${g.계기수 || 0}</span>
