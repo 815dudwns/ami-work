@@ -53,6 +53,34 @@ WORKERS = 8
 #     (scripts/gen_stats_index.py 가 이 백업 파일도 읽는다).
 RETAIN_DAYS = 3
 
+# ─── 고압 제외 ──────────────────────────────────────────────────────────────
+# 계약종별(CI007) 중 이름에 '고압' 이 붙는 코드. 고압은 우리 합동시공 대상이 아니다
+#   (영준님 2026-09-01 "고압제외" · 이전엔 매 빌드마다 수동으로 지웠다).
+HV_CNTR_CLAS = {'222', '223', '226', '228', '231', '232', '233', '236', '238',
+                '322', '332', '431', '432', '526', '536', '726', '736', '746'}
+
+# ─── 보존 예외: 미착수는 날짜로 빼지 않는다 ────────────────────────────────
+# 보존 기간이 지나도 **아직 손대지 않은 개소**는 지도에 남긴다(영준님 2026-08-31
+#   "미완료 개소만 빼서 남기되"). 날짜만 보고 빼면 안 한 일이 화면에서 사라진다.
+#   판정은 Firebase workStatus 를 읽어서 한다 — 키가 없으면 미착수다.
+WORKSTATUS_URL = ('https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app'
+                  '/workStatus/charger4eleccar.json')
+
+
+def _touched_addresses():
+    """workStatus 에 기록이 있는 주소 집합(합동 네임스페이스 우선). 실패하면 None."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(WORKSTATUS_URL, timeout=180) as r:
+            ws = json.loads(r.read().decode('utf-8'))
+    except Exception as e:
+        print(f'[보존] workStatus 조회 실패 — 미착수 보존 생략: {e}')
+        return None
+    out = set()
+    for k in ws:
+        out.add(k.split('|')[0])
+    return out
+
 # 종로 보강 원천 — 종로맵 대장. awms FMPMTR 응답에는 변대주·DCU 정보가 없지만
 #   종로는 우리 데이터가 따로 있다(영준님 지시 2026-08-19).
 JONGNO_SRC = ROOT / 'jongno-combined' / 'data' / 'jongno-site-data.json'
@@ -605,6 +633,12 @@ def main():
         day = blob.get('day') or re.search(r'(\d{8})', p.name).group(1)
         rows = blob.get('rows') or []
         print(f'{p.name}: {len(rows)}건 (day={day})', flush=True)
+        # ★고압 제외 — 우리 합동시공 대상이 아니다(영준님 2026-09-01).
+        #   전엔 빌드할 때마다 되살아나 수동으로 지웠다.
+        _hv = [r for r in rows if str(r.get('CNTR_CLAS_CD') or '').strip() in HV_CNTR_CLAS]
+        if _hv:
+            print(f'  {p.name}: 고압 {len(_hv)}건 제외')
+        rows = [r for r in rows if str(r.get('CNTR_CLAS_CD') or '').strip() not in HV_CNTR_CLAS]
         recs += [to_record(r, day) for r in rows]
 
     # 2) 지오코딩 — 같은 (지번, 도로명) 은 한 번만
@@ -652,6 +686,15 @@ def main():
     # 3) 기존 파일과 병합 — 유니크 키 = CONS_TGT_SEQNO
     #    ★백업본도 함께 읽는다. 지도에서 뺀 건이라도 원본 raw 가 없어지면 되살릴 길이 없다.
     #      여기서 같이 들고 있어야 보존 기간을 늘렸을 때 그대로 돌아온다.
+    # 병합 전 '지금 지도에 떠 있는' 키. 미착수 보존 예외를 여기로 한정한다.
+    prev_live = set()
+    if OUT.exists():
+        try:
+            prev_live = {str(e.get('CONS_TGT_SEQNO'))
+                         for e in json.loads(OUT.read_text(encoding='utf-8'))}
+        except Exception:
+            prev_live = set()
+
     existing = []
     for _src in (ARCHIVE, OUT):
         if _src.exists():
@@ -695,8 +738,29 @@ def main():
         from datetime import datetime as _dt, timedelta as _td
         base = _dt.strptime(days[-1], '%Y%m%d').date()
         cutoff = (base - _td(days=RETAIN_DAYS - 1)).strftime('%Y%m%d')
-    live = [e for e in merged if not cutoff or str(e.get('작업일') or '') >= cutoff]
-    archived = [e for e in merged if cutoff and str(e.get('작업일') or '') < cutoff]
+    # 고압은 merged 전체에서 뺀다 — raw 만 걸러도 아카이브에 남아 있던 것이 되살아난다.
+    _hv_merged = [e for e in merged if str(e.get('계약종별') or '') in HV_CNTR_CLAS]
+    if _hv_merged:
+        print(f'[고압] merged 에서 {len(_hv_merged)}건 제외')
+    merged = [e for e in merged if str(e.get('계약종별') or '') not in HV_CNTR_CLAS]
+
+    touched = _touched_addresses()
+    def _keep(e):
+        if not cutoff or str(e.get('작업일') or '') >= cutoff:
+            return True
+        # 보존 기간이 지났어도 아직 손대지 않은 개소는 남긴다.
+        #   ★단 **이미 지도에 있던 것**만이다. 아카이브로 내려간 옛 건을 되살리면
+        #     8월 초까지 통째로 돌아온다(2026-09-02 실측: 미착수라는 이유로 8/19 분까지 부활).
+        if touched is None:
+            return False
+        if str(e.get('CONS_TGT_SEQNO')) not in prev_live:
+            return False
+        return str(e.get('주소') or '').strip() not in touched
+    live = [e for e in merged if _keep(e)]
+    archived = [e for e in merged if not _keep(e)]
+    kept_old = sum(1 for e in live if cutoff and str(e.get('작업일') or '') < cutoff)
+    if kept_old:
+        print(f'[보존] 기간 지났지만 미착수라 남긴 건: {kept_old}건')
 
     OUT.write_text(json.dumps(live, ensure_ascii=False, indent=1), encoding='utf-8')
     if archived or ARCHIVE.exists():
