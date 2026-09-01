@@ -612,6 +612,18 @@ function markerTagText(isHapdong, isRework) {
 // 장애 마커 숫자 — 큰 숫자는 그룹 **전체 계기수**, 아래 작은 칸에 **장애 계기수**를 얹는다
 //   (영준님 2026-08-31 "마커의 개수는 계기수(장애 계기수)"). 한 레코드가 MAC 그룹이라
 //   같은 주소에 MAC 이 여럿이면 둘 다 합산한다. 323그룹 중 77개는 두 수가 다르다.
+// 장애 마커 뱃지 — 모뎀 방식을 한눈에(영준님 2026-09-01). 현장에 뭘 들고 갈지가 갈린다.
+//   한 마커에 방식이 섞이는 곳은 304개 중 2개뿐이라, 섞이면 '혼합' 으로 묶는다.
+const JANGAE_TECH_SHORT = {
+    'KS-PLC': 'PLC', 'K-DCU': 'KDCU', 'LTE_IV': 'LTE', 'SMGW-C': 'SMGW', 'HPGP': 'HPGP',
+};
+function jangaeTechLabel(meters) {
+    const set = new Set((meters || []).map(m => (m && m.기술타입) || '').filter(Boolean));
+    if (set.size === 0) return '';
+    if (set.size > 1) return '혼합';
+    return JANGAE_TECH_SHORT[[...set][0]] || [...set][0];
+}
+
 function jangaeMeterCount(meters) {
     return (meters || []).reduce((s, m) => s + (Number(m && m.계기수) || 0), 0);
 }
@@ -665,7 +677,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const isRework = aggregateRework(keyList) || touHasRework;
     let tagText = markerTagText(isHapdong, isRework);
     // 개통 뱃지는 뺐다(영준님 2026-08-31 "개통은 표시 지워") — 개통 여부는 모달에서도 안 쓴다.
-    if (isJangae) tagText = String(jangaeFailCount(meters));   // 아래 작은 칸 = 장애 계기수
+    if (isJangae) tagText = jangaeTechLabel(meters);   // 뱃지 = 모뎀 방식(PLC/KDCU/LTE/SMGW)
 
     const markerContent = `
         <div class="custom-marker ${color}${isGapap ? ' gapap' : ''}${isJangae ? ' jangae' : ''}">
@@ -748,7 +760,8 @@ function repaintMarker(marker) {
     //     여기서 문구·클래스를 매번 다시 맞춘다(createMarker 와 같은 규칙, markerTagText).
     const touHasRework = isTou && marker.meters.some(m => m.tou_type === 'rework');
     const isRework = aggregateRework(addrList) || touHasRework;
-    const tagText = markerTagText(isHapdong, isRework);
+    const tagText = isJangae ? jangaeTechLabel(marker.meters)
+                             : markerTagText(isHapdong, isRework);
     let fracEl = marker.element.querySelector('.marker-fraction');
     if (tagText) {
         if (!fracEl) {

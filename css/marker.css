@@ -42,3 +42,10 @@
 
 /* 장애 마커 — 숫자가 '실패 계기수'라 두 자리가 흔하다. 고압처럼 살짝 줄여 넘침을 막는다. */
 .custom-marker.jangae .marker-number { font-size: 10px; top: 3px; font-weight: 800; }
+
+/* 장애 뱃지 — 모뎀 방식(PLC·KDCU·LTE·SMGW·HPGP)이라 기존 한 글자 뱃지보다 길다.
+   글자를 줄이고 패딩을 줘서 핀 위에 얹혀도 읽히게 한다(영준님 2026-09-01). */
+.custom-marker.jangae .marker-fraction {
+    font-size: 8px; font-weight: 800; letter-spacing: -0.3px;
+    padding: 0 3px; min-width: 0; white-space: nowrap;
+}
