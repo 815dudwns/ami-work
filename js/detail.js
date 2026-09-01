@@ -557,7 +557,13 @@ function renderMetersList() {
         //   (영준님 지시 2026-08-31 "맥이 여러개면 모달 안에 트리가 두개").
         //   계기목록에는 시트2(모뎀작업리스트)에서 끌어온 **정상 계기까지** 들어 있고,
         //   장애 시트에 있던 것만 `장애:true` 다 — 정상은 정상으로 두고 장애만 색을 준다.
-        if (meter.category === '장애') return jangaeTreeHtml(meter);
+        if (meter.category === '장애') {
+            // 같은 주소에 MAC 이 여럿이면 트리가 여럿 그려진다. 몇 번째 MAC 인지 넘겨
+            //   MAC 뒤 2자리에 색을 갈라 붙인다(영준님 지시 2026-09-01).
+            const jIdx = filtered.filter(m => m.category === '장애').indexOf(meter);
+            const jTot = filtered.filter(m => m.category === '장애').length;
+            return jangaeTreeHtml(meter, jIdx, jTot);
+        }
         const checked = (status.checkedMeters || []).includes(meter.계기번호) ? 'checked' : '';
         const parsedType = parseType(meter.계기번호) || meter.계기타입;
         const detailParts = [];
@@ -1067,8 +1073,12 @@ async function collectToAmiqueue(address, meters) {
 //   MAC 속성: 기술타입·변대주·작업일·작업자·연결장치·개통여부 (영준님 지시).
 //   ★DCUID 는 awms 값을 쓰지 않는다 — awms DCU_ID 는 `변대주+64/6` 이라 한전 대장과 체계가 다르다.
 //     여기 실린 DCUID/변대주명은 계기번호로 우리 데이터에서 찾아온 진짜 값이다.
-function jangaeTreeHtml(g) {
+// idx = 이 주소에서 몇 번째 MAC 인지(0-based), tot = 그 주소의 MAC 개수.
+//   MAC 은 12자리라 통째로는 눈이 안 따라간다 — **뒤 2자리**를 크게 띄우고,
+//   MAC 이 둘 이상이면 그룹마다 색을 달리해 현장에서 헷갈리지 않게 한다.
+function jangaeTreeHtml(g, idx = 0, tot = 1) {
     const esc = v => String(v == null ? '' : v);
+    const mac = String(g.모뎀MAC || '');
     const COPY = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
     const head = [];
     if (g.기술타입) head.push(`<b>${esc(g.기술타입)}</b>`);
@@ -1110,8 +1120,9 @@ function jangaeTreeHtml(g) {
     return `
         <div class="jangae-group">
             <div class="jangae-head">
-                <span class="jangae-mac">${esc(g.모뎀MAC)}</span>
-                <button class="copy-btn" data-copy="${esc(g.모뎀MAC)}" title="모뎀MAC 복사">${COPY}</button>
+                <span class="jangae-mac">${esc(mac.slice(0, -2))}<span class="jangae-mac-tail c${idx % 6}">${esc(mac.slice(-2))}</span></span>
+                <button class="copy-btn" data-copy="${esc(mac)}" title="모뎀MAC 복사">${COPY}</button>
+                ${tot > 1 ? `<span class="jangae-seq c${idx % 6}">MAC ${idx + 1}/${tot}</span>` : ''}
                 <span class="jangae-count">장애 ${g.장애수 || 0}/${g.계기수 || 0}</span>
                 <div class="jangae-head-sub">${head.join(' · ')}</div>
             </div>

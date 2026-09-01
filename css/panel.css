@@ -136,3 +136,8 @@
 .jangae-bad .jangae-meter-no { color: #dc2626; }
 /* 장애 트리 — 주택명·호수. 한 건물에 계기가 여럿일 때 계기를 가르는 값이라 눈에 띄게 둔다. */
 .jangae-ho { margin-left: 6px; font-weight: 700; color: #1f2937; font-size: 12px; }
+/* 장애 MAC 뒤 2자리 강조 — 같은 주소에 MAC 이 여럿일 때 색으로 가른다(영준님 2026-09-01). */
+.jangae-mac-tail { padding: 0 3px; border-radius: 3px; color: #fff; font-weight: 900; }
+.jangae-seq { margin-left: 6px; font-size: 11px; font-weight: 700; padding: 1px 5px; border-radius: 3px; color: #fff; }
+.c0 { background: #dc2626; } .c1 { background: #2563eb; } .c2 { background: #16a34a; }
+.c3 { background: #d97706; } .c4 { background: #7c3aed; } .c5 { background: #db2777; }
