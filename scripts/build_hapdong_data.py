@@ -66,6 +66,12 @@ HV_CNTR_CLAS = {'222', '223', '226', '228', '231', '232', '233', '236', '238',
 WORKSTATUS_URL = ('https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app'
                   '/workStatus/charger4eleccar.json')
 
+# 미착수 보존의 마지노선 작업일. 이보다 이른 작업일은 **미착수여도 지도에서 뺀다**(백업엔 남는다).
+#   영준님이 그날 물량을 접기로 하면 이 값을 그날 다음 작업일로 올린다.
+#   2026-09-02: '20260831' — 8/28 분 종료("8/28은 백업하고 없애도 되겠네").
+#   빈 문자열이면 마지노선 없음(= 미착수면 언제 것이든 남긴다).
+CARRY_MIN_DAY = '20260831'
+
 
 def _touched_addresses():
     """workStatus 에 기록이 있는 주소 집합(합동 네임스페이스 우선). 실패하면 None."""
@@ -752,6 +758,9 @@ def main():
         #   ★단 **이미 지도에 있던 것**만이다. 아카이브로 내려간 옛 건을 되살리면
         #     8월 초까지 통째로 돌아온다(2026-09-02 실측: 미착수라는 이유로 8/19 분까지 부활).
         if touched is None:
+            return False
+        # 영준님이 접기로 한 날짜보다 이른 건은 미착수여도 뺀다(백업엔 남는다).
+        if CARRY_MIN_DAY and str(e.get('작업일') or '') < CARRY_MIN_DAY:
             return False
         if str(e.get('CONS_TGT_SEQNO')) not in prev_live:
             return False
