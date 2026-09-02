@@ -562,7 +562,7 @@ function renderMetersList() {
             //   MAC 뒤 2자리에 색을 갈라 붙인다(영준님 지시 2026-09-01).
             const jIdx = filtered.filter(m => m.category === '장애').indexOf(meter);
             const jTot = filtered.filter(m => m.category === '장애').length;
-            return jangaeTreeHtml(meter, jIdx, jTot);
+            return jangaeTreeHtml(meter, jIdx, jTot, status.checkedMeters || []);
         }
         const checked = (status.checkedMeters || []).includes(meter.계기번호) ? 'checked' : '';
         const parsedType = parseType(meter.계기번호) || meter.계기타입;
@@ -814,6 +814,19 @@ function renderMetersList() {
         document.querySelectorAll('.meter-checkbox').forEach(checkbox => {
             checkbox.addEventListener('change', (e) => {
                 toggleMeterCheck(e.target.dataset.meter);
+            });
+        });
+        // 장애 트리 — MAC 그룹 전체선택/해제. 한 함체 계기를 하나씩 누르면 20번 눌러야 한다.
+        document.querySelectorAll('.jangae-all').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const box = btn.closest('.jangae-group');
+                if (!box) return;
+                const cbs = [...box.querySelectorAll('.meter-checkbox')];
+                const turnOn = cbs.some(c => !c.checked);   // 하나라도 꺼져 있으면 전체 켜기
+                cbs.forEach(c => {
+                    if (c.checked !== turnOn) { c.checked = turnOn; toggleMeterCheck(c.dataset.meter); }
+                });
             });
         });
         document.querySelectorAll('.copy-btn').forEach(btn => {
@@ -1076,7 +1089,7 @@ async function collectToAmiqueue(address, meters) {
 // idx = 이 주소에서 몇 번째 MAC 인지(0-based), tot = 그 주소의 MAC 개수.
 //   MAC 은 12자리라 통째로는 눈이 안 따라간다 — **뒤 2자리**를 크게 띄우고,
 //   MAC 이 둘 이상이면 그룹마다 색을 달리해 현장에서 헷갈리지 않게 한다.
-function jangaeTreeHtml(g, idx = 0, tot = 1) {
+function jangaeTreeHtml(g, idx = 0, tot = 1, checkedList = []) {
     const esc = v => String(v == null ? '' : v);
     const mac = String(g.모뎀MAC || '');
     const COPY = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
@@ -1132,6 +1145,7 @@ function jangaeTreeHtml(g, idx = 0, tot = 1) {
         if (m.LP) sub.push(`LP ${esc(m.LP)}`);
         return `
             <div class="jangae-meter${bad ? ' jangae-bad' : ''}${dupCls}">
+                <input type="checkbox" class="meter-checkbox" data-meter="${esc(no)}"${checkedList.includes(no) ? ' checked' : ''}>
                 ${noHtml}
                 <button class="copy-btn" data-copy="${esc(m.계기번호)}" title="계기번호 복사">${COPY}</button>
                 ${hoHtml}
@@ -1146,6 +1160,7 @@ function jangaeTreeHtml(g, idx = 0, tot = 1) {
                 <span class="jangae-mac">${esc(mac)}</span>
                 <button class="copy-btn" data-copy="${esc(mac)}" title="모뎀MAC 복사">${COPY}</button>
                 ${tot > 1 ? `<span class="jangae-seq c${idx % 6}">MAC ${idx + 1}/${tot}</span>` : ''}
+                <button class="jangae-all" data-macall="${esc(mac)}">전체선택</button>
                 <span class="jangae-count">장애 ${g.장애수 || 0}/${g.계기수 || 0}</span>
                 <div class="jangae-head-sub">${head.join(' · ')}</div>
             </div>

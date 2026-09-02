@@ -141,3 +141,8 @@
 .jangae-seq { margin-left: 6px; font-size: 11px; font-weight: 700; padding: 1px 5px; border-radius: 3px; color: #fff; }
 .c0 { background: #dc2626; } .c1 { background: #2563eb; } .c2 { background: #16a34a; }
 .c3 { background: #d97706; } .c4 { background: #7c3aed; } .c5 { background: #db2777; }
+/* 장애 트리 체크박스 — 실효 모달과 같은 .meter-checkbox 를 쓰므로 핸들러는 공용이다. */
+.jangae-meter .meter-checkbox { margin-right: 6px; vertical-align: middle; }
+.jangae-all { float: right; margin-left: 6px; font-size: 11px; padding: 1px 6px; cursor: pointer;
+              border: 1px solid #cbd5e1; background: #fff; border-radius: 4px; color: #475569; }
+.jangae-all:hover { background: #f1f5f9; }
