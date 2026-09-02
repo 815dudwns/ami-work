@@ -1018,6 +1018,7 @@ def _archive_begin(body):
         _archive_write(jd, patch={
             "ts": now.isoformat(),
             "mode": body.get("mode", ""), "ham": body.get("ham", ""),
+            "extMac": body.get("extMac", ""), "replaceReason": body.get("replaceReason", ""),
             "bdju": body.get("bdju", ""), "commSuffix": body.get("commSuffix", ""),
             "config": {k: CONFIG.get(k, "") for k in
                        ("DEPT1", "DEPT2", "BUSI_NUM", "WORKER1_SEQ", "WORKER2_SEQ", "WITH_YN")},
@@ -1098,6 +1099,7 @@ def _saveact_core(body):
     print(f"[saveact:raw] keys={sorted(body.keys())} "
           f"extConn={body.get('extConn')!r} addl={body.get('addl')!r} "
           f"ham={body.get('ham')!r} mode={body.get('mode')!r} "
+          f"extMac={body.get('extMac')!r} replaceReason={body.get('replaceReason')!r} "
           f"master.meterNo={(body.get('master') or {}).get('meterNo')!r}", flush=True)
     tmpd = Path(tempfile.mkdtemp(prefix="cstsave_"))
     m = body["master"]; mb = m["meterNo"]; mac = m["mac"]
@@ -1119,12 +1121,33 @@ def _saveact_core(body):
             raise HTTPException(400, "통신방식 미상(혼재/미판별) — 직접 선택 필요(commSuffix)")
         m_inst_s = auto
         master_suffix = auto[-2:]                        # 슬레이브 상속용 (LTE도 70/92로 확정된 끝2자리)
-    # 작업구분: 신설=M1010(기본) / 기설=M1030 (ami-queue-design.md — 리스트밖 계기를 마스터로 쓰면 기설)
-    work_div = "M1030" if str(body.get("mode", "")).strip() == "existing" else "M1010"
+    # 작업구분(awms getCommonCode P_CODE=M10): 신설 M1010(기본) / 기설 M1030 / 교체 M1020.
+    #   기설 = 리스트밖 계기를 마스터로 쓰는 경우(ami-queue-design.md).
+    #   교체 = 기존 모뎀을 떼고 새 모뎀을 다는 경우. 장애(LP 미수신) 리스트가 이 유형이다(영준님 2026-09-02).
+    _MODE_WORK_DIV = {"existing": "M1030", "replace": "M1020"}
+    mode = str(body.get("mode", "")).strip()
+    work_div = _MODE_WORK_DIV.get(mode, "M1010")
+    is_replace = work_div == "M1020"
+    # ── 교체(M1020) 전용 필드 (awms MOBCST1000 화면 실측 2026-09-02) ──
+    #   기존 모뎀맥 = EXT_FCTY_ID. ★EXT_MAC_MODEM 이 아니다 — 그건 '기존 인입망 모뎀' 칸이다.
+    #     화면은 M1020 일 때만 활성/필수. 마스터·슬레이브가 같은 값을 싣는다(실측: 7793 20260722 맥
+    #     E0AEED916F68 그룹 마스터1+슬레이브3 전건 M1020 + 동일 EXT_FCTY_ID).
+    #   구분상세 = REMV_MEMO (M1020 일 때만 활성/필수). M102010 신호미약 / M102020 모뎀불량 / M102030 마스터 변경.
+    #     실측상 마스터에만 들어가고 슬레이브는 빈값이다.
+    ext_mac = str(body.get("extMac", "")).strip().upper().replace("-", "").replace(":", "")
+    replace_reason = str(body.get("replaceReason", "")).strip()
+    if is_replace:
+        if not ext_mac:
+            raise HTTPException(400, "교체(M1020)는 기존 모뎀맥이 필수다")
+        if replace_reason and replace_reason not in ("M102010", "M102020", "M102030"):
+            raise HTTPException(400, f"교체 구분상세 코드 오류: {replace_reason}")
     # 변대주 → DCU_ID: [신설(M1010)] + [PLC계열: 10 ks-plc/20 hpgp/90 k-dcu] + [변대주있음] 에서만 (영준님 2026-07-15).
     #   DCU_ID = 변대주 전산화번호(DCUID 앞8자, 끝2 제외) 그대로. +00 아님. 기설(M1030)은 미입력. iot-plc(80)·IP-HPGP(85) 미사용. 마스터·슬레이브 동일.
     bdju = str(body.get("bdju", "")).strip()
-    dcu_id = bdju if (work_div == "M1010" and bdju and master_suffix in ("10", "20", "90")) else ""
+    #   교체(M1020)도 채운다 — awms 화면의 DATA_NUM watch 는 작업구분을 보지 않고 변대주만 있으면 DCU_ID 를
+    #   계산한다(MOBCST1000.html 'mainList.currentRow.DATA_NUM' 핸들러, 2026-09-02 실측). 교체는 기존 PLC
+    #   선에 그대로 물리는 작업이라 변대주가 있다. 기설(M1030)은 종전대로 미입력.
+    dcu_id = bdju if (work_div in ("M1010", "M1020") and bdju and master_suffix in ("10", "20", "90")) else ""
     # ★DCU_ID 는 우리가 직접 채운다 (2026-08-29). 2026-07-15 실측 당시엔 DATA_NUM만 보내면 awms가
     #   DCU_ID를 자동생성했으나, awms가 2026-07-27 개편(BUILTIN_YN 신규필드와 같은 시점)된 뒤로
     #   자동생성이 사라져 saveAct 직접호출 건만 DCU_ID가 빈 채 저장됐다 → LP 미수신·미개통 누적.
@@ -1157,6 +1180,10 @@ def _saveact_core(body):
     mf = _common(mb, mac, m_instM, mb, n, m_inst_s, bungi="")
     mf["MODEM_DIV"] = "10"; mf["WORK_DIV"] = work_div; mf["FCLTY_DIV"] = fclty
     mf["EXT_CONN_DEV"] = ext_conn   # 항상 싣는다(미체크=N). 화면 기본값과 동일
+    if is_replace:
+        mf["EXT_FCTY_ID"] = ext_mac          # 기존 모뎀맥
+        if replace_reason:
+            mf["REMV_MEMO"] = replace_reason  # 구분상세 — 마스터만
     if solo_blank:
         # 빈값 ""은 awms Java parseInt 폭발(→500/실패). 빈칸=키 자체를 omit ([[awms_saveact_500_fix]] 패턴)
         mf.pop("MB_METER_ID", None); mf.pop("MB_CNT", None)
@@ -1167,8 +1194,10 @@ def _saveact_core(body):
     m_saved = _archive_photos(arch, "master", mp)   # 전송 전 보관(전송 실패해도 사진 남김)
     res_m = saveact_post(mf, mp)
     # 진단 로그. stale이면 경고를 같이 붙인다 — 전송 1건 만에 "옛 코드로 돌고 있다"가 드러난다.
-    print(f"[saveact] master {mb} ham={ham or '집합'} addl={addl} fclty={fclty} "
-          f"instM={m_instM} extConn={ext_conn} → {res_m}{_stale_note()}", flush=True)
+    print(f"[saveact] master {mb} workDiv={work_div} ham={ham or '집합'} addl={addl} fclty={fclty} "
+          f"instM={m_instM} extConn={ext_conn}"
+          f"{f' extMac={ext_mac} reason={replace_reason or None}' if is_replace else ''}"
+          f" → {res_m}{_stale_note()}", flush=True)
     _archive_write(arch, sent={"role": "master", "meterNo": mb, "fields": mf,
                                "photos": m_saved, "resp": res_m,
                                "ok": bool(res_m.get("result") == 1)})
@@ -1188,8 +1217,19 @@ def _saveact_core(body):
         s_inst_s = s_instM + master_suffix
         s_bungi = "무선" if (master_suffix == "92" and s_instM == "HW4050") else "0.5"
         sf = _common(s["meterNo"], mac, s_instM, mb, n, s_inst_s, bungi=s_bungi)
-        sf["MODEM_DIV"] = "20"; sf["WORK_DIV"] = "M1010"   # 슬레이브는 항상 신설(마스터만 기설 M1030)
+        # 슬레이브 작업구분: 기설(M1030)은 마스터만 — 슬레이브는 신설로 둔다(종전 동작 유지).
+        #   교체(M1020)는 다르다. 모뎀을 갈면 그 함체 계기가 통째로 새 모뎀에 붙으므로 슬레이브도 교체다
+        #   (awms 실측: 7793 20260722 그룹 마스터1+슬레이브3 전건 M1020 + 동일 EXT_FCTY_ID).
+        sf["MODEM_DIV"] = "20"; sf["WORK_DIV"] = "M1020" if is_replace else "M1010"
         sf["EXT_CONN_DEV"] = "N"                           # 슬레이브 체크는 안 받는다 → 미체크=N (헬퍼 실측도 전건 N)
+        if is_replace:
+            # 기존맥·새맥·구분상세 전부 마스터와 같은 값이 슬레이브에도 들어간다(영준님 2026-09-02).
+            #   새맥(MAC_MODEM)은 _common() 이 이미 마스터와 같은 mac 으로 채운다.
+            #   ★awms 실측 표본(7793 20260722)은 슬레이브 REMV_MEMO 가 빈값이었는데, 그 건은 마스터도
+            #     빈값이라 '슬레이브는 안 넣는다'의 근거가 못 된다. 현장 기준을 따른다.
+            sf["EXT_FCTY_ID"] = ext_mac
+            if replace_reason:
+                sf["REMV_MEMO"] = replace_reason
         sf["FCLTY_DIV"] = fclty                            # 슬레이브도 함체유형 동일(단독+슬有=40 / 집합=20)
         if dcu_id:
             sf["DATA_NUM"] = dcu_id                         # 변대주 = 마스터와 동일(그룹 공유)
@@ -1200,7 +1240,8 @@ def _saveact_core(body):
         if sp.get("ATCH_FILE_ID_5_SRC"):
             photos["ATCH_FILE_ID_5_SRC"] = sp["ATCH_FILE_ID_5_SRC"]
         res_s = saveact_post(sf, photos)
-        print(f"[saveact] slave {s['meterNo']} fclty={fclty} → {res_s}", flush=True)  # 진단 로그
+        print(f"[saveact] slave {s['meterNo']} workDiv={sf['WORK_DIV']} fclty={fclty}"
+              f"{f' extMac={ext_mac}' if is_replace else ''} → {res_s}", flush=True)  # 진단 로그
         _archive_write(arch, sent={"role": "slave", "meterNo": s["meterNo"], "fields": sf,
                                    "photos": s_saved, "resp": res_s,
                                    "sharedFileIds": {"ATCH_FILE_ID_3": fid3, "ATCH_FILE_ID_4": fid4},

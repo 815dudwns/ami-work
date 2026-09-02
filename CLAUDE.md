@@ -9,8 +9,16 @@
 ## 조직·운영 (PM 관리체계 — 2026-07-21)
 > 조직 정본 = `research/조직배선_설계_20260719.md`. 지침 계층: 감사=글로벌(`~/CLAUDE.md`), PM=이 프로젝트 지침+팀 배선.
 
+**★사업 라인은 둘이고 우리는 KDN 조공이다** (영준님 2026-08-21 정정. 상세 [[industry_chain]] [[people_titles]])
+```
+계기 라인   한전 → 남경전설 → 탑성천 → 실작업자      (계기교체)      awms=MOBMTR
+통신 라인   한전KDN → 우리(조공)                      (모뎀·통신 시공)  awms=MOBCST
+```
+- **우리는 계기 체인에 속하지 않는다. KDN 직속 조공이다.** awms 가 두 프로그램으로 갈린 것도 발주 주체가 달라서다 — 한쪽 실측을 다른 쪽 근거로 쓰지 마라
+- 호칭: **조공 반장은 전부 "반장"**(윤용운 반장=작업자 캡틴, 장진교 반장) · **KDN 쪽은 직급대로**(주덕기 과장 — 실효·고압·SKT 리스트 발주, awms 정정 요청 창구)
+
 **조직도**: 영준님(대표) · 감사(거버넌스) · **ami-work PM**(조율·판단, 실행자 아님)
-- **통신팀** (본업 KDN 단독시공): 아미큐·헬퍼·아미맵. awms=MOBCST. 폴더 `cst-input/`·`js/`·`awms-helper/`
+- **통신팀** (본업 KDN 조공): 아미큐·헬퍼·아미맵. awms=MOBCST. 폴더 `cst-input/`·`js/`·`awms-helper/`
 - **계기팀** (B2B 종로 동행): 계기큐·종로맵·snap·명륜·구로금천·OTP수집기. awms=MOBMTR. 폴더 `jongno-combined/`·`awms-queue-www/`
 - **검증팀** (데이터회사 본업): 검증관리자(8765)·후처리/데일리검진(daily_cycle). 폴더 검증백엔드·`daily_cycle.py`
 - **ocr-meter** (독립사무소): OCR 판독. `~/Projects/ocr-meter` (검증팀은 판정 의문 시 OCR_검증규칙.md 먼저)
@@ -24,7 +32,7 @@
 
 **팀 운영 방식** (감사 §4):
 - (a) 호출형 — PM이 Agent 툴 `subagent_type: <팀>` 호출. 정의파일이 정체성·메모리 자동분리(감사 권장, 기본)
-- (b) 상주형 — Orca 세션에 팀 정의 주입(`.claude/agents/<팀>.md` 읽혀 정체성). 영준님 직접 대화 필요 시. 통신=`orca terminal send`
+- (b) 상주형 — Orca 세션에 팀 정의 주입(`.claude/agents/<팀>.md` 읽혀 정체성). 영준님 직접 대화 필요 시. **통신 규약 정본 = `~/.claude/rules/orca-comms.md`** (사본 두지 말 것)
 - 전결 = 팀 카드범위 내 코드·운영. PM 보고 후 = 스키마변경·Firebase구조/rules·배포·awms실등록(live)·대량삭제
 - 보고 = 결과요약은 PM에, 긴 산출물 `/tmp/relay/`. HANDOFF는 PM 단일권위(팀은 읽기만)
 
@@ -62,8 +70,8 @@
 | 앱(호칭) | 버전 위치 | 현재 버전 | 갱신일 |
 |---|---|---|---|
 | **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` / APK | `v0626b-아이디선택` / APK 오버레이fetch | 2026-06-26 |
-| **아미큐**(통신큐·통신팀) | `cst-input/cst-version.json` `versionName`(자동업뎃) / `cst-app` `versionName`(네이티브) · **UI=`cst-input/www/` · saveAct빌더=`cst-input/backend/app.py`** | `2.2.7` (공사명 원본표시 + 설정탭 작업자명 + 이력탭 전체삭제) | 2026-08-11 |
-| **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260702.4` / `v20260706.1` (workStatus 미러 IndexedDB 이전=iOS quota 해결. map.js ?v=20260706b) | 2026-07-06 |
+| **아미큐**(통신큐·통신팀) | `cst-input/cst-version.json` `versionName`(자동업뎃) / `cst-app` `versionName`(네이티브) · **UI=`cst-input/www/` · saveAct빌더=`cst-input/backend/app.py`** | `2.2.17` (설치구분에 **교체(M1020)** 추가 — 기존 모뎀맥 EXT_FCTY_ID + 구분상세 REMV_MEMO, 슬레이브도 전건 교체) | 2026-09-02 |
+| **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260813.3` / `v20260813.3` (계기팀 디테일에 DCU ID + 통신방식 표시. detail.js ?v=20260813c) | 2026-08-13 |
 | **종로 보조앱**(jongno-snap) | `snap.html` `APP_VER` + 라벨 / snap-version.json / APK | `v20260707.7` (사진 재촬영 덮어쓰기 / 실시간QR / 카메라선택. ★범프 시 3곳 APP_VER+라벨2 갱신) | 2026-07-07 |
 | **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260624a` | 2026-06-24 |
 | **헬퍼**(awms-helper) | `versionName` / inject | `1.0.77` / inject `v80` | 2026-06-28 |
