@@ -27,7 +27,7 @@ JS = (ROOT / "js" / "datasets.js").read_text(encoding="utf-8")
 def _js_objects():
     """js/datasets.js 의 DATASETS 배열을 아주 얕게 파싱한다.
     주석 줄은 버리고 `{ ... }` 한 덩어리씩 키:값을 뽑는다(중첩 객체는 안 쓴다)."""
-    body = JS[JS.index("const DATASETS = ["):]
+    body = JS[JS.index("const DATASET_REGISTRY = ["):]
     body = body[: body.index("\n];")]
     body = re.sub(r"^\s*//.*$", "", body, flags=re.M)          # 주석 제거
     out = []

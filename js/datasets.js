@@ -20,7 +20,7 @@
 //   metersKey  한 레코드가 계기 묶음인 데이터셋의 계기 배열 필드명.
 //              지정하면 통계 인덱스가 계기 단위로 펼친다(안 펼치면 한 함체가 1계기로 잡힌다)
 //   onMap      false 면 지도에 안 올린다(통계 분모 전용)
-const DATASETS = [
+const DATASET_REGISTRY = [
     { code: 's', file: './data/site-data.json', category: '실효', label: null, uiLabel: '실효계기',
       statsLabel: '실효' },
     { code: 'r', file: './data/rework-data.json', category: '재방문', label: '재', uiLabel: '재방문' },
@@ -50,19 +50,23 @@ const DATASETS = [
     // { code: 't', file: './data/tou-data.json', category: 'tou', label: 'TOU', uiLabel: 'TOU' },
 ];
 
-/** 지도에 올리는 데이터셋만. */
-const MAP_DATASETS = DATASETS.filter(d => d.onMap !== false && d.file);
+// 지도에 올리는 데이터셋만. ★이름이 `DATASETS` 인 이유: js/map.js 가 이 이름을 쓴다.
+//   ★map.js 에서 다시 선언하면 안 된다 — 클래식 스크립트는 전역을 공유해서 const 중복선언이
+//     SyntaxError 를 내고 map.js 가 통째로 안 돈다(2026-09-03 지도 먹통 사고).
+const DATASETS = DATASET_REGISTRY.filter(d => d.onMap !== false && d.file);
+const MAP_DATASETS = DATASETS;
 
 /** 통계 인덱스 코드 -> 상태키 카테고리. 네임스페이스 판정에 쓴다. */
 const DATASET_CATEGORY_BY_CODE = Object.fromEntries(
-    DATASETS.filter(d => d.category).map(d => [d.code, d.category])
+    DATASET_REGISTRY.filter(d => d.category).map(d => [d.code, d.category])
 );
 
 /** 통계 리스트 선택 버튼 목록. '전체 누적'은 코드가 아니라 모드라 따로 붙인다. */
-const DATASET_STATS_OPTS = DATASETS.map(d => ({
+const DATASET_STATS_OPTS = DATASET_REGISTRY.map(d => ({
     key: d.code, label: d.statsLabel || d.uiLabel || d.category,
 }));
 
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { DATASETS, MAP_DATASETS, DATASET_CATEGORY_BY_CODE, DATASET_STATS_OPTS };
+    module.exports = { DATASET_REGISTRY, DATASETS, MAP_DATASETS,
+                       DATASET_CATEGORY_BY_CODE, DATASET_STATS_OPTS };
 }

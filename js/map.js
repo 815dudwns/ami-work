@@ -45,8 +45,8 @@ function jisaOf(item) {
 
 // 데이터셋 정의는 js/datasets.js 로 옮겼다 — 지도·통계·인덱스 생성기가 같은 목록을 읽는다.
 //   새 리스트는 그 파일에만 한 줄 추가하면 된다(영준님 2026-09-03).
-//   여기서는 지도에 올릴 것만 쓴다.
-const DATASETS = MAP_DATASETS;
+//   `DATASETS` 는 그 파일이 선언한다(지도에 올릴 것만 담긴 목록).
+//   ★여기서 다시 선언하지 마라 — const 중복선언이면 map.js 가 통째로 안 돈다.
 
 // 위치 추적 관련 상태
 let locationOverlay = null;
