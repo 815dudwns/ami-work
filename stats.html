@@ -14,7 +14,7 @@
     <script src="js/utils.js?v=20260601b"></script>
     <!-- 상태키 규칙(네임스페이스 카테고리 목록)의 단일 출처. 지도와 같은 파일을 쓴다. -->
     <script src="js/status-key.js?v=20260824a"></script>
-    <script src="js/datasets.js?v=20260903b"></script>
+    <script src="js/datasets.js?v=20260904a"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 40px; color: #1f2937; }
@@ -354,15 +354,27 @@ function findWs(wsNorm, addr, listCode) {
     return wsNorm[addr];
 }
 
-// 개소 식별자 = 카테고리 + 주소 (영준님 2026-09-03 "같은 주소 내가 개소이고 계기수").
-//   ★예전엔 좌표로 묶었다(지도 마커 병합 기준). 그건 진척과 어긋난다 —
-//     작업 상태(workStatus)는 **주소 하나당 한 건**으로 기록되는데 개소는 좌표로 세니,
-//     한 건물의 여러 호수가 좌표 하나로 뭉쳐 개소 수가 실제보다 훨씬 작게 잡혔다.
-//     실측 2026-09-03: 합동 1,741주소가 좌표로는 474개소 — 3.7배 차이.
-//   개소 수와 상태 기록의 단위가 같아야 완료율이 맞는다. 지도 마커 개수와는 다를 수 있고
-//   그게 정상이다(마커는 같은 좌표를 한 핀으로 합쳐 보여주는 표시 규칙이다).
+// 개소 식별자 = 카테고리 + **지번**(법정동 + 번지). 동·호수와 건물명은 버린다.
+//   영준님 2026-09-04 "개소가 한 주소 완료치면 그게 1개인데 개소 = 계기가 되뿌써".
+//   합동시공 주소는 awms 가 동호수까지 붙여 준다 —
+//     누원로 19(상계동 1196-2,수락리버타운 209호) / …210호 / …211호
+//   그래서 주소 문자열로 세면 한 건물(상계동 1196-2, 52계기)이 개소 50개가 된다.
+//   실측 2026-09-04: 합동 계기 2,893 vs 주소단위 개소 2,817 — 사실상 1:1 이었다.
+//   지번으로 세면 854 개소다. 다른 리스트는 주소에 호수가 없어 값이 그대로다(실효 1,553).
+//   ★좌표로 세지 않는 이유: 좌표는 지오코딩 결과라 같은 건물이 표기 차이로 갈리기도 하고
+//     (2026-09-04 합동 18곳 실측) 다른 건물이 한 점으로 뭉치기도 한다. 지번이 원본 사실이다.
+//   ★작업 상태(workStatus)는 주소마다 기록된다 — 그건 그대로 두고 개소만 건물로 센다.
+//     한 건물에서 일부만 완료면 개소 상태는 그 건물의 **첫 기록**을 따른다(아래 siteSt).
+const _JIBUN_RE = /([가-힣0-9]+(?:동|가))\s*(산?\s*\d+(?:-\d+)?)/;
+function jibunOf(addr) {
+    let a = String(addr || '').replace(/\s+/g, ' ').trim();
+    const par = a.match(/\(([^,]+),/);      // 도로명(지번,동호수) -> 괄호 안 지번
+    if (par) a = par[1];
+    const m = a.match(_JIBUN_RE);
+    return m ? (m[1] + m[2]).replace(/\s+/g, '') : a;
+}
 function siteKeyOf(it, addr) {
-    return `${it.l || 's'}||${addr}`;
+    return `${it.l || 's'}||${jibunOf(addr)}`;
 }
 
 function aggByBranch(fbSiteData, workStatus) {
@@ -378,33 +390,44 @@ function aggByBranch(fbSiteData, workStatus) {
     //   계기번호는 숫자(zfill 11자리)라 encodeKey 변환 없으므로 키 = 계기번호 그대로.
     //   빈 사유('')도 불가 처리(in 연산자 또는 != null 사용).
 
-    // 1패스: 개소별 state 수집
-    const siteSeen = new Set();
+    // 1패스: 개소(건물)별 상태를 모은다.
+    //   ★한 건물에 세대가 여럿이면 상태도 여럿이다. **전 세대가 완료일 때만 그 개소를 완료**로
+    //     센다 — 50세대 중 30세대만 끝난 건물을 완료로 세면 진척이 부풀려진다.
+    //     완료가 아니면 불가 > 보류 > 미착수 순으로 대표 상태를 정한다(남은 일이 드러나야 한다).
+    const siteState = {};   // 개소키 -> {gu, states:Set}
     const byGu = {};
+    for (const it of fbSiteData) {
+        const gu   = it['지사'] || '미상';
+        const addr = norm(it['주소']);
+        const ws = findWs(wsNorm, addr, it.l);
+        let st = (ws && ws.state) ? ws.state : 'pending';
+        if (st !== 'complete' && st !== 'hold' && st !== 'fail') st = 'pending';
+        const sKey = siteKeyOf(it, addr);
+        if (!siteState[sKey]) siteState[sKey] = { gu, states: new Set() };
+        siteState[sKey].states.add(st);
+    }
+    for (const k in siteState) {
+        const { gu, states } = siteState[k];
+        let st;
+        if (states.size === 1) st = [...states][0];
+        else if (states.has('fail')) st = 'fail';
+        else if (states.has('hold')) st = 'hold';
+        else st = 'pending';                      // 완료 + 미착수 섞임 -> 아직 미착수
+        if (!byGu[gu]) byGu[gu] = emptyBranch();
+        byGu[gu].sites[st] += 1;
+    }
 
+    // 2패스: 계기는 종전대로 주소 단위 상태를 따른다(failedMeters 는 계기별 불가).
     for (const it of fbSiteData) {
         const gu   = it['지사'] || '미상';
         const addr = norm(it['주소']);
         const meterNo = String(it['계기번호'] || '');
         const ws = findWs(wsNorm, addr, it.l);
-        let siteSt = (ws && ws.state) ? ws.state : 'pending';
-        if (siteSt !== 'complete' && siteSt !== 'hold' && siteSt !== 'fail') siteSt = 'pending';
-
+        let st = (ws && ws.state) ? ws.state : 'pending';
+        if (st !== 'complete' && st !== 'hold' && st !== 'fail') st = 'pending';
+        if (ws && ws.failedMeters && meterNo in ws.failedMeters) st = 'fail';
         if (!byGu[gu]) byGu[gu] = emptyBranch();
-
-        // 개소: 같은 좌표(=지도에서 한 마커)는 한 번만 센다
-        const sKey = siteKeyOf(it, addr);
-        if (!siteSeen.has(sKey)) {
-            siteSeen.add(sKey);
-            byGu[gu].sites[siteSt] += 1;
-        }
-
-        // 계기: failedMeters에 계기번호 있으면 fail, 없으면 개소 state
-        let meterSt = siteSt;
-        if (ws && ws.failedMeters && meterNo in ws.failedMeters) {
-            meterSt = 'fail';
-        }
-        byGu[gu].meters[meterSt] += 1;
+        byGu[gu].meters[st] += 1;
     }
     return byGu;
 }
