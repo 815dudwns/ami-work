@@ -20,6 +20,7 @@
     python3 scripts/build_hapdong_data.py data/inbox_hapdong/hapdong_raw_20260819.json
 """
 
+import collections
 import json
 import os
 import re
@@ -689,6 +690,44 @@ def main():
             elif got_jibun:
                 stat['지번불일치'] += 1
         stat[acc if acc in stat else 'fail'] += 1
+
+    # 2-b) 같은 지번은 좌표를 하나로 모은다 (영준님 2026-09-04 "합쳐")
+    #   한전이 같은 건물을 두 양식으로 올린다. 먼저 올린 묶음은 도로명 형식,
+    #   뒤늦게 추가한 묶음은 지번+건물명 형식이다(순번대도 갈린다).
+    #     신촌로9길 57(창천동 70-36,101호)   <- 도로명 형식
+    #     창천동 70-36 필하우스403호          <- 지번 형식
+    #   두 양식은 카카오에 다른 문자열로 나가 좌표가 소수점 6자리에서 미세하게 갈리고,
+    #   지도(카테고리+좌표로 마커 병합)에서 **0.7m 떨어진 마커 두 개**로 뜬다. 같은 건물인데
+    #   핀이 포개져 보인다(실측 2026-09-04: 창천동 70-36 · 창천동 68-15 LP타운).
+    #   ★주소 문자열은 건드리지 않는다 — workStatus 키가 주소라서 바꾸면 완료 기록이 끊긴다.
+    #     좌표만 대표값으로 통일한다. 마커는 합쳐지고 상태 기록은 그대로 남는다.
+    #   ★exact 끼리만 모은다. approximate 는 이웃 지번이나 동 중심이라 같은 건물이라는 근거가 없다.
+    #   ★대표값은 그 지번에서 가장 많이 나온 좌표(동률이면 사전순 첫 값) — 무엇이 뽑히든
+    #     재실행에서 같은 값이 나와야 한다(빌드마다 좌표가 흔들리면 안 된다).
+    _by_jibun = {}
+    for e in recs:
+        if e.get('좌표정확도') != 'exact' or e.get('lat') is None:
+            continue
+        dong, beonji = _jibun_tail(e.get('지번주소') or e.get('주소'))
+        if not (dong and beonji):
+            continue
+        _by_jibun.setdefault((e.get('지사', ''), dong, beonji), []).append(e)
+    _merged_markers = 0
+    for key, group in _by_jibun.items():
+        pts = {}
+        for e in group:
+            pts[(round(e['lat'], 6), round(e['lng'], 6))] = \
+                pts.get((round(e['lat'], 6), round(e['lng'], 6)), 0) + 1
+        if len(pts) < 2:
+            continue
+        _mx = max(pts.values())
+        top = sorted([p for p in pts if pts[p] == _mx])[0]   # 최다 → 동률이면 사전순(재현성)
+        for e in group:
+            e['lat'], e['lng'] = top
+        _merged_markers += 1
+        print(f'  [좌표통일] {key[1]} {key[2]} — 마커 {len(pts)}개 -> 1개 ({len(group)}행) {top}')
+    if _merged_markers:
+        print(f'[좌표통일] 같은 지번인데 좌표가 갈린 곳 {_merged_markers}곳 병합')
 
     # 3) 기존 파일과 병합 — 유니크 키 = CONS_TGT_SEQNO
     #    ★백업본도 함께 읽는다. 지도에서 뺀 건이라도 원본 raw 가 없어지면 되살릴 길이 없다.
