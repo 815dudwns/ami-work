@@ -14,6 +14,7 @@
     <script src="js/utils.js?v=20260601b"></script>
     <!-- 상태키 규칙(네임스페이스 카테고리 목록)의 단일 출처. 지도와 같은 파일을 쓴다. -->
     <script src="js/status-key.js?v=20260824a"></script>
+    <script src="js/datasets.js?v=20260903a"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 40px; color: #1f2937; }
@@ -333,7 +334,10 @@ function allMeters(m) { return m.complete + m.hold + m.fail + m.pending; }
 //   ★상태키 네임스페이스가 이 이름을 쓴다('주소|고압' 처럼). 데이터셋이 늘면 여기 한 줄만
 //     더하면 된다 — 조회 로직은 손댈 필요 없다.
 //   s(실효)·a(완료 아카이브)·r(재방문)은 네임스페이스가 없어 맨주소 키를 그대로 쓴다.
-const LIST_CATEGORY = { g: '고압', h: '합동', k: 'skt' };
+// ★js/datasets.js 레지스트리에서 만든다 — 리스트를 추가할 때 여기 손댈 필요가 없다.
+//   예전에는 이 표를 손으로 적었고, 빠뜨린 리스트는 상태키를 못 찾아 완료한 것도
+//   전부 미작업으로 잡혔다(영준님 2026-09-03 "리스트 올리면 코드가 알아서 정상으로 읽어야지").
+const LIST_CATEGORY = DATASET_CATEGORY_BY_CODE;
 
 // 이 행의 workStatus 레코드를 찾는다.
 //   ★네임스페이스 카테고리는 '주소|카테고리' 로 저장된다(js/status-key.js). 맨주소로만
@@ -350,14 +354,15 @@ function findWs(wsNorm, addr, listCode) {
     return wsNorm[addr];
 }
 
-// 개소 식별자 — ★js/map.js 의 마커 병합 기준(카테고리 + 좌표)과 같아야 한다.
-//   주소 문자열로 세면 같은 건물이 동·호수 표기 때문에 여러 개소로 갈린다.
-//   좌표가 없는 행(원본에 주소가 비어 지오코딩이 실패한 건)은 주소로 떨어뜨린다 — 버리지 않는다.
+// 개소 식별자 = 카테고리 + 주소 (영준님 2026-09-03 "같은 주소 내가 개소이고 계기수").
+//   ★예전엔 좌표로 묶었다(지도 마커 병합 기준). 그건 진척과 어긋난다 —
+//     작업 상태(workStatus)는 **주소 하나당 한 건**으로 기록되는데 개소는 좌표로 세니,
+//     한 건물의 여러 호수가 좌표 하나로 뭉쳐 개소 수가 실제보다 훨씬 작게 잡혔다.
+//     실측 2026-09-03: 합동 1,741주소가 좌표로는 474개소 — 3.7배 차이.
+//   개소 수와 상태 기록의 단위가 같아야 완료율이 맞는다. 지도 마커 개수와는 다를 수 있고
+//   그게 정상이다(마커는 같은 좌표를 한 핀으로 합쳐 보여주는 표시 규칙이다).
 function siteKeyOf(it, addr) {
-    const code = it.l || 's';
-    return (it.lat != null && it.lng != null)
-        ? `${code}||${it.lat}||${it.lng}`
-        : `${code}||addr||${addr}`;
+    return `${it.l || 's'}||${addr}`;
 }
 
 function aggByBranch(fbSiteData, workStatus) {
@@ -409,15 +414,8 @@ function aggByBranch(fbSiteData, workStatus) {
 //   인덱스의 l 코드: s=실효 · a=완료 아카이브 · r=재방문 · g=고압철거.
 //   기본값은 '실효'다 — 지금 작업 대상이 실효 리스트이고, 아카이브까지 합치면
 //   과거 완료분이 섞여 현재 진척이 흐려진다. 예전 누적치는 '전체 누적'으로 볼 수 있다.
-const LIST_OPTS = [
-    { key: 's',   label: '실효' },
-    { key: 'r',   label: '재방문' },
-    { key: 'g',   label: '고압철거' },
-    { key: 'h',   label: '합동시공' },
-    { key: 'k',   label: 'SKT' },
-    { key: 'a',   label: '완료 아카이브' },
-    { key: 'all', label: '전체 누적' },
-];
+// ★레지스트리에서 만든다. '전체 누적'만 코드가 아니라 모드라 뒤에 붙인다.
+const LIST_OPTS = DATASET_STATS_OPTS.concat([{ key: 'all', label: '전체 누적' }]);
 let _listSel = 's';
 
 function filterByList(fbSiteData) {

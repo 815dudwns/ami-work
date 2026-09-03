@@ -43,31 +43,10 @@ function jisaOf(item) {
     return '미분류';
 }
 
-// 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
-// (label: 마커에 표시할 글자, null이면 계기 개수 숫자 / uiLabel: 카테고리 패널 표시명)
-const DATASETS = [
-    { file: './data/site-data.json', category: '실효', label: null,  uiLabel: '실효계기' },
-    { file: './data/rework-data.json', category: '재방문', label: '재', uiLabel: '재방문' },
-    { file: './data/gapap-data.json', category: '고압', label: '고', uiLabel: '고압철거' },
-    // 합동시공 — 다른 지역 계기팀이 계기만 갈고 간 개소(모뎀 미시공). 매일 그날치가 쌓이므로
-    //   dateField 를 주면 카테고리 밑에 날짜 체크박스 트리가 자동 생성된다(populateCategoryFilter).
-    { file: './data/hapdong-data.json', category: '합동', label: '합', uiLabel: '합동시공', dateField: '작업일' },
-    // SKT 중계기 — SKT 중계기가 붙은 개소에 AMI 모뎀을 설치해 달라는 요청(주덕기 반장 2026-08-21).
-    //   ★올라간 것은 **미작업 41건뿐**이다. 완료 187·작업불요 53 을 함께 올리면 할 일이 묻힌다
-    //   (영준님 지시). 원본 281건은 data/skt-full-20260814.json 에 따로 보관한다.
-    //   2026-08-02 에 내렸다가 되살렸다 — 그때 파일을 지우지 않아 그대로 켤 수 있었다.
-    { file: './data/skt-data.json',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
-    // 장애 — 주덕기 과장 '모뎀작업리스트' 첫 시트(장애 대상). 다른 데이터셋과 단위가 다르다:
-    //   한 레코드 = 모뎀 MAC 그룹 하나(계기가 아니라). `계기목록`에 그 그룹 계기가 전부 들어 있고,
-    //   장애 시트에 있던 계기만 `장애:true` 다. 나머지는 시트2(모뎀작업리스트)에서 끌어온 정상 계기다.
-    //   ★한 주소에 MAC 이 둘 이상인 곳이 20개 있다 — 모달에서 MAC 별로 트리를 따로 그린다.
-    //   ★`DCUID`·`변대주명` 은 awms 값이 아니라 계기번호로 우리 데이터에서 찾아온 진짜 값이다
-    //     (awms DCU_ID 는 변대주+64/6 형태라 한전 대장과 체계가 다르다).
-    { file: './data/jangae-data.json', category: '장애', label: null, uiLabel: '장애' },
-    // TOU 는 여전히 내려둔 상태다(2026-08-02). 되살리려면 아래 줄을 되돌리고
-    //   getSelectedCategories 의 ALL 에도 다시 넣어야 한다.
-    // { file: './data/tou-data.json',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
-];
+// 데이터셋 정의는 js/datasets.js 로 옮겼다 — 지도·통계·인덱스 생성기가 같은 목록을 읽는다.
+//   새 리스트는 그 파일에만 한 줄 추가하면 된다(영준님 2026-09-03).
+//   여기서는 지도에 올릴 것만 쓴다.
+const DATASETS = MAP_DATASETS;
 
 // 위치 추적 관련 상태
 let locationOverlay = null;
