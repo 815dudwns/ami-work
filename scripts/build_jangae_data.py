@@ -1,11 +1,30 @@
-import openpyxl, glob, json, collections, sys
+import openpyxl, glob, json, collections, re, sys
 sys.path.insert(0,'/Users/woodelight/Projects/ami-work/scripts')
 from concurrent.futures import ThreadPoolExecutor
 from geocode_cascade import resolve
 SC='/private/tmp/claude-501/-Users-woodelight-Projects-ami-work/eeaa7f75-b1bf-487b-ac1d-efa6c00c873a/scratchpad'
 def mno(s):
     s=str(s or '').strip().replace('-',''); return s.zfill(11) if s.isdigit() else s
-f=glob.glob(SC+'/jdg0828/*모뎀작업리스트*/*.xlsx')[0]
+# 원본 엑셀 찾기 — 경로가 아니라 **시트 구성**으로 고른다.
+#   파일명이 압축해제에서 깨지기도 하고(cp949), 스크래치패드는 주기적으로 비워진다.
+#   인자로 경로를 주면 그걸 쓴다: python3 scripts/build_jangae_data.py <xlsx>
+def _find_src():
+    if len(sys.argv) > 1:
+        return sys.argv[1]
+    cands = [p for p in glob.glob(SC + '/**/*.xlsx', recursive=True) if '~$' not in p]
+    cands += [p for p in glob.glob('data/**/*.xlsx', recursive=True) if '~$' not in p]
+    for p in sorted(cands, key=lambda x: -len(x)):
+        try:
+            wb0 = openpyxl.load_workbook(p, read_only=True)
+            names = set(wb0.sheetnames); wb0.close()
+        except Exception:
+            continue
+        if {'장애', '모뎀작업리스트'} <= names:
+            return p
+    sys.exit('모뎀작업리스트 엑셀을 못 찾았다 — 경로를 인자로 넘겨라')
+
+f=_find_src()
+print('원본:', f, flush=True)
 wb=openpyxl.load_workbook(f, data_only=True, read_only=True)
 def sh(nm):
     ws=wb[nm]; it=ws.iter_rows(values_only=True)
@@ -34,9 +53,19 @@ for r in ja:
     if a: _addr_votes[m][a]+=1
     if C(r,I1,'모뎀유형')=='마스터' and a: _addr_master.setdefault(m, a)
     FAILSET[m].add(mno(C(r,I1,'계기번호')))
+# ★번지가 있는 주소를 먼저 본다(영준님 2026-09-04 "주소에는 망우동밖에 안나왓네").
+#   한전 원본은 같은 함체인데도 어떤 행은 '중랑구 망우동' 까지만, 어떤 행은 '망우동 419-23'
+#   으로 들어온다. 표수만 세면 번지 없는 쪽이 이기고(실측 01254423544: 망우동 7 vs 419-23 2),
+#   지오코딩이 동 중심을 돌려줘 마커가 실제 위치에서 470m 떨어진 곳에 박힌다.
+#   번지 없는 주소는 '덜 적힌 것'이지 다른 주소가 아니다 — 정보가 더 있는 쪽이 맞다.
+#   번지 있는 후보들 사이에서만 다수결하고, 하나도 없으면 종전대로 전체 다수결.
+_BEONJI_RE = re.compile(r'(?:동|가|읍|면)\d*\s+산?\s*\d+(?:-\d+)?')
+def _has_beonji(a): return bool(_BEONJI_RE.search(str(a or '')))
+
 mac_addr={}
 for m, votes in _addr_votes.items():
-    top=votes.most_common()
+    pool = {a:n for a,n in votes.items() if _has_beonji(a)} or dict(votes)
+    top=sorted(pool.items(), key=lambda kv:(-kv[1], kv[0]))
     best_n=top[0][1]
     tied=[a for a,n in top if n==best_n]
     mac_addr[m] = _addr_master[m] if (len(tied)>1 and _addr_master.get(m) in tied) else tied[0]
