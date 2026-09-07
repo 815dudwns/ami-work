@@ -151,6 +151,27 @@ def is_road_address(a):
                for i, p in enumerate(tp))
 
 
+def _split_tokens(addr):
+    """주소를 토큰으로 쪼갠다. **괄호 밖 콤마는 공백처럼 끊는다.**
+
+    ★한전 원본에 공백 없이 콤마로 붙인 표기가 섞여 온다(실측 2026-09-07):
+        '서울특별시 서대문구 냉천동 75,냉천길 1'
+      그러면 '75,냉천길' 이 한 토큰이 돼 번지 75 를 못 읽고, 뒤의 '1'(도로명 번호)을
+      번지로 잡는다. 실제로 냉천동 75 대신 **냉천동 1** 로 조회해 220m 떨어진 좌표가 박혔다.
+    ★괄호 안 콤마는 건드리지 않는다 — '도로명(지번,동호수)' 의 구분자라 끊으면 그 형식이 깨진다.
+    """
+    a = str(addr or '')
+    out = []
+    depth = 0
+    for ch in a:
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth = max(0, depth - 1)
+        out.append(' ' if (ch == ',' and depth == 0) else ch)
+    return ''.join(out).split()
+
+
 def _dong_beonji(tokens):
     """토큰열에서 (동, 번지)를 뽑는다. 못 찾으면 (동, None) 또는 (None, None).
 
@@ -180,7 +201,7 @@ def _jibun_tail(addr):
     ★geocode_cascade._jibun_key 는 못 쓴다. 그쪽은 본번만 봐서 109 와 109-3 을 같다고 본다
       (좌표 판정에는 그게 맞지만, 지번주소 칸에 넣을 값의 검증에는 못 쓴다).
     """
-    tokens = str(addr or '').split()
+    tokens = _split_tokens(addr)
     for i, p in enumerate(tokens):
         if ROADNAME_RE.search(p) or not DONG_RE.match(p):
             continue
@@ -202,7 +223,7 @@ def _jibun_tail(addr):
 
 def _looks_like_jibun(text):
     """'창동 676-32' 처럼 법정동 + 번지 꼴인가. 괄호 안이 지번인지 판별하는 데 쓴다."""
-    dong, beonji = _dong_beonji(str(text or '').split())
+    dong, beonji = _dong_beonji(_split_tokens(text))
     return bool(dong and beonji)
 
 
@@ -297,10 +318,17 @@ def split_addr(addr):
 
     # 도로명 — '...로/길' 다음이 숫자인 지점까지
     road = ''
-    hp = head.split()
+    hp = _split_tokens(head)
     for i, p in enumerate(hp):
         if ROADNAME_RE.search(p) and i + 1 < len(hp) and BEONJI_RE.match(hp[i + 1]):
-            road = ' '.join(hp[:i + 2])
+            # ★도로명 앞에 지번이 먼저 오는 표기가 있다(실측 '냉천동 75,냉천길 1').
+            #   그때 앞부터 통째로 이으면 '…냉천동 75 냉천길 1' 이라는 없는 주소로 질의하게 된다.
+            #   앞쪽에 '동 + 번지' 가 이미 나왔으면 **도로명 토큰부터** 잡고 시도·구 접두만 붙인다.
+            head_dong, head_beonji = _dong_beonji(hp[:i])
+            if head_dong and head_beonji:
+                road = ' '.join(([pre] if pre else []) + hp[i:i + 2])
+            else:
+                road = ' '.join(hp[:i + 2])
             break
 
     # 지번 — 괄호 안(있으면) 우선, 그다음 괄호 앞 본문
@@ -313,7 +341,7 @@ def split_addr(addr):
     for c in cands:
         if not c:
             continue
-        dong, beonji = _dong_beonji(c.split())
+        dong, beonji = _dong_beonji(_split_tokens(c))
         if not dong:
             continue
         if beonji is None:
