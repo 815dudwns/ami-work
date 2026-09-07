@@ -44,18 +44,15 @@ import os
 
 STATUS_KEY_SEP = "|"
 
-# 마커로 뜨는 데이터셋 — js/map.js 의 DATASETS 와 같아야 한다.
-#   ※skt 는 2026-08-21 에 되살렸다(SKT 중계기 미작업 41건). tou 만 내림 상태로 남는다.
-#     목록이 어긋나면 parity 검사가 매번 경고를 뿜어 진짜 어긋남을 가린다.
-#     되살리거나 내릴 땐 map.js 와 **함께** 고쳐라.
-DATASETS = [
-    ("site-data.json", "실효"),
-    ("rework-data.json", "재방문"),
-    ("gapap-data.json", "고압"),
-    ("hapdong-data.json", "합동"),
-    ("skt-data.json", "skt"),
-    # ("tou-data.json", "tou"),
-]
+# 마커로 뜨는 데이터셋 — **직접 적지 마라.** 데이터셋 정의 정본은 js/datasets.js 이고
+#   scripts/datasets.py 가 그 파이썬 거울이다. 여기서 파생만 한다.
+#   ★예전엔 이 목록을 손으로 또 적어 두었다(세 번째 사본). 그래서 지도에 올라간 '장애'가
+#     배치에는 없는 상태로 한동안 굴러갔고, parity 검사는 js/map.js 를 보도록 돼 있었는데
+#     2026-09-03 에 DATASETS 가 js/datasets.js 로 옮겨가며 "목록 대조 건너뜀" 경고만 내고
+#     그 어긋남을 못 잡았다. 사본을 없애는 것이 유일한 해법이다(2026-09-07).
+from datasets import MAP_DATASETS as _MAP_DATASETS  # noqa: E402
+
+DATASETS = [(os.path.basename(d["file"]), d["category"]) for d in _MAP_DATASETS]
 
 # 자기 이름을 상태키에 박는 카테고리 — 다른 리스트와 상태를 절대 공유하지 않는다.
 #   성격이 다른 리스트가 또 들어오면 여기에 한 줄 추가하면 된다.
