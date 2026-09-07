@@ -43,18 +43,10 @@ function jisaOf(item) {
     return '미분류';
 }
 
-// 데이터셋 정의 — 새 batch 추가 시 이 배열에만 한 줄 추가
-// (label: 마커에 표시할 글자, null이면 계기 개수 숫자 / uiLabel: 카테고리 패널 표시명)
-const DATASETS = [
-    { file: './data/site-data.json', category: '실효', label: null,  uiLabel: '실효계기' },
-    { file: './data/rework-data.json', category: '재방문', label: '재', uiLabel: '재방문' },
-    { file: './data/gapap-data.json', category: '고압', label: '고', uiLabel: '고압철거' },
-    // 2026-08-02 영준님 지시로 skt·tou 내림 — 0730 리스트와 재방문만 남긴다.
-    //   데이터 파일(data/skt-data.json·tou-data.json)은 지우지 않았다. 되살리려면 이 배열에
-    //   아래 두 줄을 되돌리고 getSelectedCategories 의 ALL 에도 다시 넣어야 한다.
-    // { file: './data/skt-data.json',  category: 'skt',  label: 'SK', uiLabel: 'SKT' },
-    // { file: './data/tou-data.json',  category: 'tou',  label: 'TOU', uiLabel: 'TOU' },
-];
+// 데이터셋 정의는 js/datasets.js 로 옮겼다 — 지도·통계·인덱스 생성기가 같은 목록을 읽는다.
+//   새 리스트는 그 파일에만 한 줄 추가하면 된다(영준님 2026-09-03).
+//   `DATASETS` 는 그 파일이 선언한다(지도에 올릴 것만 담긴 목록).
+//   ★여기서 다시 선언하지 마라 — const 중복선언이면 map.js 가 통째로 안 돈다.
 
 // 위치 추적 관련 상태
 let locationOverlay = null;
@@ -146,6 +138,7 @@ async function initMap() {
     statusKeyIndex = buildStatusKeyIndex(sampleData);
     console.log('[statusKey] 마커 여러 개로 갈린 주소:', statusKeyIndex.splitAddresses.length, '건');
 
+    collectDatasetDates();   // 날짜 트리 목록 — populateCategoryFilter/loadMarkers 보다 먼저
     populateJisaOptions();
     populateCategoryFilter();
     loadMarkers();
@@ -263,23 +256,70 @@ function onGuChange() {
     fitToFilteredMarkers();   // 선택 구 영역으로 지도 이동
 }
 
-// 카테고리 체크박스 변경 시 마커 재생성
-function onCategoryChange() {
-    const set = new Set();
-    document.querySelectorAll('.category-filter input[type="checkbox"]:checked').forEach(c => set.add(c.value));
-    setSelectedCategories(set);
+// 마커 전체 재생성 (필터 변경 공통 처리)
+function rebuildMarkers() {
     markers.forEach(m => m.overlay.setMap(null));
     markers = [];
     loadMarkers();
     refreshAllMarkers();
 }
 
+// 현재 화면의 카테고리 체크 상태를 저장한다.
+//   ★선택자에 input.cat-cb 를 쓴다. 패널 안에 날짜 체크박스(input.date-cb)가 함께 있어
+//     예전처럼 input[type=checkbox] 를 통째로 긁으면 날짜가 카테고리로 섞여 들어간다.
+//   ★':checked' 를 쓰지 않는다 — 중간표시(indeterminate) 인 체크박스는 checked 가 true 라도
+//     ':checked' 에 안 걸린다(크로미움 실측 2026-08-19). 날짜를 일부만 켠 합동시공이 통째로
+//     꺼져 보이던 원인. .checked 속성을 직접 읽는다.
+function syncSelectedCategories() {
+    const set = new Set();
+    document.querySelectorAll('.category-filter input.cat-cb').forEach(c => {
+        if (c.checked) set.add(c.value);
+    });
+    setSelectedCategories(set);
+}
+
+// 카테고리 체크박스 변경 시 마커 재생성
+function onCategoryChange(e) {
+    syncSelectedCategories();
+    // 부모(카테고리)를 켜고 끄면 자식(날짜) 전체가 따라간다 — 트리 기본 동작.
+    const cat = e && e.target && e.target.value;
+    if (cat && datasetDates[cat]) {
+        const on = e.target.checked;
+        const boxes = document.querySelectorAll(`.date-subtree input.date-cb[data-cat="${cat}"]`);
+        boxes.forEach(b => { b.checked = on; });
+        setSelectedDates(cat, new Set(on ? datasetDates[cat] : []));
+        e.target.indeterminate = false;
+    }
+    rebuildMarkers();
+}
+
+// 날짜(자식) 체크박스 변경 — 선택 저장 + 부모 상태 동기화
+function onDateChange(cat) {
+    const boxes = [...document.querySelectorAll(`.date-subtree input.date-cb[data-cat="${cat}"]`)];
+    const on = boxes.filter(b => b.checked).map(b => b.value);
+    setSelectedDates(cat, new Set(on));
+    // 하나라도 켜져 있으면 부모 ON, 전부 꺼지면 부모 OFF (일부만이면 중간 표시)
+    const parent = document.getElementById('cat-' + cat);
+    if (parent) {
+        parent.checked = on.length > 0;
+        parent.indeterminate = on.length > 0 && on.length < boxes.length;
+        syncSelectedCategories();
+    }
+    rebuildMarkers();
+}
+
 // 카테고리 체크박스 초기 복원 (저장된 상태 → UI 반영)
 function restoreCategoryCheckboxes() {
     const saved = getSelectedCategories();
-    document.querySelectorAll('.category-filter input[type="checkbox"]').forEach(c => {
+    document.querySelectorAll('.category-filter input.cat-cb').forEach(c => {
         c.checked = saved.has(c.value);
     });
+}
+
+// 날짜 라벨 — '20260819' -> '0819'
+function formatWorkDay(v) {
+    const s = String(v);
+    return s.length === 8 ? s.slice(4) : s;
 }
 
 // 카테고리 토글 패널 — DATASETS 기반 동적 생성 + 토글/외부클릭/ESC 처리
@@ -294,6 +334,7 @@ function populateCategoryFilter() {
         const lbl = document.createElement('label');
         const cb = document.createElement('input');
         cb.type = 'checkbox';
+        cb.className = 'cat-cb';
         cb.id = 'cat-' + d.category;
         cb.value = d.category;
         cb.checked = saved.has(d.category);
@@ -301,6 +342,38 @@ function populateCategoryFilter() {
         lbl.appendChild(cb);
         lbl.appendChild(document.createTextNode(d.uiLabel));
         panel.appendChild(lbl);
+
+        // 날짜 트리 — dateField 가 있는 데이터셋만. 목록은 데이터에서 뽑는다(하드코딩 금지).
+        const dates = datasetDates[d.category] || [];
+        if (!dates.length) return;
+        let selDates = getSelectedDates(d.category);
+        // 자기수리: 부모가 켜져 있는데 켜진 날짜가 하나도 없으면 아무것도 안 보이는 죽은 상태다.
+        //   (옛 저장값이나 중간에 끊긴 조작에서 생길 수 있다) 전체 켬으로 되돌린다.
+        if (cb.checked && !dates.some(v => selDates.has(v))) {
+            selDates = new Set(dates);
+            setSelectedDates(d.category, selDates);
+        }
+        const box = document.createElement('div');
+        box.className = 'date-subtree';
+        dates.forEach(v => {
+            const sub = document.createElement('label');
+            const scb = document.createElement('input');
+            scb.type = 'checkbox';
+            scb.className = 'date-cb';
+            scb.value = v;
+            scb.dataset.cat = d.category;
+            // 부모가 꺼져 있으면 자식도 꺼진 것으로 보인다 — 어차피 카테고리 필터에서
+            //   통째로 걸러지므로, 체크된 자식만 남겨 두면 화면과 실제가 어긋난다.
+            scb.checked = cb.checked && selDates.has(v);
+            scb.addEventListener('change', () => onDateChange(d.category));
+            sub.appendChild(scb);
+            sub.appendChild(document.createTextNode(formatWorkDay(v)));
+            box.appendChild(sub);
+        });
+        panel.appendChild(box);
+        // 부모 중간표시 동기화(일부 날짜만 켜진 상태로 재진입했을 때)
+        const onCount = dates.filter(v => selDates.has(v)).length;
+        cb.indeterminate = cb.checked && onCount < dates.length;
     });
 
     toggleBtn.addEventListener('click', () => {
@@ -321,7 +394,7 @@ function populateCategoryFilter() {
 
 // 카테고리 필터 — 체크된 카테고리만 표시 (localStorage 저장)
 function getSelectedCategories() {
-    const ALL = ['실효', '재방문', '고압'];   // skt·tou 내림(2026-08-02) — DATASETS 주석 참조
+    const ALL = ['실효', '재방문', '고압', '합동', 'skt', '장애'];   // tou 만 내림 상태 — DATASETS 주석 참조
     const saved = localStorage.getItem('ami_selected_categories');
     if (saved) try {
         const set = new Set(JSON.parse(saved));
@@ -344,6 +417,52 @@ function setSelectedCategories(setObj) {
     localStorage.setItem('ami_selected_categories', JSON.stringify([...setObj]));
 }
 
+// ── 날짜 트리(합동시공 등 매일 쌓이는 데이터셋) ─────────────────────────────
+//   category -> ['20260820','20260819', ...] 최신 먼저. sampleData 로드 직후 채운다.
+let datasetDates = {};
+
+function collectDatasetDates() {
+    datasetDates = {};
+    DATASETS.forEach(d => {
+        if (!d.dateField) return;
+        const set = new Set();
+        sampleData.forEach(r => {
+            if (r.category !== d.category) return;
+            const v = r[d.dateField];
+            if (v) set.add(String(v));
+        });
+        datasetDates[d.category] = [...set].sort().reverse();   // 최신이 위
+    });
+}
+
+// 선택된 날짜 — 저장값이 없으면 전부 켬. **새로 생긴 날짜는 자동으로 켠다**
+//   (매일 늘어나므로 하드코딩 금지. 카테고리 신규 자동ON과 같은 방식).
+function getSelectedDates(cat) {
+    const all = datasetDates[cat] || [];
+    const selKey = 'ami_selected_dates_' + cat;
+    const seenKey = 'ami_seen_dates_' + cat;
+    const raw = localStorage.getItem(selKey);
+    let set = null;
+    if (raw) { try { set = new Set(JSON.parse(raw)); } catch { set = null; } }
+    if (!set) {
+        localStorage.setItem(seenKey, JSON.stringify(all));
+        localStorage.setItem(selKey, JSON.stringify(all));
+        return new Set(all);
+    }
+    let seen;
+    try { seen = new Set(JSON.parse(localStorage.getItem(seenKey) || '[]')); } catch { seen = new Set(); }
+    let changed = false;
+    all.forEach(v => { if (!seen.has(v)) { set.add(v); seen.add(v); changed = true; } });
+    if (changed) {
+        localStorage.setItem(seenKey, JSON.stringify([...seen]));
+        localStorage.setItem(selKey, JSON.stringify([...set]));
+    }
+    return set;
+}
+function setSelectedDates(cat, setObj) {
+    localStorage.setItem('ami_selected_dates_' + cat, JSON.stringify([...setObj]));
+}
+
 // 전체 마커 생성 (카테고리||주소 기준 그룹핑) — 지사·구·카테고리 필터링
 function loadMarkers() {
     const selectedJisa = localStorage.getItem('ami_selected_jisa') || '';
@@ -351,11 +470,20 @@ function loadMarkers() {
     // ami_selected_gu 없으면(null) 선택 지사 전체 구 표시, 있으면 배열로 파싱
     const selectedGu = selectedGuRaw ? new Set(JSON.parse(selectedGuRaw)) : null;
     const selectedCats = getSelectedCategories();
+    // 날짜 트리가 있는 카테고리는 날짜까지 걸러 낸다(합동시공 = 매일 누적).
+    const selectedDates = {};
+    DATASETS.forEach(d => {
+        if (d.dateField && (datasetDates[d.category] || []).length) {
+            selectedDates[d.category] = { field: d.dateField, set: getSelectedDates(d.category) };
+        }
+    });
 
     const grouped = {};
     sampleData.forEach(item => {
         const g = guOf(item.주소);
         if (selectedJisa && jisaOf(item) !== selectedJisa) return;
+        const dsel = selectedDates[item.category];
+        if (dsel && !dsel.set.has(String(item[dsel.field] || ''))) return;
         // selectedGu가 null이면(미설정) 전체 구 표시, Set이면 체크된 구만 (빈 Set=전부 해제=아무것도 안 보임)
         if (selectedGu && !selectedGu.has(g === null ? '미분류' : g)) return;
         if (item.lat == null || item.lng == null) return;
@@ -453,6 +581,34 @@ function spreadOverlappingMarkers(grouped) {
 //     그래서 빈칸용 라벨('고압')은 없앴고, 한 마커 안에서 교/철이 섞이는 개소도 현재 0곳이다.
 //     그래도 원천이 바뀌어 섞이면 작업량이 큰 쪽('교')을 보여준다 — 가서 보니 교체더라는
 //     누락을 막기 위한 보수적 선택. 계기별 실제 값은 디테일에서 계기마다 따로 표시된다.
+// 마커 위 보조 뱃지 문구. 재작업='재'(빨강), 합동시공='합'(파랑), 둘 다면 '합재'.
+//   ※한 슬롯(.marker-fraction)을 공유한다 — 두 개를 겹쳐 띄우면 서로 가린다.
+function markerTagText(isHapdong, isRework) {
+    if (isHapdong) return isRework ? '합재' : '합';
+    return isRework ? '재' : '';
+}
+
+// 장애 마커 숫자 — 큰 숫자는 그룹 **전체 계기수**, 아래 작은 칸에 **장애 계기수**를 얹는다
+//   (영준님 2026-08-31 "마커의 개수는 계기수(장애 계기수)"). 한 레코드가 MAC 그룹이라
+//   같은 주소에 MAC 이 여럿이면 둘 다 합산한다. 323그룹 중 77개는 두 수가 다르다.
+// 장애 마커 뱃지 — 모뎀 방식을 한눈에(영준님 2026-09-01). 현장에 뭘 들고 갈지가 갈린다.
+//   한 마커에 방식이 섞이는 곳은 304개 중 2개뿐이라, 섞이면 '혼합' 으로 묶는다.
+const JANGAE_TECH_SHORT = {
+    'KS-PLC': 'PLC', 'K-DCU': 'KDCU', 'LTE_IV': 'LTE', 'SMGW-C': 'SMGW', 'HPGP': 'HPGP',
+};
+function jangaeTechLabel(meters) {
+    const set = new Set((meters || []).map(m => (m && m.기술타입) || '').filter(Boolean));
+    if (set.size === 0) return '';
+    if (set.size > 1) return '혼합';
+    return JANGAE_TECH_SHORT[[...set][0]] || [...set][0];
+}
+
+function jangaeMeterCount(meters) {
+    return (meters || []).reduce((s, m) => s + (Number(m && m.계기수) || 0), 0);
+}
+function jangaeFailCount(meters) {
+    return (meters || []).reduce((s, m) => s + (Number(m && m.장애수) || 0), 0);
+}
 function gapapMarkerLabel(meters) {
     const rules = new Set((meters || []).map(m => (m && m.한전기준) || ''));
     if (rules.has('철거+재설치')) return '교';
@@ -472,6 +628,8 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const isSkt = category === 'skt';
     const isTou = category === 'tou';
     const isGapap = category === '고압';
+    const isHapdong = category === '합동';
+    const isJangae = category === '장애';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
     let color = isApproximate ? 'yellow' : 'green';
@@ -485,23 +643,29 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     //   (영준님 2026-08-18: "? 는 교/철 무시. ? 우선." 교/철은 디테일에서 확인한다).
     const isUnknownSpot = isApproximate && state === 'pending';
     // SKT는 'SK', TOU는 'TOU', 고압은 한전기준 글자, 일반은 개수
+    //   ★합동은 개수를 유지한다 — 한 건물에 계기가 여러 개면 모뎀도 그만큼이라 개수가
+    //     현장에서 곧 작업량이다. 데이터셋 구분은 위에 붙는 '합' 뱃지로 한다(재방문 '재' 전례).
     let markerLabel;
     if (isSkt) markerLabel = 'SK';
     else if (isTou) markerLabel = 'TOU';
     else if (isGapap) markerLabel = isUnknownSpot ? '?' : gapapMarkerLabel(meters);
+    else if (isJangae) markerLabel = isUnknownSpot ? '?' : jangaeMeterCount(meters);
     else markerLabel = isUnknownSpot ? '?' : meterCount;
     // rework(재)면 숫자 위에 '재' 뱃지. 재방문 데이터셋은 rework=true라 개수+'재'로 표시.
     const touHasRework = isTou && meters.some(m => m.tou_type === 'rework');
     const isRework = aggregateRework(keyList) || touHasRework;
+    let tagText = markerTagText(isHapdong, isRework);
+    // 개통 뱃지는 뺐다(영준님 2026-08-31 "개통은 표시 지워") — 개통 여부는 모달에서도 안 쓴다.
+    if (isJangae) tagText = jangaeTechLabel(meters);   // 뱃지 = 모뎀 방식(PLC/KDCU/LTE/SMGW)
 
     const markerContent = `
-        <div class="custom-marker ${color}${isGapap ? ' gapap' : ''}">
+        <div class="custom-marker ${color}${isGapap ? ' gapap' : ''}${isJangae ? ' jangae' : ''}">
             <svg viewBox="0 0 20 26" xmlns="http://www.w3.org/2000/svg">
                 <path class="pin-body" d="M10 0C4.48 0 0 4.48 0 10c0 6.72 10 16 10 16s10-9.28 10-16C20 4.48 15.52 0 10 0z"/>
                 <circle class="pin-circle" cx="10" cy="10" r="5.5" fill="white"/>
             </svg>
             <div class="marker-number">${markerLabel}</div>
-            ${isRework ? '<div class="marker-fraction">재</div>' : ''}
+            ${tagText ? `<div class="marker-fraction${isHapdong ? ' tag-hapdong' : ''}">${tagText}</div>` : ''}
         </div>
     `;
 
@@ -543,6 +707,8 @@ function repaintMarker(marker) {
     const isSkt = marker.category === 'skt';
     const isTou = marker.category === 'tou';
     const isGapap = marker.category === '고압';
+    const isHapdong = marker.category === '합동';
+    const isJangae = marker.category === '장애';
 
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
@@ -554,7 +720,7 @@ function repaintMarker(marker) {
 
     const el = marker.element.querySelector('.custom-marker');
     // ★색 클래스만 갈아끼우면 gapap(글자라벨용) 클래스가 날아간다 — 함께 붙인다.
-    if (el) el.className = `custom-marker ${color}${isGapap ? ' gapap' : ''}`;
+    if (el) el.className = `custom-marker ${color}${isGapap ? ' gapap' : ''}${isJangae ? ' jangae' : ''}`;
 
     const addedCount = aggregateAddedCount(addrList);
     const totalCount = marker.meters.length + addedCount;
@@ -564,20 +730,25 @@ function repaintMarker(marker) {
         if (isSkt) labelEl.textContent = 'SK';
         else if (isTou) labelEl.textContent = 'TOU';
         else if (isGapap) labelEl.textContent = isUnknownSpot ? '?' : gapapMarkerLabel(marker.meters);
+        else if (isJangae) labelEl.textContent = isUnknownSpot ? '?' : jangaeMeterCount(marker.meters);
         else labelEl.textContent = isUnknownSpot ? '?' : totalCount;
     }
 
-    // 재작업 라벨 동기화 (TOU는 항목 단위 rework 체크). 재방문은 rework=true라 숫자+'재'.
+    // 보조 뱃지 동기화 (TOU는 항목 단위 rework 체크). 재방문은 rework=true라 숫자+'재'.
+    //   ★합동은 '합' 뱃지를 항상 달고 있어야 한다 — 상태가 바뀔 때마다 이 함수가 돌므로
+    //     여기서 문구·클래스를 매번 다시 맞춘다(createMarker 와 같은 규칙, markerTagText).
     const touHasRework = isTou && marker.meters.some(m => m.tou_type === 'rework');
     const isRework = aggregateRework(addrList) || touHasRework;
+    const tagText = isJangae ? jangaeTechLabel(marker.meters)
+                             : markerTagText(isHapdong, isRework);
     let fracEl = marker.element.querySelector('.marker-fraction');
-    if (isRework) {
+    if (tagText) {
         if (!fracEl) {
             fracEl = document.createElement('div');
-            fracEl.className = 'marker-fraction';
-            fracEl.textContent = '재';
             el.appendChild(fracEl);
         }
+        fracEl.className = `marker-fraction${isHapdong ? ' tag-hapdong' : ''}`;
+        fracEl.textContent = tagText;
     } else if (fracEl) {
         fracEl.remove();
     }

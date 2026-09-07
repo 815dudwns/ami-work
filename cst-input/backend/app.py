@@ -297,6 +297,11 @@ COMM_SUFFIX_LABELS = [
 ]
 _COMM_LABEL = dict(COMM_SUFFIX_LABELS)
 
+# DCU_ID 접미의 통신방식 코드 — awms MOBCST1000 화면 watch 핸들러 switch 문 그대로 옮긴 것.
+# 화면은 INST_S.slice(6,8)(=통신방식 suffix)로 분기한다. 여기 없는 코드면 화면은 DCU_ID를 비운다.
+_DCU_COMM_CODE = {"10": "4", "20": "", "30": "5", "40": "6", "50": "7",
+                  "60": "", "70": "", "80": "", "85": "", "90": "", "91": "", "92": ""}
+
 
 def commtype_for(mac: str, meter_no: str = ""):
     """모뎀맥 → 통신방식 자동판별 결과 (프론트 표시/직접선택 판단용).
@@ -565,7 +570,8 @@ def api_diag_workgroup():
 _JONGNO_SD = ROOT.parent / "jongno-combined" / "data" / "jongno-site-data.json"
 _AMIWORK_SD = ROOT / "data" / "site-data.json"
 _JONGNO_WS_URL = "https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/workStatus/jongno.json"
-_bdju_cache = {"jsd": None, "asd": None, "ws": None, "ws_ts": 0.0}
+_bdju_cache = {"jsd": None, "asd": None, "ws": None, "ws_ts": 0.0,
+               "jsd_mtime": None, "asd_mtime": None}
 
 
 def _decode_jongno_key(k: str) -> str:
@@ -583,6 +589,29 @@ def _load_sd(path):
         return []
 
 
+def _sd_cached(key: str, path):
+    """site-data 캐시 — 파일이 바뀌면 다시 읽는다(mtime 비교).
+
+    ★2026-08-19 사고: 예전엔 최초 1회만 읽고 영구 보관했다. 8/11 기동 이후 site-data 를
+      고쳐도 백엔드는 옛 내용을 계속 들고 있었고, 계기 08550162098 의 변대주가 옛 값
+      38554464(LTE 회선번호)로 나갔다(맞는 값은 9625E421, 전산화번호·K-DCU 개소).
+      재구동 전에는 스스로 회복할 방법이 없었다.
+
+    ★TTL 이 아니라 mtime 을 쓰는 이유: site-data 는 8MB 다. 시간이 지났다고 다시 파싱하면
+      바뀐 게 없어도 매번 비용을 낸다. mtime 은 stat 한 번(마이크로초)이고, 파일이 바뀔
+      때만 재파싱한다. 종로 workStatus 는 원격 URL 이라 mtime 이 없어 기존 3분 TTL 유지.
+    """
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        mtime = None
+    if _bdju_cache[key] is None or _bdju_cache[key + "_mtime"] != mtime:
+        _bdju_cache[key] = _load_sd(path)
+        _bdju_cache[key + "_mtime"] = mtime
+        print(f"[bdju] {key} 재적재: {len(_bdju_cache[key])}건 mtime={mtime}", flush=True)
+    return _bdju_cache[key]
+
+
 def _jongno_ws():
     now = time.time()
     if _bdju_cache["ws"] is None or now - _bdju_cache["ws_ts"] > 180:   # 3분 캐시
@@ -597,8 +626,7 @@ def _jongno_ws():
 
 def _bdju_donghang(mid: str) -> str:
     ws = _jongno_ws()
-    if _bdju_cache["jsd"] is None:
-        _bdju_cache["jsd"] = _load_sd(_JONGNO_SD)
+    jsd = _sd_cached("jsd", _JONGNO_SD)
     for k, v in ws.items():
         if not isinstance(v, dict):
             continue
@@ -608,7 +636,7 @@ def _bdju_donghang(mid: str) -> str:
         for oldid, r in rl.items():
             if isinstance(r, dict) and str(r.get("new_meter_id", "")) == mid:
                 addr = _decode_jongno_key(k).strip()
-                for m in _bdju_cache["jsd"]:
+                for m in jsd:
                     if str(m.get("계기번호")) == str(oldid) or str(m.get("주소", "")).strip() == addr:
                         b = str(m.get("변대주") or "").strip()
                         if b:
@@ -617,9 +645,7 @@ def _bdju_donghang(mid: str) -> str:
 
 
 def _bdju_ilban(mid: str) -> str:
-    if _bdju_cache["asd"] is None:
-        _bdju_cache["asd"] = _load_sd(_AMIWORK_SD)
-    for m in _bdju_cache["asd"]:
+    for m in _sd_cached("asd", _AMIWORK_SD):
         if str(m.get("계기번호")) == mid:
             d = str(m.get("DCUID") or "").strip()
             return d[:8] if len(d) >= 8 else ""
@@ -655,7 +681,14 @@ OCR_SWIFT = ROOT / "research" / "ocr_poc" / "visionocr_batch.swift"
 #   4. 인접 1줄 결합 하이픈 앵커: y차≤0.05인 바로 아랫줄과 결합해서도 하이픈 탐색
 # 유지: 상단18%컷·Amigo 패턴 A\d{10}·over-read 폴백. E6(2줄+ digits 윈도우) 금지.
 _METER_11 = re.compile(r'\b(\d{11})\b')
-_AMIGO_PAT = re.compile(r'\b(A\d{10})\b', re.IGNORECASE)
+# ★접두 문자를 특정하지 않는다 (2026-08-26, 영준님 지적 "LA 접두를 못 읽는다").
+#   예전엔 'A + 숫자 10자리'(_AMIGO_PAT) 만 따로 잡아서, 'LA530122916' 처럼 접두가 두 글자면
+#   Amigo 경로에서 빠지고 숫자 11자리 경로에서도 자릿수가 모자라 통째로 못 읽었다.
+#   계기타입은 **3~4번째 자리**로 판정하므로 앞에 무엇이 붙든 상관없다. 그래서 접두 목록을
+#   늘리는 대신 '영숫자 11자리' 를 후보로 잡고, 아래 타입코드 필터로 걸러 낸다.
+#   ★넓혀도 오검출이 늘지 않는 이유 = 모든 후보에 digits[2:4] in _METER_TYPE_CODES 를
+#     강제하기 때문이다(E5 처방 1). 'REPLACEMENT' 같은 영문 11자는 [2:4]='PL' 이라 걸러진다.
+_ALNUM_11 = re.compile(r'\b([0-9A-Z]{11})\b', re.IGNORECASE)
 # E5 처방 3: 끝 4자리(-\d{4}) 삭제 → (\d{6,7}) 로 완화. 부가번호(-1607 등) 없어도 통과.
 _METER_HYPHEN = re.compile(r'(\d{2})\s*[-]\s*(\d{2})\s*[-]\s*(\d{6,7})')
 _AMIGO_HYPHEN = re.compile(r'A0\s*[-]\s*55\s*[-]\s*(\d{7,8})', re.IGNORECASE)
@@ -682,9 +715,13 @@ def _extract_meter_no(lines):
     cand_hyphen, cand11, candA = [], [], []
 
     for idx, (y, conf, text) in enumerate(lines):
-        # Amigo 패턴 (A\d{10})
-        for m in _AMIGO_PAT.finditer(text):
-            candA.append((y, conf, m.group(1).upper()))
+        # 문자 접두 계기 (A0530163039 · LA530122916 …) — 접두 종류를 세지 않는다.
+        #   영숫자 11자리 중 **문자가 섞인 것**을 여기로 보낸다(순수 숫자는 아래 cand11).
+        #   타입코드 필터를 통과한 것만 담으므로 잡문자열은 걸러진다.
+        for m in _ALNUM_11.finditer(text):
+            w = m.group(1).upper()
+            if not w.isdigit() and w[2:4] in _METER_TYPE_CODES:
+                candA.append((y, conf, w))
         for m in _AMIGO_HYPHEN.finditer(text):
             amigo = 'A055' + re.sub(r'[^0-9]', '', m.group(1))
             if len(amigo) == 11:
@@ -703,9 +740,10 @@ def _extract_meter_no(lines):
 
         # E5 처방 1+2: 라인내 11자리 — 타입코드 필터 강제
         # 처방 2: 공백·하이픈 제거 후 정확히 11자리이면 채택
-        digits_only = re.sub(r'[\s\-]', '', text)
-        if re.match(r'^\d{11}$', digits_only) and digits_only[2:4] in _METER_TYPE_CODES:
-            cand11.append((y, conf, digits_only))
+        digits_only = re.sub(r'[\s\-]', '', text).upper()
+        if re.match(r'^[0-9A-Z]{11}$', digits_only) and digits_only[2:4] in _METER_TYPE_CODES:
+            # 문자가 섞였으면 위와 같은 이유로 문자접두 후보 쪽에 넣는다(우선순위 유지).
+            (cand11 if digits_only.isdigit() else candA).append((y, conf, digits_only))
         else:
             # 처방 1: \b\d{11}\b 매치 후 타입코드 유효한 것만
             for m in _METER_11.finditer(text):
@@ -1000,6 +1038,7 @@ def _archive_begin(body):
         _archive_write(jd, patch={
             "ts": now.isoformat(),
             "mode": body.get("mode", ""), "ham": body.get("ham", ""),
+            "extMac": body.get("extMac", ""), "replaceReason": body.get("replaceReason", ""),
             "bdju": body.get("bdju", ""), "commSuffix": body.get("commSuffix", ""),
             "config": {k: CONFIG.get(k, "") for k in
                        ("DEPT1", "DEPT2", "BUSI_NUM", "WORKER1_SEQ", "WORKER2_SEQ", "WITH_YN")},
@@ -1080,6 +1119,7 @@ def _saveact_core(body):
     print(f"[saveact:raw] keys={sorted(body.keys())} "
           f"extConn={body.get('extConn')!r} addl={body.get('addl')!r} "
           f"ham={body.get('ham')!r} mode={body.get('mode')!r} "
+          f"extMac={body.get('extMac')!r} replaceReason={body.get('replaceReason')!r} "
           f"master.meterNo={(body.get('master') or {}).get('meterNo')!r}", flush=True)
     tmpd = Path(tempfile.mkdtemp(prefix="cstsave_"))
     m = body["master"]; mb = m["meterNo"]; mac = m["mac"]
@@ -1101,12 +1141,47 @@ def _saveact_core(body):
             raise HTTPException(400, "통신방식 미상(혼재/미판별) — 직접 선택 필요(commSuffix)")
         m_inst_s = auto
         master_suffix = auto[-2:]                        # 슬레이브 상속용 (LTE도 70/92로 확정된 끝2자리)
-    # 작업구분: 신설=M1010(기본) / 기설=M1030 (ami-queue-design.md — 리스트밖 계기를 마스터로 쓰면 기설)
-    work_div = "M1030" if str(body.get("mode", "")).strip() == "existing" else "M1010"
+    # 작업구분(awms getCommonCode P_CODE=M10): 신설 M1010(기본) / 기설 M1030 / 교체 M1020.
+    #   기설 = 리스트밖 계기를 마스터로 쓰는 경우(ami-queue-design.md).
+    #   교체 = 기존 모뎀을 떼고 새 모뎀을 다는 경우. 장애(LP 미수신) 리스트가 이 유형이다(영준님 2026-09-02).
+    _MODE_WORK_DIV = {"existing": "M1030", "replace": "M1020"}
+    mode = str(body.get("mode", "")).strip()
+    work_div = _MODE_WORK_DIV.get(mode, "M1010")
+    is_replace = work_div == "M1020"
+    # ── 교체(M1020) 전용 필드 (awms MOBCST1000 화면 실측 2026-09-02) ──
+    #   기존 모뎀맥 = EXT_FCTY_ID. ★EXT_MAC_MODEM 이 아니다 — 그건 '기존 인입망 모뎀' 칸이다.
+    #     화면은 M1020 일 때만 활성/필수. 마스터·슬레이브가 같은 값을 싣는다(실측: 7793 20260722 맥
+    #     E0AEED916F68 그룹 마스터1+슬레이브3 전건 M1020 + 동일 EXT_FCTY_ID).
+    #   구분상세 = REMV_MEMO (M1020 일 때만 활성/필수). M102010 신호미약 / M102020 모뎀불량 / M102030 마스터 변경.
+    #     실측상 마스터에만 들어가고 슬레이브는 빈값이다.
+    ext_mac = str(body.get("extMac", "")).strip().upper().replace("-", "").replace(":", "")
+    replace_reason = str(body.get("replaceReason", "")).strip()
+    if is_replace:
+        if not ext_mac:
+            raise HTTPException(400, "교체(M1020)는 기존 모뎀맥이 필수다")
+        if replace_reason and replace_reason not in ("M102010", "M102020", "M102030"):
+            raise HTTPException(400, f"교체 구분상세 코드 오류: {replace_reason}")
     # 변대주 → DCU_ID: [신설(M1010)] + [PLC계열: 10 ks-plc/20 hpgp/90 k-dcu] + [변대주있음] 에서만 (영준님 2026-07-15).
     #   DCU_ID = 변대주 전산화번호(DCUID 앞8자, 끝2 제외) 그대로. +00 아님. 기설(M1030)은 미입력. iot-plc(80)·IP-HPGP(85) 미사용. 마스터·슬레이브 동일.
     bdju = str(body.get("bdju", "")).strip()
-    dcu_id = bdju if (work_div == "M1010" and bdju and master_suffix in ("10", "20", "90")) else ""
+    #   교체(M1020)도 채운다 — awms 화면의 DATA_NUM watch 는 작업구분을 보지 않고 변대주만 있으면 DCU_ID 를
+    #   계산한다(MOBCST1000.html 'mainList.currentRow.DATA_NUM' 핸들러, 2026-09-02 실측). 교체는 기존 PLC
+    #   선에 그대로 물리는 작업이라 변대주가 있다. 기설(M1030)은 종전대로 미입력.
+    dcu_id = bdju if (work_div in ("M1010", "M1020") and bdju and master_suffix in ("10", "20", "90")) else ""
+    # ★DCU_ID 는 우리가 직접 채운다 (2026-08-29). 2026-07-15 실측 당시엔 DATA_NUM만 보내면 awms가
+    #   DCU_ID를 자동생성했으나, awms가 2026-07-27 개편(BUILTIN_YN 신규필드와 같은 시점)된 뒤로
+    #   자동생성이 사라져 saveAct 직접호출 건만 DCU_ID가 빈 채 저장됐다 → LP 미수신·미개통 누적.
+    # ★조회 API 가 아니라 awms '화면이 계산해서' 넣는 값이다. 아래는 그 계산식을 그대로 옮긴 것.
+    #   원본 = MOBCST1000 화면 watch 핸들러 'mainList.currentRow.DATA_NUM'
+    #   경로 https://awms.kdn.com/service/ami/html/sub/mob/cst/MOBCST1000.html?app=MOBCST
+    #     dcu_id = DATA_NUM + (BIZ_DGR 없으면 '6' 아니면 BIZ_DGR) + 통신방식코드(_DCU_COMM_CODE)
+    #   통신방식코드에 없는 코드면 화면은 DCU_ID 를 빈값으로 만든다(default: dcu_id = "").
+    #   ★접미를 '64'/'6' 리터럴로 굳히지 마라 — 그건 BIZ_DGR 가 빈값(=6)일 때만 맞는 결과다.
+    # ★한전 DCU 대장(간선망_해지_정지대상.xlsx)의 DCU ID를 넣지 마라 — awms 표기와 일치율 0이다.
+    biz_dgr = str(CONFIG.get("BIZ_DGR", "") or "").strip()   # awms 작업조 설정값. 현재는 빈값 → '6'
+    dcu_full = ""
+    if dcu_id and master_suffix in _DCU_COMM_CODE:
+        dcu_full = dcu_id + (biz_dgr or "6") + _DCU_COMM_CODE[master_suffix]
     # 함체유형(영준님 2026-07-02): 단독+슬0→단독형(10, 대표계기·함내수 빈칸) / 단독+슬有→집합형단독(40) / 집합→그대로(20)
     # 집합형(추가)(영준님 2026-08-11): 같은 함체에 이미 다른 마스터가 등록돼 있으면 폰에서 addl 체크 → 20 대신 30.
     #   아미큐는 마스터를 한 건씩 담아 awms의 order(몇 번째 마스터인지)를 모르므로 작업자가 직접 표시한다.
@@ -1115,27 +1190,34 @@ def _saveact_core(body):
     addl = str(body.get("addl", "")).strip().lower() in ("1", "true", "y", "yes")
     solo_blank = (ham == "단독" and len(slaves) == 0)   # 단독형: 대표계기·함내수 빈칸
     fclty = "10" if solo_blank else ("40" if ham == "단독" else ("30" if addl else "20"))
-    # 외장형 연결장치(EXT_CONN_DEV) — awms 실측 2026-08-11(getDetail): 값은 'Y'/'N'.
-    #   ★기본값을 넣지 않는다(영준님 2026-08-11): 이제까지 이 키 없이 등록해 왔고 문제가 없었다.
-    #   우리가 'N'을 채우기 시작한 것은 이번 작업의 부작용이다 — 체크했을 때만 'Y'를 싣고,
-    #   아니면 키 자체를 omit 한다(빈문자열은 500 위험 [[awms_saveact_500_fix]]).
-    #   AE(HW4040)가 아니면 awms가 이 필드를 잠그므로 Y를 보내지 않는다.
-    ext_conn = "Y" if (m_instM == "HW4040" and str(body.get("extConn", "")).strip().upper() == "Y") else ""
+    # 외장형 연결장치(EXT_CONN_DEV) — 값은 'Y'/'N'.
+    #   ★체크 안 하면 'N' 고정이다(영준님 2026-08-31). 키를 빼는 게 아니라 N 을 넣는다.
+    #   awms 화면(MOBCST1000)도 같다: INST_M watch 가 매번 'N' 으로 리셋하고, select 는
+    #   INST_M != 'HW4040' 이면 disabled 라 AE 가 아니면 N 에서 못 벗어난다. 실측도 헬퍼 등록건 100% 채움.
+    #   따라서 AE(HW4040) + 작업자 체크 일 때만 'Y', 그 외는 전부 'N'.
+    ext_conn = "Y" if (m_instM == "HW4040" and str(body.get("extConn", "")).strip().upper() == "Y") else "N"
     # 마스터
     mf = _common(mb, mac, m_instM, mb, n, m_inst_s, bungi="")
     mf["MODEM_DIV"] = "10"; mf["WORK_DIV"] = work_div; mf["FCLTY_DIV"] = fclty
-    if ext_conn: mf["EXT_CONN_DEV"] = ext_conn   # 체크했을 때만. 슬레이브는 아예 안 보냄(마스터만 수집)
+    mf["EXT_CONN_DEV"] = ext_conn   # 항상 싣는다(미체크=N). 화면 기본값과 동일
+    if is_replace:
+        mf["EXT_FCTY_ID"] = ext_mac          # 기존 모뎀맥
+        if replace_reason:
+            mf["REMV_MEMO"] = replace_reason  # 구분상세 — 마스터만
     if solo_blank:
         # 빈값 ""은 awms Java parseInt 폭발(→500/실패). 빈칸=키 자체를 omit ([[awms_saveact_500_fix]] 패턴)
         mf.pop("MB_METER_ID", None); mf.pop("MB_CNT", None)
     if dcu_id:
-        mf["DATA_NUM"] = dcu_id   # ★변대주 전산화번호 = awms 화면 '변대주' 칸(필드명 DATA_NUM). DCU_ID·차수는 awms 자동생성 (영준님 헬퍼 실측 2026-07-15: DCU_ID 아님)
+        mf["DATA_NUM"] = dcu_id     # ★변대주 전산화번호 = awms 화면 '변대주' 칸(필드명 DATA_NUM)
+        mf["DCU_ID"] = dcu_full     # 변대주+접미. awms 자동생성이 2026-07-27 개편으로 사라져 직접 채운다
     mp = _photos_to_files(m.get("photos", {}), tmpd)
     m_saved = _archive_photos(arch, "master", mp)   # 전송 전 보관(전송 실패해도 사진 남김)
     res_m = saveact_post(mf, mp)
     # 진단 로그. stale이면 경고를 같이 붙인다 — 전송 1건 만에 "옛 코드로 돌고 있다"가 드러난다.
-    print(f"[saveact] master {mb} ham={ham or '집합'} addl={addl} fclty={fclty} "
-          f"instM={m_instM} extConn={ext_conn} → {res_m}{_stale_note()}", flush=True)
+    print(f"[saveact] master {mb} workDiv={work_div} ham={ham or '집합'} addl={addl} fclty={fclty} "
+          f"instM={m_instM} extConn={ext_conn}"
+          f"{f' extMac={ext_mac} reason={replace_reason or None}' if is_replace else ''}"
+          f" → {res_m}{_stale_note()}", flush=True)
     _archive_write(arch, sent={"role": "master", "meterNo": mb, "fields": mf,
                                "photos": m_saved, "resp": res_m,
                                "ok": bool(res_m.get("result") == 1)})
@@ -1155,17 +1237,31 @@ def _saveact_core(body):
         s_inst_s = s_instM + master_suffix
         s_bungi = "무선" if (master_suffix == "92" and s_instM == "HW4050") else "0.5"
         sf = _common(s["meterNo"], mac, s_instM, mb, n, s_inst_s, bungi=s_bungi)
-        sf["MODEM_DIV"] = "20"; sf["WORK_DIV"] = "M1010"   # 슬레이브는 항상 신설(마스터만 기설 M1030)
+        # 슬레이브 작업구분: 기설(M1030)은 마스터만 — 슬레이브는 신설로 둔다(종전 동작 유지).
+        #   교체(M1020)는 다르다. 모뎀을 갈면 그 함체 계기가 통째로 새 모뎀에 붙으므로 슬레이브도 교체다
+        #   (awms 실측: 7793 20260722 그룹 마스터1+슬레이브3 전건 M1020 + 동일 EXT_FCTY_ID).
+        sf["MODEM_DIV"] = "20"; sf["WORK_DIV"] = "M1020" if is_replace else "M1010"
+        sf["EXT_CONN_DEV"] = "N"                           # 슬레이브 체크는 안 받는다 → 미체크=N (헬퍼 실측도 전건 N)
+        if is_replace:
+            # 기존맥·새맥·구분상세 전부 마스터와 같은 값이 슬레이브에도 들어간다(영준님 2026-09-02).
+            #   새맥(MAC_MODEM)은 _common() 이 이미 마스터와 같은 mac 으로 채운다.
+            #   ★awms 실측 표본(7793 20260722)은 슬레이브 REMV_MEMO 가 빈값이었는데, 그 건은 마스터도
+            #     빈값이라 '슬레이브는 안 넣는다'의 근거가 못 된다. 현장 기준을 따른다.
+            sf["EXT_FCTY_ID"] = ext_mac
+            if replace_reason:
+                sf["REMV_MEMO"] = replace_reason
         sf["FCLTY_DIV"] = fclty                            # 슬레이브도 함체유형 동일(단독+슬有=40 / 집합=20)
         if dcu_id:
-            sf["DATA_NUM"] = dcu_id                         # 변대주 = 마스터와 동일(그룹 공유). 필드=DATA_NUM(DCU_ID 아님)
+            sf["DATA_NUM"] = dcu_id                         # 변대주 = 마스터와 동일(그룹 공유)
+            sf["DCU_ID"] = dcu_full                         # 접미도 마스터 통신방식으로 확정(같은 PLC선)
         photos = {"ATCH_FILE_ID_3": fid3, "ATCH_FILE_ID_4": fid4}
         sp = _photos_to_files(s.get("photos", {}), tmpd)
         s_saved = _archive_photos(arch, f"slave{i + 1}", sp)   # 전송 전 보관
         if sp.get("ATCH_FILE_ID_5_SRC"):
             photos["ATCH_FILE_ID_5_SRC"] = sp["ATCH_FILE_ID_5_SRC"]
         res_s = saveact_post(sf, photos)
-        print(f"[saveact] slave {s['meterNo']} fclty={fclty} → {res_s}", flush=True)  # 진단 로그
+        print(f"[saveact] slave {s['meterNo']} workDiv={sf['WORK_DIV']} fclty={fclty}"
+              f"{f' extMac={ext_mac}' if is_replace else ''} → {res_s}", flush=True)  # 진단 로그
         _archive_write(arch, sent={"role": "slave", "meterNo": s["meterNo"], "fields": sf,
                                    "photos": s_saved, "resp": res_s,
                                    "sharedFileIds": {"ATCH_FILE_ID_3": fid3, "ATCH_FILE_ID_4": fid4},

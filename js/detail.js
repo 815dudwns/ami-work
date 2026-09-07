@@ -12,6 +12,97 @@ let currentStatusKeys = [];
 // 현재 정렬 모드: 'none' | 'dup' | 'maker'
 let currentSortMode = 'none';
 
+// ── 변대주 공통 표시 판정 (큰 글씨 블록) ──────────────────────────────────
+//   ★예전엔 DCUID 만 봤다. 그래서 LTE 개소(DCU 를 안 쓰니 DCUID 가 원본에도 없다)는
+//     블록이 통째로 안 뜨고 **변대주까지 같이 사라졌다**(영준님 지적 2026-08-19,
+//     합동 종로 4마커). 전산화번호가 있으면 DCUID 가 없어도 띄운다.
+//   ※두 값을 함께 비교한다 — 전산화번호만 보면 PLC+K-DCU 가 섞인 마커(명륜3가 1-1054)가
+//     '같다'로 뭉쳐진다. 그 마커는 계기마다 DCU 가 달라 개별 표시로 내려가는 게 맞다.
+//   ※값이 빈 계기가 섞여 있으면(원천에 없는 1건) 공통으로 보지 않는다 — 나머지와 같다는
+//     근거가 없다. 그 마커는 계기별로 각자 찍힌다.
+function poleIdOf(m) {
+    return `${(m && m.변대주전산화) || ''}|${(m && m.DCUID) || ''}`;
+}
+function isPoleCommon(meters) {
+    if (!meters || !meters.length) return false;
+    if (!(meters[0].변대주전산화 || meters[0].DCUID)) return false;
+    return meters.every(m => poleIdOf(m) === poleIdOf(meters[0]));
+}
+
+// 변대주 한 줄의 HTML — { html, copyVal }.
+//   ★새 형식(전산화번호 + 괄호 전주명)은 **변대주전산화 필드가 있을 때만** 쓴다.
+//     실효·재방문·고압은 그 필드가 없다(site-data 10,404건 전부). 그 경우 예전 그대로 그린다.
+//     종로맵(jongno-combined/js/detail.js)과 형식·복사값을 맞춘 것이다.
+function poleDisplay(m, iconSvg, btnStyle) {
+    const poleNo = (m && m.변대주전산화) || '';
+    const dcu = (m && m.DCUID) || '';
+    let valHtml, copyVal;
+    if (poleNo) {
+        // DCU 차수(끝 2자리)는 전산화번호에 이어 붙은 형태일 때만 회색으로 뗀다. LTE 는 없다.
+        const tail = (dcu && dcu.indexOf(poleNo) === 0 && dcu.length === poleNo.length + 2)
+            ? `<span class="seg-dup">${dcu.slice(-2)}</span>` : '';
+        valHtml = `<span>${poleNo}</span>${tail}`;
+        copyVal = poleNo;
+    } else if (/[A-Za-z]/.test(dcu)) {
+        const dcuMain = dcu.slice(0, -2);
+        valHtml = `<span>${dcuMain}</span><span class="seg-dup">${dcu.slice(-2)}</span>`;
+        copyVal = dcuMain;
+    } else {
+        valHtml = `<span>${dcu}</span>`;
+        copyVal = dcu;
+    }
+    // 괄호 안 전주명 — 종로맵과 같은 보조 표기(흐리게). 전산화번호가 있을 때만 붙인다.
+    const nameHtml = (poleNo && m.변대주)
+        ? ` <span style="opacity:0.7;font-weight:normal;">(${m.변대주})</span>` : '';
+    const btn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="변대주 전산화번호 복사" style="${btnStyle}">${iconSvg}</button>`;
+    return { html: `${valHtml}${nameHtml}${btn}`, copyVal };
+}
+
+// ── LP 수신 이력 한 줄 요약 (SKT 중계기) ──────────────────────────────────
+//   영준님 지시 2026-08-21 "디테일에 표로 넣지 말고 그냥 말로."
+//   회차 x LP1/LP2 표를 그렸다가 걷어냈다 — 지도에 올린 41건은 전부 미작업이라 표가
+//   사실상 빈칸이었다(38건은 7회 전부 빈값). 내용이 있는 건 3건뿐인데 7행짜리 표를
+//   41건 전부에 그리고 폰에서 가로 스크롤까지 붙일 값어치가 없었다.
+//   ★데이터(lp_이력)는 그대로 둔다. 완료건이 들어오거나 회차가 쌓이면 다시 쓸 수 있다.
+//
+//   판정은 회차마다 **LP1·LP2 중 좋은 쪽**으로 본다 — 한쪽만 값이 있는 개소가 많아
+//   하나만 보면 오판한다. ★'9/24'·'36/96' 은 정상이다(24개 중 9개라 미달로 보이지만
+//   한전이 정상으로 판정한 실증이 있다). 실패는 '0/24' 뿐이다.
+//   -> { text, bad } 를 돌려준다. bad(0수신)일 때만 빨강으로 그린다.
+function lpSummary(meter) {
+    const rows = meter && meter.lp_이력;
+    if (!Array.isArray(rows) || !rows.length) return null;
+
+    // '260612' -> '06/12'. 원본 표기를 그대로 내보내지 않는다.
+    const label = (v) => {
+        const s = String(v || '');
+        return s.length === 6 ? `${s.slice(2, 4)}/${s.slice(4)}` : s;
+    };
+
+    const verdict = rows.map(r => {
+        const vals = [r.lp1, r.lp2].map(v => String(v == null ? '' : v).trim()).filter(Boolean);
+        if (!vals.length) return { state: '수신없음', value: '' };
+        const ok = vals.find(v => v !== '0/24');
+        return ok ? { state: '정상', value: ok } : { state: '0수신', value: '0/24' };
+    });
+
+    // 한 번도 안 붙은 개소 — 그 자체가 정보다(현재 41건 중 38건)
+    if (verdict.every(v => v.state === '수신없음')) return { text: 'LP 수신 이력 없음', bad: false };
+
+    const last = verdict[verdict.length - 1];
+    if (last.state === '정상') {
+        return { text: `LP 정상 ${last.value} (${label(rows[rows.length - 1].회차)})`, bad: false };
+    }
+
+    // 지금 상태가 언제부터 이어지는지 — 같은 판정이 연속된 첫 회차까지 거슬러 올라간다.
+    let i = verdict.length - 1;
+    while (i > 0 && verdict[i - 1].state === last.state) i--;
+    return {
+        text: `LP ${last.state} — ${label(rows[i].회차)}부터 ${verdict.length - i}회 연속`,
+        bad: last.state === '0수신',
+    };
+}
+
 // 주소 클릭 시 상세 패널 표시
 function showDetail(address, meters, addresses, statusKeys) {
     currentAddress = address;
@@ -41,7 +132,10 @@ function showDetail(address, meters, addresses, statusKeys) {
         return !!t && !DIRTY_RE.test(t);
     };
     const pick = (...vals) => vals.find(isUsable) || '';
-    const jibunAddr = pick(meters[0] && meters[0].주소, address);
+    // 지번 — 합동시공은 원문 주소가 '도로명 4(창동 676-32,1층좌)' 꼴이라 그대로 쓰면 읽기 나쁘다.
+    //   카카오가 확인해 준 지번주소가 있으면 그것을 먼저 쓰고, 없으면 예전대로 원문을 쓴다.
+    //   (다른 데이터셋에는 지번주소 필드가 없어 동작이 그대로다. 동호수는 계기별 상세줄에 나온다.)
+    const jibunAddr = pick(meters[0] && meters[0].지번주소, meters[0] && meters[0].주소, address);
     const roadAddr  = pick(meters[0] && meters[0].도로명주소);
 
     // 헤더 = 도로명 우선(있으면), 없으면 지번
@@ -193,32 +287,20 @@ function showDetail(address, meters, addresses, statusKeys) {
     // 변대주(전산화/DCUID)가 모두 같은 경우 공통 표시
     // - 영문자 포함: DCU 케이스 → 끝 2자리(차수+번호) 강조 + 복사 시 절단
     // - 숫자만: LTE 케이스 (DCU 미사용) → 강조 없음 + 전체 복사
-    const allSameDcu = meters.length > 0 && meters.every(m => m.DCUID === meters[0].DCUID);
     const commonPoleEl = document.getElementById('common-pole');
-    const hasDcuId = !!meters[0].DCUID;
-    if (allSameDcu && hasDcuId) {
-        const dcu = meters[0].DCUID;
-        const isDcuType = /[A-Za-z]/.test(dcu);
-        let dcuHtml, copyVal;
-        if (isDcuType) {
-            const dcuMain = dcu.slice(0, -2);
-            dcuHtml = `<span>${dcuMain}</span><span class="seg-dup">${dcu.slice(-2)}</span>`;
-            copyVal = dcuMain;
-        } else {
-            dcuHtml = `<span>${dcu}</span>`;
-            copyVal = dcu;
-        }
-        const poleCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="변대주 전산화번호 복사" style="margin-left:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
-        // 라벨 '변대주' + 전산화번호 + 차수(회색) + 통신방식 (영준님 2026-08-12 확정).
-        //   값이 전산화번호이고 변대주 한글명은 아래 상세줄에 따로 나오므로 2026-08-06 에
-        //   'DCU ID' 로 바꿨던 헷갈림은 생기지 않는다. 통신방식은 대장에서 확정된 값이다.
+    if (isPoleCommon(meters)) {
+        const POLE_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+        const pole = poleDisplay(meters[0], POLE_ICON, 'margin-left:6px;');
+        // 라벨 '변대주' + 전산화번호 + 차수(회색) + (전주명) + 통신방식.
+        //   전주명 괄호는 종로맵과 형식을 맞춘 것이다(영준님 지적 2026-08-19).
+        //   통신방식은 대장에서 확정된 값이다.
         const commTxt = meters[0].통신방식
             ? `<span style="margin-left:10px;color:#dc2626;">${meters[0].통신방식}</span>` : '';
-        commonPoleEl.innerHTML = `변대주 ${dcuHtml}${poleCopyBtn}${commTxt}`;
+        commonPoleEl.innerHTML = `변대주 ${pole.html}${commTxt}`;
         commonPoleEl.style.display = 'block';
         commonPoleEl.querySelector('.pole-copy-btn').addEventListener('click', (e) => {
             e.stopPropagation();
-            copyMeterNo(copyVal);
+            copyMeterNo(pole.copyVal);
         });
     } else {
         commonPoleEl.style.display = 'none';
@@ -338,8 +420,9 @@ function getSortedMeters() {
     if (currentSortMode === 'dup') {
         // 뒤 2자리 기준 그룹 정렬 (같은 뒤2자리끼리 인접)
         return [...meters].sort((a, b) => {
-            const sa = a.계기번호.slice(-2);
-            const sb = b.계기번호.slice(-2);
+            // 장애 데이터셋은 한 레코드가 MAC 그룹이라 계기번호가 없다 — 널가드 필수.
+            const sa = String(a.계기번호 || '').slice(-2);
+            const sb = String(b.계기번호 || '').slice(-2);
             if (sa !== sb) return sa.localeCompare(sb);
             return meters.indexOf(a) - meters.indexOf(b); // 그룹 내 원래 순서 유지
         });
@@ -347,8 +430,8 @@ function getSortedMeters() {
     if (currentSortMode === 'maker') {
         // 앞 2자리 기준 그룹 정렬 (같은 메이커 코드끼리 인접)
         return [...meters].sort((a, b) => {
-            const pa = a.계기번호.slice(0, 2);
-            const pb = b.계기번호.slice(0, 2);
+            const pa = String(a.계기번호 || '').slice(0, 2);
+            const pb = String(b.계기번호 || '').slice(0, 2);
             if (pa !== pb) return pa.localeCompare(pb);
             return meters.indexOf(a) - meters.indexOf(b); // 그룹 내 원래 순서 유지
         });
@@ -436,15 +519,16 @@ function renderMetersList() {
     const sortedMeters = getSortedMeters();
     currentMeters = origCurrent;
     const status = workStatus[currentStatusKey] || { state: 'pending', checkedMeters: [], reason: '' };
-    // 큰 글씨(공통) 영역에 표시되었는지 — DCUID 기준으로 판단
-    const allSameDcu = meters.length > 0 && meters.every(m => m.DCUID === meters[0].DCUID);
-    const commonDcuShown = allSameDcu && !!meters[0].DCUID;
+    // 큰 글씨(공통) 영역에 표시되었는지 — 위 showDetail 과 **같은 판정**을 쓴다(isPoleCommon).
+    //   따로 계산하면 둘이 어긋나 변대주가 두 번 나오거나 아예 사라진다.
+    const commonDcuShown = isPoleCommon(meters);
     const failedMeters = status.failedMeters || {};
 
     // 뒤 2자리 중복 그룹 계산 (중복 계기번호 색상 구분용)
     const suffix2Map = {};
     meters.forEach(m => {
-        const s = m.계기번호.slice(-2);
+        if (!m.계기번호) return;            // 장애(MAC 그룹) 레코드는 계기번호가 없다
+        const s = String(m.계기번호).slice(-2);
         if (!suffix2Map[s]) suffix2Map[s] = [];
         suffix2Map[s].push(m.계기번호);
     });
@@ -463,31 +547,35 @@ function renderMetersList() {
     // 검색 필터
     const searchVal = (document.getElementById('meter-search')?.value || '').replace(/\D/g, '');
     const filtered = (searchVal.length >= 2)
-        ? sortedMeters.filter(m => m.계기번호.includes(searchVal))
+        ? sortedMeters.filter(m => String(m.계기번호 || '').includes(searchVal))
         : sortedMeters;
 
     const metersList = document.getElementById('meters-list');
     metersList.innerHTML = filtered.map(meter => {
+        // 장애 데이터셋은 단위가 다르다 — 한 레코드가 **모뎀 MAC 그룹**이라 계기 한 줄이 아니라
+        //   MAC 헤더 + 그 밑 계기 트리를 그린다. 같은 주소에 MAC 이 둘이면 트리가 둘 생긴다
+        //   (영준님 지시 2026-08-31 "맥이 여러개면 모달 안에 트리가 두개").
+        //   계기목록에는 시트2(모뎀작업리스트)에서 끌어온 **정상 계기까지** 들어 있고,
+        //   장애 시트에 있던 것만 `장애:true` 다 — 정상은 정상으로 두고 장애만 색을 준다.
+        if (meter.category === '장애') {
+            // 같은 주소에 MAC 이 여럿이면 트리가 여럿 그려진다. 몇 번째 MAC 인지 넘겨
+            //   MAC 뒤 2자리에 색을 갈라 붙인다(영준님 지시 2026-09-01).
+            const jIdx = filtered.filter(m => m.category === '장애').indexOf(meter);
+            const jTot = filtered.filter(m => m.category === '장애').length;
+            return jangaeTreeHtml(meter, jIdx, jTot, status.checkedMeters || []);
+        }
         const checked = (status.checkedMeters || []).includes(meter.계기번호) ? 'checked' : '';
         const parsedType = parseType(meter.계기번호) || meter.계기타입;
         const detailParts = [];
-        // DCUID 큰 글씨 — 공통 표시 안 될 때만 개별 표시
-        // 영문자 포함: DCU 케이스 → 끝 2자리 강조 + 복사 시 절단
-        // 숫자만: LTE 케이스 → 강조 없음 + 전체 복사
-        if (!commonDcuShown && meter.DCUID) {
-            const dcu = meter.DCUID;
-            const isDcuType = /[A-Za-z]/.test(dcu);
-            let pHtml, copyVal;
-            if (isDcuType) {
-                const dcuMain = dcu.slice(0, -2);
-                pHtml = `<span>${dcuMain}</span><span class="seg-dup">${dcu.slice(-2)}</span>`;
-                copyVal = dcuMain;
-            } else {
-                pHtml = `<span>${dcu}</span>`;
-                copyVal = dcu;
-            }
-            const pCopyBtn = `<button class="copy-btn pole-copy-btn" data-copy="${copyVal}" title="DCU ID 복사" style="margin-left:3px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
-            detailParts.push(`DCU ID ${pHtml}${pCopyBtn}`);
+        // 변대주/DCU 큰 글씨 — 공통 표시 안 될 때만 개별 표시.
+        //   ★조건이 공통 블록과 같아야 한다(전산화번호 또는 DCUID). DCUID 만 보면 LTE 개소가
+        //     공통에서도 개별에서도 빠져 변대주가 어디에도 안 나온다(영준님 지적 2026-08-19).
+        //   전산화번호가 있으면 라벨도 '변대주'로 맞춘다 — 실제로 그리는 값이 변대주이기 때문.
+        //   없으면 예전 그대로 'DCU ID'(영문자면 끝 2자리 강조 + 복사 시 절단, 숫자만이면 전체).
+        if (!commonDcuShown && (meter.변대주전산화 || meter.DCUID)) {
+            const P_ICON = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+            const p = poleDisplay(meter, P_ICON, 'margin-left:3px;');
+            detailParts.push(`${meter.변대주전산화 ? '변대주' : 'DCU ID'} ${p.html}`);
         }
         // 상호 (있을 때)
         if (meter.상호 && meter.상호 !== '0') detailParts.push(`상호 ${meter.상호}`);
@@ -511,14 +599,23 @@ function renderMetersList() {
         //   ★숫자형 DCUID 는 전산화번호가 아니라 LTE 회선번호(012 생략)라 붙이지 않는다.
         if (meter.변대주) {
             const dcuRaw = meter.DCUID || '';
-            const bdjuNo = /[A-Za-z]/.test(dcuRaw) ? dcuRaw.slice(0, -2) : '';
+            // 전산화번호 — 변대주전산화(합동 종로)가 있으면 그것을 쓴다. LTE 는 DCUID 가 없어
+            //   예전 방식(DCUID 에서 끝 2자리 절단)으로는 번호가 아예 안 나왔다.
+            //   그 필드가 없는 실효·재방문·고압은 예전 그대로 도출값을 쓴다.
+            const bdjuNo = meter.변대주전산화 || (/[A-Za-z]/.test(dcuRaw) ? dcuRaw.slice(0, -2) : '');
             subParts.push(`변대주 ${meter.변대주}${bdjuNo ? ` (${bdjuNo})` : ''}`);
         }
         // DCU 상태(회선상태·장애여부) 표시는 뺐다 — 영준님 2026-08-12: 우리 대상은 원본이
         //   'DCU 장애여부 = 정상' 으로 걸러 받은 개소라 다 정상이고, 확정적으로 받은 것은
         //   3번 시트(철거/유지 판정)뿐이다. 그 판정은 위 큰 글씨에 이미 나온다.
         //   필드(dcu_회선상태·dcu_장애여부)는 데이터에 남겨 두었다 — 필요하면 되살린다.
-        if (meter.인입주) subParts.push(`인입주 ${meter.인입주}`);
+        // 인입주 — 변대주 줄과 같은 형식(이름 + 전산화번호). 전산화번호가 실린 데이터셋만 붙는다.
+        //   ★DCU 판정에는 절대 쓰지 않는다. DCU 는 변대주에 붙는다(영준님 2026-08-12 확정,
+        //     아래 dcu_철거예정 줄 주석 참조). 여기는 표시 전용이다.
+        if (meter.인입주) {
+            const inNo = meter.인입주전산화 || '';
+            subParts.push(`인입주 ${meter.인입주}${inNo ? ` (${inNo})` : ''}`);
+        }
         // 2) 사업차수 (신·전)
         if (meter['사업차수']) {
             const prev = meter['사업차수_전'];
@@ -531,7 +628,9 @@ function renderMetersList() {
         if (meter.고객번호) subParts.push(`고객 ${meter.고객번호}`);
         // 5) 실효 미사용 컬럼 살리기 (값 있고 의미 있을 때만)
         if (meter.검기만료년월) subParts.push(`검기만료 ${meter.검기만료년월}`);
-        if (meter.교체사유) subParts.push(`사유 ${meter.교체사유}`);
+        // 합동은 교체사유가 전 건 '합동시공' 고정이라, 아래 10)의 '합동시공·모뎀미시공' 과
+        //   겹쳐 "사유 합동시공 · 합동시공·모뎀미시공" 으로 두 번 나왔다. 강조된 쪽만 남긴다.
+        if (meter.교체사유 && meter.category !== '합동') subParts.push(`사유 ${meter.교체사유}`);
         if (meter.DCU장애여부 && meter.DCU장애여부 !== '정상') {
             subParts.push(`<span style="color:#dc2626;font-weight:700;">DCU ${meter.DCU장애여부}</span>`);
         }
@@ -545,6 +644,11 @@ function renderMetersList() {
             if (meter.skt_kdn_이력)    subParts.push(`이력 ${meter.skt_kdn_이력}`);
             if (meter.skt_비고)        subParts.push(`비고 ${meter.skt_비고}`);
         }
+        // LP 수신 이력 — 표가 아니라 **한 줄 문장**이다(영준님 2026-08-21 "그냥 말로").
+        //   카테고리가 아니라 lp_이력 필드 유무로 건다 — 나중에 다른 리스트가 LP 를 싣고
+        //   들어와도 그대로 나온다. 실효·재방문·고압·합동은 필드가 없어 아무것도 안 그린다.
+        const lp = lpSummary(meter);
+        if (lp) subParts.push(lp.bad ? `<span style="color:#dc2626;">${lp.text}</span>` : lp.text);
         // 7) TOU 전용 필드 (category=tou일 때)
         if (meter.category === 'tou') {
             if (meter.재 || meter.tou_type === 'rework')
@@ -614,6 +718,30 @@ function renderMetersList() {
             } else if (meter.비고 && meter.비고 !== '0') {   // 원천에 '0'만 든 칸이 1건 있다
                 subParts.push(`<span style="color:#2563eb;">${meter.비고}</span>`);
             }
+        }
+        // 10) 합동시공 전용 필드 (category=합동): 다른 지역 계기팀이 계기만 갈고 간 개소.
+        //   원본(awms FMPMTR 연간대상 실효계기 목록)에 변대주·DCUID·통신방식·MAC 이 아예 없다.
+        //   그래서 현장에서 계기를 특정하는 값은 **철거계기번호**뿐이라 반드시 보여준다.
+        //   ★없는 값을 유추해 채우지 않았다(2026-08-12 DCUID 유사매칭 864건 오염 전례).
+        if (meter.category === '합동') {
+            subParts.push('<span style="color:#2563eb;font-weight:700;">합동시공·모뎀미시공</span>');
+            // 동호수 — 한 건물에 계기가 여럿인 개소(창동 657-109 는 7세대)에서 계기를 가르는
+            //   유일한 값이라 앞에 둔다. 원문 주소에서만 뽑을 수 있다(카카오는 층·호를 모른다).
+            if (meter.동호수) subParts.push(`<span style="font-weight:700;">동호수 ${meter.동호수}</span>`);
+            // 계기교체 날짜 — ★'작업일시'(awms 원본)를 먼저 쓴다.
+            //   '작업일' 은 지도 날짜 트리용 값이라 묶여 있을 수 있다. 소급 반영분은 여러 날에
+            //   걸쳐 한 일을 한 날짜로 모아 올리므로, 그걸 그리면 실제 작업일이 가려진다
+            //   (영준님 2026-08-26 "작업날짜 디테일에 쓰고"). 원본이 없으면 작업일로 떨어뜨린다.
+            const raw작업 = String(meter.작업일시 || '').slice(0, 10).replace(/-/g, '');
+            const d = raw작업 || String(meter.작업일 || '');
+            if (d) {
+                subParts.push(`계기교체 ${d.length === 8 ? `${d.slice(4, 6)}/${d.slice(6)}` : d}`);
+            }
+            if (meter.계기번호_전) subParts.push(`철거계기 ${meter.계기번호_전}`);
+            if (meter.업체) subParts.push(`${meter.업체}`);
+            if (meter.저압고압) subParts.push(`${meter.저압고압}`);
+            if (meter.계약전력) subParts.push(`계약 ${meter.계약전력}kW`);
+            if (meter.공사번호) subParts.push(`공사 ${meter.공사번호}`);
         }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
         const details = detailParts.join(', ');
@@ -686,6 +814,19 @@ function renderMetersList() {
         document.querySelectorAll('.meter-checkbox').forEach(checkbox => {
             checkbox.addEventListener('change', (e) => {
                 toggleMeterCheck(e.target.dataset.meter);
+            });
+        });
+        // 장애 트리 — MAC 그룹 전체선택/해제. 한 함체 계기를 하나씩 누르면 20번 눌러야 한다.
+        document.querySelectorAll('.jangae-all').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const box = btn.closest('.jangae-group');
+                if (!box) return;
+                const cbs = [...box.querySelectorAll('.meter-checkbox')];
+                const turnOn = cbs.some(c => !c.checked);   // 하나라도 꺼져 있으면 전체 켜기
+                cbs.forEach(c => {
+                    if (c.checked !== turnOn) { c.checked = turnOn; toggleMeterCheck(c.dataset.meter); }
+                });
             });
         });
         document.querySelectorAll('.copy-btn').forEach(btn => {
@@ -938,4 +1079,91 @@ async function collectToAmiqueue(address, meters) {
             alert('아미큐 앱이 열리지 않았습니다.\n폰에서 아미큐 설치 후 다시 시도하거나,\n아미큐 [수집] 버튼에 key를 입력하세요:\n\n' + key);
         }
     }, 1500);
+}
+
+
+// 장애 트리 — MAC 하나를 헤더 + 계기 목록으로 그린다.
+//   MAC 속성: 기술타입·변대주·작업일·작업자·연결장치·개통여부 (영준님 지시).
+//   ★DCUID 는 awms 값을 쓰지 않는다 — awms DCU_ID 는 `변대주+64/6` 이라 한전 대장과 체계가 다르다.
+//     여기 실린 DCUID/변대주명은 계기번호로 우리 데이터에서 찾아온 진짜 값이다.
+// idx = 이 주소에서 몇 번째 MAC 인지(0-based), tot = 그 주소의 MAC 개수.
+//   MAC 은 12자리라 통째로는 눈이 안 따라간다 — **뒤 2자리**를 크게 띄우고,
+//   MAC 이 둘 이상이면 그룹마다 색을 달리해 현장에서 헷갈리지 않게 한다.
+function jangaeTreeHtml(g, idx = 0, tot = 1, checkedList = []) {
+    const esc = v => String(v == null ? '' : v);
+    const mac = String(g.모뎀MAC || '');
+    const COPY = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+    const head = [];
+    if (g.기술타입) head.push(`<b>${esc(g.기술타입)}</b>`);
+    if (g.변대주명) head.push(`변대주 ${esc(g.변대주명)}`);
+    else if (g.변대주) head.push(`변대주 ${esc(g.변대주)}`);
+    if (g.DCUID) head.push(`DCU ${esc(g.DCUID)}`);
+    if (g.작업일) head.push(`작업 ${esc(g.작업일).slice(5)}`);
+    const worker = [g.작업자1, g.작업자2].filter(Boolean).join('·');
+    if (worker) head.push(esc(worker));
+    if (g.외장형연결장치) head.push(`연결장치 ${esc(g.외장형연결장치)}`);
+
+    // 계기번호 뒤 2자리 중복 — 한 개소에 같은 끝자리가 여럿이면 현장에서 헷갈린다.
+    //   실효 모달의 dup-row-N 과 같은 체계를 쓴다(영준님 2026-09-02 "계기에 해놔야지").
+    const sufCount = {};
+    (g.계기목록 || []).forEach(m => {
+        const t = String(m.계기번호 || '').slice(-2);
+        if (t) sufCount[t] = (sufCount[t] || 0) + 1;
+    });
+    const dupIdx = {};
+    let di = 0;
+    Object.keys(sufCount).sort().forEach(t => { if (sufCount[t] > 1) dupIdx[t] = di++; });
+
+    const rows = (g.계기목록 || []).map(m => {
+        const bad = !!m.장애;
+        const no = String(m.계기번호 || '');
+        const suf = no.slice(-2);
+        const isDup = dupIdx[suf] !== undefined;
+        const dupCls = isDup ? ` dup-row-${dupIdx[suf] % 10}` : '';
+        // 계기번호 4구간 색상 — 실효 모달과 **같은 체계**를 그대로 쓴다(영준님 2026-09-02).
+        //   메이커2 / 타입코드2 / 중간 / 끝2(중복이면 seg-dup 빨강)
+        const noHtml = `<span class="meter-no-seg">`
+            + `<span class="seg-maker">${esc(no.slice(0, 2))}</span>`
+            + `<span class="seg-type">${esc(no.slice(2, 4))}</span>`
+            + `<span class="seg-mid">${esc(no.slice(4, -2))}</span>`
+            + `<span class="${isDup ? 'seg-dup' : 'seg-last'}">${esc(suf)}</span>`
+            + `</span>`;
+        const st = m.상태 === '실패' ? '실패' : (m.상태 === '성공' ? '성공' : (m.상태 || '미판정'));
+        const stColor = m.상태 === '성공' ? '#16a34a' : (m.상태 === '실패' ? '#dc2626' : '#9ca3af');
+        // 주택명·호수 — 한 건물에 계기가 여럿인 개소에서 계기를 가르는 유일한 값이라
+        //   계기번호 옆에 크게 둔다(영준님 지시). 장애 시트엔 없어 계기번호로 우리 데이터에서
+        //   끌어왔다 — 2,837건 중 1,489건(52%) 채워졌고 나머지는 원천에 없다.
+        const ho = String(m.공동주택명 || '').trim();
+        const hoHtml = ho ? `<span class="jangae-ho">${esc(ho)}</span>` : '';
+        const sub = [];
+        if (m.상호) sub.push(`상호 ${esc(m.상호)}`);
+        if (m.모뎀유형) sub.push(esc(m.모뎀유형));
+        if (m.계기타입) sub.push(esc(m.계기타입));
+        if (m.시설유형) sub.push(esc(m.시설유형));
+        if (m.작업구분) sub.push(esc(m.작업구분));
+        if (m.분기기) sub.push(`분기 ${esc(m.분기기)}`);
+        if (m.LP) sub.push(`LP ${esc(m.LP)}`);
+        return `
+            <div class="jangae-meter${bad ? ' jangae-bad' : ''}${dupCls}">
+                <input type="checkbox" class="meter-checkbox" data-meter="${esc(no)}"${checkedList.includes(no) ? ' checked' : ''}>
+                ${noHtml}
+                <button class="copy-btn" data-copy="${esc(m.계기번호)}" title="계기번호 복사">${COPY}</button>
+                ${hoHtml}
+                <span style="color:${stColor};font-weight:700;margin-left:4px;">${st}</span>
+                <div class="jangae-meter-sub">${sub.join(' · ')}</div>
+            </div>`;
+    }).join('');
+
+    return `
+        <div class="jangae-group">
+            <div class="jangae-head">
+                <span class="jangae-mac">${esc(mac)}</span>
+                <button class="copy-btn" data-copy="${esc(mac)}" title="모뎀MAC 복사">${COPY}</button>
+                ${tot > 1 ? `<span class="jangae-seq c${idx % 6}">MAC ${idx + 1}/${tot}</span>` : ''}
+                <button class="jangae-all" data-macall="${esc(mac)}">전체선택</button>
+                <span class="jangae-count">장애 ${g.장애수 || 0}/${g.계기수 || 0}</span>
+                <div class="jangae-head-sub">${head.join(' · ')}</div>
+            </div>
+            ${rows}
+        </div>`;
 }

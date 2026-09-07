@@ -98,17 +98,20 @@ function parseValue(text) {
 			let parsedText2 = "";
 			text = text.split("\x00").join("");
             if(text.split(" ").join("").length == 13) {
-                var exp = /^\*\d{11}\*$/;
+                // ★접두 문자를 특정하지 않는다. 계기타입은 3~4번째 자리로 판정하므로
+                //   앞에 무엇이 붙든(A·LA 등) 상관없다. 길이 11 + 영숫자면 통과시킨다.
+                var exp = /^\*[0-9A-Za-z]{11}\*$/;
                 var clearedText = text.split(" ").join("");
                 if(exp.test(clearedText)) {
-                    parsedText = clearedText.split("*").join("");
+                    parsedText = clearedText.split("*").join("").toUpperCase();
                 }
             }
             else if(text.split(" ").join("").length == 11) {
-                var exp = /\d{11}/;
+                // ★같은 이유로 숫자만 요구하지 않는다. 순수 숫자 11자리도 그대로 통과한다.
+                var exp = /^[0-9A-Za-z]{11}$/;
                 var clearedText = text.split(" ").join("");
                 if(exp.test(clearedText)) {
-                    parsedText = clearedText;
+                    parsedText = clearedText.toUpperCase();
                 }
             }else if(text.split(" ").join("").length == 15){
 				var exp = /^\*[\d-]{11,}\*$/;

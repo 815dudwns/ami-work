@@ -1,5 +1,5 @@
 {
-  "versionName": "2.2.15",
+  "versionName": "2.2.17",
   "apkUrl": "https://raw.githubusercontent.com/815dudwns/ami-work/main/cst-input/amiqueue.apk",
-  "notes": "수집 첫 화면 버그 수정 — 앱을 새로 켜면 모뎀맥이 아니라 마스터부터 뜨던 것(2.2.13 순서변경이 실제로는 동작 안 했음). 첫 단계를 Step.FIRST 단일 출처로 못박아 재발 차단"
+  "notes": "설치구분에 교체(awms M1020) 추가. 교체를 고르면 기존 모뎀맥 입력칸과 구분상세(신호미약/모뎀불량/마스터 변경)가 나온다. 슬레이브도 전건 교체로 나가며 기존맥·새맥·구분상세가 마스터와 같은 값으로 들어간다. 설치구분 위치는 마스터 화면에서 첫 화면(모뎀맥)으로 옮김."
 }
