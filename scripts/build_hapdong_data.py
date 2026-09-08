@@ -52,7 +52,69 @@ WORKERS = 8
 #     지우면 작업 이력이 사라지고, 같은 주소가 다시 들어올 때 빈 상태로 시작한다.
 #   ★뺀 것은 버리지 않는다. 통계는 누적 실적이라 백업분까지 분모에 넣는다
 #     (scripts/gen_stats_index.py 가 이 백업 파일도 읽는다).
-RETAIN_DAYS = 3
+#   ★2026-09-09 개정: 달력 3일이 아니라 **영업일 3일**이다(영준님 지시).
+#     달력으로 세면 주말 낀 월요일마다 목·금 물량이 손도 못 대고 사라진다.
+#     예) 최신 작업일이 화요일이면 보존은 화·월·직전 금요일이다.
+RETAIN_BUSINESS_DAYS = 3
+
+# ─── 영업일 판정 ────────────────────────────────────────────────────────────
+# 토·일 + 공휴일은 영업일이 아니다. 보존 기간을 세는 데도, 주말 등재분을 직전 영업일로
+#   귀속하는 데도 이 표를 쓴다.
+# ★출처: 관공서의 공휴일에 관한 규정(대통령령) 기준 2026년 공휴일.
+#   음력 명절(설·추석)과 부처님오신날은 해마다 양력 날짜가 바뀌고, 주말과 겹치면
+#   대체공휴일이 붙는다(설·추석·어린이날·3.1절·광복절·개천절·한글날이 대상. 현충일은 제외).
+#   ※해가 바뀌면 이 표를 **관보로 대조해 갱신**해야 한다. 틀리면 그날 물량이 하루 일찍 빠진다.
+#   ※의심되면 보수적으로 두어라 — 공휴일을 빠뜨리면 보존이 짧아지고, 더 넣으면 길어진다.
+HOLIDAYS = {
+    '20260101',                          # 신정
+    '20260216', '20260217', '20260218',  # 설 연휴(설날 2/17)
+    '20260301', '20260302',              # 삼일절(일) + 대체공휴일
+    '20260505',                          # 어린이날
+    '20260524', '20260525',              # 부처님오신날(일) + 대체공휴일
+    '20260603',                          # 제9회 전국동시지방선거
+    '20260606',                          # 현충일(토, 대체공휴일 없음)
+    '20260815', '20260817',              # 광복절(토) + 대체공휴일
+    '20260924', '20260925', '20260926',  # 추석 연휴(추석 9/25)
+    '20260928',                          # 추석 대체공휴일(연휴가 토요일과 겹침)
+    '20261003', '20261005',              # 개천절(토) + 대체공휴일
+    '20261009',                          # 한글날
+    '20261225',                          # 성탄절
+}
+
+
+def _is_business_day(d):
+    """d(date) 가 영업일인가 — 토·일·공휴일 제외."""
+    return d.weekday() < 5 and d.strftime('%Y%m%d') not in HOLIDAYS
+
+
+def prev_business_day(yyyymmdd):
+    """그날이 영업일이 아니면 직전 영업일로 되돌린다(영업일이면 그대로)."""
+    from datetime import datetime as _dt, timedelta as _td
+    try:
+        d = _dt.strptime(str(yyyymmdd), '%Y%m%d').date()
+    except ValueError:
+        return yyyymmdd
+    for _ in range(30):          # 연휴가 아무리 길어도 30일이면 닿는다
+        if _is_business_day(d):
+            return d.strftime('%Y%m%d')
+        d -= _td(days=1)
+    return yyyymmdd
+
+
+def business_days_back(yyyymmdd, n):
+    """yyyymmdd(포함)에서 영업일 n개를 거꾸로 세어 n번째 영업일을 돌려준다.
+
+    n=3, 화요일이면 -> 화·월·금 의 '금'. 이 값이 보존 하한(cutoff)이다.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    d = _dt.strptime(str(yyyymmdd), '%Y%m%d').date()
+    while not _is_business_day(d):        # 기준일 자체가 휴일이면 직전 영업일부터 센다
+        d -= _td(days=1)
+    for _ in range(n - 1):
+        d -= _td(days=1)
+        while not _is_business_day(d):
+            d -= _td(days=1)
+    return d.strftime('%Y%m%d')
 
 # ─── 고압 제외 ──────────────────────────────────────────────────────────────
 # 계약종별(CI007) 중 이름에 '고압' 이 붙는 코드. 고압은 우리 합동시공 대상이 아니다
@@ -65,7 +127,7 @@ HV_CNTR_CLAS = {'222', '223', '226', '228', '231', '232', '233', '236', '238',
 #   그게 8월 초까지 되살아나는 것을 막으려고 마지노선 작업일(CARRY_MIN_DAY)을 두어
 #   영준님이 물량을 접을 때마다 손으로 올렸다.
 #   ★2026-09-07 폐기: "3일차 남기고 다 백업하고 없애는 거 알지?" — 착수 여부와 무관하게
-#     보존기간을 넘긴 작업일은 예외 없이 백업으로 간다. 경계는 RETAIN_DAYS 하나뿐이다.
+#     보존기간을 넘긴 작업일은 예외 없이 백업으로 간다. 경계는 RETAIN_BUSINESS_DAYS 하나뿐이다.
 #     손으로 올리는 마지노선도 없앴다(빠뜨리면 지도가 계속 불어난다).
 #   ※빠진 것은 여전히 백업 파일에 남고 통계 분모에도 들어간다. workStatus 는 손대지 않는다.
 
@@ -413,11 +475,29 @@ WORK_DAY_OVERRIDES = [
 
 
 def override_work_day(batch_day, jisa, cons_no, work_day):
+    """명시 목록에 걸리면 그 날짜로. 반환 (작업일, 목록에걸렸나)."""
     for o in WORK_DAY_OVERRIDES:
         if (str(batch_day) == o['batch'] and jisa == o['지사']
                 and str(cons_no or '').endswith(o['공사번호끝'])):
-            return o['작업일']
-    return work_day
+            return o['작업일'], True
+    return work_day, False
+
+
+def resolve_work_day(batch_day, jisa, cons_no, work_day):
+    """지도용 작업일 확정 — 명시 목록이 먼저, 없으면 주말·공휴일 귀속 규칙.
+
+    ★주말·공휴일 등재분은 직전 영업일로 귀속한다(영준님 지시 2026-09-09).
+      일요일 저녁 8시대에 현장작업 16건이 있을 수 없다 — 몰아 쓴 것이다.
+      종전엔 확인된 배치만 WORK_DAY_OVERRIDES 에 하나씩 적었는데, 주말마다 손으로
+      추가해야 해서 빠뜨리면 그 물량이 날짜 트리에 따로 떨어졌다. 일반 규칙으로 바꾼다.
+    ★기존 명시 목록은 그대로 두고 **우선 적용**한다 — 평일끼리 옮기는 건(8/21 종로 -> 8/20,
+      광진성동 소급분)은 이 일반 규칙으로 대체되지 않는다.
+    ※'작업일시' 원본은 손대지 않는다 — 상세모달에는 실제 등재 시각이 그대로 보인다.
+    """
+    day, matched = override_work_day(batch_day, jisa, cons_no, work_day)
+    if matched:
+        return day
+    return prev_business_day(day)
 
 
 # ─── 변환 ──────────────────────────────────────────────────────────────────
@@ -437,8 +517,8 @@ def to_record(r, batch_day):
     # WORK_DATE 가 빈 행이 있다(2026-08-19분 1건). 날짜 트리에 빈 노드가 생기지 않게
     #   배치 일자로 떨어뜨린다. 원본 문자열(작업일시)은 빈 채로 남겨 구분 가능하게 둔다.
     work_day = wd[:10].replace('-', '') if len(wd) >= 10 else str(batch_day)
-    # 확인된 배치만 실제 작업일로 되돌린다(위 WORK_DAY_OVERRIDES). 작업일시는 원본 그대로 둔다.
-    work_day = override_work_day(batch_day, jisa, r.get('CONS_NO'), work_day)
+    # 명시 목록 우선 -> 없으면 주말·공휴일은 직전 영업일로 귀속. 작업일시는 원본 그대로 둔다.
+    work_day = resolve_work_day(batch_day, jisa, r.get('CONS_NO'), work_day)
 
     pwr = r.get('CNTR_PWR')
     return {
@@ -785,9 +865,8 @@ def main():
     days = sorted({str(e.get('작업일') or '') for e in merged if str(e.get('작업일') or '').isdigit()})
     cutoff = ''
     if days:
-        from datetime import datetime as _dt, timedelta as _td
-        base = _dt.strptime(days[-1], '%Y%m%d').date()
-        cutoff = (base - _td(days=RETAIN_DAYS - 1)).strftime('%Y%m%d')
+        # 영업일로 센다 — 달력 3일이면 주말 낀 월요일에 목·금 물량이 통째로 빠진다.
+        cutoff = business_days_back(days[-1], RETAIN_BUSINESS_DAYS)
     # 고압은 merged 전체에서 뺀다 — raw 만 걸러도 아카이브에 남아 있던 것이 되살아난다.
     _hv_merged = [e for e in merged if str(e.get('계약종별') or '') in HV_CNTR_CLAS]
     if _hv_merged:
@@ -806,7 +885,7 @@ def main():
 
     import collections
     print()
-    print(f'보존 {RETAIN_DAYS}일 — 지도에 남길 최소 작업일 {cutoff or "(전체)"}')
+    print(f'보존 영업일 {RETAIN_BUSINESS_DAYS}일 — 지도에 남길 최소 작업일 {cutoff or "(전체)"}')
     print(f'  지도 {len(live):,}건 / 백업 {len(archived):,}건 -> {ARCHIVE.name}')
     if archived:
         print('  백업으로 뺀 작업일:', dict(collections.Counter(e['작업일'] for e in archived)))
