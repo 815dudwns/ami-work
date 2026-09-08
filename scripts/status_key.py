@@ -207,9 +207,35 @@ def build_status_key_index(rows):
     return by_marker, sorted(split_addresses)
 
 
+def fallback_key_of(item):
+    """주소가 없을 때 쓸 대체 상태 키. 없으면 빈 문자열.
+
+    ★왜 필요한가(2026-09-08 실측): awms 원본에 작업장소 주소가 아예 없는 건이 들어왔다
+      (WRK_PLCE_ADDR_CTT 빈값 · 마포용산 CONS_TGT_SEQNO 8651532). 주소가 키인데 그게 비면
+      상태키가 **빈 문자열**이 되고, 주소 없는 건이 둘 이상 들어오면 서로 상태를 공유한다.
+      한쪽을 완료하면 다른 쪽도 완료로 보인다.
+      그래서 주소 대신 **레코드 고유값**을 쓴다 — 합동은 CONS_TGT_SEQNO 가 유니크 키다.
+      형식은 네임스페이스와 같은 '<고유값>|<카테고리>' (예: '8651532|합동').
+    ★좌표는 만들지 않는다 — 동을 끌어낼 주소가 없으니 추측 금지. 마커 없이 데이터로만 둔다.
+    """
+    cat = item.get("category") or ""
+    for f in ("CONS_TGT_SEQNO", "계기번호"):
+        v = str(item.get(f) or "").strip()
+        if v:
+            return "{}{}{}".format(v, STATUS_KEY_SEP, cat) if cat else v
+    return ""
+
+
 def status_key_of(item, by_marker):
-    """개별 항목의 상태 키. 인덱스에 없으면 주소 그대로(하위호환)."""
-    return by_marker.get(_lookup_key(marker_key_of(item), item.get("주소")), item.get("주소"))
+    """개별 항목의 상태 키. 인덱스에 없으면 주소 그대로(하위호환).
+
+    주소가 비면 빈 키를 내지 않고 레코드 고유값으로 대체한다([[fallback_key_of]]).
+    """
+    addr = item.get("주소")
+    key = by_marker.get(_lookup_key(marker_key_of(item), addr), addr)
+    if not str(key or "").strip():
+        return fallback_key_of(item)
+    return key
 
 
 def address_of_status_key(key):
