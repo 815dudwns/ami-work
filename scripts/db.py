@@ -59,6 +59,7 @@ def id_candidates(q):
     out = {}
     if digits and len(digits) <= 11:
         out['계기번호_norm'] = digits.zfill(11)
+        out['철거계기번호_norm'] = digits.zfill(11)   # 종로 준공내역서는 철거계기로도 찾는다
     out['mac_norm'] = plain
     if len(plain) == 10:
         out['고객번호_norm'] = plain

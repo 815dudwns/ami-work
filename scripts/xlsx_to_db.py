@@ -16,6 +16,13 @@
   - 열 이름은 **원문 그대로**. 임의 개명·값 보정 금지. 정규화는 `_norm` 열로만 덧붙인다.
   - 모든 값은 TEXT 로 넣는다(계기번호 앞 0 유실 방지).
   - 같은 `(테이블, snapshot)` 재적재는 지우고 다시 넣는다(멱등). **다른 snapshot 은 누적**한다.
+  - ★**한 파일 = 한 스냅샷이 깨지는 경우 snapshot 에 판 구분을 붙인다.**
+    멱등키 `(테이블, snapshot)` 은 "파일 하나가 스냅샷 하나"를 전제한다. 같은 날짜의 파일이
+    여러 개 들어오는 계열(예: 종로 준공·검수리스트는 한 폴더에 실효 5~14차가 같이 있다)에서는
+    그 전제가 깨져서, 그대로 두면 **뒤에 적재한 파일이 앞엣것을 지운다**.
+    이럴 땐 `DISCRIMINATORS` 에 파일명에서 판을 뽑는 규칙을 넣어 `20260605-실효6차` 처럼
+    snapshot 을 파일 고유값으로 만들고, 그 판 이름을 `차수` 열로도 실어 정렬·필터가 되게 한다
+    (영준님/PM 결정 2026-09-08).
   - 행 수가 원본과 다르면 실패다. 조용한 누락 금지.
   - 이 DB 는 **조회용 사본**이다. site-data·hapdong·jangae 빌더는 이 파일을 읽지 않는다.
 
@@ -59,12 +66,31 @@ KNOWN_FILES = [
     # DCU 간선망 해지·정지 대상 / DCU 철거 예정 개소
     'data/reference/간선망_해지_정지대상.xlsx',
     'data/reference/DCU_철거_예정_개소_목록.xlsx',
+    # 종로 실효 준공·검수리스트 — 한 폴더에 실효 5~14차가 같이 있다.
+    #   폴더 날짜가 전부 같아 snapshot 에 차수를 붙여 가른다(DISCRIMINATORS 참고).
+    'data/종로_실효리스트_20260605/3978-2026-3032 실효5차 준공 및 검수리스트.xlsx',
+    'data/종로_실효리스트_20260605/3978-2026-3033 실효6차 준공 및 검수리스트.xlsx',
+    'data/종로_실효리스트_20260605/3978-2026-3034 실효7차 준공 및 검수리스트.xlsx',
+    'data/종로_실효리스트_20260605/3978-2026-3035 실효8차 준공 및 검수리스트.xlsx',
+    'data/종로_실효리스트_20260605/3978-2026-3150 실효12차 준공 및 검수리스트.xlsx',
+    'data/종로_실효리스트_20260605/3978-2026-3151 실효13차 준공 및 검수리스트.xlsx',
+    'data/종로_실효리스트_20260605/3978-2026-3153 실효14차 준공 및 검수리스트.xlsx',
 ]
+
+# ─── 한 파일 = 한 스냅샷이 깨지는 계열 ───────────────────────────────────────
+# (파일명 부분일치, 파일명에서 판을 뽑는 정규식). 뽑은 값을 snapshot 뒤에 붙이고
+#   `차수` 열로도 싣는다. 같은 날짜 파일이 서로를 지우는 것을 막는 유일한 장치다.
+DISCRIMINATORS = [
+    ('준공 및 검수리스트', r'(실효\d+차)'),
+]
+DISCRIMINATOR_COL = '차수'
 
 # 같은 내용이라 뺀 것(md5 동일) — 되살리려면 이유부터 확인하라
 #   data/inbox_kdn/25년보강_고압철거대상_v3.xlsx        == inbox_jdg_20260827 판
 #   data/inbox/간선망_해지_정지대상_20260806.xlsx        == data/reference 판
 #   data/boranggi-20260629.xlsx                        계기교체 보강현황_20260629_1 과 같은 날짜(스냅샷 충돌)
+# 사업범위 밖이라 뺀 것 — 원본 파일은 지우지 않는다(DB 에만 안 넣는다)
+#   data/주덕기_20260605/제주지역 AMI 인프라 완전구축 Data공유_*.xlsx  제주는 우리 사업범위 밖(영준님 2026-09-08)
 
 # ─── 시트 → 테이블 이름 ──────────────────────────────────────────────────────
 # (파일명 부분일치 | None=아무 파일, 시트명 정규식, 테이블명)
@@ -83,6 +109,8 @@ SHEET_MAP = [
     ('간선망', r'^KT모뎀', 'kt_modem_recover'),
     ('DCU_철거_예정', r'^DCU 철거 예정 개소$', 'dcu_removal'),
     ('DCU_철거_예정', r'^유지 대상 요약$', 'dcu_removal_keep'),
+    ('준공 및 검수리스트', r'^준공내역서$', 'jongno_jungong'),
+    ('준공 및 검수리스트', r'^검수리스트$', 'jongno_geomsu'),
 ]
 
 # 담지 않는 시트 — 원본이 아니라 파생물이다.
@@ -93,8 +121,9 @@ SKIP_SHEETS = [
 ]
 
 # 인덱스를 걸 열(있을 때만)
-INDEX_COLS = ['계기번호_norm', 'mac_norm', '고객번호_norm', 'snapshot',
-              'DCUID', 'DCU ID', '변대주번호', '지사', '작업일자']
+INDEX_COLS = ['계기번호_norm', '철거계기번호_norm', 'mac_norm', '고객번호_norm', 'snapshot',
+              'DCUID', 'DCU ID', '변대주번호', '지사', '작업일자',
+              '차수', '차수_판']      # 판 구분(종로 실효 5~14차) 정렬·필터용
 
 HEADER_SCAN_ROWS = 12      # 헤더를 찾을 때 훑는 상단 행 수
 
@@ -119,6 +148,18 @@ def snapshot_of(path: Path) -> tuple:
         return m.group(1), f'폴더명({path.parent.name})'
     ts = dt.datetime.fromtimestamp(path.stat().st_mtime)
     return ts.strftime('%Y%m%d'), '파일 수정일'
+
+
+def discriminator_of(path: Path):
+    """같은 날짜 파일이 여럿인 계열에서 파일을 가르는 판 이름. 해당 없으면 None."""
+    for fpat, rx in DISCRIMINATORS:
+        if fpat in path.name:
+            m = re.search(rx, path.name)
+            if m:
+                return m.group(1)
+            raise SystemExit(f'  실패: {path.name} — 판 구분을 뽑지 못했다(정규식 {rx}). '
+                             '그대로 두면 같은 날짜 파일이 서로를 지운다')
+    return None
 
 
 # ─── 헤더 탐지 ───────────────────────────────────────────────────────────────
@@ -238,7 +279,7 @@ def ensure_table(con, table, cols):
             log(f'      + 열 추가: {c}')
 
 
-def load_sheet(con, path, ws, table, snapshot):
+def load_sheet(con, path, ws, table, snapshot, disc=None):
     rows = list(ws.iter_rows(values_only=True))
     ncol = ws.max_column
     hi = find_header(rows, ncol)
@@ -252,13 +293,23 @@ def load_sheet(con, path, ws, table, snapshot):
     data = [r for r in data if any(c not in (None, '') for c in r)]   # 완전 빈 행만 버린다
     src_rows = len(data)
 
-    meter_c = pick(names, '계기번호')
+    # ★'계기번호' 라는 이름이 없는 시트가 있다 — 종로 준공내역서는 신설이 '부설전력량계번호',
+    #   철거가 '철거전력량계번호' 다. 이름만 보고 넘기면 계기번호로 검색해도 안 걸린다.
+    meter_c = pick(names, '계기번호', '부설전력량계번호')
+    remv_c = pick(names, '철거전력량계번호')
     cust_c = pick(names, '고객번호')
     mac_c = pick(names, '기존모뎀MAC', '모뎀MAC', '현재맥', 'MAC')
 
     extra = ['snapshot', 'src_file']
+    disc_col = None
+    if disc:
+        # 원본에 같은 이름의 열이 이미 있으면(예: dcu_all 의 '차수') 덮지 않고 비켜 쓴다
+        disc_col = DISCRIMINATOR_COL if DISCRIMINATOR_COL not in names else DISCRIMINATOR_COL + '_판'
+        extra.append(disc_col)
     if meter_c:
         extra.append('계기번호_norm')
+    if remv_c:
+        extra.append('철거계기번호_norm')
     if mac_c:
         extra.append('mac_norm')
     if cust_c:
@@ -266,12 +317,14 @@ def load_sheet(con, path, ws, table, snapshot):
     all_cols = names + extra
 
     log(f'    헤더 {hi + 1}행째 · 열 {len(names)} · 데이터 {src_rows}행 -> "{table}"')
-    log(f'      정규화: 계기번호={meter_c or "-"} / MAC={mac_c or "-"} / 고객번호={cust_c or "-"}')
+    log(f'      정규화: 계기번호={meter_c or "-"} / 철거계기={remv_c or "-"}'
+        f' / MAC={mac_c or "-"} / 고객번호={cust_c or "-"}')
 
     ensure_table(con, table, all_cols)
     con.execute(f'DELETE FROM "{table}" WHERE snapshot=?', (snapshot,))   # 멱등
 
     mi = names.index(meter_c) if meter_c else None
+    ri = names.index(remv_c) if remv_c else None
     ci = names.index(cust_c) if cust_c else None
     ai = names.index(mac_c) if mac_c else None
     src = str(path.relative_to(ROOT)) if str(path).startswith(str(ROOT)) else str(path)
@@ -280,8 +333,12 @@ def load_sheet(con, path, ws, table, snapshot):
     for r in data:
         vals = [cell_text(r[i]) if i < len(r) else None for i in range(ncol)]
         rec = vals + [snapshot, src]
+        if disc_col:
+            rec.append(disc)
         if mi is not None:
             rec.append(norm_meter(vals[mi]))
+        if ri is not None:
+            rec.append(norm_meter(vals[ri]))
         if ai is not None:
             rec.append(norm_plain(vals[ai]))
         if ci is not None:
@@ -321,6 +378,10 @@ def load_file(con, path: Path):
         log(f'[건너뜀] 없는 파일: {path}')
         return []
     snapshot, why = snapshot_of(path)
+    disc = discriminator_of(path)
+    if disc:
+        snapshot = f'{snapshot}-{disc}'
+        why += f' + 판 구분 {disc}(같은 날짜 파일이 여럿이라 가른다)'
     log(f'\n=== {path.name}')
     log(f'  snapshot={snapshot} ({why})')
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -335,7 +396,7 @@ def load_file(con, path: Path):
         table, how = table_for(path, ws.title, used)
         used[slug(ws.title)] = table
         log(f'  시트 {ws.title!r} -> 테이블 "{table}" ({how})')
-        done.append(load_sheet(con, path, ws, table, snapshot))
+        done.append(load_sheet(con, path, ws, table, snapshot, disc))
     wb.close()
     return done
 
