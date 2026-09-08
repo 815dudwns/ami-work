@@ -82,3 +82,9 @@ data/inbox_hapdong/*_raw_*.json
 #   엑셀·zip 을 그대로 추적하면 .git 만 부풀고 내용은 JSON 과 중복이다. 파일은 로컬에 남긴다.
 data/inbox_jdg_*/*.xlsx
 data/inbox_jdg_*/*.zip
+
+# 한전 엑셀 조회용 로컬 DB (2026-09-08) — 엑셀에서 언제든 재생성한다.
+#   만들기: python3 scripts/xlsx_to_db.py --all   /  찾기: python3 scripts/db.py <계기번호>
+data/ami.db
+data/ami.db-wal
+data/ami.db-shm
