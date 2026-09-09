@@ -181,7 +181,11 @@ def main():
             'DCUID': txt(hit.get('dcu_id')) if hit else '',
             'DCU매칭': src,
             '모뎀MAC': norm_mac(r.get('모뎀 MAC.1')),          # ★Y열만 쓴다(기존 맥은 안 쓴다)
-            'DCU장애여부': txt(r.get('DCU 장애여부')),
+            # ★DCU 대장에 없는 개소(= LTE)는 DCU 정보를 통째로 비운다 (영준님 2026-09-09).
+            #   한전은 LTE 전환 뒤에도 옛 PLC DCU 의 장애 상태를 계속 실어 보낸다 — 9/8 판에서
+            #   매칭 안 되는 944건 중 318건이 "검침실패·PING FAIL" 로 와 있었고 전부 허수였다.
+            #   현장에서 "이 DCU 가 문제인가" 오인하게 만드는 값이라 남기지 않는다.
+            'DCU장애여부': txt(r.get('DCU 장애여부')) if hit else '',
             'DCU회선상태': txt(hit.get('회선상태')) if hit else '',
             'dcu_철거예정': txt(hit.get('철거예정')) if hit else '',
             '교체사유': txt(r.get('교체사유')),
