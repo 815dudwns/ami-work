@@ -88,6 +88,75 @@ def check_dataset_drift():
             "    고칠 곳: scripts/datasets.py (정본 js/datasets.js 를 그대로 반영)"]
 
 
+# ─── Firebase 키 인코딩 대조 ────────────────────────────────────────────────
+# ★2026-09-09 추가. 파이썬에 encodeKey 짝이 없어서 고압 집계가 완료 3·불가 1 을
+#   "미착수 4건" 으로 잘못 셌다(주소에 `.` 포함). 두 구현이 같은 키를 내는지 여기서 막는다.
+# ★js/firebase.js 는 통째로 실행하면 firebase SDK·localStorage 를 찾다 죽는다.
+#   그래서 encodeKey/decodeKey **두 함수의 소스만 떼어** vm 에서 돌린다.
+KEY_CASES = [
+    # 실제로 오판을 냈던 주소들 (고압철거)
+    "서울특별시 마포구 백범로 200 (공덕동 439-0 공덕_6.51.1X.지하철_IN(내))",
+    "서울특별시 용산구 이촌동 196-3 (철2)한강철교북단LRRU.51.LTE.RRU_L(SS)",
+    "서울특별시 강북구 도봉로27길 80-17 (미아동 332-2 소망교회무인중계기/B2F기전실)",
+    "서울특별시 마포구 백범로25길 83 (염리동 519번지 염리삼성TRO.51.WIBRO.RO-TM-DAA463-CMHU)",
+    # 금지문자 6종 각각 + 조합 + 네임스페이스·구분자가 섞인 상태키 형태
+    "a.b", "a#b", "a$b", "a[b", "a]b", "a/b", ".#$[]/",
+    "서울특별시 중구 무교동 1.2 (3/4)|고압",
+    "서울특별시 종로구 명륜3가 산2-13|합동",
+    "주소 없음", "", "이미_dot_인코딩된것처럼_보이는_주소",
+]
+
+JS_KEY_DRIVER = r"""
+const fs=require('fs'), vm=require('vm');
+const src=fs.readFileSync(process.argv[2],'utf8');
+// encodeKey / decodeKey 선언만 떼어 낸다(파일 전체는 SDK 를 찾다 죽는다).
+const grab=(name)=>{
+  const m=src.match(new RegExp('function\\s+'+name+'\\s*\\([^)]*\\)\\s*\\{[\\s\\S]*?\\n\\}'));
+  if(!m) throw new Error(name+' 를 js/firebase.js 에서 못 찾았다');
+  return m[0];
+};
+const ctx={}; vm.createContext(ctx);
+vm.runInContext(grab('encodeKey')+'\n'+grab('decodeKey'), ctx);
+const cases=JSON.parse(fs.readFileSync(process.argv[3],'utf8'));
+process.stdout.write(JSON.stringify(cases.map(s=>[ctx.encodeKey(s), ctx.decodeKey(ctx.encodeKey(s))])));
+"""
+
+
+def check_key_encoding():
+    """js/firebase.js encodeKey/decodeKey 와 status_key.encode_key/decode_key 대조."""
+    from status_key import encode_key, decode_key  # noqa: E402
+
+    src = os.path.join(ROOT, "js", "firebase.js")
+    if not os.path.exists(src):
+        return ["js/firebase.js 가 없다 — 키 인코딩 대조를 건너뛰지 않는다."]
+    with tempfile.TemporaryDirectory() as td:
+        drv = os.path.join(td, "keydrv.js")
+        casef = os.path.join(td, "cases.json")
+        with open(drv, "w", encoding="utf-8") as f:
+            f.write(JS_KEY_DRIVER)
+        with open(casef, "w", encoding="utf-8") as f:
+            json.dump(KEY_CASES, f, ensure_ascii=False)
+        r = subprocess.run(["node", drv, src, casef], capture_output=True, text=True)
+        if r.returncode != 0:
+            return ["키 인코딩 대조 실패 — node: " + r.stderr.strip()]
+        js_out = json.loads(r.stdout)
+
+    bad = []
+    for s, (js_enc, js_dec) in zip(KEY_CASES, js_out):
+        py_enc, py_dec = encode_key(s), decode_key(encode_key(s))
+        if py_enc != js_enc:
+            bad.append("    encode 불일치 {!r}\n      python: {!r}\n      js    : {!r}"
+                       .format(s, py_enc, js_enc))
+        if py_dec != js_dec:
+            bad.append("    decode 불일치 {!r}\n      python: {!r}\n      js    : {!r}"
+                       .format(s, py_dec, js_dec))
+    if bad:
+        return ["Firebase 키 인코딩이 js 와 다르다 (js/firebase.js encodeKey 짝)."] + bad
+    print("[키인코딩] status_key.encode_key == js/firebase.js encodeKey ({}케이스)"
+          .format(len(KEY_CASES)))
+    return []
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default=os.path.join(ROOT, "data"))
@@ -97,6 +166,7 @@ def main():
     # ★목록 대조는 건너뛰지 않는다. 못 읽으면 그 자체가 실패다 — 조용히 통과하면
     #   이 검사가 있으나 마나가 된다(2026-09-03~09-07 실제로 그렇게 굴러갔다).
     drift = check_dataset_drift()
+    drift += check_key_encoding()
 
     rows = load_rows(data_dir)
     py_map, py_split = build_status_key_index(rows)
