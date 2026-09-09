@@ -122,6 +122,91 @@ def business_days_back(yyyymmdd, n):
 HV_CNTR_CLAS = {'222', '223', '226', '228', '231', '232', '233', '236', '238',
                 '322', '332', '431', '432', '526', '536', '726', '736', '746'}
 
+
+# ─── 계약종별 명칭 ──────────────────────────────────────────────────────────
+# awms 는 계약종별을 코드로만 준다('610'). 지도 데이터에는 **'610 가로등(을)'** 처럼
+#   코드+명칭을 함께 싣는다(영준님 지시 2026-09-09). 종로 원장(jongno-site-data.json)이
+#   이미 그 형식이라 두 데이터를 나중에 합쳐 볼 수 있다.
+# ★명칭 원천 = data/ami.db 의 awms_code(p_code='CI007'). **여기에 손으로 적지 마라** —
+#   손으로 적으면 코드가 늘 때마다 또 추정하게 된다. 표는 scripts/fetch_awms_codes.py 로 받는다.
+# ★DB 가 없거나 표가 비어도 빌드를 세우지 않는다 — DB 는 gitignore 라 다른 머신엔 없다.
+#   그때는 코드만 싣고 경고만 남긴다.
+CODE_DB = ROOT / 'data' / 'ami.db'
+_CNTR_CLAS_NM = None          # 코드 -> 명칭. None = 아직 안 읽음
+_UNKNOWN_CNTR = set()         # 표에 없던 코드 — 빌드 끝에 한 번 보고한다
+
+
+def cntr_clas_names():
+    """계약종별 코드표(CI007). 못 읽으면 빈 dict 를 돌려주고 경고한다."""
+    global _CNTR_CLAS_NM
+    if _CNTR_CLAS_NM is not None:
+        return _CNTR_CLAS_NM
+    _CNTR_CLAS_NM = {}
+    if not CODE_DB.exists():
+        print(f'[계약종별] {CODE_DB.name} 없음 — 코드만 싣는다. '
+              '명칭이 필요하면 python3 scripts/fetch_awms_codes.py', flush=True)
+        return _CNTR_CLAS_NM
+    try:
+        import sqlite3
+        con = sqlite3.connect(f'file:{CODE_DB}?mode=ro', uri=True)
+        rows = con.execute("SELECT c_code, c_code_nm FROM awms_code "
+                           "WHERE p_code='CI007' AND c_code IS NOT NULL").fetchall()
+        con.close()
+        _CNTR_CLAS_NM = {str(c).strip(): str(n).strip() for c, n in rows if str(n or '').strip()}
+        print(f'[계약종별] 코드표 {len(_CNTR_CLAS_NM)}종 로드 (awms_code CI007)', flush=True)
+    except Exception as e:
+        print(f'[계약종별] 코드표를 못 읽었다 — 코드만 싣는다: {e}', flush=True)
+    if not _CNTR_CLAS_NM:
+        print('[계약종별] 표가 비었다 — python3 scripts/fetch_awms_codes.py 로 받아라', flush=True)
+    return _CNTR_CLAS_NM
+
+
+def cntr_clas_label(code):
+    """'610' -> '610 가로등(을)'. 표에 없으면 코드 그대로 두고 기억해 뒀다 보고한다."""
+    c = str(code or '').strip()
+    if not c:
+        return ''
+    nm = cntr_clas_names().get(c)
+    if not nm:
+        _UNKNOWN_CNTR.add(c)
+        return c
+    return f'{c} {nm}'
+
+
+def cntr_clas_code(v):
+    """'610 가로등(을)' -> '610'. 옛 형식(코드만)도 그대로 통과한다.
+
+    ★고압 제외가 이 값으로 판정하므로 형식이 바뀌어도 코드를 뽑아낼 수 있어야 한다.
+      안 그러면 명칭을 붙인 순간 고압이 걸러지지 않는다.
+    """
+    return str(v or '').strip().split(' ', 1)[0]
+
+
+# ─── 조회 조건 감시 ─────────────────────────────────────────────────────────
+# 우리가 뽑는 대상이 무엇인지 **정의하는** 값들이다(2026-09-09 응답 전수조사).
+#   LAY_STS_CD=30(부설상태 교체) · LAY_METR_CL_CD=10(부설계기구분 실효계기).
+#   지금은 전건 단일값이라 데이터에 싣지 않는다 — 다른 값이 섞이면 조회 조건이 바뀐 것이라
+#   그때는 우리가 엉뚱한 목록을 받고 있는 것이다. 그래서 **싣지 말고 감시만** 한다.
+#   GAETONG_YN 은 지금 전건 빈값인데 채워지기 시작하면 개통 정보가 붙는 신호다.
+_QUERY_SHAPE = {'LAY_STS_CD': '30', 'LAY_METR_CL_CD': '10'}
+_shape_warned = set()
+
+
+def _watch_query_shape(fname, rows):
+    for f, expected in _QUERY_SHAPE.items():
+        vals = {str(r.get(f) or '').strip() for r in rows}
+        odd = vals - {expected, ''}
+        if odd and f not in _shape_warned:
+            _shape_warned.add(f)
+            print(f'  ★[조회조건] {fname}: {f} 에 {expected} 아닌 값 {sorted(odd)[:5]} — '
+                  '뽑는 대상이 바뀌었는지 확인하라', flush=True)
+    if 'GAETONG_YN' not in _shape_warned:
+        g = {str(r.get('GAETONG_YN') or '').strip() for r in rows} - {''}
+        if g:
+            _shape_warned.add('GAETONG_YN')
+            print(f'  ★[조회조건] {fname}: GAETONG_YN 이 채워지기 시작했다 {sorted(g)[:5]} — '
+                  '개통 정보를 실을지 판단하라', flush=True)
+
 # ─── 폐기: 미착수 보존 예외 ────────────────────────────────────────────────
 # 예전엔 보존 기간이 지나도 아직 손대지 않은 개소는 지도에 남겼고(workStatus 를 읽어 판정),
 #   그게 8월 초까지 되살아나는 것을 막으려고 마지노선 작업일(CARRY_MIN_DAY)을 두어
@@ -560,7 +645,7 @@ def to_record(r, batch_day):
         '업체': (r.get('BUPE_NM') or '').strip(),
         '공사번호': str(r.get('CONS_NO') or '').strip(),
         '저압고압': LV_HV.get(str(r.get('DIST_LV_HV_CLCD') or '').strip(), ''),
-        '계약종별': str(r.get('CNTR_CLAS_CD') or '').strip(),
+        '계약종별': cntr_clas_label(r.get('CNTR_CLAS_CD')),   # '610 가로등(을)' 형식
         '계약전력': '' if pwr in (None, '') else str(pwr),
         '작업자': (r.get('USER_NM') or '').strip(),
         'CONS_TGT_SEQNO': r.get('CONS_TGT_SEQNO'),
@@ -740,6 +825,7 @@ def main():
         if _hv:
             print(f'  {p.name}: 고압 {len(_hv)}건 제외')
         rows = [r for r in rows if str(r.get('CNTR_CLAS_CD') or '').strip() not in HV_CNTR_CLAS]
+        _watch_query_shape(p.name, rows)
         recs += [to_record(r, day) for r in rows]
 
     # 2) 지오코딩 — 같은 (지번, 도로명) 은 한 번만
@@ -868,10 +954,10 @@ def main():
         # 영업일로 센다 — 달력 3일이면 주말 낀 월요일에 목·금 물량이 통째로 빠진다.
         cutoff = business_days_back(days[-1], RETAIN_BUSINESS_DAYS)
     # 고압은 merged 전체에서 뺀다 — raw 만 걸러도 아카이브에 남아 있던 것이 되살아난다.
-    _hv_merged = [e for e in merged if str(e.get('계약종별') or '') in HV_CNTR_CLAS]
+    _hv_merged = [e for e in merged if cntr_clas_code(e.get('계약종별')) in HV_CNTR_CLAS]
     if _hv_merged:
         print(f'[고압] merged 에서 {len(_hv_merged)}건 제외')
-    merged = [e for e in merged if str(e.get('계약종별') or '') not in HV_CNTR_CLAS]
+    merged = [e for e in merged if cntr_clas_code(e.get('계약종별')) not in HV_CNTR_CLAS]
 
     # 경계는 보존기간 하나뿐이다 — 착수 여부를 보지 않는다(영준님 2026-09-07).
     def _keep(e):
@@ -906,6 +992,12 @@ def main():
     print('지도 지사별:', dict(collections.Counter(e['지사'] for e in live)))
     print('지도 작업일별:', dict(collections.Counter(e['작업일'] for e in live)))
     print('지도 계기타입별:', dict(collections.Counter(e['계기타입'] or '(빈값)' for e in live)))
+    print('지도 계약종별:', dict(sorted(collections.Counter(
+        e.get('계약종별') or '(빈값)' for e in live).items())))
+    if _UNKNOWN_CNTR:
+        # 추측해 이름 붙이지 않았다는 뜻이다 — 코드표를 다시 받아야 한다.
+        print(f'  ★[계약종별] 코드표에 없는 코드 {sorted(_UNKNOWN_CNTR)} — 코드만 실었다. '
+              'python3 scripts/fetch_awms_codes.py 로 표를 갱신하라')
 
 
 if __name__ == '__main__':
