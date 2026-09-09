@@ -258,3 +258,44 @@ def build_address_to_keys(by_marker):
 def keys_for_address(addr, addr_to_keys):
     """한 주소에서 파생된 상태 키 전부(모르는 주소면 [addr] — 하위호환)."""
     return addr_to_keys.get(addr, [addr])
+
+
+# ─── Firebase 키 인코딩 (js/firebase.js encodeKey/decodeKey 의 파이썬 짝) ───────────
+#
+# ★왜 필요한가 (2026-09-09 실측으로 잡음):
+#   Firebase RTDB 키에는 `.` `#` `$` `[` `]` `/` 를 못 쓴다. 앱은 workStatus 를 쓸 때
+#   js/firebase.js 의 encodeKey() 로 이 문자들을 바꿔 저장하고, 읽을 때 되돌린다.
+#   파이썬 쪽에는 그 짝이 없어서, **상태키를 맨 주소 그대로 Firebase 와 대조하면
+#   특수문자가 든 주소만 통째로 안 맞고 '기록 없음 = 미착수' 로 잡힌다.**
+#   실제로 고압철거 집계에서 완료 3 · 불가 1 을 "미착수 4건" 으로 잘못 셌다. 주소가
+#   '공덕_6.51.1X.지하철_IN(내)' 처럼 `.` 을 포함한 개소들이었다.
+#   합동은 awms 원본 주소라 `.` 이 흔하다 — 대조 전에 반드시 encode_key 를 통과시켜라.
+#
+# ★치환 순서는 js 와 같아야 한다. 순서가 바뀌면 같은 문자열이 다른 키가 된다.
+#   ※decode 는 encode 의 역이지만 완전한 역함수는 아니다 — 원문에 '_dot_' 이라는 글자가
+#     그대로 들어 있으면 되돌릴 때 '.' 이 된다. js 도 똑같이 동작하므로 **일부러 맞춰 둔다**
+#     (양쪽이 같은 결과를 내는 것이 정확성보다 우선이다. 실주소에 그런 표기는 없다).
+_KEY_ESCAPES = (
+    (".", "_dot_"),
+    ("#", "_hash_"),
+    ("$", "_dollar_"),
+    ("[", "_lb_"),
+    ("]", "_rb_"),
+    ("/", "_sl_"),
+)
+
+
+def encode_key(s):
+    """주소·계기번호 -> Firebase 키. js/firebase.js encodeKey() 와 같은 결과."""
+    out = str(s if s is not None else "")
+    for raw, esc in _KEY_ESCAPES:
+        out = out.replace(raw, esc)
+    return out
+
+
+def decode_key(s):
+    """Firebase 키 -> 원래 문자열. js/firebase.js decodeKey() 와 같은 결과."""
+    out = str(s if s is not None else "")
+    for raw, esc in _KEY_ESCAPES:
+        out = out.replace(esc, raw)
+    return out

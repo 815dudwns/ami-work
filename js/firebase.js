@@ -593,6 +593,20 @@ async function removeAddedMeter(address, meterId) {
     persistStatus(0);
 }
 
+// 아직 서버에 못 보낸 변경이 남아 있는 주소들. 전량 수신이 그 주소를 덮지 못하게 막는다.
+//   리스너를 붙이기 직전에 채운다(그때가 flushEventQueue 를 지난 직후라 '진짜 남은 것'만 남는다).
+let _pendingAddrs = new Set();
+
+function refreshPendingAddrs() {
+    try {
+        _pendingAddrs = new Set((loadEventQueue() || []).map(ev => ev && ev.address).filter(Boolean));
+    } catch (e) {
+        // 큐를 못 읽으면 보수적으로 — 아무것도 덮지 않는 쪽이 아니라, 게이트를 원래대로 둔다.
+        _pendingAddrs = new Set();
+    }
+    return _pendingAddrs.size;
+}
+
 // ── 증분 리스너용 단일 주소 머지 ─────────────────────────────
 // addr: 디코딩된 주소 키, rawVal: Firebase snap.val() 원본
 function mergeOneAddress(addr, rawVal) {
@@ -623,7 +637,20 @@ function mergeOneAddress(addr, rawVal) {
         mergedChecked = fb.checkedMeters || [];
     }
 
-    if (fbTime > localTime) {
+    // ★전량 수신은 '서버가 권위' 다 (2026-09-09, PM 지시).
+    //   전량 수신은 서버 레코드를 통째로 다시 받는 자리다. 그런데도 updatedAt 게이트를 태우면
+    //   **필드 삭제처럼 updatedAt 이 안 바뀌는 변경은 전량으로도 영영 안 들어온다.**
+    //   실측: rework 를 서버에서 지웠는데 fbTime == localTime 이라 아래 else 로 빠져 로컬의
+    //   옛 rework:true 가 살아남았다 — 전량 재수신을 시켜도 결과가 같았다.
+    //   그래서 전량일 때는 게이트를 건너뛰고 서버 값으로 교체한다.
+    //   ※meterChecks/checkedMeters 는 여기서도 union 을 쓴다 — 내 미전송 체크와 남의 체크가
+    //     유실되면 안 된다(그게 2026-08-19 에 잡았던 사고다).
+    //   ※델타일 때는 게이트를 그대로 둔다. 델타는 '바뀐 것만' 오므로 내 로컬이 더 최신인
+    //     상황(아직 업로드 전)이 정상적으로 존재한다.
+    //   ★단 **아직 서버에 못 보낸 변경이 있는 주소는 예외**다. initFirebase 가 리스너를 붙이기
+    //     전에 큐를 flush 하지만 오프라인이면 남는다. 그 주소까지 서버로 덮으면 작업자가 방금
+    //     찍은 완료가 화면에서 사라진다 — 게이트가 원래 막아 주던 것이 이것이라 여기서 지킨다.
+    if (fbTime > localTime || (!_isDeltaMode && !_pendingAddrs.has(addr))) {
         // Firebase가 더 최신 — 단 meterChecks/checkedMeters는 위 union 결과로(내 미전송 체크 유실 방지)
         workStatus[addr] = { ...fb, meterChecks: mc, checkedMeters: mergedChecked };
     } else {
@@ -632,7 +659,29 @@ function mergeOneAddress(addr, rawVal) {
         local.failedMeters  = { ...(fb.failedMeters || {}) };
         local.meterChecks   = mc;
         local.checkedMeters = mergedChecked;
+        // ★서버에서 지워진 필드는 병합으로는 사라지지 않는다 (2026-09-09 실측으로 잡음).
+        //   PM 이 rework 414키와 previousComplete* 482필드를 서버에서 지웠는데, 폰에는 '재'
+        //   마커와 '이전 완료' 가 그대로 남았다. 서버는 REST 로 재확인해도 깨끗했다.
+        //   이 else 는 '로컬이 더 최신(또는 같음)' 이라 local 을 그대로 두는 길인데, 필드 삭제는
+        //   updatedAt 을 올리지 않으므로 **삭제된 레코드는 언제나 이 길로 온다**. 그래서 옛 값이
+        //   영원히 살아남았다. failedMeters 를 이미 서버 권위로 두는 것과 같은 이유로 여기 넣는다.
+        //   ※rework·previousComplete* 는 클라이언트가 true/값으로 쓰는 일이 없는 **서버 전용
+        //     필드**다(saveStateEvent 는 false 만 쓴다). 그래서 서버를 그대로 따라도 안전하다.
+        //   ★단 한 방향으로만 적용한다 — 서버가 비운 것은 지우되, 서버의 true 로 로컬 false 를
+        //     되살리지는 않는다. 로컬 false 는 방금 작업을 끝내고 아직 업로드 중일 수 있다.
+        clearFieldsDroppedByServer(local, fb);
     }
+}
+
+// 서버 전용 필드 중 **서버가 비운 것만** 로컬에서도 비운다. 되살리지는 않는다(위 주석 참조).
+//   previousCompleteByName 은 buildOneFromFirebase 가 아예 안 싣는다 — 옛 미러에만 남아 있고
+//   js/detail.js 가 그것을 먼저 읽으므로(previousCompleteByName || previousCompleteBy) 같이 지운다.
+function clearFieldsDroppedByServer(local, fb) {
+    if (!local) return;
+    if (!fb || fb.rework !== true) local.rework = false;
+    if (!fb || !fb.previousCompleteAt) local.previousCompleteAt = '';
+    if (!fb || !fb.previousCompleteBy) local.previousCompleteBy = '';
+    if (!fb || !fb.previousCompleteBy) local.previousCompleteByName = '';
 }
 
 // Firebase 데이터와 로컬 데이터를 updatedAt 기준으로 병합 (더 최신 쪽 유지)
@@ -863,15 +912,70 @@ async function auditDeletions(force) {
     }
 }
 
+// ── 미러 정화 (일회성 마이그레이션, 2026-09-09) ───────────────────────────
+//
+// ★왜 병합 수정만으로는 안 낫나 (실측):
+//   서버에서 지워진 414키는 **syncAt 이 아예 없다**(그 값을 쓰지 않는 스크립트로 지웠다).
+//   델타는 orderByChild('syncAt').startAt(...) 라 syncAt 없는 레코드를 영영 안 준다.
+//   그렇다고 전량 수신으로도 안 낫는다 — initFirebase 가 미러를 workStatus 에 먼저 싣고
+//   mergeOneAddress 가 그 위에 병합하는 구조라, 전량이든 델타든 **미러를 교체하지 않는다**.
+//   (WS_SCHEMA_VERSION 을 올려도 마찬가지다. 그건 '전량으로 받아라' 일 뿐 '미러를 버려라'가 아니다.)
+//   그래서 이미 오염된 폰은 서버가 아무리 깨끗해도 스스로 낫지 못한다.
+//
+// 해서 앱 시작 때 **미러에서 직접** 걷어낸다. Firebase 를 한 번도 안 읽으므로 egress 는 0 이다.
+//   ★근거: 2026-09-09 서버 실측 — rework=true 0건, previousComplete* 0건. 즉 미러에 남은
+//     값은 전부 잔재다. 서버에 남아 있는 값을 지우는 것이 아니다.
+//   ★버전으로 잠근다 — 폰마다 한 번만 돈다. 앞으로 같은 일이 생기면 이 숫자를 올린다.
+//   ※앞으로 서버에서 필드를 지울 때는 syncAt 을 함께 올려야 델타에 실린다
+//     (removeAddedMeter 가 이미 그렇게 한다: "삭제도 변경이다").
+const WS_SANITIZE_KEY = 'ami_work_status_sanitized';
+const WS_SANITIZE_VERSION = 1;
+
+async function sanitizeStoredMirror() {
+    let done = 0;
+    try {
+        if (typeof idbGet === 'function') done = (await idbGet(WS_SANITIZE_KEY)) || 0;
+    } catch (e) { /* 못 읽으면 한 번 더 도는 편이 낫다 */ }
+    if (done >= WS_SANITIZE_VERSION) return 0;
+
+    let cleaned = 0;
+    Object.keys(workStatus).forEach(a => {
+        const r = workStatus[a];
+        if (!r || typeof r !== 'object') return;
+        let hit = false;
+        if (r.rework === true) { r.rework = false; hit = true; }
+        ['previousCompleteAt', 'previousCompleteBy', 'previousCompleteByName'].forEach(f => {
+            if (r[f]) { r[f] = ''; hit = true; }
+        });
+        if (hit) cleaned++;
+    });
+
+    if (cleaned) {
+        await persistStatusNow();
+        console.log('[정화] 미러에 남아 있던 재작업 잔재 정리:', cleaned, '건');
+    }
+    try {
+        if (typeof idbSet === 'function') await idbSet(WS_SANITIZE_KEY, WS_SANITIZE_VERSION);
+    } catch (e) { /* 못 남기면 다음 실행에 또 돈다 — 결과는 같으므로 무해하다 */ }
+    return cleaned;
+}
+
 // 작업자용 최종 수단 — 로컬을 비우고 전량을 다시 받는다.
 //   지금까지는 이런 수단이 아예 없어서, 폰이 이상하면 앱 데이터를 지우는 수밖에 없었다.
+//   ★2026-09-09 수정: 예전엔 syncAt·schema 표식만 0 으로 되돌리고 **미러는 그대로 두었다.**
+//     그래서 이름과 달리 '로컬을 비우지' 않았고, 미러가 오염된 폰에는 아무 소용이 없었다
+//     — 다시 받아도 mergeOneAddress 가 옛 미러 위에 병합할 뿐이기 때문이다(실측).
+//     이제 미러도 함께 비운다. 이것이 진짜 최종 수단이다.
+//   ※미전송 이벤트 큐(localStorage)는 건드리지 않는다 — 그것만은 다시 만들 수 없다.
 async function forceFullResync() {
     try {
         if (typeof idbSet === 'function') {
+            await idbSet(WS_IDB_KEY, {});     // 미러를 비운다 — 이것이 빠져 있었다
             await idbSet(WS_SYNCAT_KEY, 0);
             await idbSet(WS_SCHEMA_KEY, 0);
         }
     } catch (e) {}
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}   // 옛 보관소 잔재도 함께
     location.reload();
 }
 
@@ -887,6 +991,9 @@ function trackSyncAt(val) {
 function attachStatusListeners() {
     _initialLoadDone = false;
     _syncSeen = 0;
+    // 전량 수신이 미전송 변경을 덮지 않도록, 지금 시점의 미전송 주소를 잡아 둔다.
+    const _pend = refreshPendingAddrs();
+    if (_pend) console.log('[Sync] 미전송 주소', _pend, '건 — 전량 수신이 덮지 않는다');
 
     // ★진행 표시는 '받는 중'을 먼저 띄운다. 실측하니 데이터는 네트워크를 기다렸다가
     //   한 덩어리로 도착한다(데스크톱 858ms 대기 후 40ms 안에 12,934건 전부).
@@ -999,6 +1106,10 @@ async function initFirebase() {
             workStatus = {};
         }
     }
+
+    // ★미러 정화는 merge 이전, 화면을 그리기 전에 한 번. Firebase 를 안 읽으므로 egress 0 이고,
+    //   서버 응답을 기다리지 않아 앱을 열자마자 '재' 뱃지가 사라진다.
+    await sanitizeStoredMirror();
 
     // ★로컬 체크 백업 주입은 여기서 1회 — 반드시 merge 이전이어야 한다.
     //   merge 이후에 하면(옛 applyLocalChecked 자리) 서버에서 받은 남의 체크를 되돌린다.
