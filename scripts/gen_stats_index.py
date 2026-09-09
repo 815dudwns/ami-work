@@ -11,6 +11,13 @@ RTDB 다운로드 폭증(하루 ~1.5GB = 22MB × 조회수)의 범인이 이 22M
 ★ 분모(19,613)의 단일 진실 = Firebase siteData(실제 앱 배포본). 로컬 site-data.json(raw)
    이 아니라 Firebase에서 직접 뽑아야 stats가 보던 값과 정확히 일치한다.
 ★ upload_sitedata.py 로 Firebase siteData 를 갱신했으면 반드시 이 스크립트도 실행.
+
+★★반드시 **main 워크트리에서** 돌려라 (2026-09-09).
+   분모 파일 목록을 glob 으로 모으는데, 그중 `data/site-data-completed-archive-20260704.json`
+   (24,128행, 20MB)은 **git 에 없다** — main 워크트리에만 있는 파일이다. 다른 워크트리에서
+   돌리면 그 파일이 없으니 완료 아카이브가 26,204 -> 2,076 으로 조용히 깎이고, 그 상태로
+   커밋·배포되면 화면에는 그럴듯한 숫자가 뜬다(실제로 그렇게 한 번 나갔다).
+   아래 '줄어들면 멈춘다' 가드가 이 실수를 막지만, 애초에 main 에서 돌리는 것이 정답이다.
 """
 import json
 import sys
@@ -91,10 +98,47 @@ index = [
     if isinstance(it, dict)
 ]
 
+from collections import Counter
+
+# ─── 줄어들면 멈춘다 (2026-09-09) ──────────────────────────────────────────
+# ★왜: 분모 파일 목록을 glob 으로 모으는데, **워크트리에 없는 파일은 조용히 0 이 된다.**
+#   실제로 `data/site-data-completed-archive-20260704.json`(24,128행)이 git 에 없어서
+#   데스크 워크트리에는 없었고, 거기서 인덱스를 만들자 완료 아카이브가 26,204 -> 2,076 으로
+#   깎인 채 커밋·배포됐다. 화면에는 그럴듯한 숫자가 떠서 아무도 못 알아챈다.
+#   숫자가 조용히 작아지는 것이 이 스크립트의 가장 위험한 실패 모드라 여기서 막는다.
+# ※정상적으로 줄 때도 있다(리스트 종료 등). 그때는 --allow-shrink 로 넘긴다.
+ALLOW_SHRINK = "--allow-shrink" in sys.argv
+new_by_list = Counter(x["l"] for x in index)
+shrunk = []
+if OUT.exists():
+    try:
+        old = json.loads(OUT.read_text(encoding="utf-8"))
+        old_by_list = Counter(r.get("l") for r in old)
+        for code, was in sorted(old_by_list.items()):
+            now = new_by_list.get(code, 0)
+            if now < was:
+                shrunk.append((code, was, now))
+    except Exception as e:
+        print(f"[경고] 기존 인덱스를 못 읽어 줄어듦 검사를 건너뛴다: {e}")
+
+if shrunk and not ALLOW_SHRINK:
+    print("\n★중단 — 인덱스가 줄어든다. 분모 파일이 이 워크트리에 없을 때 나는 증상이다.")
+    for code, was, now in shrunk:
+        print(f"   리스트 {code}: {was:,} -> {now:,}  ({now - was:+,})")
+    print("\n  읽은 파일:")
+    for code, path, _ in stats_sources():
+        print(f"   {code}  {path.relative_to(ROOT)}")
+    print("\n  ▸ 통계 인덱스는 **main 워크트리에서** 생성한다"
+          " — git 에 없는 분모 파일이 있어 다른 워크트리엔 없다(예: 완료 아카이브 20260704).")
+    print("  ▸ 정말로 줄어드는 것이 맞으면: python3 scripts/gen_stats_index.py --allow-shrink")
+    sys.exit(1)
+
 # 공백 없는 콤팩트 JSON (GitHub Pages gzip 전제)
 OUT.write_text(json.dumps(index, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 size_mb = OUT.stat().st_size / 1e6
-from collections import Counter
 print(f"stats-site-index.json 생성: {len(index):,}건 / {size_mb:.2f} MB (원본 siteData ~22MB → 인덱스)")
-print("  리스트별:", dict(Counter(x["l"] for x in index)))
+print("  리스트별:", dict(new_by_list))
+if shrunk:
+    print("  ※--allow-shrink 로 줄어듦을 허용했다:",
+          ", ".join(f"{c} {w:,}->{n:,}" for c, w, n in shrunk))
 print(f"  생성시각(KST): {datetime.now(ZoneInfo('Asia/Seoul')).isoformat()}")
