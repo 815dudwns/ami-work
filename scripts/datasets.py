@@ -13,10 +13,9 @@ DATASETS = [
     {"code": "s", "file": "data/site-data.json", "category": "실효",
      "uiLabel": "실효계기", "statsLabel": "실효"},
     # 재방문 폐기(2026-09-09) — js/datasets.js 주석 참조
-    # 고압철거 지도 내림(2026-09-09) — 미착수 4건뿐. 파일·workStatus 는 남긴다.
-    #   onMap=False 라 통계 분모에는 그대로 있다. js/datasets.js 주석 참조
-    {"code": "g", "file": "data/gapap-data.json", "category": "고압", "uiLabel": "고압철거",
-     "onMap": False},
+    # 고압철거 — 2026-09-09 한때 내렸다가 같은 날 되살렸다(미착수 4건이 남아 있다).
+    #   js/datasets.js 주석 참조
+    {"code": "g", "file": "data/gapap-data.json", "category": "고압", "uiLabel": "고압철거"},
     {"code": "h", "file": "data/hapdong-data.json", "category": "합동", "uiLabel": "합동시공",
      "dateField": "작업일", "archives": ["data/hapdong-data-archive.json"]},
     {"code": "k", "file": "data/skt-data.json", "category": "skt", "uiLabel": "SKT"},

@@ -394,7 +394,7 @@ function populateCategoryFilter() {
 
 // 카테고리 필터 — 체크된 카테고리만 표시 (localStorage 저장)
 function getSelectedCategories() {
-    const ALL = ['실효', '합동', 'skt'];   // 재방문 폐기 · 고압/장애 지도 내림 2026-09-09 — DATASETS 주석 참조
+    const ALL = ['실효', '고압', '합동', 'skt'];   // 재방문 폐기 · 장애 지도 내림 2026-09-09 — DATASETS 주석 참조
     const saved = localStorage.getItem('ami_selected_categories');
     if (saved) try {
         const set = new Set(JSON.parse(saved));
