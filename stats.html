@@ -14,7 +14,7 @@
     <script src="js/utils.js?v=20260601b"></script>
     <!-- 상태키 규칙(네임스페이스 카테고리 목록)의 단일 출처. 지도와 같은 파일을 쓴다. -->
     <script src="js/status-key.js?v=20260908a"></script>
-    <script src="js/datasets.js?v=20260909b"></script>
+    <script src="js/datasets.js?v=20260909c"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 40px; color: #1f2937; }
@@ -73,6 +73,11 @@
                     color: #374151; border-radius: 999px; cursor: pointer; }
         .list-btn.active { background: #1d4ed8; border-color: #1d4ed8; color: #fff; font-weight: 700; }
         .list-count { margin-left: auto; font-size: 12px; color: #6b7280; font-variant-numeric: tabular-nums; }
+        .list-sep { color: #d1d5db; margin: 0 2px; }
+        .list-grp { font-size: 11px; color: #9ca3af; margin-right: 2px; }
+        /* 끝난 리스트는 눌러서 볼 수는 있되 '지금 할 일'과 구별되게 흐리다 */
+        .list-btn.done { background: #f9fafb; color: #9ca3af; border-style: dashed; }
+        .list-btn.done.active { background: #6b7280; border-color: #6b7280; color: #fff; border-style: solid; }
         th, td { padding: 9px 6px; text-align: center; border-bottom: 1px solid #e5e7eb; }
         th { background: #f9fafb; color: #374151; font-weight: 700; font-size: 12px; position: sticky; top: 0; }
         td.name { text-align: left; font-weight: 600; padding-left: 10px; white-space: nowrap; }
@@ -172,11 +177,16 @@ function initFB() {
 // 주소 정규화(이중공백) — 여러 곳에서 같은 규칙을 써야 해서 전역으로 뺐다.
 const normAddr = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 
-// Firebase 키 인코딩 되돌리기(js/firebase.js encodeKey 의 역). 주소에 '.' 이 든 개소가 있다.
-//   ★날짜 탭(작업자별·구별)에서만 쓴다. workStatus 키를 직접 훑는 곳이 여기뿐이다.
+// Firebase 키 인코딩 되돌리기(js/firebase.js decodeKey 와 **같은 표를 써야 한다**).
+//   ★2026-09-09 수정: 여기 표가 실제 encodeKey 와 달랐다 — `/`·`[`·`]` 를
+//     `_slash_`·`_lbr_`·`_rbr_` 로 적어 두었는데 진짜 값은 `_sl_`·`_lb_`·`_rb_` 다.
+//     그래서 그 문자가 든 주소는 되돌리기가 안 됐다.
+//   ★그리고 전체(지사별) 탭은 이 함수를 아예 안 쓰고 **인코딩된 키 그대로** 대조하고 있었다.
+//     주소에 `.` 이나 `/` 가 있으면 그 개소만 통째로 안 맞아 완료·불가인데 미착수로 세였다
+//     (실측 30행: 고압 4 = '미착수 4건' 오판의 정체 · 합동 26). aggByBranch 에서 함께 고쳤다.
 const decodeStatusKey = (k) => String(k)
     .replace(/_dot_/g, '.').replace(/_hash_/g, '#').replace(/_dollar_/g, '$')
-    .replace(/_slash_/g, '/').replace(/_lbr_/g, '[').replace(/_rbr_/g, ']');
+    .replace(/_lb_/g, '[').replace(/_rb_/g, ']').replace(/_sl_/g, '/');
 
 // 상태키 네임스페이스를 쓰는 카테고리인가 (js/status-key.js 가 단일 출처).
 function isNamespacedCat(cat) {
@@ -187,7 +197,7 @@ function isNamespacedCat(cat) {
 
 // 작업자별·구별 탭의 계기 조회 색인 — 통계 인덱스로 만든다.
 //   ★예전엔 data/site-data.json(실효만)을 통째로 받아 주소로 색인했다. 두 겹으로 막혀 있었다.
-//     1) 실효 리스트에만 있는 계기라 고압·합동·SKT·재방문 개소는 조회 자체가 안 됐고
+//     1) 실효 리스트에만 있는 계기라 고압·합동·SKT 개소는 조회 자체가 안 됐고
 //     2) 완료된 실효 개소는 site-data 에서 빠지므로(완료제거) 그것마저 못 찾았다.
 //        그래서 완료 처리한 개소 대부분이 '계기 0' 으로 집계되고 있었다.
 //   인덱스는 완료 아카이브까지 들고 있어 둘 다 풀리고, 전체 탭이 이미 받는 파일이라
@@ -343,7 +353,8 @@ function allMeters(m) { return m.complete + m.hold + m.fail + m.pending; }
 // 인덱스의 l 코드 -> 지도 카테고리 이름.
 //   ★상태키 네임스페이스가 이 이름을 쓴다('주소|고압' 처럼). 데이터셋이 늘면 여기 한 줄만
 //     더하면 된다 — 조회 로직은 손댈 필요 없다.
-//   s(실효)·a(완료 아카이브)·r(재방문)은 네임스페이스가 없어 맨주소 키를 그대로 쓴다.
+//   s(실효)·a(완료 아카이브)는 네임스페이스가 없어 맨주소 키를 그대로 쓴다.
+//   ※재방문(r)은 2026-09-09 폐기됐다 — 레지스트리에서 빠져 여기에도 안 나온다.
 // ★js/datasets.js 레지스트리에서 만든다 — 리스트를 추가할 때 여기 손댈 필요가 없다.
 //   예전에는 이 표를 손으로 적었고, 빠뜨린 리스트는 상태키를 못 찾아 완료한 것도
 //   전부 미작업으로 잡혔다(영준님 2026-09-03 "리스트 올리면 코드가 알아서 정상으로 읽어야지").
@@ -390,9 +401,12 @@ function siteKeyOf(it, addr) {
 function aggByBranch(fbSiteData, workStatus) {
     const norm = s => String(s || '').replace(/\s+/g, ' ').trim();
     // workStatus 키 정규화 (workStatus는 지번주소 기준, Firebase raw — 인코딩된 키)
-    // wsNorm: 정규화 주소 → workStatus 값 (인코딩 키를 정규화해 매핑)
+    // wsNorm: 정규화 주소 → workStatus 값
+    //   ★반드시 **디코딩한 뒤** 매핑한다. 인덱스의 '주소' 는 원본 주소인데 Firebase 키는
+    //     encodeKey 를 거친 값이라, 안 되돌리면 `.`·`/` 가 든 주소만 영영 안 맞는다.
+    //     그런 개소는 완료·불가여도 미착수로 세였다(2026-09-09 실측 30행).
     const wsNorm = {};
-    for (const k in workStatus) { wsNorm[norm(k)] = workStatus[k]; }
+    for (const k in workStatus) { wsNorm[norm(decodeStatusKey(k))] = workStatus[k]; }
 
     // 개소(sites) 집계: 주소 단위 — 개소 state 그대로
     // 계기(meters) 집계: 계기 단위 — failedMeters에 있으면 fail, 없으면 개소 state
@@ -444,7 +458,8 @@ function aggByBranch(fbSiteData, workStatus) {
 
 // ── 리스트(데이터셋) 선택 — 전체 탭 분모를 리스트별로 골라 본다 ──────────
 //   (영준님 지시 2026-08-12: "통계탭에서 리스트 선택할 수 있게")
-//   인덱스의 l 코드: s=실효 · a=완료 아카이브 · r=재방문 · g=고압철거.
+//   인덱스의 l 코드는 js/datasets.js 레지스트리가 정한다(s=실효 · h=합동 · k=SKT ·
+//   g=고압철거 · j=장애 · a=완료 아카이브). 재방문(r)은 2026-09-09 폐기.
 //   기본값은 '실효'다 — 지금 작업 대상이 실효 리스트이고, 아카이브까지 합치면
 //   과거 완료분이 섞여 현재 진척이 흐려진다. 예전 누적치는 '전체 누적'으로 볼 수 있다.
 // ★레지스트리에서 만든다. '전체 누적'만 코드가 아니라 모드라 뒤에 붙인다.
@@ -456,11 +471,21 @@ function filterByList(fbSiteData) {
     return fbSiteData.filter(it => (it.l || 's') === _listSel);
 }
 
+// ★2026-09-09: '지금 할 일'과 '끝난 실적'을 갈라 그린다(영준님 지시).
+//   고압철거·장애는 지도에서 내렸지만 누적 실적이라 분모에는 남아 있다. 그대로 한 줄에 두면
+//   진척률을 볼 때 끝난 물량이 섞여 오해를 부른다. 그렇다고 선택지에서 빼면 3,076계기를
+//   '전체 누적' 안에서만 들고 있게 돼 따로 들여다볼 길이 없어진다 — 그래서 **숨기지 않고 나눈다**.
 function renderListPicker(shown, total) {
-    const btns = LIST_OPTS.map(o =>
-        `<button class="list-btn${o.key === _listSel ? ' active' : ''}" onclick="setList('${o.key}')">${o.label}</button>`
-    ).join('');
-    return `<div class="list-bar">${btns}<span class="list-count">${shown.toLocaleString()}건 / 전체 ${total.toLocaleString()}</span></div>`;
+    const btn = o =>
+        `<button class="list-btn${o.done ? ' done' : ''}${o.key === _listSel ? ' active' : ''}"`
+        + ` onclick="setList('${o.key}')">${o.label}</button>`;
+    const live = LIST_OPTS.filter(o => !o.done && o.key !== 'all').map(btn).join('');
+    const done = LIST_OPTS.filter(o => o.done).map(btn).join('');
+    const all  = LIST_OPTS.filter(o => o.key === 'all').map(btn).join('');
+    const doneGroup = done
+        ? `<span class="list-sep">|</span><span class="list-grp">끝난 것</span>${done}` : '';
+    return `<div class="list-bar">${live}${doneGroup}<span class="list-sep">|</span>${all}`
+         + `<span class="list-count">${shown.toLocaleString()}건 / 전체 ${total.toLocaleString()}</span></div>`;
 }
 
 function setList(k) {

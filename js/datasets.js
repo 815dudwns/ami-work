@@ -28,11 +28,18 @@ const DATASET_REGISTRY = [
     //   세니 127건 중 재방문으로 남을 것이 하나도 없었다 — 82건은 애초에 미착수(실효), 43건은 이미 처리됨.
     //   진짜 재방문은 '시공했는데 30일 넘게 LP 없음' 이고, 그건 보강현황으로 매번 다시 계산한다.
     // { code: 'r', file: './data/rework-data.json', category: '재방문', label: '재', uiLabel: '재방문' },
-    // 고압철거 — 239계기 중 완료 199·불가 35·보류 1·**미착수 4**.
-    //   ★2026-09-09 저녁 한때 지도에서 내렸다가 같은 날 되살렸다(영준님 지시). 남은 미착수 4건이
-    //     지하철 공덕역·한강철교 LTE RRU·염리동 WIBRO·소망교회 무인중계기라 목록에서 사라지면 안 된다.
-    //     "사실상 끝났다"는 판단으로 내렸던 것이 잘못이었다 — 건수가 적어도 할 일이 남았으면 지도에 둔다.
-    { code: 'g', file: './data/gapap-data.json', category: '고압', label: '고', uiLabel: '고압철거' },
+    // 고압철거 — 2026-09-09 지도에서 내렸다(영준님 지시). Firebase `|고압` 215키가
+    //   완료 177 · 불가 33 · 보류 1 · 기록없음 0 으로 **남은 할 일이 0건**이다.
+    //   ★같은 날 "미착수 4건이 남았다"며 잠깐 되살렸다가 되돌렸다. 그 4건은 미착수가 아니라
+    //     **키 이스케이프 때문에 대조에서만 안 맞은 것**이었다 — 주소에 `.` 나 `/` 가 들어 있으면
+    //     앱은 encodeKey 로 바꿔 저장하는데(`.`->`_dot_`, `/`->`_sl_`) 맨 주소로 대조하면
+    //     그 개소만 통째로 어긋나 '기록 없음 = 미착수' 로 잡힌다.
+    //     (공덕역 지하철·한강철교 LTE RRU·염리동 WIBRO·소망교회 무인중계기 — 실제로는 완료 3·불가 1)
+    //     집계할 때는 반드시 scripts/status_key.py 의 encode_key 를 통과시켜라.
+    //   ★파일과 Firebase `|고압` workStatus 는 남긴다(누적 실적·재사용).
+    //     주석 처리가 아니라 onMap:false 인 이유는 장애 항목 주석과 같다.
+    { code: 'g', file: './data/gapap-data.json', category: '고압', label: '고', uiLabel: '고압철거',
+      onMap: false },
     // 합동시공 — 다른 지역 계기팀이 계기만 갈고 간 개소(모뎀 미시공). 매일 그날치가 쌓이므로
     //   dateField 를 주면 카테고리 밑에 날짜 체크박스 트리가 자동 생성된다(populateCategoryFilter).
     //   ★지도에는 최근 며칠치만 남기고 오래된 작업일은 백업으로 뺀다(build_hapdong_data.py).
@@ -79,9 +86,15 @@ const DATASET_CATEGORY_BY_CODE = Object.fromEntries(
     DATASET_REGISTRY.filter(d => d.category).map(d => [d.code, d.category])
 );
 
-/** 통계 리스트 선택 버튼 목록. '전체 누적'은 코드가 아니라 모드라 따로 붙인다. */
+/** 통계 리스트 선택 버튼 목록. '전체 누적'은 코드가 아니라 모드라 따로 붙인다.
+ *
+ * done: 지도에서 내린 리스트 = 남은 할 일이 없는 '끝난 실적'이다. 통계는 누적이라 분모에는
+ *   그대로 두되, 화면에서 '지금 할 일'과 섞이면 진척을 오해한다(영준님 2026-09-09).
+ *   ★onMap 에서 파생한다 — 따로 표를 두면 리스트를 내릴 때 한쪽을 빠뜨린다.
+ */
 const DATASET_STATS_OPTS = DATASET_REGISTRY.map(d => ({
     key: d.code, label: d.statsLabel || d.uiLabel || d.category,
+    done: d.onMap === false,
 }));
 
 if (typeof module !== 'undefined' && module.exports) {

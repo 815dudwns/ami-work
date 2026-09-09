@@ -13,9 +13,10 @@ DATASETS = [
     {"code": "s", "file": "data/site-data.json", "category": "실효",
      "uiLabel": "실효계기", "statsLabel": "실효"},
     # 재방문 폐기(2026-09-09) — js/datasets.js 주석 참조
-    # 고압철거 — 2026-09-09 한때 내렸다가 같은 날 되살렸다(미착수 4건이 남아 있다).
-    #   js/datasets.js 주석 참조
-    {"code": "g", "file": "data/gapap-data.json", "category": "고압", "uiLabel": "고압철거"},
+    # 고압철거 지도 내림(2026-09-09) — 남은 할 일 0건. "미착수 4건" 은 키 이스케이프 오판이었다.
+    #   파일·workStatus 는 남기고 onMap=False 라 통계 분모에는 그대로 있다. js/datasets.js 주석 참조
+    {"code": "g", "file": "data/gapap-data.json", "category": "고압", "uiLabel": "고압철거",
+     "onMap": False},
     {"code": "h", "file": "data/hapdong-data.json", "category": "합동", "uiLabel": "합동시공",
      "dateField": "작업일", "archives": ["data/hapdong-data-archive.json"]},
     {"code": "k", "file": "data/skt-data.json", "category": "skt", "uiLabel": "SKT"},
