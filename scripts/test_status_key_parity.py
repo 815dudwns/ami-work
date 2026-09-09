@@ -10,7 +10,6 @@
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -41,47 +40,52 @@ fs.writeFileSync(OUT, JSON.stringify({byMarker:obj, split:idx.splitAddresses}));
 """
 
 
-def map_js_datasets():
-    """js/map.js 의 활성 DATASETS 를 읽는다 — 주석 처리된 줄은 뺀다.
+def app_datasets():
+    """데이터셋 정의 **정본**(js/datasets.js)의 지도 데이터셋 목록을 읽는다.
 
     반환: [(파일이름, category), ...] / 못 읽으면 None.
-    실제 앱이 로드하는 목록이 진실이고, status_key.py 는 그걸 따라가야 한다.
+    ★정본은 js/datasets.js 다. 예전엔 js/map.js 를 정규식으로 긁었는데 2026-09-03 에
+      정의가 js/datasets.js 로 옮겨가면서 매칭이 실패했고, 이 검사는 "건너뛴다" 만 찍고
+      통과해 버렸다(= 검사의 존재 이유가 사라진 상태로 며칠 굴러감).
+      정규식 대신 node 로 모듈을 그대로 읽는다 — 주석·형식이 바뀌어도 안 깨진다.
     """
-    path = os.path.join(ROOT, "js", "map.js")
+    src = os.path.join(ROOT, "js", "datasets.js")
+    if not os.path.exists(src):
+        return None
+    drv = ("const m=require(process.argv[1]);"
+           "const p=require('path');"
+           "process.stdout.write(JSON.stringify("
+           "m.DATASETS.map(d=>[p.basename(d.file), d.category])));")
+    r = subprocess.run(["node", "-e", drv, src], capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
     try:
-        with open(path, encoding="utf-8") as f:
-            src = f.read()
-    except OSError:
+        return [tuple(x) for x in json.loads(r.stdout)]
+    except (ValueError, TypeError):
         return None
-    m = re.search(r"const DATASETS\s*=\s*\[(.*?)\];", src, re.S)
-    if not m:
-        return None
-    out = []
-    for line in m.group(1).splitlines():
-        s = line.strip()
-        if not s or s.startswith("//"):
-            continue
-        f_m = re.search(r"file:\s*'([^']+)'", s)
-        c_m = re.search(r"category:\s*'([^']+)'", s)
-        if f_m and c_m:
-            out.append((os.path.basename(f_m.group(1)), c_m.group(1)))
-    return out
 
 
-def warn_dataset_drift():
-    """status_key.py 의 DATASETS 가 실제 앱(js/map.js)과 어긋나면 경고."""
-    app = map_js_datasets()
+def check_dataset_drift():
+    """status_key.py 가 쓰는 목록이 정본(js/datasets.js)과 같은지.
+
+    status_key.py 는 scripts/datasets.py(파이썬 거울)에서 목록을 파생한다.
+    여기서 어긋나면 거울이 정본을 못 따라간 것이다 — 상태키를 계산하는 자리에서 바로 막는다.
+    반환: 문제 문자열 목록(없으면 빈 목록).
+    """
+    app = app_datasets()
     if app is None:
-        print("[경고] js/map.js 의 DATASETS 를 읽지 못했다 — 목록 대조를 건너뛴다")
-        return
+        return ["데이터셋 정본(js/datasets.js)을 읽지 못했다 — node 설치/모듈 export 확인. "
+                "목록 대조 없이 통과시키지 않는다."]
     mine, theirs = set(DATASETS), set(app)
     if mine == theirs:
-        print("[목록] status_key.py == js/map.js ({}개)".format(len(mine)))
-        return
-    print("[경고] status_key.py 의 DATASETS 가 실제 앱(js/map.js)과 다르다.")
-    print("       앱에만 있음: {}".format(sorted(theirs - mine) or "(없음)"))
-    print("       배치에만 있음: {}".format(sorted(mine - theirs) or "(없음)"))
-    print("       ※앱에만 있는 데이터셋은 배치가 상태키를 다르게 계산한다 — 옛 키에 쓰게 된다.")
+        print("[목록] scripts/datasets.py == js/datasets.js ({}개)".format(len(mine)))
+        return []
+    return ["데이터셋 목록이 정본(js/datasets.js)과 다르다.",
+            "    정본에만 있음  : {}".format(sorted(theirs - mine) or "(없음)"),
+            "    파이썬에만 있음: {}".format(sorted(mine - theirs) or "(없음)"),
+            "    ※정본에만 있는 데이터셋은 배치가 상태키를 아예 계산하지 않는다 — "
+            "그 리스트의 완료기록이 고아가 되거나 옛 키에 쓰인다.",
+            "    고칠 곳: scripts/datasets.py (정본 js/datasets.js 를 그대로 반영)"]
 
 
 def main():
@@ -90,7 +94,9 @@ def main():
     args = ap.parse_args()
     data_dir = os.path.abspath(args.data_dir)
     print("데이터:", data_dir)
-    warn_dataset_drift()
+    # ★목록 대조는 건너뛰지 않는다. 못 읽으면 그 자체가 실패다 — 조용히 통과하면
+    #   이 검사가 있으나 마나가 된다(2026-09-03~09-07 실제로 그렇게 굴러갔다).
+    drift = check_dataset_drift()
 
     rows = load_rows(data_dir)
     py_map, py_split = build_status_key_index(rows)
@@ -117,7 +123,7 @@ def main():
     js_map, js_split = js["byMarker"], js["split"]
     print("js    : 마커 {}개 / 갈린 주소 {}건".format(len(js_map), len(js_split)))
 
-    problems = []
+    problems = list(drift)
     if set(py_map) != set(js_map):
         only_py = sorted(set(py_map) - set(js_map))[:5]
         only_js = sorted(set(js_map) - set(py_map))[:5]

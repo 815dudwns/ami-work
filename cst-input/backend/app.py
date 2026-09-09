@@ -252,6 +252,55 @@ def pull_workgroup():
         print(f"[pull_workgroup] 예외로 실패(조용히 묻히던 부분) — {type(e).__name__}: {e}", flush=True)
 
 
+# ── 모뎀맥 형식 법칙 (영준님 2026-09-09 확정 · 실측 modem_work 51,779행) ─────────
+# 정상은 두 갈래뿐이고, 그 밖은 전부 오독이다.
+#   LTE류  '012' + 숫자 8자리 = 총 11자리, 전부 숫자   (SMGW-C·LTE_IV·SMGW-A·LTE = 99.97%)
+#   PLC류  hex 12자리, 앞 6자리는 아래 MAC_OUI 5개뿐  (KS-PLC·K-DCU·HPGP·IoT-PLC = 99.6%)
+#
+# ★글자는 0-9·A-F 만이다 — 모든 타입 공통. 실측에서 나온 G·I·L·N·O·P·R·S 는 전부 스캐너 오독이었다
+#   (0↔O, 1↔I, 5↔S, 6↔G, 8↔B/R/S, D↔N, F↔P). 138건 전수 확인.
+# ★앞 6자리도 5개 밖이 없다 — 947207·B47207·547207·874207·840207·E0AEE5·E0AEE9·E0AEDE·E01EED·
+#   E0A42D·AC5EBC·AC5E80·44B430 은 전부 한 글자 오독이었다.
+# 새 모뎀이 실제로 들어오면 이 목록에 추가한다 — 다른 곳에 목록을 또 만들지 마라.
+MAC_OUI = ("847207", "E0AEED", "AC5E8C", "44B433", "0014B0")
+MAC_847207_C7 = ("0", "B", "C", "D", "E")   # 847207 의 7번째 자리(통신방식을 가르는 자리)
+_MAC_HEX = set("0123456789ABCDEF")
+
+
+def mac_format_error(mac: str) -> dict:
+    """모뎀맥 형식 검사 = 글자 → 자릿수 → 앞 6자리 순. 정상이면 {}.
+
+    반환 {reason, suggest}. reason 은 사람이 읽을 사유, suggest 는 한 글자 차이 후보(있을 때만).
+    ★자릿수가 아직 모자란 '입력 중' 판정은 여기서 하지 않는다 — 그건 화면(아미큐/헬퍼) 몫이다.
+      여기 오는 값은 이미 다 입력된(또는 스캔된) 값으로 본다.
+    """
+    s = re.sub(r'[\s:\-*]', '', str(mac or '')).upper()
+    if not s:
+        return {"reason": "비어 있음", "suggest": ""}
+
+    # 1) 글자 — 0-9·A-F 밖은 무조건 오독
+    bad = sorted(set(ch for ch in s if ch not in _MAC_HEX))
+    if bad:
+        return {"reason": "맥에 없는 글자 %s — 0~9·A~F 만 쓴다" % "".join(bad), "suggest": ""}
+
+    # 2) 자릿수 — LTE 11자리(전부 숫자) / hex 12자리 둘뿐
+    if s.startswith("012") and s.isdigit():
+        if len(s) != 11:
+            return {"reason": "LTE 맥은 012+8자리=11자리인데 %d자리" % len(s), "suggest": ""}
+        return {}
+    if len(s) != 12:
+        return {"reason": "자릿수 안 맞음 %d자리 — hex 12자리 또는 012+8자리" % len(s), "suggest": ""}
+
+    # 3) 앞 6자리 — 5개 밖은 없다. 한 글자 차이면 후보를 알려준다(자동 고치지는 않는다)
+    oui = s[:6]
+    if oui not in MAC_OUI:
+        near = [o for o in MAC_OUI if sum(1 for a, b in zip(o, oui) if a != b) == 1]
+        return {"reason": "쓰지 않는 앞자리 %s" % oui, "suggest": " / ".join(near)}
+    if oui == "847207" and s[6] not in MAC_847207_C7:
+        return {"reason": "847207 의 7번째 자리는 0·B·C·D·E 인데 %s" % s[6], "suggest": ""}
+    return {}
+
+
 # ── 통신방식 자동판별 (헬퍼 awms-bridge-inject.js macToSuffix/inferMasterINST_S 이식) ──
 def _mac_raw_suffix(mac: str) -> str:
     """모뎀맥 → 통신방식 마커: 'LTE'/'SKIP'/'10'/'20'/'90' 또는 ''(미상).
@@ -305,7 +354,15 @@ _DCU_COMM_CODE = {"10": "4", "20": "", "30": "5", "40": "6", "50": "7",
 
 def commtype_for(mac: str, meter_no: str = ""):
     """모뎀맥 → 통신방식 자동판별 결과 (프론트 표시/직접선택 판단용).
-    return {suffix, label, auto, reason}. auto=False면 프론트 직접선택 필요(미상/혼재)."""
+    return {suffix, label, auto, reason, bad, badReason, suggest}.
+    auto=False면 프론트 직접선택 필요(미상/혼재).
+    ★bad=True면 맥 자체가 틀린 것이다 — '직접 선택'으로 넘기면 안 된다.
+      예전엔 947207… 같은 오독을 '미판별 — 직접 선택'으로 안내해서 그대로 등록됐다(실측 51건)."""
+    err = mac_format_error(mac)
+    if err:
+        return {"suffix": "", "label": "", "auto": False,
+                "reason": "맥 오류 — " + err["reason"],
+                "bad": True, "badReason": err["reason"], "suggest": err.get("suggest", "")}
     raw = _mac_raw_suffix(mac)
     if raw == "SKIP":
         return {"suffix": "", "label": "", "auto": False, "reason": "혼재(AC5E8C) — 직접 선택"}

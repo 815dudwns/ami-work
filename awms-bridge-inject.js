@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v84'; // v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v85'; // v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -932,6 +932,13 @@ function parseValue(text) {
         if (typeof vm.$set === 'function') vm.$set(vm.mainList.currentRow, field, val);
         else vm.mainList.currentRow[field] = val;
         rec({ stage: 'inject-vue', field: field });
+        // 스캔값은 확정 판정(force=true). watch 도 걸리지만 그쪽은 손입력 배려로 force=false 라
+        // 짧게 끊긴 오독(자릿수 모자람)을 놓친다 — 스캔 경로에서 한 번 더 본다.
+        if (/MAC|MODEM/.test(field)) {
+          checkMacValue(val, true, function () {
+            if (window.AndroidScanner && window.AndroidScanner.scan) window.AndroidScanner.scan();
+          });
+        }
         return;
       } catch (e) { rec({ stage: 'inject-vue-fail', msg: String(e) }); }
     }
@@ -939,6 +946,12 @@ function parseValue(text) {
     if (input) {
       setInput(input, val);
       rec({ stage: 'inject-dom', field: field });
+      // 스캔으로 들어온 맥은 그 자리에서 확정 판정(force=true) — 오독이면 [맥 오류] 박스.
+      if (/MAC|MODEM/.test(field)) {
+        checkMacValue(val, true, function () {
+          if (window.AndroidScanner && window.AndroidScanner.scan) window.AndroidScanner.scan();
+        });
+      }
       if (/설비ID/.test(input.placeholder || '')) setTimeout(function () { triggerSearch(input); }, 120);
     } else {
       alert('변환값: ' + val + '\n(입력칸 ' + (field || '?') + ' 못 찾음)');
@@ -1117,6 +1130,94 @@ function parseValue(text) {
     if (/KSPLC|^PLC$/.test(s)) return '10';
     return '';
   }
+  // ── 모뎀맥 형식 법칙 (영준님 2026-09-09 확정 · 실측 modem_work 51,779행) ───────────
+  // 정상은 두 갈래뿐이고 그 밖은 전부 오독이다.
+  //   LTE류  '012' + 숫자 8자리 = 11자리, 전부 숫자
+  //   PLC류  hex 12자리, 앞 6자리는 MAC_OUI 5개뿐 (847207 이면 7번째 자리는 0·B·C·D·E)
+  // ★글자는 0-9·A-F 만 — 모든 타입 공통. 실측에서 나온 G·I·L·N·O·P·R·S 는 전부 스캐너 오독이었다.
+  // ★정본은 백엔드 cst-input/backend/app.py 의 MAC_OUI. 새 모뎀이 들어오면 거기와 아미큐
+  //   CollectScreen.kt, 그리고 여기 세 곳을 같이 고친다.
+  var MAC_OUI = ['847207', 'E0AEED', 'AC5E8C', '44B433', '0014B0'];
+  var MAC_847207_C7 = ['0', 'B', 'C', 'D', 'E'];
+
+  // force=false = 사람이 타이핑하는 중 → 자릿수가 모자라면 조용히 넘긴다(입력 방해 금지).
+  // force=true  = 스캔 결과 / 칸에서 나갔을 때 → 짧아도 오류로 본다.
+  function macFormatError(mac, force) {
+    var s = String(mac || '').replace(/[\s:\-*]/g, '').toUpperCase();
+    if (!s) return null;
+    var bad = s.replace(/[0-9A-F]/g, '');
+    if (bad) {
+      var u = ''; for (var i = 0; i < bad.length; i++) if (u.indexOf(bad[i]) < 0) u += bad[i];
+      return { reason: '맥에 없는 글자 ' + u + ' — 0~9·A~F 만 쓴다', suggest: '' };
+    }
+    if (/^012\d*$/.test(s)) {                       // LTE 계열
+      if (s.length === 11) return null;
+      if (!force && s.length < 11) return null;
+      return { reason: 'LTE 맥은 012+8자리=11자리인데 ' + s.length + '자리', suggest: '' };
+    }
+    if (s.length < 12) return force ? { reason: '자릿수 모자람 ' + s.length + '자리', suggest: '' } : null;
+    if (s.length > 12) return { reason: '자릿수 넘침 ' + s.length + '자리 — 두 번 읽힌 것 같다', suggest: '' };
+    var oui = s.slice(0, 6);
+    if (MAC_OUI.indexOf(oui) < 0) {
+      var near = MAC_OUI.filter(function (o) {
+        var d = 0; for (var k = 0; k < 6; k++) if (o.charAt(k) !== oui.charAt(k)) d++;
+        return d === 1;
+      });
+      return { reason: '쓰지 않는 앞자리 ' + oui, suggest: near.join(' / ') };
+    }
+    if (oui === '847207' && MAC_847207_C7.indexOf(s.charAt(6)) < 0) {
+      return { reason: '847207 의 7번째 자리는 0·B·C·D·E 인데 ' + s.charAt(6), suggest: '' };
+    }
+    return null;
+  }
+
+  // [맥 오류] 박스. awms 화면 위에 직접 그린다(alert 는 화면을 막고 값도 못 보여준다).
+  // ★자동 재스캔은 하지 않는다 — v82 때 자동 재시도가 무한루프를 냈다. 사람이 눌러야 다시 스캔한다.
+  var __macErrShown = '';
+  function showMacError(val, err, onRescan) {
+    try {
+      var old = document.getElementById('__macErrBox'); if (old) old.parentNode.removeChild(old);
+      var wrap = document.createElement('div');
+      wrap.id = '__macErrBox';
+      wrap.style.cssText = 'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);' +
+        'display:flex;align-items:center;justify-content:center;padding:20px;';
+      var box = document.createElement('div');
+      box.style.cssText = 'background:#fff;border-radius:14px;padding:20px;max-width:340px;width:100%;' +
+        'box-shadow:0 10px 40px rgba(0,0,0,.3);font-family:-apple-system,sans-serif;';
+      box.innerHTML =
+        '<div style="color:#d92d20;font-size:19px;font-weight:800;margin-bottom:10px">맥 오류</div>' +
+        '<div style="color:#101828;font-size:15px;font-weight:700;line-height:1.4">' + err.reason + '</div>' +
+        '<div style="color:#667085;font-size:12px;margin-top:12px">읽힌 값</div>' +
+        '<div style="color:#101828;font-size:18px;font-weight:800;letter-spacing:.5px">' + val + '</div>' +
+        (err.suggest ? '<div style="color:#b54708;font-size:13px;margin-top:10px">한 글자만 다릅니다 — ' +
+          err.suggest + ' 아닌지 라벨을 다시 보세요</div>' : '') +
+        '<div style="display:flex;gap:8px;margin-top:18px">' +
+        '<button id="__macErrRescan" style="flex:1;height:44px;border:0;border-radius:10px;' +
+        'background:#175cd3;color:#fff;font-size:15px;font-weight:700">다시 스캔</button>' +
+        '<button id="__macErrKeep" style="flex:1;height:44px;border:1px solid #d0d5dd;border-radius:10px;' +
+        'background:#fff;color:#667085;font-size:15px">그대로 쓰기</button></div>';
+      wrap.appendChild(box);
+      document.body.appendChild(wrap);
+      var close = function () { try { wrap.parentNode.removeChild(wrap); } catch (e) {} };
+      box.querySelector('#__macErrKeep').onclick = close;
+      var rescanBtn = box.querySelector('#__macErrRescan');
+      if (onRescan) { rescanBtn.onclick = function () { close(); onRescan(); }; }
+      else { rescanBtn.style.display = 'none'; box.querySelector('#__macErrKeep').textContent = '확인'; }
+      rec({ stage: 'mac-error', val: val, reason: err.reason });
+    } catch (e) { rec({ stage: 'mac-error-fail', msg: String(e) }); }
+  }
+
+  // 맥 값 검사 진입점. 같은 값으로 박스를 두 번 띄우지 않는다(타이핑 중 반복 발화 방지).
+  function checkMacValue(val, force, onRescan) {
+    var s = String(val || '').toUpperCase();
+    var err = macFormatError(s, force);
+    if (!err) { __macErrShown = ''; return false; }
+    if (__macErrShown === s) return true;
+    __macErrShown = s;
+    showMacError(s, err, onRescan);
+    return true;
+  }
+
   // 모뎀맥 스캔값 → 통신방식 suffix. LTE(012)는 별도, hex MAC prefix는 결론문서 §3.
   function macToSuffix(mac) {
     var raw = String(mac || '');
@@ -1275,7 +1376,25 @@ function parseValue(text) {
     applyDeptWith(vm);
     try {
       vm.$watch('mainList.currentRow', function () { applyDeptWith(vm); });
-      vm.$watch('mainList.currentRow.MAC_MODEM', function () { setTimeout(function () { applyCommBungi(vm); }, 200); });
+      vm.$watch('mainList.currentRow.MAC_MODEM', function (nv) {
+        try {
+          // ① 기호 제거 — Code39 스캐너가 시작·종료 문자 '*' 를 붙여 보낸다(실측 6건이 별표째
+          //    awms 에 저장됐다: *01253655347*). 값을 바꾸는 게 아니라 기호만 떼는 것이라 안전하다.
+          //    ★대문자 변환은 하지 않는다 — 타이핑 중 커서가 튄다. 검사할 때만 대문자로 본다.
+          var cleaned = String(nv || '').replace(/[\s:\-*]/g, '');
+          if (cleaned !== String(nv || '')) {
+            if (typeof vm.$set === 'function') vm.$set(vm.mainList.currentRow, 'MAC_MODEM', cleaned);
+            else vm.mainList.currentRow.MAC_MODEM = cleaned;
+            rec({ stage: 'mac-symbol-strip', from: nv, to: cleaned });
+            return;   // 값이 바뀌었으니 이 watch 가 한 번 더 돈다. 거기서 검사한다.
+          }
+          // ② 형식 검사 — 손입력 중에는 조용하다(force=false). 자릿수가 다 차야 판정된다.
+          //    QR/바코드/손입력 어느 경로로 들어오든 여기서 한 번은 걸린다(바코드는 awms 원래
+          //    스캐너를 쓰므로 __onNativeScan 을 안 탄다 — 이 watch 가 유일한 그물이다).
+          checkMacValue(cleaned, false, null);
+        } catch (e) {}
+        setTimeout(function () { applyCommBungi(vm); }, 200);
+      });
       vm.$watch('mainList.currentRow.INST_M', function () { setTimeout(function () { applyCommBungi(vm); }, 300); });
       vm.$watch('mainList.currentRow.MODEM_DIV', function () { setTimeout(function () { applyCommBungi(vm); applyMbToMeter(vm); }, 150); });
       vm.$watch('mainList.currentRow.MB_METER_ID', function () { applyMbToMeter(vm); });   // [v64] 대표계기 입력 → 계기번호 자동

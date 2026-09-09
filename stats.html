@@ -13,8 +13,8 @@
     <script src="js/config.js?v=20260601b"></script>
     <script src="js/utils.js?v=20260601b"></script>
     <!-- 상태키 규칙(네임스페이스 카테고리 목록)의 단일 출처. 지도와 같은 파일을 쓴다. -->
-    <script src="js/status-key.js?v=20260824a"></script>
-    <script src="js/datasets.js?v=20260904a"></script>
+    <script src="js/status-key.js?v=20260908a"></script>
+    <script src="js/datasets.js?v=20260907a"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 40px; color: #1f2937; }
@@ -200,7 +200,17 @@ async function loadSiteData() {
     for (const it of idx) {
         const addr = normAddr(it['주소']);
         if (!addr) continue;
-        const cat = LIST_CATEGORY[it.l || 's'];
+        const code = it.l || 's';
+        // ★완료 아카이브는 뺀다 (영준님 2026-09-07 "통계 고쳐").
+        //   아카이브는 **과거에 완료돼 리스트에서 빠진 계기**다. 실효와 똑같이 맨주소 키를 쓰므로
+        //   같은 칸에 쌓이고, 그 주소를 오늘 완료 처리하면 과거 완료분까지 오늘 작업량으로 세어진다.
+        //   실측 2026-09-07: 이용택 16개소가 계기 628 로 잡혔다 —
+        //     공릉동 714 = 실효 10 + 아카이브 290 / 공릉동 708 = 실효 2 + 아카이브 282.
+        //   아파트처럼 한 주소에 수백 건이 쌓인 곳을 작업하면 그날 실적이 통째로 부풀려진다.
+        //   ★전체(지사별) 탭은 이 표를 쓰지 않는다 — 거기는 누적 실적이라 아카이브가 분모에 필요하고
+        //     loadFbSiteData() 를 직접 읽는다. 이 표는 작업자별·구별 탭 전용이다.
+        if (code === 'a') continue;
+        const cat = LIST_CATEGORY[code];
         // ★네임스페이스 카테고리는 '주소|카테고리' 키에만 넣는다. 맨주소에 함께 넣으면
         //   같은 주소의 실효 개소를 조회할 때 고압·합동 계기가 딸려 들어온다.
         if (isNamespacedCat(cat)) push(addr + '|' + cat, it);

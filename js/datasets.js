@@ -23,7 +23,11 @@
 const DATASET_REGISTRY = [
     { code: 's', file: './data/site-data.json', category: '실효', label: null, uiLabel: '실효계기',
       statsLabel: '실효' },
-    { code: 'r', file: './data/rework-data.json', category: '재방문', label: '재', uiLabel: '재방문' },
+    // 재방문은 2026-09-09 리스트업에서 폐기했다. 주소 단위 workStatus 로 '재' 를 붙이던 목록이라
+    //   한 계기 완료가 그 주소 전체에 '재' 를 씌웠다(창천동 5-49 20계기 전건 오탐). 계기 단위로 다시
+    //   세니 127건 중 재방문으로 남을 것이 하나도 없었다 — 82건은 애초에 미착수(실효), 43건은 이미 처리됨.
+    //   진짜 재방문은 '시공했는데 30일 넘게 LP 없음' 이고, 그건 보강현황으로 매번 다시 계산한다.
+    // { code: 'r', file: './data/rework-data.json', category: '재방문', label: '재', uiLabel: '재방문' },
     { code: 'g', file: './data/gapap-data.json', category: '고압', label: '고', uiLabel: '고압철거' },
     // 합동시공 — 다른 지역 계기팀이 계기만 갈고 간 개소(모뎀 미시공). 매일 그날치가 쌓이므로
     //   dateField 를 주면 카테고리 밑에 날짜 체크박스 트리가 자동 생성된다(populateCategoryFilter).

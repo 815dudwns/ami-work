@@ -8,14 +8,17 @@ fail 0 목표: 동 중심까지 폴백, 누락 0
 카카오 도로명 → 지번 → 정규화 지번 → 키워드 → **네이버** → 본번 → 동 중심.
 """
 import json
+import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from geocode_cascade import resolve as _cascade
 
 BASE = '/Users/woodelight/Projects/ami-work'
-TODO = f'{BASE}/data/coords-todo.json'
-SITE = f'{BASE}/data/boranggi-new-6975.json'
+# 대상 파일은 환경변수로 갈아 끼운다 — 판이 바뀔 때마다 스크립트를 고치지 않기 위해서다.
+#   COORDS_TODO / COORDS_SITE (미지정 시 옛 기본값 유지)
+TODO = os.environ.get('COORDS_TODO', f'{BASE}/data/coords-todo.json')
+SITE = os.environ.get('COORDS_SITE', f'{BASE}/data/boranggi-new-6975.json')
 WORKERS = 10
 
 

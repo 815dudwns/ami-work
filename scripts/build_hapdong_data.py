@@ -52,7 +52,69 @@ WORKERS = 8
 #     지우면 작업 이력이 사라지고, 같은 주소가 다시 들어올 때 빈 상태로 시작한다.
 #   ★뺀 것은 버리지 않는다. 통계는 누적 실적이라 백업분까지 분모에 넣는다
 #     (scripts/gen_stats_index.py 가 이 백업 파일도 읽는다).
-RETAIN_DAYS = 3
+#   ★2026-09-09 개정: 달력 3일이 아니라 **영업일 3일**이다(영준님 지시).
+#     달력으로 세면 주말 낀 월요일마다 목·금 물량이 손도 못 대고 사라진다.
+#     예) 최신 작업일이 화요일이면 보존은 화·월·직전 금요일이다.
+RETAIN_BUSINESS_DAYS = 3
+
+# ─── 영업일 판정 ────────────────────────────────────────────────────────────
+# 토·일 + 공휴일은 영업일이 아니다. 보존 기간을 세는 데도, 주말 등재분을 직전 영업일로
+#   귀속하는 데도 이 표를 쓴다.
+# ★출처: 관공서의 공휴일에 관한 규정(대통령령) 기준 2026년 공휴일.
+#   음력 명절(설·추석)과 부처님오신날은 해마다 양력 날짜가 바뀌고, 주말과 겹치면
+#   대체공휴일이 붙는다(설·추석·어린이날·3.1절·광복절·개천절·한글날이 대상. 현충일은 제외).
+#   ※해가 바뀌면 이 표를 **관보로 대조해 갱신**해야 한다. 틀리면 그날 물량이 하루 일찍 빠진다.
+#   ※의심되면 보수적으로 두어라 — 공휴일을 빠뜨리면 보존이 짧아지고, 더 넣으면 길어진다.
+HOLIDAYS = {
+    '20260101',                          # 신정
+    '20260216', '20260217', '20260218',  # 설 연휴(설날 2/17)
+    '20260301', '20260302',              # 삼일절(일) + 대체공휴일
+    '20260505',                          # 어린이날
+    '20260524', '20260525',              # 부처님오신날(일) + 대체공휴일
+    '20260603',                          # 제9회 전국동시지방선거
+    '20260606',                          # 현충일(토, 대체공휴일 없음)
+    '20260815', '20260817',              # 광복절(토) + 대체공휴일
+    '20260924', '20260925', '20260926',  # 추석 연휴(추석 9/25)
+    '20260928',                          # 추석 대체공휴일(연휴가 토요일과 겹침)
+    '20261003', '20261005',              # 개천절(토) + 대체공휴일
+    '20261009',                          # 한글날
+    '20261225',                          # 성탄절
+}
+
+
+def _is_business_day(d):
+    """d(date) 가 영업일인가 — 토·일·공휴일 제외."""
+    return d.weekday() < 5 and d.strftime('%Y%m%d') not in HOLIDAYS
+
+
+def prev_business_day(yyyymmdd):
+    """그날이 영업일이 아니면 직전 영업일로 되돌린다(영업일이면 그대로)."""
+    from datetime import datetime as _dt, timedelta as _td
+    try:
+        d = _dt.strptime(str(yyyymmdd), '%Y%m%d').date()
+    except ValueError:
+        return yyyymmdd
+    for _ in range(30):          # 연휴가 아무리 길어도 30일이면 닿는다
+        if _is_business_day(d):
+            return d.strftime('%Y%m%d')
+        d -= _td(days=1)
+    return yyyymmdd
+
+
+def business_days_back(yyyymmdd, n):
+    """yyyymmdd(포함)에서 영업일 n개를 거꾸로 세어 n번째 영업일을 돌려준다.
+
+    n=3, 화요일이면 -> 화·월·금 의 '금'. 이 값이 보존 하한(cutoff)이다.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    d = _dt.strptime(str(yyyymmdd), '%Y%m%d').date()
+    while not _is_business_day(d):        # 기준일 자체가 휴일이면 직전 영업일부터 센다
+        d -= _td(days=1)
+    for _ in range(n - 1):
+        d -= _td(days=1)
+        while not _is_business_day(d):
+            d -= _td(days=1)
+    return d.strftime('%Y%m%d')
 
 # ─── 고압 제외 ──────────────────────────────────────────────────────────────
 # 계약종별(CI007) 중 이름에 '고압' 이 붙는 코드. 고압은 우리 합동시공 대상이 아니다
@@ -60,34 +122,99 @@ RETAIN_DAYS = 3
 HV_CNTR_CLAS = {'222', '223', '226', '228', '231', '232', '233', '236', '238',
                 '322', '332', '431', '432', '526', '536', '726', '736', '746'}
 
-# ─── 보존 예외: 미착수는 날짜로 빼지 않는다 ────────────────────────────────
-# 보존 기간이 지나도 **아직 손대지 않은 개소**는 지도에 남긴다(영준님 2026-08-31
-#   "미완료 개소만 빼서 남기되"). 날짜만 보고 빼면 안 한 일이 화면에서 사라진다.
-#   판정은 Firebase workStatus 를 읽어서 한다 — 키가 없으면 미착수다.
-WORKSTATUS_URL = ('https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app'
-                  '/workStatus/charger4eleccar.json')
 
-# 미착수 보존의 마지노선 작업일. 이보다 이른 작업일은 **미착수여도 지도에서 뺀다**(백업엔 남는다).
-#   영준님이 그날 물량을 접기로 하면 이 값을 그날 다음 작업일로 올린다.
-#   2026-09-02: '20260831' — 8/28 분 종료("8/28은 백업하고 없애도 되겠네").
-#   2026-09-04: '20260901' — 8/31 분 종료("31일 없애").
-#   빈 문자열이면 마지노선 없음(= 미착수면 언제 것이든 남긴다).
-CARRY_MIN_DAY = '20260901'
+# ─── 계약종별 명칭 ──────────────────────────────────────────────────────────
+# awms 는 계약종별을 코드로만 준다('610'). 지도 데이터에는 **'610 가로등(을)'** 처럼
+#   코드+명칭을 함께 싣는다(영준님 지시 2026-09-09). 종로 원장(jongno-site-data.json)이
+#   이미 그 형식이라 두 데이터를 나중에 합쳐 볼 수 있다.
+# ★명칭 원천 = data/ami.db 의 awms_code(p_code='CI007'). **여기에 손으로 적지 마라** —
+#   손으로 적으면 코드가 늘 때마다 또 추정하게 된다. 표는 scripts/fetch_awms_codes.py 로 받는다.
+# ★DB 가 없거나 표가 비어도 빌드를 세우지 않는다 — DB 는 gitignore 라 다른 머신엔 없다.
+#   그때는 코드만 싣고 경고만 남긴다.
+CODE_DB = ROOT / 'data' / 'ami.db'
+_CNTR_CLAS_NM = None          # 코드 -> 명칭. None = 아직 안 읽음
+_UNKNOWN_CNTR = set()         # 표에 없던 코드 — 빌드 끝에 한 번 보고한다
 
 
-def _touched_addresses():
-    """workStatus 에 기록이 있는 주소 집합(합동 네임스페이스 우선). 실패하면 None."""
-    import urllib.request
+def cntr_clas_names():
+    """계약종별 코드표(CI007). 못 읽으면 빈 dict 를 돌려주고 경고한다."""
+    global _CNTR_CLAS_NM
+    if _CNTR_CLAS_NM is not None:
+        return _CNTR_CLAS_NM
+    _CNTR_CLAS_NM = {}
+    if not CODE_DB.exists():
+        print(f'[계약종별] {CODE_DB.name} 없음 — 코드만 싣는다. '
+              '명칭이 필요하면 python3 scripts/fetch_awms_codes.py', flush=True)
+        return _CNTR_CLAS_NM
     try:
-        with urllib.request.urlopen(WORKSTATUS_URL, timeout=180) as r:
-            ws = json.loads(r.read().decode('utf-8'))
+        import sqlite3
+        con = sqlite3.connect(f'file:{CODE_DB}?mode=ro', uri=True)
+        rows = con.execute("SELECT c_code, c_code_nm FROM awms_code "
+                           "WHERE p_code='CI007' AND c_code IS NOT NULL").fetchall()
+        con.close()
+        _CNTR_CLAS_NM = {str(c).strip(): str(n).strip() for c, n in rows if str(n or '').strip()}
+        print(f'[계약종별] 코드표 {len(_CNTR_CLAS_NM)}종 로드 (awms_code CI007)', flush=True)
     except Exception as e:
-        print(f'[보존] workStatus 조회 실패 — 미착수 보존 생략: {e}')
-        return None
-    out = set()
-    for k in ws:
-        out.add(k.split('|')[0])
-    return out
+        print(f'[계약종별] 코드표를 못 읽었다 — 코드만 싣는다: {e}', flush=True)
+    if not _CNTR_CLAS_NM:
+        print('[계약종별] 표가 비었다 — python3 scripts/fetch_awms_codes.py 로 받아라', flush=True)
+    return _CNTR_CLAS_NM
+
+
+def cntr_clas_label(code):
+    """'610' -> '610 가로등(을)'. 표에 없으면 코드 그대로 두고 기억해 뒀다 보고한다."""
+    c = str(code or '').strip()
+    if not c:
+        return ''
+    nm = cntr_clas_names().get(c)
+    if not nm:
+        _UNKNOWN_CNTR.add(c)
+        return c
+    return f'{c} {nm}'
+
+
+def cntr_clas_code(v):
+    """'610 가로등(을)' -> '610'. 옛 형식(코드만)도 그대로 통과한다.
+
+    ★고압 제외가 이 값으로 판정하므로 형식이 바뀌어도 코드를 뽑아낼 수 있어야 한다.
+      안 그러면 명칭을 붙인 순간 고압이 걸러지지 않는다.
+    """
+    return str(v or '').strip().split(' ', 1)[0]
+
+
+# ─── 조회 조건 감시 ─────────────────────────────────────────────────────────
+# 우리가 뽑는 대상이 무엇인지 **정의하는** 값들이다(2026-09-09 응답 전수조사).
+#   LAY_STS_CD=30(부설상태 교체) · LAY_METR_CL_CD=10(부설계기구분 실효계기).
+#   지금은 전건 단일값이라 데이터에 싣지 않는다 — 다른 값이 섞이면 조회 조건이 바뀐 것이라
+#   그때는 우리가 엉뚱한 목록을 받고 있는 것이다. 그래서 **싣지 말고 감시만** 한다.
+#   GAETONG_YN 은 지금 전건 빈값인데 채워지기 시작하면 개통 정보가 붙는 신호다.
+_QUERY_SHAPE = {'LAY_STS_CD': '30', 'LAY_METR_CL_CD': '10'}
+_shape_warned = set()
+
+
+def _watch_query_shape(fname, rows):
+    for f, expected in _QUERY_SHAPE.items():
+        vals = {str(r.get(f) or '').strip() for r in rows}
+        odd = vals - {expected, ''}
+        if odd and f not in _shape_warned:
+            _shape_warned.add(f)
+            print(f'  ★[조회조건] {fname}: {f} 에 {expected} 아닌 값 {sorted(odd)[:5]} — '
+                  '뽑는 대상이 바뀌었는지 확인하라', flush=True)
+    if 'GAETONG_YN' not in _shape_warned:
+        g = {str(r.get('GAETONG_YN') or '').strip() for r in rows} - {''}
+        if g:
+            _shape_warned.add('GAETONG_YN')
+            print(f'  ★[조회조건] {fname}: GAETONG_YN 이 채워지기 시작했다 {sorted(g)[:5]} — '
+                  '개통 정보를 실을지 판단하라', flush=True)
+
+# ─── 폐기: 미착수 보존 예외 ────────────────────────────────────────────────
+# 예전엔 보존 기간이 지나도 아직 손대지 않은 개소는 지도에 남겼고(workStatus 를 읽어 판정),
+#   그게 8월 초까지 되살아나는 것을 막으려고 마지노선 작업일(CARRY_MIN_DAY)을 두어
+#   영준님이 물량을 접을 때마다 손으로 올렸다.
+#   ★2026-09-07 폐기: "3일차 남기고 다 백업하고 없애는 거 알지?" — 착수 여부와 무관하게
+#     보존기간을 넘긴 작업일은 예외 없이 백업으로 간다. 경계는 RETAIN_BUSINESS_DAYS 하나뿐이다.
+#     손으로 올리는 마지노선도 없앴다(빠뜨리면 지도가 계속 불어난다).
+#   ※빠진 것은 여전히 백업 파일에 남고 통계 분모에도 들어간다. workStatus 는 손대지 않는다.
 
 # 종로 보강 원천 — 종로맵 대장. awms FMPMTR 응답에는 변대주·DCU 정보가 없지만
 #   종로는 우리 데이터가 따로 있다(영준님 지시 2026-08-19).
@@ -433,11 +560,29 @@ WORK_DAY_OVERRIDES = [
 
 
 def override_work_day(batch_day, jisa, cons_no, work_day):
+    """명시 목록에 걸리면 그 날짜로. 반환 (작업일, 목록에걸렸나)."""
     for o in WORK_DAY_OVERRIDES:
         if (str(batch_day) == o['batch'] and jisa == o['지사']
                 and str(cons_no or '').endswith(o['공사번호끝'])):
-            return o['작업일']
-    return work_day
+            return o['작업일'], True
+    return work_day, False
+
+
+def resolve_work_day(batch_day, jisa, cons_no, work_day):
+    """지도용 작업일 확정 — 명시 목록이 먼저, 없으면 주말·공휴일 귀속 규칙.
+
+    ★주말·공휴일 등재분은 직전 영업일로 귀속한다(영준님 지시 2026-09-09).
+      일요일 저녁 8시대에 현장작업 16건이 있을 수 없다 — 몰아 쓴 것이다.
+      종전엔 확인된 배치만 WORK_DAY_OVERRIDES 에 하나씩 적었는데, 주말마다 손으로
+      추가해야 해서 빠뜨리면 그 물량이 날짜 트리에 따로 떨어졌다. 일반 규칙으로 바꾼다.
+    ★기존 명시 목록은 그대로 두고 **우선 적용**한다 — 평일끼리 옮기는 건(8/21 종로 -> 8/20,
+      광진성동 소급분)은 이 일반 규칙으로 대체되지 않는다.
+    ※'작업일시' 원본은 손대지 않는다 — 상세모달에는 실제 등재 시각이 그대로 보인다.
+    """
+    day, matched = override_work_day(batch_day, jisa, cons_no, work_day)
+    if matched:
+        return day
+    return prev_business_day(day)
 
 
 # ─── 변환 ──────────────────────────────────────────────────────────────────
@@ -457,8 +602,8 @@ def to_record(r, batch_day):
     # WORK_DATE 가 빈 행이 있다(2026-08-19분 1건). 날짜 트리에 빈 노드가 생기지 않게
     #   배치 일자로 떨어뜨린다. 원본 문자열(작업일시)은 빈 채로 남겨 구분 가능하게 둔다.
     work_day = wd[:10].replace('-', '') if len(wd) >= 10 else str(batch_day)
-    # 확인된 배치만 실제 작업일로 되돌린다(위 WORK_DAY_OVERRIDES). 작업일시는 원본 그대로 둔다.
-    work_day = override_work_day(batch_day, jisa, r.get('CONS_NO'), work_day)
+    # 명시 목록 우선 -> 없으면 주말·공휴일은 직전 영업일로 귀속. 작업일시는 원본 그대로 둔다.
+    work_day = resolve_work_day(batch_day, jisa, r.get('CONS_NO'), work_day)
 
     pwr = r.get('CNTR_PWR')
     return {
@@ -500,7 +645,7 @@ def to_record(r, batch_day):
         '업체': (r.get('BUPE_NM') or '').strip(),
         '공사번호': str(r.get('CONS_NO') or '').strip(),
         '저압고압': LV_HV.get(str(r.get('DIST_LV_HV_CLCD') or '').strip(), ''),
-        '계약종별': str(r.get('CNTR_CLAS_CD') or '').strip(),
+        '계약종별': cntr_clas_label(r.get('CNTR_CLAS_CD')),   # '610 가로등(을)' 형식
         '계약전력': '' if pwr in (None, '') else str(pwr),
         '작업자': (r.get('USER_NM') or '').strip(),
         'CONS_TGT_SEQNO': r.get('CONS_TGT_SEQNO'),
@@ -680,6 +825,7 @@ def main():
         if _hv:
             print(f'  {p.name}: 고압 {len(_hv)}건 제외')
         rows = [r for r in rows if str(r.get('CNTR_CLAS_CD') or '').strip() not in HV_CNTR_CLAS]
+        _watch_query_shape(p.name, rows)
         recs += [to_record(r, day) for r in rows]
 
     # 2) 지오코딩 — 같은 (지번, 도로명) 은 한 번만
@@ -765,15 +911,6 @@ def main():
     # 3) 기존 파일과 병합 — 유니크 키 = CONS_TGT_SEQNO
     #    ★백업본도 함께 읽는다. 지도에서 뺀 건이라도 원본 raw 가 없어지면 되살릴 길이 없다.
     #      여기서 같이 들고 있어야 보존 기간을 늘렸을 때 그대로 돌아온다.
-    # 병합 전 '지금 지도에 떠 있는' 키. 미착수 보존 예외를 여기로 한정한다.
-    prev_live = set()
-    if OUT.exists():
-        try:
-            prev_live = {str(e.get('CONS_TGT_SEQNO'))
-                         for e in json.loads(OUT.read_text(encoding='utf-8'))}
-        except Exception:
-            prev_live = set()
-
     existing = []
     for _src in (ARCHIVE, OUT):
         if _src.exists():
@@ -814,35 +951,19 @@ def main():
     days = sorted({str(e.get('작업일') or '') for e in merged if str(e.get('작업일') or '').isdigit()})
     cutoff = ''
     if days:
-        from datetime import datetime as _dt, timedelta as _td
-        base = _dt.strptime(days[-1], '%Y%m%d').date()
-        cutoff = (base - _td(days=RETAIN_DAYS - 1)).strftime('%Y%m%d')
+        # 영업일로 센다 — 달력 3일이면 주말 낀 월요일에 목·금 물량이 통째로 빠진다.
+        cutoff = business_days_back(days[-1], RETAIN_BUSINESS_DAYS)
     # 고압은 merged 전체에서 뺀다 — raw 만 걸러도 아카이브에 남아 있던 것이 되살아난다.
-    _hv_merged = [e for e in merged if str(e.get('계약종별') or '') in HV_CNTR_CLAS]
+    _hv_merged = [e for e in merged if cntr_clas_code(e.get('계약종별')) in HV_CNTR_CLAS]
     if _hv_merged:
         print(f'[고압] merged 에서 {len(_hv_merged)}건 제외')
-    merged = [e for e in merged if str(e.get('계약종별') or '') not in HV_CNTR_CLAS]
+    merged = [e for e in merged if cntr_clas_code(e.get('계약종별')) not in HV_CNTR_CLAS]
 
-    touched = _touched_addresses()
+    # 경계는 보존기간 하나뿐이다 — 착수 여부를 보지 않는다(영준님 2026-09-07).
     def _keep(e):
-        if not cutoff or str(e.get('작업일') or '') >= cutoff:
-            return True
-        # 보존 기간이 지났어도 아직 손대지 않은 개소는 남긴다.
-        #   ★단 **이미 지도에 있던 것**만이다. 아카이브로 내려간 옛 건을 되살리면
-        #     8월 초까지 통째로 돌아온다(2026-09-02 실측: 미착수라는 이유로 8/19 분까지 부활).
-        if touched is None:
-            return False
-        # 영준님이 접기로 한 날짜보다 이른 건은 미착수여도 뺀다(백업엔 남는다).
-        if CARRY_MIN_DAY and str(e.get('작업일') or '') < CARRY_MIN_DAY:
-            return False
-        if str(e.get('CONS_TGT_SEQNO')) not in prev_live:
-            return False
-        return str(e.get('주소') or '').strip() not in touched
+        return not cutoff or str(e.get('작업일') or '') >= cutoff
     live = [e for e in merged if _keep(e)]
     archived = [e for e in merged if not _keep(e)]
-    kept_old = sum(1 for e in live if cutoff and str(e.get('작업일') or '') < cutoff)
-    if kept_old:
-        print(f'[보존] 기간 지났지만 미착수라 남긴 건: {kept_old}건')
 
     OUT.write_text(json.dumps(live, ensure_ascii=False, indent=1), encoding='utf-8')
     if archived or ARCHIVE.exists():
@@ -850,7 +971,7 @@ def main():
 
     import collections
     print()
-    print(f'보존 {RETAIN_DAYS}일 — 지도에 남길 최소 작업일 {cutoff or "(전체)"}')
+    print(f'보존 영업일 {RETAIN_BUSINESS_DAYS}일 — 지도에 남길 최소 작업일 {cutoff or "(전체)"}')
     print(f'  지도 {len(live):,}건 / 백업 {len(archived):,}건 -> {ARCHIVE.name}')
     if archived:
         print('  백업으로 뺀 작업일:', dict(collections.Counter(e['작업일'] for e in archived)))
@@ -871,6 +992,12 @@ def main():
     print('지도 지사별:', dict(collections.Counter(e['지사'] for e in live)))
     print('지도 작업일별:', dict(collections.Counter(e['작업일'] for e in live)))
     print('지도 계기타입별:', dict(collections.Counter(e['계기타입'] or '(빈값)' for e in live)))
+    print('지도 계약종별:', dict(sorted(collections.Counter(
+        e.get('계약종별') or '(빈값)' for e in live).items())))
+    if _UNKNOWN_CNTR:
+        # 추측해 이름 붙이지 않았다는 뜻이다 — 코드표를 다시 받아야 한다.
+        print(f'  ★[계약종별] 코드표에 없는 코드 {sorted(_UNKNOWN_CNTR)} — 코드만 실었다. '
+              'python3 scripts/fetch_awms_codes.py 로 표를 갱신하라')
 
 
 if __name__ == '__main__':

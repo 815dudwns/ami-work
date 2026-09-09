@@ -328,7 +328,20 @@ function showDetail(address, meters, addresses, statusKeys) {
     // 재작업 알림 (rework=true) — 상단에 표시
     const reworkEl = document.getElementById('rework-notice');
     if (reworkEl) {
-        if (status.rework === true) {
+        // ★완료 시점에 아직 존재하지도 않던 계기에는 재작업 알림을 띄우지 않는다.
+        //   workStatus 키가 '주소'라 완료기록이 그 주소에 나중에 들어온 계기까지 덮는다.
+        //   이 주소 계기들의 교체일이 전부 이전 완료일보다 늦으면 그 완료는 이 계기들 것이 아니다
+        //   (실측 2026-09-08: 19주소 49계기. 예 79450105657 교체 6/25 > 완료 6/23).
+        //   ★데이터는 지우지 않는다 — 표시만 거른다. 판정은 계기 단위로 scripts/classify_jae.py 가 한다.
+        const prevAtRaw = status.previousCompleteAt || '';
+        const prevDay = String(prevAtRaw).slice(0, 10);
+        const swapDays = (meters || [])
+            .map(m => String((m && m.계기교체일) || '').slice(0, 10))
+            .filter(Boolean);
+        const staleNotice = !!prevDay && swapDays.length > 0
+            && swapDays.every(d => d > prevDay);
+
+        if (status.rework === true && !staleNotice) {
             // 이전 완료자: 이름 우선, 없으면 ID를 계정명으로 변환
             const prevRaw = status.previousCompleteByName || status.previousCompleteBy || '';
             let prevName = prevRaw;
