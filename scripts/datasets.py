@@ -13,13 +13,18 @@ DATASETS = [
     {"code": "s", "file": "data/site-data.json", "category": "실효",
      "uiLabel": "실효계기", "statsLabel": "실효"},
     # 재방문 폐기(2026-09-09) — js/datasets.js 주석 참조
-    {"code": "g", "file": "data/gapap-data.json", "category": "고압", "uiLabel": "고압철거"},
+    # 고압철거 지도 내림(2026-09-09) — 미착수 4건뿐. 파일·workStatus 는 남긴다.
+    #   onMap=False 라 통계 분모에는 그대로 있다. js/datasets.js 주석 참조
+    {"code": "g", "file": "data/gapap-data.json", "category": "고압", "uiLabel": "고압철거",
+     "onMap": False},
     {"code": "h", "file": "data/hapdong-data.json", "category": "합동", "uiLabel": "합동시공",
      "dateField": "작업일", "archives": ["data/hapdong-data-archive.json"]},
     {"code": "k", "file": "data/skt-data.json", "category": "skt", "uiLabel": "SKT"},
     # 한 레코드가 계기 묶음이라 통계 인덱스에서 계기 단위로 펼친다.
+    # 장애 지도 내림(2026-09-09) — 미착수 0건. 파일·workStatus 는 남긴다.
+    #   onMap=False 라 통계 분모에는 그대로 있다. js/datasets.js 주석 참조
     {"code": "j", "file": "data/jangae-data.json", "category": "장애", "uiLabel": "장애",
-     "metersKey": "계기목록"},
+     "metersKey": "계기목록", "onMap": False},
     # 지도에는 안 올라가고 통계 분모에만 들어간다.
     {"code": "a", "category": "완료아카이브", "onMap": False, "statsLabel": "완료 아카이브",
      "archivesGlob": "data/site-data-completed-archive-*.json"},
