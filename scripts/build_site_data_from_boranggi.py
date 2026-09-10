@@ -115,6 +115,19 @@ def norm_mac(v) -> str:
     return ''                             # 그 밖은 맥이 아니다
 
 
+def dcu_comm(hit) -> str:
+    """DCU 대장 매칭 결과 → 현장에서 쓰는 통신방식 이름.
+
+    대장은 `PLC`·`K-DCU`·`HPGP` 세 값만 갖는다(19,007개 전수).
+    매칭이 안 되는 개소는 DCU_ID 자리에 순수숫자 10자리(= LTE 회선번호)가 들어와 있어
+    대장에 없는 것이 정상이다 — 그런 곳은 LTE 다.
+    """
+    if not hit:
+        return 'LTE'
+    c = txt(hit.get('통신방식'))
+    return 'KS-PLC' if c == 'PLC' else (c or 'LTE')
+
+
 def load_dcu(con):
     """DCU 대장 → (DCU ID 색인, (지사,변대주명) 색인)."""
     d = pd.read_sql('SELECT * FROM dcu_status', con)
@@ -187,7 +200,12 @@ def main():
             '계기타입': meter_type(meter),
             '고객번호': re.sub(r'\D', '', txt(r.get('고객번호'))).zfill(10) if txt(r.get('고객번호')) else '',
             '계약종별': txt(r.get('계약종별')),
-            '통신방식': txt(r.get('통신방식.1')),
+            # ★통신방식은 **변대주로 찾은 DCU 대장값**으로 쓴다 (영준님 2026-09-10).
+            #   한전이 주는 `통신방식.1`(교체 후)은 3,096건 중 3,009건이 빈값이라 개소 대표로 못 쓴다.
+            #   대장에 없으면(순수숫자 10자리 = LTE 회선번호) LTE 다.
+            #   PLC → KS-PLC 로 적는다(현장 호칭). K-DCU·HPGP 는 그대로.
+            '통신방식': dcu_comm(hit),
+            '통신방식_awms': txt(r.get('통신방식.1')),   # 한전 원본값(대개 빈값) — 참고용 보존
             '공동주택명': txt(r.get('공동주택명')),
             '상호': txt(r.get('상호명')),
             '검기만료년월': txt(r.get('검기만료년월')),
