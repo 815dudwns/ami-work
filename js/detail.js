@@ -216,7 +216,15 @@ function showDetail(address, meters, addresses, statusKeys) {
     } else {
         btnHold.textContent = '⏸️ 보류';
         btnHold.className = 'action-btn hold';
-        btnHold.onclick = () => { updateStatus('hold'); closeDetail(); };
+        // 보류도 같은 칸(#fail-reason)의 값을 사유로 싣는다 — updateStatus 가 읽는다.
+        //   ★불가와 달리 **사유를 강제하지 않는다**. 지시는 "남길 수 있게" 였고, 현장에서
+        //     일단 보류부터 찍는 흐름을 막으면 안 된다. 비워 두면 사유 없이 보류로 남는다.
+        btnHold.onclick = () => {
+            const failInput = document.getElementById('fail-reason');
+            if (failInput) failInput.style.borderColor = '';
+            updateStatus('hold');
+            closeDetail();
+        };
     }
 
     // 불가 상태면 초기화 버튼으로 전환
@@ -249,6 +257,11 @@ function showDetail(address, meters, addresses, statusKeys) {
     const failInput = document.getElementById('fail-reason');
     failInput.value = status.reason || '';
     failInput.style.borderColor = '';
+    // 같은 칸을 불가·보류가 나눠 쓴다(칸을 새로 만들지 않는다 — 영준님 지시).
+    //   지금 상태에 맞춰 안내만 바꾼다. 아직 안 정한 pending 이면 둘 다 알려 준다.
+    failInput.placeholder = status.state === 'hold' ? '보류 사유'
+                          : status.state === 'fail' ? '불가 사유'
+                          : '불가 / 보류 사유';
     failInput.oninput = (e) => {
         if (e.target.value.trim()) e.target.style.borderColor = '';
         // 입력 중: 로컬만 저장
@@ -256,7 +269,13 @@ function showDetail(address, meters, addresses, statusKeys) {
             workStatus[currentStatusKey] = { state: 'pending', checkedMeters: [], reason: '' };
         }
         workStatus[currentStatusKey].reason = e.target.value;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
+        // ★보관은 persistStatus 로 맡긴다(IndexedDB + 디바운스).
+        //   전에는 여기서 localStorage 에 workStatus 전체를 직접 썼다. 미러가 4MB 를 넘은
+        //   지금은 **글자 하나 칠 때마다 quota 예외**가 났다(2026-09-10 실측:
+        //   "Setting the value of 'ami_work_status' exceeded the quota").
+        //   보류에도 사유를 받게 되면서 이 칸을 치는 일이 늘어 그대로 둘 수 없다.
+        //   persistStatus 는 IndexedDB 를 쓰고 실패해도 조용히 폴백한다([[amimap_localstorage_quota_fix]]).
+        persistStatus();
     };
     // blur/Enter 시 이벤트 큐에 추가
     const flushFailReason = () => {
@@ -421,7 +440,24 @@ function updateWorkerInfo(status) {
         dateStr = status.updatedAt;
     }
 
-    workerEl.textContent = `${status.updatedByName} / ${dateStr} 작업`;
+    // 사유 — 불가·보류 둘 다 여기 같은 자리에 띄운다(영준님 2026-09-10).
+    //   전에는 입력칸 안에만 보였는데, 그 칸은 '고치는 곳'이지 '읽는 곳'이 아니다.
+    //   색은 상태색을 따른다(보류 파랑 #3b82f6 · 불가 빨강 #ef4444 — updateStatusBar 와 같은 값).
+    const REASON_COLOR = { hold: '#3b82f6', fail: '#ef4444' };
+    const reason = String(status.reason || '').trim();
+    const line = `${status.updatedByName} / ${dateStr} 작업`;
+    if (reason && REASON_COLOR[status.state]) {
+        const label = status.state === 'hold' ? '보류 사유' : '불가 사유';
+        // 사유는 작업자가 손으로 적는 자유 문자열이라 반드시 이스케이프한다.
+        //   (showDetail 안의 esc 는 그 함수 지역 변수라 여기서 못 쓴다 — 같은 규칙으로 둔다)
+        const escv = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+                                     .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        workerEl.innerHTML = `${escv(line)} · `
+            + `<span style="color:${REASON_COLOR[status.state]};font-weight:700;">`
+            + `${escv(label)} ${escv(reason)}</span>`;
+    } else {
+        workerEl.textContent = line;
+    }
     workerEl.style.display = 'block';
 }
 
@@ -941,7 +977,11 @@ function updateStatus(state) {
         saveStateEvent(
             addr,
             state,
-            state === 'fail' ? reason : '',
+            // ★보류도 사유를 싣는다(영준님 2026-09-10 "보류 시에도 사유 남길 수 있게").
+            //   전에는 불가만 실어서, 보류로 찍으면 왜 보류인지가 기록에 남지 않았고
+            //   불가 -> 보류로 바꾸면 이미 적어 둔 사유까지 빈 문자열로 덮였다.
+            //   완료·초기화는 종전대로 사유를 비운다(그 상태에는 사유가 없다).
+            (state === 'fail' || state === 'hold') ? reason : '',
             session ? session.id   : '',
             session ? session.name : ''
         );
