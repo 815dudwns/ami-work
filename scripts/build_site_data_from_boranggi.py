@@ -54,8 +54,24 @@ def visible_rows(xlsx: Path) -> set:
 
 
 def norm_meter(v) -> str:
-    """계기번호: 숫자만 남기고 11자리 zfill. 앞 0 을 잃지 않는다."""
-    return re.sub(r'\D', '', str(v or '')).zfill(11)
+    """계기번호 정규화.
+
+    ★접두 문자를 지우지 마라 (2026-09-10 사고). 신설계기에는 `A0530188699`·`LA530151258`
+      처럼 영문자 접두가 붙는다 — 9/8 판 83,376행 중 8,205건(10%)이 그렇다.
+      숫자만 뽑으면 `A0530188699` 가 `00530188699` 가 되고 `LA530151258` 은 자릿수까지 밀려서
+      awms·모뎀작업리스트와 대조가 안 되고 현장에서 계기번호가 안 맞는다.
+      CLAUDE.md 의 "float→int→str→zfill(11)" 은 **엑셀이 숫자로 읽어버린 경우**를 되살리는 규칙이지
+      영문자를 버리라는 뜻이 아니다. 아미큐 `normMeter` 도 영숫자 11자리를 그대로 통과시킨다.
+
+    - 영문자가 섞여 있으면 그대로 둔다(공백·하이픈만 제거).
+    - 순수 숫자면 11자리로 zfill 한다(엑셀이 앞 0 을 지운 경우 복원).
+    """
+    s = re.sub(r'[\s\-]', '', str(v or '')).strip()
+    if not s or s.lower() in ('nan', 'none'):
+        return ''
+    if re.search(r'[A-Za-z]', s):
+        return s.upper()
+    return s.zfill(11)
 
 
 def meter_type(meter_no: str) -> str:
