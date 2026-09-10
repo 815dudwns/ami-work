@@ -54,8 +54,24 @@ def visible_rows(xlsx: Path) -> set:
 
 
 def norm_meter(v) -> str:
-    """계기번호: 숫자만 남기고 11자리 zfill. 앞 0 을 잃지 않는다."""
-    return re.sub(r'\D', '', str(v or '')).zfill(11)
+    """계기번호 정규화.
+
+    ★접두 문자를 지우지 마라 (2026-09-10 사고). 신설계기에는 `A0530188699`·`LA530151258`
+      처럼 영문자 접두가 붙는다 — 9/8 판 83,376행 중 8,205건(10%)이 그렇다.
+      숫자만 뽑으면 `A0530188699` 가 `00530188699` 가 되고 `LA530151258` 은 자릿수까지 밀려서
+      awms·모뎀작업리스트와 대조가 안 되고 현장에서 계기번호가 안 맞는다.
+      CLAUDE.md 의 "float→int→str→zfill(11)" 은 **엑셀이 숫자로 읽어버린 경우**를 되살리는 규칙이지
+      영문자를 버리라는 뜻이 아니다. 아미큐 `normMeter` 도 영숫자 11자리를 그대로 통과시킨다.
+
+    - 영문자가 섞여 있으면 그대로 둔다(공백·하이픈만 제거).
+    - 순수 숫자면 11자리로 zfill 한다(엑셀이 앞 0 을 지운 경우 복원).
+    """
+    s = re.sub(r'[\s\-]', '', str(v or '')).strip()
+    if not s or s.lower() in ('nan', 'none'):
+        return ''
+    if re.search(r'[A-Za-z]', s):
+        return s.upper()
+    return s.zfill(11)
 
 
 def meter_type(meter_no: str) -> str:
@@ -97,6 +113,19 @@ def norm_mac(v) -> str:
     if re.fullmatch(r'[0-9A-F]{12}', s):
         return s                          # hex 12자리
     return ''                             # 그 밖은 맥이 아니다
+
+
+def dcu_comm(hit) -> str:
+    """DCU 대장 매칭 결과 → 현장에서 쓰는 통신방식 이름.
+
+    대장은 `PLC`·`K-DCU`·`HPGP` 세 값만 갖는다(19,007개 전수).
+    매칭이 안 되는 개소는 DCU_ID 자리에 순수숫자 10자리(= LTE 회선번호)가 들어와 있어
+    대장에 없는 것이 정상이다 — 그런 곳은 LTE 다.
+    """
+    if not hit:
+        return 'LTE'
+    c = txt(hit.get('통신방식'))
+    return 'KS-PLC' if c == 'PLC' else (c or 'LTE')
 
 
 def load_dcu(con):
@@ -171,7 +200,12 @@ def main():
             '계기타입': meter_type(meter),
             '고객번호': re.sub(r'\D', '', txt(r.get('고객번호'))).zfill(10) if txt(r.get('고객번호')) else '',
             '계약종별': txt(r.get('계약종별')),
-            '통신방식': txt(r.get('통신방식.1')),
+            # ★통신방식은 **변대주로 찾은 DCU 대장값**으로 쓴다 (영준님 2026-09-10).
+            #   한전이 주는 `통신방식.1`(교체 후)은 3,096건 중 3,009건이 빈값이라 개소 대표로 못 쓴다.
+            #   대장에 없으면(순수숫자 10자리 = LTE 회선번호) LTE 다.
+            #   PLC → KS-PLC 로 적는다(현장 호칭). K-DCU·HPGP 는 그대로.
+            '통신방식': dcu_comm(hit),
+            '통신방식_awms': txt(r.get('통신방식.1')),   # 한전 원본값(대개 빈값) — 참고용 보존
             '공동주택명': txt(r.get('공동주택명')),
             '상호': txt(r.get('상호명')),
             '검기만료년월': txt(r.get('검기만료년월')),
@@ -228,6 +262,38 @@ def main():
     log("[통신방식]  " + " · ".join(f"{k or '(빈값)'} {n}" for k, n in Counter(e['통신방식'] for e in out).most_common(6)))
     log("[지사]      " + " · ".join(f"{k} {n}" for k, n in Counter(e['지사'] for e in out).most_common()))
     log(f"[모뎀MAC]   값 있음 {sum(1 for e in out if e['모뎀MAC']):,}건")
+
+    # ── ★원본 대조 게이트 (2026-09-10 사고 후 추가) ──────────────────────────
+    # 자기 산출물 안에서만 보는 검사("11자리 아님 0건·중복 0건")는 **뭉갠 값도 통과**시킨다.
+    # 실제로 계기번호에서 A0·LA 접두를 지워 167건을 훼손하고도 그 검사들은 전부 깨끗했다.
+    # 그래서 여기서 **원본 엑셀과 직접 대조**하고, 어긋나면 저장하지 않고 멈춘다.
+    src_ids = {txt(x).upper() for x in v['계기번호.1'] if txt(x)}
+    out_ids = {e['계기번호'].upper() for e in out}
+    only_src, only_out = src_ids - out_ids, out_ids - src_ids
+    src_alpha = sum(1 for x in src_ids if re.search(r'[A-Za-z]', x))
+    out_alpha = sum(1 for x in out_ids if re.search(r'[A-Za-z]', x))
+    no_coord = sum(1 for e in out if e['lat'] is None)
+
+    log("\n=== 원본 대조 ===")
+    log(f"  계기번호 집합   원본 {len(src_ids):,} · 결과 {len(out_ids):,}"
+        f" · 원본에만 {len(only_src)} · 결과에만 {len(only_out)}")
+    log(f"  접두 문자 건수  원본 {src_alpha} · 결과 {out_alpha}")
+    log(f"  좌표 없음       {no_coord}  (todo 로 빠진 것과 같아야 한다: {len(todo)})")
+
+    fail = []
+    if only_src or only_out:
+        fail.append(f"계기번호가 원본과 다르다 (원본에만 {len(only_src)}: {sorted(only_src)[:3]}"
+                    f" · 결과에만 {len(only_out)}: {sorted(only_out)[:3]})")
+    if src_alpha != out_alpha:
+        fail.append(f"접두 문자가 유실됐다 (원본 {src_alpha} → 결과 {out_alpha})"
+                    " — norm_meter 가 영문자를 지우고 있지 않은지 봐라")
+    if no_coord != len(todo):
+        fail.append(f"좌표 없는 건수가 todo 와 다르다 ({no_coord} vs {len(todo)})")
+    if fail:
+        log("\n★대조 실패 — 저장하지 않는다")
+        for m in fail:
+            log("   · " + m)
+        return 1
 
     Path(a.out).write_text(json.dumps(out, ensure_ascii=False, indent=1))
     Path(a.todo).write_text(json.dumps(todo, ensure_ascii=False, indent=1))
