@@ -119,8 +119,56 @@ def business_days_back(yyyymmdd, n):
 # ─── 고압 제외 ──────────────────────────────────────────────────────────────
 # 계약종별(CI007) 중 이름에 '고압' 이 붙는 코드. 고압은 우리 합동시공 대상이 아니다
 #   (영준님 2026-09-01 "고압제외" · 이전엔 매 빌드마다 수동으로 지웠다).
-HV_CNTR_CLAS = {'222', '223', '226', '228', '231', '232', '233', '236', '238',
-                '322', '332', '431', '432', '526', '536', '726', '736', '746'}
+#
+# ★2026-09-10: 손으로 적은 목록을 **코드표에서 읽도록** 바꿨다(영준님 지시).
+#   DIST_LV_HV_CLCD 가 전 건 '1'(저압)로 와서 못 쓰므로 이 목록이 고압을 거르는 유일한
+#   방어선인데, 한전이 고압 종별을 새로 만들면 빌더가 모르고 통과시킨다. 알아채는 방법이
+#   현장에서 고압을 보고 불가를 찍는 것뿐이었다.
+# ★아래 18개는 이제 **폴백**이다. 지우지 마라 — data/ami.db 는 gitignore 라 다른 워크트리엔
+#   없다. 표를 못 읽었을 때 필터가 비면 고압이 **전부 통과**한다. 빈 필터로는 진행하지 않는다.
+#   (2026-09-09 대조에서 코드표와 이 18개가 정확히 일치했다 — 누락 0·초과 0)
+HV_KEYWORD = '고압'
+HV_CNTR_CLAS_FALLBACK = frozenset({
+    '222', '223', '226', '228', '231', '232', '233', '236', '238',
+    '322', '332', '431', '432', '526', '536', '726', '736', '746',
+})
+_HV_CODES = None          # 확정된 고압 코드 집합. None = 아직 안 정함
+
+
+def hv_codes():
+    """고압 계약종별 코드 집합. 코드표가 원천, 못 읽으면 폴백. **절대 비지 않는다.**"""
+    global _HV_CODES
+    if _HV_CODES is not None:
+        return _HV_CODES
+
+    names = cntr_clas_names()                       # {코드: 명칭}
+    from_table = {c for c, nm in names.items() if HV_KEYWORD in nm}
+
+    if not from_table:
+        # 표가 없거나(다른 워크트리) 표에 '고압' 이 하나도 없다 — 둘 다 필터를 비울 수 없는 상황이다.
+        print(f'  ★[고압] 코드표에서 고압 종별을 못 찾았다 — 폴백 {len(HV_CNTR_CLAS_FALLBACK)}개로 거른다. '
+              '표가 필요하면 python3 scripts/fetch_awms_codes.py (DB 는 main 워크트리에 있다)', flush=True)
+        _HV_CODES = set(HV_CNTR_CLAS_FALLBACK)
+        return _HV_CODES
+
+    added   = sorted(from_table - HV_CNTR_CLAS_FALLBACK)
+    removed = sorted(HV_CNTR_CLAS_FALLBACK - from_table)
+    if added or removed:
+        # 멈추지 않는다 — 코드표가 정답이니 그걸 쓰고 알리기만 한다(영준님 지시).
+        print(f'  ★[고압] 코드표가 폴백과 다르다 — 코드표 {len(from_table)}개를 쓴다.', flush=True)
+        if added:
+            print(f'     늘어남(폴백에 없던 고압): '
+                  + ', '.join(f'{c} {names.get(c, "")}' for c in added), flush=True)
+            print('     ※새 고압 종별이 생겼다는 뜻이다. 폴백 목록도 갱신해 두는 것이 좋다.', flush=True)
+        if removed:
+            print(f'     줄어듦(폴백에만 있던 코드): ' + ', '.join(removed), flush=True)
+            print('     ※표에서 사라졌거나 명칭에서 \'고압\' 이 빠진 것이다. 사라진 코드가 원본에 '
+                  '남아 있으면 이제 통과하니 확인하라.', flush=True)
+    else:
+        print(f'[고압] 코드표 {len(from_table)}개 = 폴백과 일치', flush=True)
+
+    _HV_CODES = from_table
+    return _HV_CODES
 
 
 # ─── 계약종별 명칭 ──────────────────────────────────────────────────────────
@@ -821,10 +869,11 @@ def main():
         print(f'{p.name}: {len(rows)}건 (day={day})', flush=True)
         # ★고압 제외 — 우리 합동시공 대상이 아니다(영준님 2026-09-01).
         #   전엔 빌드할 때마다 되살아나 수동으로 지웠다.
-        _hv = [r for r in rows if str(r.get('CNTR_CLAS_CD') or '').strip() in HV_CNTR_CLAS]
+        _HV = hv_codes()
+        _hv = [r for r in rows if str(r.get('CNTR_CLAS_CD') or '').strip() in _HV]
         if _hv:
             print(f'  {p.name}: 고압 {len(_hv)}건 제외')
-        rows = [r for r in rows if str(r.get('CNTR_CLAS_CD') or '').strip() not in HV_CNTR_CLAS]
+        rows = [r for r in rows if str(r.get('CNTR_CLAS_CD') or '').strip() not in _HV]
         _watch_query_shape(p.name, rows)
         recs += [to_record(r, day) for r in rows]
 
@@ -954,10 +1003,11 @@ def main():
         # 영업일로 센다 — 달력 3일이면 주말 낀 월요일에 목·금 물량이 통째로 빠진다.
         cutoff = business_days_back(days[-1], RETAIN_BUSINESS_DAYS)
     # 고압은 merged 전체에서 뺀다 — raw 만 걸러도 아카이브에 남아 있던 것이 되살아난다.
-    _hv_merged = [e for e in merged if cntr_clas_code(e.get('계약종별')) in HV_CNTR_CLAS]
+    _HV = hv_codes()
+    _hv_merged = [e for e in merged if cntr_clas_code(e.get('계약종별')) in _HV]
     if _hv_merged:
         print(f'[고압] merged 에서 {len(_hv_merged)}건 제외')
-    merged = [e for e in merged if cntr_clas_code(e.get('계약종별')) not in HV_CNTR_CLAS]
+    merged = [e for e in merged if cntr_clas_code(e.get('계약종별')) not in _HV]
 
     # 경계는 보존기간 하나뿐이다 — 착수 여부를 보지 않는다(영준님 2026-09-07).
     def _keep(e):
