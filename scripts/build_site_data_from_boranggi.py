@@ -245,6 +245,38 @@ def main():
     log("[지사]      " + " · ".join(f"{k} {n}" for k, n in Counter(e['지사'] for e in out).most_common()))
     log(f"[모뎀MAC]   값 있음 {sum(1 for e in out if e['모뎀MAC']):,}건")
 
+    # ── ★원본 대조 게이트 (2026-09-10 사고 후 추가) ──────────────────────────
+    # 자기 산출물 안에서만 보는 검사("11자리 아님 0건·중복 0건")는 **뭉갠 값도 통과**시킨다.
+    # 실제로 계기번호에서 A0·LA 접두를 지워 167건을 훼손하고도 그 검사들은 전부 깨끗했다.
+    # 그래서 여기서 **원본 엑셀과 직접 대조**하고, 어긋나면 저장하지 않고 멈춘다.
+    src_ids = {txt(x).upper() for x in v['계기번호.1'] if txt(x)}
+    out_ids = {e['계기번호'].upper() for e in out}
+    only_src, only_out = src_ids - out_ids, out_ids - src_ids
+    src_alpha = sum(1 for x in src_ids if re.search(r'[A-Za-z]', x))
+    out_alpha = sum(1 for x in out_ids if re.search(r'[A-Za-z]', x))
+    no_coord = sum(1 for e in out if e['lat'] is None)
+
+    log("\n=== 원본 대조 ===")
+    log(f"  계기번호 집합   원본 {len(src_ids):,} · 결과 {len(out_ids):,}"
+        f" · 원본에만 {len(only_src)} · 결과에만 {len(only_out)}")
+    log(f"  접두 문자 건수  원본 {src_alpha} · 결과 {out_alpha}")
+    log(f"  좌표 없음       {no_coord}  (todo 로 빠진 것과 같아야 한다: {len(todo)})")
+
+    fail = []
+    if only_src or only_out:
+        fail.append(f"계기번호가 원본과 다르다 (원본에만 {len(only_src)}: {sorted(only_src)[:3]}"
+                    f" · 결과에만 {len(only_out)}: {sorted(only_out)[:3]})")
+    if src_alpha != out_alpha:
+        fail.append(f"접두 문자가 유실됐다 (원본 {src_alpha} → 결과 {out_alpha})"
+                    " — norm_meter 가 영문자를 지우고 있지 않은지 봐라")
+    if no_coord != len(todo):
+        fail.append(f"좌표 없는 건수가 todo 와 다르다 ({no_coord} vs {len(todo)})")
+    if fail:
+        log("\n★대조 실패 — 저장하지 않는다")
+        for m in fail:
+            log("   · " + m)
+        return 1
+
     Path(a.out).write_text(json.dumps(out, ensure_ascii=False, indent=1))
     Path(a.todo).write_text(json.dumps(todo, ensure_ascii=False, indent=1))
     log(f"\n저장 {a.out}\n저장 {a.todo}")
