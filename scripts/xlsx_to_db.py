@@ -37,6 +37,7 @@ import os
 import re
 import sqlite3
 import sys
+import zipfile
 from pathlib import Path
 
 import openpyxl
@@ -124,7 +125,7 @@ SKIP_SHEETS = [
 ]
 
 # 인덱스를 걸 열(있을 때만)
-INDEX_COLS = ['계기번호_norm', '철거계기번호_norm', 'mac_norm', '고객번호_norm', 'snapshot',
+INDEX_COLS = ['계기번호_norm', '철거계기번호_norm', 'mac_norm', '고객번호_norm', 'snapshot', 'visible',
               'DCUID', 'DCU ID', '변대주번호', '지사', '작업일자',
               '차수', '차수_판']      # 판 구분(종로 실효 5~14차) 정렬·필터용
 
@@ -282,6 +283,45 @@ def ensure_table(con, table, cols):
             log(f'      + 열 추가: {c}')
 
 
+def hidden_rows(path, sheet_title):
+    """엑셀에서 자동필터로 숨겨진 행 번호(1-base) 집합.
+
+    ★왜 직접 XML 을 읽나: openpyxl 의 read_only 모드는 `row_dimensions` 를 안 채워서
+      숨김 여부를 알 수 없다. 그런데 **한전 보강현황은 필터가 걸린 채로 온다** —
+      9/8 판은 83,376행 중 80,280행이 숨김이고 보이는 행 3,096행만 우리 대상이다.
+      전 행을 그냥 세면 대상이 27배로 부푼다. 그래서 sheet XML 의 `hidden="1"` 을 직접 본다.
+
+    시트가 여러 개인 파일이 있으므로 workbook.xml 과 rels 로 제목→파일을 정확히 잇는다.
+    실패하면 빈 집합을 돌려주고(= 전 행 보임), 호출부가 그 사실을 로그로 남긴다.
+    """
+    try:
+        with zipfile.ZipFile(path) as z:
+            wb = z.read('xl/workbook.xml').decode('utf-8', 'ignore')
+            rels = z.read('xl/_rels/workbook.xml.rels').decode('utf-8', 'ignore')
+            rid = None
+            for m in re.finditer(r'<sheet[^>]*?name="([^"]+)"[^>]*?r:id="([^"]+)"', wb):
+                if m.group(1) == sheet_title:
+                    rid = m.group(2)
+                    break
+            target = None
+            if rid:
+                for m in re.finditer(r'<Relationship[^>]*?Id="([^"]+)"[^>]*?Target="([^"]+)"', rels):
+                    if m.group(1) == rid:
+                        target = m.group(2).lstrip('/')
+                        break
+            if target:
+                name = target if target.startswith('xl/') else 'xl/' + target
+            else:   # 폴백: 첫 워크시트
+                name = sorted(n for n in z.namelist()
+                              if re.match(r'xl/worksheets/sheet\d+\.xml$', n))[0]
+            xml = z.read(name).decode('utf-8', 'ignore')
+        return {int(r[0]) for r in re.findall(r'<row r="(\d+)"([^>]*)>', xml)
+                if 'hidden="1"' in r[1]}
+    except Exception as e:                      # 파일 구조가 다르면 판정을 포기한다
+        log(f'      ! 숨김행 판정 실패({e}) — 전 행을 보임으로 적재한다')
+        return set()
+
+
 def load_sheet(con, path, ws, table, snapshot, disc=None):
     rows = list(ws.iter_rows(values_only=True))
     ncol = ws.max_column
@@ -292,9 +332,16 @@ def load_sheet(con, path, ws, table, snapshot, disc=None):
     unnamed = sum(1 for n in names if n.startswith('col_'))
     if unnamed > len(names) * 0.5:
         raise SystemExit(f'  실패: [{ws.title}] 헤더가 비어 있는 열이 절반을 넘는다({unnamed}/{len(names)})')
-    data = rows[hi + 1:]
-    data = [r for r in data if any(c not in (None, '') for c in r)]   # 완전 빈 행만 버린다
+    # ★엑셀 행번호를 끝까지 들고 간다 — 숨김 판정에 필요하다(빈 행을 버리면 인덱스가 어긋난다).
+    #   rows[0] 이 엑셀 1행이므로, rows[i] 의 엑셀 행번호는 i+1 이다.
+    data = [(i + 1, r) for i, r in enumerate(rows) if i > hi]
+    data = [(n, r) for n, r in data if any(c not in (None, '') for c in r)]   # 완전 빈 행만 버린다
     src_rows = len(data)
+
+    hid = hidden_rows(path, ws.title)
+    if hid:
+        vis_n = sum(1 for n, _ in data if n not in hid)
+        log(f'      ★자동필터: 숨김 {len(hid):,}행 · 보임 {vis_n:,}행 — 보이는 행만 우리 대상이다')
 
     # ★'계기번호' 라는 이름이 없는 시트가 있다 — 종로 준공내역서는 신설이 '부설전력량계번호',
     #   철거가 '철거전력량계번호' 다. 이름만 보고 넘기면 계기번호로 검색해도 안 걸린다.
@@ -303,7 +350,7 @@ def load_sheet(con, path, ws, table, snapshot, disc=None):
     cust_c = pick(names, '고객번호')
     mac_c = pick(names, '기존모뎀MAC', '모뎀MAC', '현재맥', 'MAC')
 
-    extra = ['snapshot', 'src_file']
+    extra = ['snapshot', 'src_file', 'visible', 'xl_row']
     disc_col = None
     if disc:
         # 원본에 같은 이름의 열이 이미 있으면(예: dcu_all 의 '차수') 덮지 않고 비켜 쓴다
@@ -333,9 +380,10 @@ def load_sheet(con, path, ws, table, snapshot, disc=None):
     src = str(path.relative_to(ROOT)) if str(path).startswith(str(ROOT)) else str(path)
 
     payload = []
-    for r in data:
+    for xlrow, r in data:
         vals = [cell_text(r[i]) if i < len(r) else None for i in range(ncol)]
-        rec = vals + [snapshot, src]
+        # visible: 1=보임(우리 대상) / 0=자동필터로 숨겨진 행
+        rec = vals + [snapshot, src, '0' if xlrow in hid else '1', str(xlrow)]
         if disc_col:
             rec.append(disc)
         if mi is not None:
@@ -442,9 +490,18 @@ def main():
             "SELECT name FROM sqlite_master WHERE type='table' "
             "AND name NOT LIKE 'sqlite_%' ORDER BY name"):
         c = con.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
+        # 옛 적재분에는 snapshot 열이 없는 테이블이 있다 — 요약 때문에 전체가 죽지 않게 한다
+        cols = [r[1] for r in con.execute(f'PRAGMA table_info("{t}")')]
+        if 'snapshot' not in cols:
+            log(f'  {t:28} {c:>8,}행   (snapshot 열 없음)')
+            continue
         snaps = [r[0] for r in con.execute(
             f'SELECT DISTINCT snapshot FROM "{t}" ORDER BY snapshot')]
-        log(f'  {t:28} {c:>8,}행   snapshot {",".join(snaps)}')
+        vis = ''
+        if 'visible' in cols:
+            v = con.execute(f'SELECT COUNT(*) FROM "{t}" WHERE visible="1"').fetchone()[0]
+            vis = f' · 보임 {v:,}'
+        log(f'  {t:28} {c:>8,}행{vis}   snapshot {",".join(snaps)}')
     con.close()
     return 0
 
