@@ -125,7 +125,7 @@
 ### 데스크 상태
 | 데스크 | 브랜치 | 상태판 |
 |---|---|---|
-| 통신팀 | `tongsin` | `HANDOFF-통신팀.md` — 이번 구간 주력 |
+| 통신팀 | `tongsin` | `HANDOFF-통신팀.md` (`dfe4745`) — 이번 구간 주력. 상태판을 8/19→9/14 로 교체하고 '반드시 지킬 것' 5가지 신설(encodeKey 대조·삭제 시 syncAt·통계 인덱스 분모 파일·고압 필터 폴백·전지사 무필터). PM 판단 대기 2건(보류 사유 강제 여부 · WS_SCHEMA_VERSION 미인상 사유) |
 | 계기팀 | `gyegi` | `HANDOFF-계기팀.md` |
 | 검증팀 | `geomjeung` | `HANDOFF-검증팀.md` |
 | ocr-meter | `ocr-meter` | `HANDOFF-ocr-meter.md` |
