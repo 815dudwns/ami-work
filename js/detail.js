@@ -689,6 +689,21 @@ function renderMetersList() {
         // 합동은 교체사유가 전 건 '합동시공' 고정이라, 아래 10)의 '합동시공·모뎀미시공' 과
         //   겹쳐 "사유 합동시공 · 합동시공·모뎀미시공" 으로 두 번 나왔다. 강조된 쪽만 남긴다.
         if (meter.교체사유 && meter.category !== '합동') subParts.push(`사유 ${meter.교체사유}`);
+        // 모뎀MAC — 작업자가 awms 에 넣는 값이라 **복원한 표기**를 보여준다.
+        //   보강현황 원본은 인코딩된 형태(504050203010604)라 그대로 보면 쓸모가 없다.
+        //   복원에 실패하면 원본이라도 보여준다(빈칸보다 낫다).
+        //   ★고압·TOU 는 자기 블록에서 이미 그리므로 여기서 빼 중복을 막는다.
+        if (meter.category !== '고압' && meter.category !== 'tou') {
+            // ★MAC 은 [0-9A-F]/숫자만 남긴다. 이 함수에는 esc() 가 없고(showDetail 지역 상수라
+            //   그대로 쓰면 ReferenceError 로 계기목록이 통째로 안 그려진다), 값이 데이터 유래라
+            //   화이트리스트가 이스케이프보다 확실하다.
+            const macShow = String(meter.모뎀MAC_awms || meter.모뎀MAC || '')
+                .replace(/[^0-9A-Za-z]/g, '');
+            if (macShow) {
+                const macBtn = `<button class="copy-btn" data-copy="${macShow}" title="모뎀MAC 복사" style="margin-left:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+                subParts.push(`MAC ${macShow}${macBtn}`);
+            }
+        }
         // 철거계기(교체 전) — 큰 글씨의 계기번호는 **신설계기**(지금 달려 있는 것)라,
         //   대조하려면 철거 쪽도 보여야 한다. 합동은 자기 블록에서 이미 그리므로 뺀다.
         if (meter.계기번호_전 && meter.category !== '합동') {

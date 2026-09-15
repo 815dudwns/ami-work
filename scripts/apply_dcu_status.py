@@ -191,7 +191,9 @@ def main(argv):
         for k, v in st.most_common():
             print(f'    {k:22} {v:6,}')
         if not dry:
-            p.write_text(json.dumps(data, ensure_ascii=False))
+            # ★indent 를 준다 — 안 주면 데이터셋이 **한 줄**이 되어 diff 가 통째로 바뀐 것처럼
+            #   나오고 리뷰가 불가능해진다(2026-09-15 실측). 빌더·site-data·hapdong 과 같은 관행.
+            p.write_text(json.dumps(data, ensure_ascii=False, indent=1))
 
     if not dry:
         print('\n※ site-data.json 을 바꿨으면 scripts/gen_site_version.py 를 반드시 다시 돌려라.')

@@ -42,6 +42,8 @@ from geocode_cascade import resolve as geo_resolve   # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 DB = ROOT / 'data' / 'ami.db'
 OUT = ROOT / 'data' / 'lpnoapp-data.json'
+# 제외한 건을 버리지 않고 남기는 곳 — 왜 빠졌는지 근거와 함께 보관한다.
+OUT_EXCLUDED = ROOT / 'data' / 'lpnoapp-data-awms확인분-20260915.json'
 GEO_CACHE = ROOT / 'data' / 'inbox_hapdong' / 'geocode-cache.json'   # 합동과 같은 캐시를 쓴다
 WORKERS = 8
 
@@ -127,6 +129,55 @@ def load_dcu_ledger(con):
     for nm in dup:
         by_name.pop(nm, None)          # 동명이인은 근거로 못 쓴다
     return by_id, by_name, dup
+
+
+# ─── awms 시공 확인분 제외 ──────────────────────────────────────────────────
+# 영준님 지시 2026-09-15 "맥 awms 시공한 AE G 는 지워라".
+#   보강현황의 신설 모뎀MAC 을 awms 표기로 되살려 `modem_work`(모뎀작업리스트, 110,397행)와
+#   대조하면, **우리가 실제로 시공한 기록이 있는** 개소가 나온다. 계기번호가 어긋나 있어
+#   한전 보강현황에서 "시공앱 기록 없음" 으로 보였을 뿐이다. 지도에 두면 작업자가 또 간다.
+#
+# ★아미고(보안계기)는 제외하지 않는다. 무선이라 **옆집 모뎀이 LP 를 끌어간다** —
+#   같은 조건으로 596건이 걸리지만 그 계기를 시공했다는 뜻이 아니다(영준님 2026-09-15).
+#   실측: MAC 으로 잡히는 668건 = 아미고 596 + AE 57 + G 15. 제외 대상은 뒤의 72건뿐이다.
+def mac_restore(m):
+    """보강현황 모뎀MAC -> awms 표기.
+
+    ★인코딩이 **두 가지**다. 십진만 처리하면 2,126건 중 905건이 복원에 실패한다.
+      - 바이트가 십진 한 자리:  504050203010604  -> 01254523164
+      - 바이트가 ASCII 숫자(16진): 3438363835393130 -> 01248685910
+      - 12자리 hex 는 진짜 모뎀 MAC 이라 그대로 둔다.
+    """
+    m = (m or '').strip().replace(':', '').upper()
+    if not m or m == '#N/A':
+        return ''
+    if len(m) == 12 and re.fullmatch(r'[0-9A-F]{12}', m):
+        return m
+    if len(m) in (15, 16) and m.isdigit():
+        s = m.zfill(16)
+        pairs = [s[i:i + 2] for i in range(0, 16, 2)]
+        if all(int(p) <= 9 for p in pairs):
+            return '012' + ''.join(str(int(p)) for p in pairs)
+        if all(0x30 <= int(p, 16) <= 0x39 for p in pairs):
+            return '012' + ''.join(chr(int(p, 16)) for p in pairs)
+    return ''
+
+
+def load_awms_macs(con):
+    """modem_work 의 정규화 MAC 집합 + MAC -> 대표 작업기록."""
+    macs, info = set(), {}
+    for r in con.execute(
+            "SELECT mac_norm, 계기번호, 작업자1, 작업일자 FROM modem_work WHERE mac_norm<>''"):
+        mac = r[0]
+        macs.add(mac)
+        d = info.setdefault(mac, {'awms등록계기': set(), '작업자': '', '작업시각': ''})
+        if r[1]:
+            d['awms등록계기'].add(str(r[1]).strip())
+        if not d['작업자'] and r[2]:
+            d['작업자'] = str(r[2]).strip()
+        if not d['작업시각'] and r[3]:
+            d['작업시각'] = str(r[3]).strip()
+    return macs, info
 
 
 def gu_of(addr: str) -> str:
@@ -250,7 +301,11 @@ def main():
             '계기번호_전': meter_prev,
             '계기타입_전': meter_type(meter_prev),
             '통신방식_전': txt(r.get('통신방식')),
+            # ★원본을 덮지 않는다 — 보강현황 원본 인코딩(504050203010604)은 그대로 두고
+            #   awms 표기로 되살린 값을 따로 싣는다(영준님 2026-09-15 "복원한 맥 디테일에 넣어라").
+            #   원본이 남아야 복원 규칙을 나중에 고쳤을 때 다시 돌릴 수 있다.
             '모뎀MAC': txt(r.get('모뎀 MAC_2')),
+            '모뎀MAC_awms': mac_restore(txt(r.get('모뎀 MAC_2'))),
             '변대주': txt(r.get('변대주')),
             # 인입주 — 보강현황 원본 열. detail.js 가 변대주와 짝으로 그린다(없으면 반쪽만 나온다).
             '인입주': txt(r.get('인입주')),
@@ -266,6 +321,32 @@ def main():
             '소요일': days(r.get('시공 소요일(C)-(A)')),
             'lat': None, 'lng': None, '좌표정확도': '',
         })
+
+    # ─ awms 시공 확인분 제외 (아미고는 빼지 않는다) ─
+    con3 = sqlite3.connect(f'file:{DB}?mode=ro', uri=True)
+    awms_macs, awms_info = load_awms_macs(con3)
+    con3.close()
+    keep, dropped = [], []
+    for e in recs:
+        mac = mac_restore(e.get('모뎀MAC'))
+        if mac and mac in awms_macs and e['계기타입'] != 'Amigo':
+            inf = awms_info.get(mac, {})
+            dropped.append({**e,
+                            '제외사유': 'awms 시공기록 있음(모뎀MAC 대조)',
+                            'MAC복원': mac,
+                            'awms등록계기': sorted(inf.get('awms등록계기') or []),
+                            '작업자': inf.get('작업자', ''),
+                            '작업시각': inf.get('작업시각', '')})
+        else:
+            keep.append(e)
+    _amigo_hit = sum(1 for e in recs
+                     if e['계기타입'] == 'Amigo' and mac_restore(e.get('모뎀MAC')) in awms_macs)
+    print(f'awms 시공 확인 제외: {len(dropped)}건 '
+          f'(아미고 {_amigo_hit}건은 무선이라 제외하지 않는다) -> 남는 {len(keep)}건')
+    if dropped:
+        OUT_EXCLUDED.write_text(json.dumps(dropped, ensure_ascii=False, indent=1), encoding='utf-8')
+        print(f'  제외분 보관: {OUT_EXCLUDED.name}')
+    recs = keep
 
     # ─ DCU 대장 매칭(부가 필드만) ─
     con2 = sqlite3.connect(f'file:{DB}?mode=ro', uri=True)
@@ -321,6 +402,8 @@ def main():
     print('계기타입:', dict(sorted(collections.Counter(e['계기타입'] or '(빈)' for e in recs).items())))
     print('소요일 0(교체 당일 LP):', sum(1 for e in recs if e['소요일'] == '0'))
     print('계기번호에 영문 접두:', sum(1 for e in recs if re.search(r'[A-Za-z]', e['계기번호'])))
+    _mac_ok = sum(1 for e in recs if e['모뎀MAC_awms'])
+    print(f'모뎀MAC 복원: {_mac_ok}/{len(recs)} (실패 {len(recs) - _mac_ok})')
     print('계기타입(철거·교체전):', dict(sorted(collections.Counter(
         e['계기타입_전'] or '(빈)' for e in recs).items())))
     print('통신방식(철거·교체전):', dict(sorted(collections.Counter(
