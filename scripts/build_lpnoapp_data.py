@@ -80,12 +80,20 @@ def norm_meter(v) -> str:
 
 
 def meter_type(meter_no: str) -> str:
-    """계기타입은 엑셀을 믿지 않고 계기번호 3~4번째 자리로 판정한다(CLAUDE.md 데이터규칙)."""
+    """계기타입은 엑셀을 믿지 않고 계기번호 3~4번째 자리로 판정한다(CLAUDE.md 데이터규칙).
+
+    ★19 는 'AE' 로 적는다. **판정은 계기번호로 하되 표기는 원본을 따른다** —
+      보강현황 `계기타입_2` 열이 'AE타입' 이고 합동 빌더도 'AE타입' 이다
+      (build_site_data_from_boranggi 는 'EA' 로 적는데 같은 타입의 다른 표기다).
+      2,126건 전수 대조에서 파싱과 원본 열이 **전건 일치**했다 —
+      Amigo↔보안계기 1,924 · AE↔AE타입 146 · G↔G타입 56.
+      마커 뱃지(js/map.js lpTypeLabel)가 이 값을 그대로 찍으므로 표기가 곧 화면이다.
+    """
     c = meter_no[2:4]
     if c == '17':
         return 'E'
     if c == '19':
-        return 'EA'
+        return 'AE'
     if c in ('25', '26', '27', '45', '46', '47'):
         return 'G'
     if c in ('53', '55'):

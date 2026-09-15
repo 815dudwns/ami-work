@@ -614,6 +614,19 @@ function jangaeMeterCount(meters) {
 function jangaeFailCount(meters) {
     return (meters || []).reduce((s, m) => s + (Number(m && m.장애수) || 0), 0);
 }
+// LP무기록 마커 뱃지 — **아미고가 아닌 계기타입만** 핀 위에 띄운다(영준님 2026-09-15
+//   "아미고 아닌것들은 ae 라든지 g 라든지 위에 표시해줘").
+//   이 리스트는 1,036마커 중 875가 아미고뿐이라(보안계기), 아미고까지 찍으면 온통 같은 글자가 되고
+//   정작 눈여겨봐야 할 AE·G 가 묻힌다. 그래서 아미고는 **뱃지 없음**으로 두어 대비시킨다.
+//   실측 분포: 아미고만 875 · AE 109 · G 50 · AE와 G 섞임 2.
+//   섞인 2곳은 둘 다 보여준다('혼합'으로 뭉개면 무엇이 섞였는지 현장에서 알 수 없다).
+function lpTypeLabel(meters) {
+    const set = new Set((meters || [])
+        .map(m => (m && m.계기타입) || '')
+        .filter(t => t && t !== 'Amigo'));
+    return set.size ? [...set].sort().join('·') : '';
+}
+
 function gapapMarkerLabel(meters) {
     const rules = new Set((meters || []).map(m => (m && m.한전기준) || ''));
     if (rules.has('철거+재설치')) return '교';
@@ -635,6 +648,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const isGapap = category === '고압';
     const isHapdong = category === '합동';
     const isJangae = category === '장애';
+    const isLpNoApp = category === 'LP무기록';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
     let color = isApproximate ? 'yellow' : 'green';
@@ -662,6 +676,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     let tagText = markerTagText(isHapdong, isRework);
     // 개통 뱃지는 뺐다(영준님 2026-08-31 "개통은 표시 지워") — 개통 여부는 모달에서도 안 쓴다.
     if (isJangae) tagText = jangaeTechLabel(meters);   // 뱃지 = 모뎀 방식(PLC/KDCU/LTE/SMGW)
+    if (isLpNoApp) tagText = lpTypeLabel(meters);      // 뱃지 = 아미고 아닌 계기타입(AE/G)
 
     const markerContent = `
         <div class="custom-marker ${color}${isGapap ? ' gapap' : ''}${isJangae ? ' jangae' : ''}">
@@ -714,6 +729,7 @@ function repaintMarker(marker) {
     const isGapap = marker.category === '고압';
     const isHapdong = marker.category === '합동';
     const isJangae = marker.category === '장애';
+    const isLpNoApp = marker.category === 'LP무기록';
 
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
@@ -745,7 +761,8 @@ function repaintMarker(marker) {
     const touHasRework = isTou && marker.meters.some(m => m.tou_type === 'rework');
     const isRework = aggregateRework(addrList) || touHasRework;
     const tagText = isJangae ? jangaeTechLabel(marker.meters)
-                             : markerTagText(isHapdong, isRework);
+                  : isLpNoApp ? lpTypeLabel(marker.meters)
+                              : markerTagText(isHapdong, isRework);
     let fracEl = marker.element.querySelector('.marker-fraction');
     if (tagText) {
         if (!fracEl) {
