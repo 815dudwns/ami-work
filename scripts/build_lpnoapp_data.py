@@ -177,7 +177,16 @@ def main():
 
     recs = []
     for r in rows:
-        meter = norm_meter(r.get('계기번호'))
+        # ★보강현황은 계기 관련 열이 **쌍**으로 온다 — 접미사 없는 쪽이 철거계기(교체 전),
+        #   `_2` 가 신설계기(교체 후, **지금 현장에 달려 LP 를 올리고 있는 것**)다.
+        #   실측으로 확인: 접미사 없는 쪽은 전부 E타입 189·G 15(옛 계기)이고
+        #   `_2` 는 보안계기 186·G 10·AE 8(신형)이다. 교체 사업이 E -> 신형으로 가는 것과 맞는다.
+        #   ★지도에 실어야 하는 것은 **신설계기**다(영준님 지적 2026-09-15 — 처음에 철거계기를
+        #     실었다). 기존 build_site_data_from_boranggi.py 도 두 번째 열을 쓴다.
+        #   ★철거계기도 버리지 않는다 — `_전` 접미사로 함께 실어 대조·추적에 쓴다
+        #     (합동 데이터셋과 같은 관례. js/detail.js 가 '이전통신'·'이전계기'로 그린다).
+        meter = norm_meter(r.get('계기번호_2'))          # 신설 = 현재 계기
+        meter_prev = norm_meter(r.get('계기번호'))        # 철거 = 교체 전 계기
         jibun = txt(r.get('지번'))
         road = txt(r.get('도로명'))
         recs.append({
@@ -191,9 +200,15 @@ def main():
             '고객번호': txt(r.get('고객번호')),
             '계기번호': meter,
             '계기타입': meter_type(meter),
-            '통신방식': txt(r.get('통신방식')),
+            '통신방식': txt(r.get('통신방식_2')),
+            # ─ 교체 전(철거) 값 — 표시는 '이전…' 으로 나간다 ─
+            '계기번호_전': meter_prev,
+            '계기타입_전': meter_type(meter_prev),
+            '통신방식_전': txt(r.get('통신방식')),
+            '모뎀MAC': txt(r.get('모뎀 MAC_2')),
             '변대주': txt(r.get('변대주')),
-            'DCUID': txt(r.get('DCU ID')),
+            'DCUID': txt(r.get('DCU ID_2')),
+            'DCUID_전': txt(r.get('DCU ID')),
             'DCU장애여부': txt(r.get('DCU 장애여부')),
             '계기교체일': ymd(r.get('계기교체일(A)')),
             'LP수신일': ymd(r.get('최초LP 수신일(C)')),
@@ -233,6 +248,10 @@ def main():
     print('계기타입:', dict(sorted(collections.Counter(e['계기타입'] or '(빈)' for e in recs).items())))
     print('소요일 0(교체 당일 LP):', sum(1 for e in recs if e['소요일'] == '0'))
     print('계기번호에 영문 접두:', sum(1 for e in recs if re.search(r'[A-Za-z]', e['계기번호'])))
+    print('계기타입(철거·교체전):', dict(sorted(collections.Counter(
+        e['계기타입_전'] or '(빈)' for e in recs).items())))
+    print('통신방식(철거·교체전):', dict(sorted(collections.Counter(
+        e['통신방식_전'] or '(빈)' for e in recs).items(), key=lambda x: -x[1])))
 
 
 if __name__ == '__main__':

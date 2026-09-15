@@ -680,6 +680,11 @@ function renderMetersList() {
         // 합동은 교체사유가 전 건 '합동시공' 고정이라, 아래 10)의 '합동시공·모뎀미시공' 과
         //   겹쳐 "사유 합동시공 · 합동시공·모뎀미시공" 으로 두 번 나왔다. 강조된 쪽만 남긴다.
         if (meter.교체사유 && meter.category !== '합동') subParts.push(`사유 ${meter.교체사유}`);
+        // 철거계기(교체 전) — 큰 글씨의 계기번호는 **신설계기**(지금 달려 있는 것)라,
+        //   대조하려면 철거 쪽도 보여야 한다. 합동은 자기 블록에서 이미 그리므로 뺀다.
+        if (meter.계기번호_전 && meter.category !== '합동') {
+            subParts.push(`철거계기 ${meter.계기번호_전}`);
+        }
         if (meter.DCU장애여부 && meter.DCU장애여부 !== '정상') {
             subParts.push(`<span style="color:#dc2626;font-weight:700;">DCU ${meter.DCU장애여부}</span>`);
         }
