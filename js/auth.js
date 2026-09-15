@@ -79,6 +79,30 @@ function authGetSession() {
     }
 }
 
+/** 계정 제한 기능의 **계정 목록 단일 출처** (2026-09-15 신설).
+ *
+ * ★왜: '관리자 + 윤용운(user09)' 조합이 map.html·stats.html 두 파일 세 곳에 각각 적혀 있었다.
+ *   흩어져 있으면 다음에 계정을 하나 더 열어 줄 때 한 군데를 빠뜨려 어긋난다.
+ *   계정을 더 열 때는 **이 표만** 고친다.
+ *   staff = 통계 페이지 + 관리용 확인 리스트를 볼 수 있는 계정(관리자 + 작업자 총괄).
+ */
+const AUTH_GROUPS = {
+    staff: ['admin', 'user09'],   // 우영준(관리자) · 윤용운(작업자 총괄)
+};
+
+/** 이 세션이 그 그룹에 드는가 — **단일 판정 지점**.
+ *
+ * 목록에 'admin' 이 있으면 **role 이 admin 인 계정**도 통과시킨다. 기존 세 곳이
+ *   `session.role === 'admin' || session.id === 'user09'` 였으므로 동작이 그대로 유지된다.
+ * @param {string} group AUTH_GROUPS 의 키(예: 'staff')
+ */
+function authAllowsGroup(group) {
+    const ids = (AUTH_GROUPS && AUTH_GROUPS[group]) || [];
+    const s = authGetSession();
+    if (!s) return false;
+    return ids.includes(s.id) || (ids.includes('admin') && s.role === 'admin');
+}
+
 /**
  * 로그아웃
  */

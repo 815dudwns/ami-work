@@ -20,6 +20,7 @@
 //   metersKey  한 레코드가 계기 묶음인 데이터셋의 계기 배열 필드명.
 //              지정하면 통계 인덱스가 계기 단위로 펼친다(안 펼치면 한 함체가 1계기로 잡힌다)
 //   onMap      false 면 지도에 안 올린다(통계 분모 전용)
+//   allowGroup 지정하면 그 계정 그룹에만 보인다(js/auth.js AUTH_GROUPS). 통계 분모에서도 빠진다
 const DATASET_REGISTRY = [
     { code: 's', file: './data/site-data.json', category: '실효', label: null, uiLabel: '실효계기',
       statsLabel: '실효' },
@@ -67,14 +68,17 @@ const DATASET_REGISTRY = [
     { code: 'j', file: './data/jangae-data.json', category: '장애', label: null, uiLabel: '장애',
       metersKey: '계기목록', onMap: false },
     // LP 무기록(확인용) — 보강현황 9/8판에서 **한전이 숨긴 행**(우리 대상에서 뺀 것) 중
-    //   awms 26년시공앱·불가앱에 우리 기록이 전혀 없는데 LP 는 올라온 서대문구 개소.
+    //   awms 26년시공앱·불가앱에 우리 기록이 전혀 없는데 LP 는 올라온 개소(2026-09-15 전 지사로 확대).
     //   누가 어떻게 붙였는지 확인하려고 띄우는 **임시 리스트**다(영준님 2026-09-15).
-    //   ★adminOnly — 우영준(admin) 계정에만 보인다. 작업자에게는 할 일이 아니다.
+    //   ★allowGroup — 그 그룹 계정에만 보인다. 작업자 일반에게는 할 일이 아니다.
+    //     2026-09-15: 우영준(admin) 단독 -> **윤용운 반장(user09) 추가**(영준님 지시).
+    //     ★계정 목록은 여기 적지 않는다 — js/auth.js 의 AUTH_GROUPS 가 단일 출처이고
+    //       판정도 authAllowsGroup() 한 곳이 한다. 계정을 더 열 때는 그 표만 고친다.
     //   ★통계 분모에 넣지 않는다(실적이 아니라 확인용). archives 도 없다.
-    //   ★SMGW-C 는 빌더에서 뺐다 — 무선 자동수집이라 우리 시공 없이 LP 가 붙는 게 정상이다.
+    //   ★추가 필터 없다 — SMGW-C 도 포함한다(영준님 정정). 지도에 싣는 계기는 **신설계기**다.
     //   확인이 끝나면 통째로 내린다(onMap:false 가 아니라 이 줄을 지우고 파일도 지운다).
     { code: 'n', file: './data/lpnoapp-data.json', category: 'LP무기록', label: 'LP',
-      uiLabel: 'LP 무기록(확인용)', adminOnly: true },
+      uiLabel: 'LP 무기록(확인용)', allowGroup: 'staff' },
     // 완료 아카이브 — 실효에서 완료돼 빠진 건들. 지도에는 안 올라가고 통계 분모에만 들어간다.
     //   파일이 날짜별로 늘어나므로 glob 으로 잡는다(archivesGlob).
     { code: 'a', category: '완료아카이브', onMap: false, statsLabel: '완료 아카이브',
@@ -84,25 +88,26 @@ const DATASET_REGISTRY = [
     // { code: 't', file: './data/tou-data.json', category: 'tou', label: 'TOU', uiLabel: 'TOU' },
 ];
 
-/** adminOnly 데이터셋이 이 사용자에게 보이는가 (2026-09-15 신설).
+/** 계정 제한이 걸린 데이터셋이 이 사용자에게 보이는가 (2026-09-15 신설).
  *
  * ★왜 여기서 거르나: 지도는 DATASETS 를 **다섯 군데**에서 쓴다(로드·카테고리 패널·
- *   선택 카테고리·마커). 화면마다 role 을 검사하면 한 군데만 빠뜨려도 새어 나간다.
+ *   선택 카테고리·마커·날짜 트리). 화면마다 계정을 검사하면 한 군데만 빠뜨려도 새어 나간다.
  *   목록 자체를 걸러 두면 아래 모든 곳이 자동으로 따라온다.
+ * ★실제 판정은 js/auth.js 의 authAllows() 가 한다 — '관리자 + 윤용운' 조합이
+ *   map.html·stats.html 에도 있어서, 판정을 한 함수로 모아 두지 않으면 또 어긋난다.
  * ★평가 시점이 안전한 이유: map.html 은 이 파일보다 **먼저** authRequire() 를 부른다
  *   (미로그인이면 로그인 화면으로 보내므로, 여기 도달했다는 건 세션이 있다는 뜻이다).
  *   stats.html 도 auth.js 를 먼저 싣는다.
  * ★세션을 못 읽으면 **숨기는 쪽**으로 넘어진다 — 새는 것보다 안 보이는 편이 낫다.
  */
 function datasetVisibleToUser(d) {
-    if (!d.adminOnly) return true;
+    if (!d.allowGroup) return true;
     // ★인증 계층이 아예 없는 곳(node 도구·검사 드라이버)은 '화면'이 아니다 — 전체를 본다.
     //   여기서 숨기면 scripts/test_status_key_parity.py 가 파이썬 거울과 어긋났다고 잡는다.
     //   브라우저 화면에는 auth.js 가 항상 먼저 실려 있으므로 이 갈래로 빠지지 않는다.
-    if (typeof authGetSession !== 'function') return true;
+    if (typeof authAllowsGroup !== 'function') return true;
     try {
-        const s = authGetSession();
-        return !!s && s.role === 'admin';   // 세션을 못 읽으면 숨기는 쪽으로 넘어진다
+        return authAllowsGroup(d.allowGroup);
     } catch (e) {
         return false;
     }
@@ -126,9 +131,9 @@ const DATASET_CATEGORY_BY_CODE = Object.fromEntries(
  *   그대로 두되, 화면에서 '지금 할 일'과 섞이면 진척을 오해한다(영준님 2026-09-09).
  *   ★onMap 에서 파생한다 — 따로 표를 두면 리스트를 내릴 때 한쪽을 빠뜨린다.
  */
-//   ★adminOnly 리스트는 통계 선택지에서도 뺀다(확인용이라 실적 분모가 아니다).
+//   ★계정 제한이 걸린 리스트는 통계 선택지에서도 뺀다(확인용이라 실적 분모가 아니다).
 const DATASET_STATS_OPTS = DATASET_REGISTRY
-    .filter(d => datasetVisibleToUser(d) && !d.adminOnly)
+    .filter(d => datasetVisibleToUser(d) && !d.allowGroup)
     .map(d => ({
         key: d.code, label: d.statsLabel || d.uiLabel || d.category,
         done: d.onMap === false,

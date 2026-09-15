@@ -147,7 +147,7 @@
             <span class="am-txt">로그아웃</span>
         </button>
 
-        <div style="padding:8px 16px 12px;text-align:right;font-size:10px;color:#888;opacity:0.6;letter-spacing:0.03em;">v20260915.3</div>
+        <div style="padding:8px 16px 12px;text-align:right;font-size:10px;color:#888;opacity:0.6;letter-spacing:0.03em;">v20260915.4</div>
     </div>
 
     <!-- 검색 모달 -->
@@ -266,7 +266,7 @@
         </div>
     </div>
 
-    <script src="js/auth.js?v=20260624b"></script>
+    <script src="js/auth.js?v=20260915a"></script>
     <script>
         // 로그인 체크 — 미인증이면 login.html로 이동
         authRequire();
@@ -276,11 +276,12 @@
             const session = authGetSession();
             if (session) {
                 document.getElementById('user-name-display').textContent = session.name;
-                const isAdmin = session.role === 'admin';
                 // 관리자 전용 메뉴(관리자·사진등록·awms수집·계기추가)는 숨김 —
                 // admin도 윤용운(user09)과 동일 UI로 통일 (영준님 지시 2026-07-04).
                 // 통계 = 관리자 + 윤용운(user09, 작업자 총괄)
-                if (isAdmin || session.id === 'user09') {
+                // ★판정은 js/auth.js 의 authAllowsGroup('staff') 하나로 모았다(2026-09-15).
+                //   같은 조합이 stats.html 에도 있어, 흩어져 있으면 계정을 더 열 때 어긋난다.
+                if (authAllowsGroup('staff')) {
                     document.getElementById('stats-btn').style.display = '';
                     document.getElementById('stats-divider').style.display = '';
                 }
@@ -290,7 +291,7 @@
     <script src="js/config.js?v=20260622a"></script>
     <script src="js/utils.js?v=20260622a"></script>
     <script src="js/status-key.js?v=20260915a"></script>
-    <script src="js/datasets.js?v=20260915a"></script>
+    <script src="js/datasets.js?v=20260915b"></script>
     <script src="js/firebase.js?v=20260909a"></script>
     <script src="js/awms-parseValue.js?v=20260622a"></script>
     <script src="js/qr-scanner.js?v=20260622a"></script>
