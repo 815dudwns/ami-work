@@ -56,7 +56,7 @@ DATASETS = [(os.path.basename(d["file"]), d["category"]) for d in _MAP_DATASETS]
 
 # 자기 이름을 상태키에 박는 카테고리 — 다른 리스트와 상태를 절대 공유하지 않는다.
 #   성격이 다른 리스트가 또 들어오면 여기에 한 줄 추가하면 된다.
-NAMESPACED_CATEGORIES = ("고압", "합동", "skt", "장애")
+NAMESPACED_CATEGORIES = ("고압", "합동", "skt", "장애", "LP무기록")
 
 
 def marker_key_of(item):
@@ -219,7 +219,7 @@ def fallback_key_of(item):
     ★좌표는 만들지 않는다 — 동을 끌어낼 주소가 없으니 추측 금지. 마커 없이 데이터로만 둔다.
     """
     cat = item.get("category") or ""
-    for f in ("CONS_TGT_SEQNO", "계기번호"):
+    for f in ("CONS_TGT_SEQNO", "고객번호", "계기번호"):
         v = str(item.get(f) or "").strip()
         if v:
             return "{}{}{}".format(v, STATUS_KEY_SEP, cat) if cat else v

@@ -394,7 +394,12 @@ function populateCategoryFilter() {
 
 // 카테고리 필터 — 체크된 카테고리만 표시 (localStorage 저장)
 function getSelectedCategories() {
-    const ALL = ['실효', '합동', 'skt'];   // 재방문 폐기 · 고압/장애 지도 내림 2026-09-09 — DATASETS 주석 참조
+    // ★목록을 손으로 적지 않는다 — DATASETS 에서 파생한다(2026-09-15).
+    //   손으로 적던 때는 데이터셋을 새로 올려도 여기 안 넣으면 **로드는 되는데 마커가 0개**였다.
+    //   화면엔 아무 오류도 안 뜨고 카테고리 패널에만 나와서, 데이터가 잘못된 줄 알기 쉽다
+    //   (실측 2026-09-15: LP무기록 201건이 sampleData 에 들어왔는데 마커 0개).
+    //   DATASETS 는 onMap·adminOnly 가 이미 걸러진 목록이라 그대로 쓰면 된다.
+    const ALL = DATASETS.map(d => d.category);
     const saved = localStorage.getItem('ami_selected_categories');
     if (saved) try {
         const set = new Set(JSON.parse(saved));

@@ -48,7 +48,7 @@ const STATUS_KEY_SEP = '|';
 //   ★장애(2026-08-31 추가): 원천이 awms 모뎀작업리스트라 실효·합동과 주소가 대량으로
 //     겹친다. 네임스페이스가 없으면 이미 완료된 주소의 기록을 그대로 물려받아 회색(완료)로
 //     떠서 할 일이 묻힌다(영준님 "장애는 완료표시하면 안된다 · pending").
-const NAMESPACED_CATEGORIES = ['고압', '합동', 'skt', '장애'];
+const NAMESPACED_CATEGORIES = ['고압', '합동', 'skt', '장애', 'LP무기록'];
 
 // 마커 식별자 — map.js loadMarkers()의 그룹핑 키와 같은 형식이어야 한다.
 function markerKeyOf(item) {
@@ -181,7 +181,7 @@ function buildStatusKeyIndex(rows) {
 //   ★scripts/status_key.py 의 fallback_key_of 와 같은 값을 내야 한다.
 function fallbackKeyOf(item) {
     const cat = (item && item.category) || '';
-    for (const f of ['CONS_TGT_SEQNO', '계기번호']) {
+    for (const f of ['CONS_TGT_SEQNO', '고객번호', '계기번호']) {
         const v = String((item && item[f]) != null ? item[f] : '').trim();
         if (v) return cat ? v + STATUS_KEY_SEP + cat : v;
     }

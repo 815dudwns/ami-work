@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""LP 무기록 리스트 빌더 — data/ami.db(boranggi) -> data/lpnoapp-data.json
+
+무엇인가 (영준님 지시 2026-09-15)
+  보강현황 엑셀에서 **한전이 숨긴 행**(visible='0' = 우리 대상에서 뺀 것) 중,
+  awms 26년시공앱·불가앱에 **우리 기록이 전혀 없는데 LP 는 올라온** 개소다.
+  누가 어떻게 붙였는지 확인하려고 만드는 **확인용 임시 리스트**이고,
+  실적 분모가 아니다 — 통계에 넣지 않는다. 지도에도 **admin(우영준)만** 보인다.
+
+★대상 조건은 PM 이 확정했다. 아래 SQL 을 임의로 고치지 마라.
+  출처 = 9/8판 스냅샷(snapshot='20260908', 원본 `data/inbox_jdg_20260909/계기교체 보강현황_20260908081440.xlsx`)
+
+★SMGW-C 도 포함한다(영준님 2026-09-15 정정). PM 초안은 "무선 자동수집이라 정상"
+  ([[smgwc_wireless_pickup]])을 근거로 뺐으나 영준님이 포함으로 정하셨다. **거르지 마라.**
+  통신방식은 레코드에 실려 있으니 지도에서 구분만 하면 된다.
+  = 쿼리 결과 전부가 대상이고 추가 필터는 없다.
+
+★시공 소요일 0(교체 당일 LP)은 **빼지 않는다.** 기설 모뎀 유지로 설명될 후보지만
+  그 판정이 이번 확인의 목적이다. 대신 `소요일` 을 레코드에 실어 지도에서 구분되게 한다.
+
+사용:
+    python3 scripts/build_lpnoapp_data.py
+    python3 scripts/build_lpnoapp_data.py --no-geocode   # 좌표 재사용만(질의 안 함)
+"""
+
+import collections
+import json
+import os
+import re
+import sqlite3
+import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from geocode_cascade import resolve as geo_resolve   # noqa: E402
+
+ROOT = Path(__file__).resolve().parent.parent
+DB = ROOT / 'data' / 'ami.db'
+OUT = ROOT / 'data' / 'lpnoapp-data.json'
+GEO_CACHE = ROOT / 'data' / 'inbox_hapdong' / 'geocode-cache.json'   # 합동과 같은 캐시를 쓴다
+WORKERS = 8
+
+SNAPSHOT = '20260908'
+
+SQL = """
+SELECT * FROM boranggi
+WHERE snapshot=?
+  AND visible='0'
+  AND 지번 LIKE '%서대문구%'
+  AND ("26년시공앱" IS NULL OR "26년시공앱" IN ('','#N/A'))
+  AND ("26년불가앱" IS NULL OR "26년불가앱" IN ('','#N/A'))
+  AND "최초LP 수신일(C)" IS NOT NULL AND "최초LP 수신일(C)" NOT IN ('','#N/A')
+  AND substr("계기교체일(A)",1,10) >= '2026-06-08'
+"""
+
+
+def txt(v) -> str:
+    if v is None:
+        return ''
+    s = str(v).strip()
+    return '' if s.lower() in ('nan', 'nat', 'none', '#n/a') else s
+
+
+def norm_meter(v) -> str:
+    """계기번호 정규화 — build_site_data_from_boranggi.norm_meter 와 같은 규칙.
+
+    ★접두 문자를 지우지 마라(2026-09-10 사고). 영문자가 섞이면 그대로 두고,
+      순수 숫자일 때만 zfill(11) 한다([[meter_no_prefix_preserve]]).
+    """
+    s = re.sub(r'[\s\-]', '', str(v or '')).strip()
+    if not s or s.lower() in ('nan', 'none'):
+        return ''
+    if re.search(r'[A-Za-z]', s):
+        return s.upper()
+    return s.zfill(11)
+
+
+def meter_type(meter_no: str) -> str:
+    """계기타입은 엑셀을 믿지 않고 계기번호 3~4번째 자리로 판정한다(CLAUDE.md 데이터규칙)."""
+    c = meter_no[2:4]
+    if c == '17':
+        return 'E'
+    if c == '19':
+        return 'EA'
+    if c in ('25', '26', '27', '45', '46', '47'):
+        return 'G'
+    if c in ('53', '55'):
+        return 'Amigo'
+    return ''
+
+
+def ymd(v) -> str:
+    s = txt(v)
+    if not s:
+        return ''
+    m = re.match(r'(\d{4})[-./]?(\d{2})[-./]?(\d{2})', s)
+    return f'{m.group(1)}-{m.group(2)}-{m.group(3)}' if m else s[:10]
+
+
+def days(v) -> str:
+    """소요일 — 숫자면 정수 문자열로, 아니면 빈값."""
+    s = txt(v)
+    if not s:
+        return ''
+    try:
+        return str(int(float(s)))
+    except ValueError:
+        return ''
+
+
+# ─── 지오코딩 ──────────────────────────────────────────────────────────────
+
+def load_geo_cache():
+    if GEO_CACHE.exists():
+        try:
+            return json.loads(GEO_CACHE.read_text(encoding='utf-8'))
+        except Exception:
+            pass
+    return {}
+
+
+CACHE_LEN = 7   # [accuracy, address, lat, lng, method, road, jibun] — 합동 빌더와 같은 형식
+
+
+def geocode_all(pairs, cache, enabled=True):
+    def stale(k):
+        v = cache.get(k)
+        return not isinstance(v, list) or len(v) < CACHE_LEN
+
+    todo = [p for p in pairs if stale(f'{p[0]} {p[1]}')]
+    if not enabled:
+        print(f'지오코딩 건너뜀(--no-geocode) — 캐시 미보유 {len(todo):,}건은 좌표 없음', flush=True)
+        return cache
+    if not todo:
+        print(f'지오코딩: 전부 캐시 재사용({len(pairs):,}건)', flush=True)
+        return cache
+    print(f'지오코딩 대상 {len(todo):,}건 (캐시 재사용 {len(pairs) - len(todo):,}건)', flush=True)
+
+    counter = {'done': 0, 'exact': 0, 'approx': 0, 'fail': 0}
+    lock = threading.Lock()
+
+    def work(p):
+        return p, geo_resolve(jibun=p[0], road=p[1])
+
+    with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+        for fut in as_completed([ex.submit(work, p) for p in todo]):
+            p, hit = fut.result()
+            cache[f'{p[0]} {p[1]}'] = [hit.accuracy, hit.address, hit.lat, hit.lng,
+                                       hit.method, hit.road, hit.jibun]
+            with lock:
+                counter['done'] += 1
+                counter['exact' if hit.accuracy == 'exact'
+                        else 'approx' if hit.accuracy == 'approximate' else 'fail'] += 1
+                if counter['done'] % 25 == 0 or counter['done'] == len(todo):
+                    print(f"  [{counter['done']}/{len(todo)}] exact={counter['exact']} "
+                          f"approx={counter['approx']} fail={counter['fail']}", flush=True)
+    return cache
+
+
+def main():
+    no_geo = '--no-geocode' in sys.argv
+
+    if not DB.exists():
+        sys.exit(f'{DB} 없음 — ami.db 는 main 워크트리에 있다(gitignore). 심볼릭 링크를 걸어라.')
+
+    con = sqlite3.connect(f'file:{DB}?mode=ro', uri=True)
+    con.row_factory = sqlite3.Row
+    raw = [dict(r) for r in con.execute(SQL, (SNAPSHOT,))]
+    con.close()
+    print(f'쿼리 결과 {len(raw)}건 (snapshot={SNAPSHOT})')
+
+    # ★추가 필터 없음 — 쿼리 결과 전부가 대상이다(영준님 2026-09-15).
+    rows = raw
+
+    recs = []
+    for r in rows:
+        meter = norm_meter(r.get('계기번호'))
+        jibun = txt(r.get('지번'))
+        road = txt(r.get('도로명'))
+        recs.append({
+            '지사': txt(r.get('지사')),
+            # ★'주소' 는 상태키의 첫 칸이다. 지번을 주소로 쓴다(도로명은 따로 싣는다).
+            '주소': jibun,
+            '지번주소': jibun,
+            '도로명주소': road,
+            '공동주택명': txt(r.get('공동주택명')),
+            '상호': txt(r.get('상호명')),
+            '고객번호': txt(r.get('고객번호')),
+            '계기번호': meter,
+            '계기타입': meter_type(meter),
+            '통신방식': txt(r.get('통신방식')),
+            '변대주': txt(r.get('변대주')),
+            'DCUID': txt(r.get('DCU ID')),
+            'DCU장애여부': txt(r.get('DCU 장애여부')),
+            '계기교체일': ymd(r.get('계기교체일(A)')),
+            'LP수신일': ymd(r.get('최초LP 수신일(C)')),
+            # ★교체 당일 LP(0)를 빼지 않는 대신 이 값을 실어 지도에서 구분한다(발주서 §2).
+            '소요일': days(r.get('시공 소요일(C)-(A)')),
+            'lat': None, 'lng': None, '좌표정확도': '',
+        })
+
+    # ─ 좌표 ─ 도로명→지번→동중심 3단 폴백. ★실패해도 건을 버리지 않는다.
+    cache = load_geo_cache()
+    pairs = sorted({(e['지번주소'], e['도로명주소']) for e in recs if e['지번주소'] or e['도로명주소']})
+    cache = geocode_all(pairs, cache, enabled=not no_geo)
+    if not no_geo:
+        GEO_CACHE.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding='utf-8')
+
+    stat = collections.Counter()
+    for e in recs:
+        hit = cache.get(f"{e['지번주소']} {e['도로명주소']}")
+        if not (isinstance(hit, list) and len(hit) >= CACHE_LEN):
+            e['좌표정확도'] = 'fail'
+            stat['fail'] += 1
+            continue
+        acc, _addr, lat, lng, _m, _road, _jb = hit
+        e['lat'], e['lng'] = lat, lng
+        e['좌표정확도'] = acc or 'fail'
+        stat[e['좌표정확도']] += 1
+
+    OUT.write_text(json.dumps(recs, ensure_ascii=False, indent=1), encoding='utf-8')
+
+    print(f'\n저장: {OUT} — {len(recs):,}건')
+    print(f'좌표: exact={stat["exact"]} approximate={stat["approximate"]} fail={stat["fail"]}'
+          f' · 좌표 없는 건 {sum(1 for e in recs if e["lat"] is None)}')
+    print('개소(지번 고유):', len({e['지번주소'] for e in recs}))
+    print('월별:', dict(sorted(collections.Counter(e['계기교체일'][:7] for e in recs).items())))
+    print('통신방식:', dict(sorted(collections.Counter(e['통신방식'] or '(빈)' for e in recs).items(),
+                                key=lambda x: -x[1])))
+    print('계기타입:', dict(sorted(collections.Counter(e['계기타입'] or '(빈)' for e in recs).items())))
+    print('소요일 0(교체 당일 LP):', sum(1 for e in recs if e['소요일'] == '0'))
+    print('계기번호에 영문 접두:', sum(1 for e in recs if re.search(r'[A-Za-z]', e['계기번호'])))
+
+
+if __name__ == '__main__':
+    main()

@@ -25,6 +25,10 @@ DATASETS = [
     #   onMap=False 라 통계 분모에는 그대로 있다. js/datasets.js 주석 참조
     {"code": "j", "file": "data/jangae-data.json", "category": "장애", "uiLabel": "장애",
      "metersKey": "계기목록", "onMap": False},
+    # LP 무기록(확인용) — admin 전용 임시 리스트. js/datasets.js 주석 참조.
+    #   ★adminOnly 는 통계 분모에 넣지 않는다(실적이 아니다) — stats_sources() 가 건너뛴다.
+    {"code": "n", "file": "data/lpnoapp-data.json", "category": "LP무기록",
+     "uiLabel": "LP 무기록(확인용)", "adminOnly": True},
     # 지도에는 안 올라가고 통계 분모에만 들어간다.
     {"code": "a", "category": "완료아카이브", "onMap": False, "statsLabel": "완료 아카이브",
      "archivesGlob": "data/site-data-completed-archive-*.json"},
@@ -39,6 +43,9 @@ def stats_sources():
     import glob
     out = []
     for d in DATASETS:
+        # 확인용 admin 전용 리스트는 실적 분모가 아니다 — 인덱스에 넣지 않는다.
+        if d.get("adminOnly"):
+            continue
         paths = []
         if d.get("file"):
             paths.append(ROOT / d["file"])
