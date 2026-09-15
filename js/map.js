@@ -654,6 +654,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
     if (isTou) color = 'tou';
+    if (isLpNoApp) color = 'lpnoapp';   // 확인용 리스트 — 진보라(영준님 2026-09-15)
     // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
     if (state === 'complete') color = 'gray';
     else if (state === 'hold') color = 'blue';
@@ -679,7 +680,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     if (isLpNoApp) tagText = lpTypeLabel(meters);      // 뱃지 = 아미고 아닌 계기타입(AE/G)
 
     const markerContent = `
-        <div class="custom-marker ${color}${isGapap ? ' gapap' : ''}${isJangae ? ' jangae' : ''}">
+        <div class="custom-marker ${color}${isGapap ? ' gapap' : ''}${isJangae ? ' jangae' : ''}${isLpNoApp ? ' lpnoapp' : ''}">
             <svg viewBox="0 0 20 26" xmlns="http://www.w3.org/2000/svg">
                 <path class="pin-body" d="M10 0C4.48 0 0 4.48 0 10c0 6.72 10 16 10 16s10-9.28 10-16C20 4.48 15.52 0 10 0z"/>
                 <circle class="pin-circle" cx="10" cy="10" r="5.5" fill="white"/>
@@ -734,6 +735,7 @@ function repaintMarker(marker) {
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
     if (isTou) color = 'tou';
+    if (isLpNoApp) color = 'lpnoapp';   // 확인용 리스트 — 진보라(영준님 2026-09-15)
     // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
     if (state === 'complete') color = 'gray';
     else if (state === 'hold') color = 'blue';
