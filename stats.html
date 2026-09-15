@@ -13,7 +13,7 @@
     <script src="js/config.js?v=20260601b"></script>
     <script src="js/utils.js?v=20260601b"></script>
     <!-- 상태키 규칙(네임스페이스 카테고리 목록)의 단일 출처. 지도와 같은 파일을 쓴다. -->
-    <script src="js/status-key.js?v=20260915a"></script>
+    <script src="js/status-key.js?v=20260915b"></script>
     <script src="js/datasets.js?v=20260915c"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -511,20 +511,58 @@ function render(fbSiteData, workStatus, dateStr) {
     }
 
     // ── 구별 / 작업자별 탭: 선택 날짜 하루치 ──
-    const items = [];
+    // ★개소는 **지번(건물) 단위**로 묶는다 (영준님 2026-09-15 "한 주소에 5개 묶여있는 것도
+    //   5개소라고 봄 / 안지홍 56개소 57개"). 예전엔 workStatus 키마다 항목을 하나씩 만들어
+    //   그대로 세서 **개소 = 키 개수**였다. 합동 주소는 awms 가 동호수까지 붙이므로
+    //   한 건물이 세대 수만큼 부풀려졌다(실측: 안지홍 9/15 키 56 -> 지번 개소 32,
+    //   방학동531 한 건물에만 8건).
+    // ★지사별 누적 탭(aggByBranch)이 쓰는 규칙을 **그대로 재사용**한다 — siteKeyOf/jibunOf.
+    //   새로 짜면 두 탭이 다른 수를 내게 된다.
+    // ★카테고리를 키에 넣는다(siteKeyOf 와 동일). 빼면 같은 지번의 실효와 합동이 한 개소로 합쳐진다.
+    // ★계기 수는 합산한다 — 지번으로 묶어도 계기는 줄면 안 된다(안지홍 57 유지).
+    // ★상태는 aggByBranch 와 같은 규칙: 전부 complete 일 때만 complete, 섞이면 fail > hold.
+    //   (이 탭은 pending 을 애초에 제외하므로 섞임은 complete/hold/fail 사이에서만 생긴다)
+    // ※한 건물을 두 작업자가 나눠 찍으면 개소가 양쪽에 각각 잡혀 합계가 부풀 수 있다.
+    //   실측(9/15·9/14·9/11 사흘)에서 그런 개소가 **0건**이라 단순하게 첫 기록자에게 둔다.
+    //   생기기 시작하면 그때 귀속 규칙을 정한다.
+    const siteMap = new Map();
     for (const addr in workStatus) {
         const ws = workStatus[addr];
         if (!ws || !ws.state || ws.state === 'pending') continue;
         if (!isSameLocalDay(ws.updatedAt, dateStr)) continue;
-        const meters = metersOfStatusKey(addr);
-        items.push({
-            address: addr,
-            state: ws.state,
-            worker: ws.updatedByName || ws.updatedBy || '(미상)',
-            gu: extractGu(addr),
-            meters
-        });
+        const decoded = decodeStatusKey(addr);
+        // 상태키의 '|카테고리' 접미에서 카테고리를 얻는다(없으면 실효).
+        let cat = 's';
+        let bare = decoded;
+        if (typeof NAMESPACED_CATEGORIES !== 'undefined') {
+            const hit = NAMESPACED_CATEGORIES.find(c => decoded.endsWith('|' + c));
+            if (hit) { cat = hit; bare = decoded.slice(0, -(hit.length + 1)); }
+        }
+        const sKey = siteKeyOf({ l: cat }, bare);
+        let slot = siteMap.get(sKey);
+        if (!slot) {
+            slot = { address: bare, states: [], worker: ws.updatedByName || ws.updatedBy || '(미상)',
+                     gu: extractGu(bare), meters: [], seen: new Set() };
+            siteMap.set(sKey, slot);
+        }
+        slot.states.push(ws.state);
+        // 같은 계기가 두 키에 걸쳐 들어오는 일은 없어야 하지만, 들어와도 두 번 세지 않는다.
+        for (const m of metersOfStatusKey(addr)) {
+            const id = String((m && m.계기번호) || '');
+            if (id && slot.seen.has(id)) continue;
+            if (id) slot.seen.add(id);
+            slot.meters.push(m);
+        }
     }
+    const items = [...siteMap.values()].map(s => ({
+        address: s.address,
+        state: s.states.every(x => x === 'complete') ? 'complete'
+             : (s.states.includes('fail') ? 'fail'
+             : (s.states.includes('hold') ? 'hold' : 'pending')),
+        worker: s.worker,
+        gu: s.gu,
+        meters: s.meters,
+    }));
 
     const dayTotal = emptyAgg();
     const byGu = {};
