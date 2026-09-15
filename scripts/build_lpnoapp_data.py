@@ -101,6 +101,34 @@ def meter_type(meter_no: str) -> str:
     return ''
 
 
+# ─── DCU 대장 ──────────────────────────────────────────────────────────────
+# 대장 = `data/reference/간선망_해지_정지대상.xlsx` 시트 '전체DCU 현황' 의 DB 미러(dcu_all, 19,007행).
+#   ★여기서는 **부가 필드만** 붙인다(인입주는 보강현황, 회선상태·매칭근거는 대장).
+#     DCUID·통신방식 본값 교정은 `scripts/fix_amimap_dcu_by_rule.py` 가 한다 — 룰의 정본이라
+#     두 곳에서 따로 판정하면 어긋난다. 이 빌더는 **한전값을 그대로 두고** 넘긴다.
+#   ★동명이인 변대주명이 12개 있다. 이름이 유일할 때만 매칭 근거로 인정한다
+#     (유사매칭 금지 — 2026-08-12 에 864건 오염된 사고가 있다).
+def load_dcu_ledger(con):
+    """대장 -> (DCU ID 색인, 유일한 변대주명 색인, 동명이인 이름 집합)."""
+    rows = con.execute(
+        'SELECT "DCU ID" AS dcu_id, 변대주명, 회선상태, "인입망 통신방식" AS comm FROM dcu_all'
+    ).fetchall()
+    by_id, by_name, dup = {}, {}, set()
+    for r in rows:
+        d = dict(r)
+        did, nm = txt(d.get('dcu_id')), txt(d.get('변대주명'))
+        if did:
+            by_id.setdefault(did, d)
+        if nm:
+            if nm in by_name:
+                dup.add(nm)
+            else:
+                by_name[nm] = d
+    for nm in dup:
+        by_name.pop(nm, None)          # 동명이인은 근거로 못 쓴다
+    return by_id, by_name, dup
+
+
 def gu_of(addr: str) -> str:
     """지번주소에서 '○○구' 를 뽑는다. 못 찾으면 빈값(버리지 않는다)."""
     m = re.search(r'(\S+구)(\s|$)', str(addr or ''))
@@ -224,6 +252,11 @@ def main():
             '통신방식_전': txt(r.get('통신방식')),
             '모뎀MAC': txt(r.get('모뎀 MAC_2')),
             '변대주': txt(r.get('변대주')),
+            # 인입주 — 보강현황 원본 열. detail.js 가 변대주와 짝으로 그린다(없으면 반쪽만 나온다).
+            '인입주': txt(r.get('인입주')),
+            # 무엇을 근거로 DCU 를 붙였는지 남긴다 — 안 남기면 나중에 재검증이 안 된다.
+            'DCU회선상태': '',
+            'DCU매칭': '',
             'DCUID': txt(r.get('DCU ID_2')),
             'DCUID_전': txt(r.get('DCU ID')),
             'DCU장애여부': txt(r.get('DCU 장애여부')),
@@ -233,6 +266,26 @@ def main():
             '소요일': days(r.get('시공 소요일(C)-(A)')),
             'lat': None, 'lng': None, '좌표정확도': '',
         })
+
+    # ─ DCU 대장 매칭(부가 필드만) ─
+    con2 = sqlite3.connect(f'file:{DB}?mode=ro', uri=True)
+    con2.row_factory = sqlite3.Row
+    by_id, by_name, dup = load_dcu_ledger(con2)
+    con2.close()
+    mstat = collections.Counter()
+    for e in recs:
+        nm, did = e['변대주'], e['DCUID']
+        hit, src = None, '없음'
+        if nm and nm in dup:
+            src = '동명이인'                      # 근거로 쓰지 않는다
+        elif nm and nm in by_name:
+            hit, src = by_name[nm], '변대주'
+        elif did and did in by_id:
+            hit, src = by_id[did], 'DCUID'
+        e['DCU매칭'] = src
+        e['DCU회선상태'] = txt(hit.get('회선상태')) if hit else ''
+        mstat[src] += 1
+    print('DCU 대장 매칭:', dict(mstat.most_common()))
 
     # ─ 좌표 ─ 도로명→지번→동중심 3단 폴백. ★실패해도 건을 버리지 않는다.
     cache = load_geo_cache()

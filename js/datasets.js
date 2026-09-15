@@ -77,7 +77,12 @@ const DATASET_REGISTRY = [
     //   ★통계 분모에 넣지 않는다(실적이 아니라 확인용). archives 도 없다.
     //   ★추가 필터 없다 — SMGW-C 도 포함한다(영준님 정정). 지도에 싣는 계기는 **신설계기**다.
     //   확인이 끝나면 통째로 내린다(onMap:false 가 아니라 이 줄을 지우고 파일도 지운다).
-    { code: 'n', file: './data/lpnoapp-data.json', category: 'LP무기록', label: 'LP',
+    //   ★label 은 null 이다 = 마커에 **계기 개수**를 찍는다(실효와 같다).
+    //     이 리스트는 한 DCU·한 모뎀에 여러 계기가 물린 구조라(2,126건/1,038개소)
+    //     개소당 몇 계기인지가 현장에서 곧 정보다.
+    //     ※예전엔 'LP' 였는데 **화면에 쓰이지 않는 죽은 값**이었다 — createMarker 가
+    //       카테고리로 분기하는데 LP무기록 분기가 없어 이미 개수가 찍히고 있었다.
+    { code: 'n', file: './data/lpnoapp-data.json', category: 'LP무기록', label: null,
       uiLabel: 'LP 무기록(확인용)', allowGroup: 'staff' },
     // 완료 아카이브 — 실효에서 완료돼 빠진 건들. 지도에는 안 올라가고 통계 분모에만 들어간다.
     //   파일이 날짜별로 늘어나므로 glob 으로 잡는다(archivesGlob).
