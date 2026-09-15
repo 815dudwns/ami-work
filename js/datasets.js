@@ -66,6 +66,15 @@ const DATASET_REGISTRY = [
     //     장애는 미착수 0건이라 내린 채로 둔다.
     { code: 'j', file: './data/jangae-data.json', category: '장애', label: null, uiLabel: '장애',
       metersKey: '계기목록', onMap: false },
+    // LP 무기록(확인용) — 보강현황 9/8판에서 **한전이 숨긴 행**(우리 대상에서 뺀 것) 중
+    //   awms 26년시공앱·불가앱에 우리 기록이 전혀 없는데 LP 는 올라온 서대문구 개소.
+    //   누가 어떻게 붙였는지 확인하려고 띄우는 **임시 리스트**다(영준님 2026-09-15).
+    //   ★adminOnly — 우영준(admin) 계정에만 보인다. 작업자에게는 할 일이 아니다.
+    //   ★통계 분모에 넣지 않는다(실적이 아니라 확인용). archives 도 없다.
+    //   ★SMGW-C 는 빌더에서 뺐다 — 무선 자동수집이라 우리 시공 없이 LP 가 붙는 게 정상이다.
+    //   확인이 끝나면 통째로 내린다(onMap:false 가 아니라 이 줄을 지우고 파일도 지운다).
+    { code: 'n', file: './data/lpnoapp-data.json', category: 'LP무기록', label: 'LP',
+      uiLabel: 'LP 무기록(확인용)', adminOnly: true },
     // 완료 아카이브 — 실효에서 완료돼 빠진 건들. 지도에는 안 올라가고 통계 분모에만 들어간다.
     //   파일이 날짜별로 늘어나므로 glob 으로 잡는다(archivesGlob).
     { code: 'a', category: '완료아카이브', onMap: false, statsLabel: '완료 아카이브',
@@ -75,10 +84,35 @@ const DATASET_REGISTRY = [
     // { code: 't', file: './data/tou-data.json', category: 'tou', label: 'TOU', uiLabel: 'TOU' },
 ];
 
+/** adminOnly 데이터셋이 이 사용자에게 보이는가 (2026-09-15 신설).
+ *
+ * ★왜 여기서 거르나: 지도는 DATASETS 를 **다섯 군데**에서 쓴다(로드·카테고리 패널·
+ *   선택 카테고리·마커). 화면마다 role 을 검사하면 한 군데만 빠뜨려도 새어 나간다.
+ *   목록 자체를 걸러 두면 아래 모든 곳이 자동으로 따라온다.
+ * ★평가 시점이 안전한 이유: map.html 은 이 파일보다 **먼저** authRequire() 를 부른다
+ *   (미로그인이면 로그인 화면으로 보내므로, 여기 도달했다는 건 세션이 있다는 뜻이다).
+ *   stats.html 도 auth.js 를 먼저 싣는다.
+ * ★세션을 못 읽으면 **숨기는 쪽**으로 넘어진다 — 새는 것보다 안 보이는 편이 낫다.
+ */
+function datasetVisibleToUser(d) {
+    if (!d.adminOnly) return true;
+    // ★인증 계층이 아예 없는 곳(node 도구·검사 드라이버)은 '화면'이 아니다 — 전체를 본다.
+    //   여기서 숨기면 scripts/test_status_key_parity.py 가 파이썬 거울과 어긋났다고 잡는다.
+    //   브라우저 화면에는 auth.js 가 항상 먼저 실려 있으므로 이 갈래로 빠지지 않는다.
+    if (typeof authGetSession !== 'function') return true;
+    try {
+        const s = authGetSession();
+        return !!s && s.role === 'admin';   // 세션을 못 읽으면 숨기는 쪽으로 넘어진다
+    } catch (e) {
+        return false;
+    }
+}
+
 // 지도에 올리는 데이터셋만. ★이름이 `DATASETS` 인 이유: js/map.js 가 이 이름을 쓴다.
 //   ★map.js 에서 다시 선언하면 안 된다 — 클래식 스크립트는 전역을 공유해서 const 중복선언이
 //     SyntaxError 를 내고 map.js 가 통째로 안 돈다(2026-09-03 지도 먹통 사고).
-const DATASETS = DATASET_REGISTRY.filter(d => d.onMap !== false && d.file);
+const DATASETS = DATASET_REGISTRY.filter(
+    d => d.onMap !== false && d.file && datasetVisibleToUser(d));
 const MAP_DATASETS = DATASETS;
 
 /** 통계 인덱스 코드 -> 상태키 카테고리. 네임스페이스 판정에 쓴다. */
@@ -92,10 +126,13 @@ const DATASET_CATEGORY_BY_CODE = Object.fromEntries(
  *   그대로 두되, 화면에서 '지금 할 일'과 섞이면 진척을 오해한다(영준님 2026-09-09).
  *   ★onMap 에서 파생한다 — 따로 표를 두면 리스트를 내릴 때 한쪽을 빠뜨린다.
  */
-const DATASET_STATS_OPTS = DATASET_REGISTRY.map(d => ({
-    key: d.code, label: d.statsLabel || d.uiLabel || d.category,
-    done: d.onMap === false,
-}));
+//   ★adminOnly 리스트는 통계 선택지에서도 뺀다(확인용이라 실적 분모가 아니다).
+const DATASET_STATS_OPTS = DATASET_REGISTRY
+    .filter(d => datasetVisibleToUser(d) && !d.adminOnly)
+    .map(d => ({
+        key: d.code, label: d.statsLabel || d.uiLabel || d.category,
+        done: d.onMap === false,
+    }));
 
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { DATASET_REGISTRY, DATASETS, MAP_DATASETS,
