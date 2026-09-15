@@ -336,10 +336,19 @@ function showDetail(address, meters, addresses, statusKeys) {
         const poleName = meters.find(m => m.변대주);
         const nameTxt = (poleName && poleName.변대주) || '';
         const isRemove = dcuTag.indexOf('철거') !== -1;
+        // ★충돌 표시 (영준님 2026-09-15) — **철거예정인데 통신방식이 DCU 계열**인 개소.
+        //   회선상태로는 절대 안 걸린다: 철거예정 개소는 회선상태가 전부 '개통' 이다.
+        //   그대로 두면 작업자가 PLC 로 알고 갔다가 곧 철거될 DCU 에 물리게 된다 —
+        //   실제로는 LTE 로 시공해야 한다. 그래서 '현재 무엇으로 적혀 있는지'를 같이 보여준다.
+        //   ※카테고리로 걸지 않는다 — 실효에도 같은 충돌이 있다(태그 4건 전부 KS-PLC·HPGP).
+        const DCU_COMM = ['PLC', 'KS-PLC', 'K-DCU', 'HPGP'];
+        const commMeter = meters.find(m => m.통신방식 && DCU_COMM.indexOf(m.통신방식) !== -1);
+        const conflictTxt = (isRemove && commMeter)
+            ? ` — 현재 ${commMeter.통신방식} 로 적혀 있으나 LTE 로 시공` : '';
         const tagHtml =
             `<div style="margin-top:${commonPoleEl.style.display === 'block' ? '4px' : '0'};` +
             `color:${isRemove ? '#b91c1c' : '#1d4ed8'};">` +
-            `${nameTxt ? nameTxt + ' ' : ''}${dcuTag}</div>`;
+            `${nameTxt ? nameTxt + ' ' : ''}${dcuTag}${conflictTxt}</div>`;
         commonPoleEl.innerHTML += tagHtml;
         commonPoleEl.style.display = 'block';
     }
