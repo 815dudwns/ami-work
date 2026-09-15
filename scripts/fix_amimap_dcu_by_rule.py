@@ -127,7 +127,10 @@ def main():
         shutil.copy2(site_path, bk)
         print(f'\n백업 {bk}')
         with open(site_path, 'w', encoding='utf-8') as f:
-            json.dump(site, f, ensure_ascii=False)
+            # ★indent 를 준다 — 안 주면 2,126건이 **한 줄**이 되어 diff 가 통째로 바뀐 것처럼
+            #   나오고 리뷰가 불가능해진다(2026-09-15 실측: 57,405줄 삭제로 표시됐다).
+            #   빌더도 site-data·hapdong 도 여러 줄로 쓴다 — 같은 관행을 따른다.
+            json.dump(site, f, ensure_ascii=False, indent=1)
         with open(f'data/dcu규칙재정렬_변경내역_{stamp}.json', 'w', encoding='utf-8') as f:
             json.dump(changes, f, ensure_ascii=False, indent=1)
         print(f'변경내역 data/dcu규칙재정렬_변경내역_{stamp}.json')
