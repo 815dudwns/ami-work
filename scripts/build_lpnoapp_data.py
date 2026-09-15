@@ -4,6 +4,8 @@
 무엇인가 (영준님 지시 2026-09-15)
   보강현황 엑셀에서 **한전이 숨긴 행**(visible='0' = 우리 대상에서 뺀 것) 중,
   awms 26년시공앱·불가앱에 **우리 기록이 전혀 없는데 LP 는 올라온** 개소다.
+  ★2026-09-15 2차: 서대문구만 보던 것을 **전 지사로 확대**했다("일단 전지사 확대해서 보여줘봐").
+    구 조건 한 줄만 뺐고 나머지 조건은 1차와 같다. 파일·카테고리도 1차 그대로 쓴다.
   누가 어떻게 붙였는지 확인하려고 만드는 **확인용 임시 리스트**이고,
   실적 분모가 아니다 — 통계에 넣지 않는다. 지도에도 **admin(우영준)만** 보인다.
 
@@ -49,7 +51,6 @@ SQL = """
 SELECT * FROM boranggi
 WHERE snapshot=?
   AND visible='0'
-  AND 지번 LIKE '%서대문구%'
   AND ("26년시공앱" IS NULL OR "26년시공앱" IN ('','#N/A'))
   AND ("26년불가앱" IS NULL OR "26년불가앱" IN ('','#N/A'))
   AND "최초LP 수신일(C)" IS NOT NULL AND "최초LP 수신일(C)" NOT IN ('','#N/A')
@@ -90,6 +91,12 @@ def meter_type(meter_no: str) -> str:
     if c in ('53', '55'):
         return 'Amigo'
     return ''
+
+
+def gu_of(addr: str) -> str:
+    """지번주소에서 '○○구' 를 뽑는다. 못 찾으면 빈값(버리지 않는다)."""
+    m = re.search(r'(\S+구)(\s|$)', str(addr or ''))
+    return m.group(1) if m else ''
 
 
 def ymd(v) -> str:
@@ -191,6 +198,8 @@ def main():
         road = txt(r.get('도로명'))
         recs.append({
             '지사': txt(r.get('지사')),
+            # 구 — 1,038개소라 나중에 지사/구 필터가 필요해진다(발주서 2차 §3). 지번에서 뽑는다.
+            '구': gu_of(jibun),
             # ★'주소' 는 상태키의 첫 칸이다. 지번을 주소로 쓴다(도로명은 따로 싣는다).
             '주소': jibun,
             '지번주소': jibun,
@@ -242,6 +251,9 @@ def main():
     print(f'좌표: exact={stat["exact"]} approximate={stat["approximate"]} fail={stat["fail"]}'
           f' · 좌표 없는 건 {sum(1 for e in recs if e["lat"] is None)}')
     print('개소(지번 고유):', len({e['지번주소'] for e in recs}))
+    print('지사별:', dict(sorted(collections.Counter(e['지사'] or '(빈)' for e in recs).items(),
+                                key=lambda x: -x[1])))
+    print('구 파싱 실패:', sum(1 for e in recs if not e['구']))
     print('월별:', dict(sorted(collections.Counter(e['계기교체일'][:7] for e in recs).items())))
     print('통신방식:', dict(sorted(collections.Counter(e['통신방식'] or '(빈)' for e in recs).items(),
                                 key=lambda x: -x[1])))
