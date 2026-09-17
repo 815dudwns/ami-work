@@ -18,6 +18,17 @@
 사용:
     python3 scripts/build_hapdong_data.py                 # inbox 의 raw 전부 병합
     python3 scripts/build_hapdong_data.py data/inbox_hapdong/hapdong_raw_20260819.json
+    python3 scripts/build_hapdong_data.py <raw> --no-archive   # 이번만 보존 경계를 적용하지 않는다
+
+★--no-archive 는 **부분 반영**용이다(2026-09-17 신설).
+  하루치를 한 지사만 먼저 올릴 때처럼, 새 작업일의 물량이 아직 적은 채로 보존 경계가 밀리면
+  멀쩡한 앞 날짜가 통째로 백업으로 빠져 지도가 빈다(실측: 서은 15건만 올리는데 9/14 304건이 빠질 뻔).
+  이 옵션은 **경계를 지금 상태 그대로 묶어 둔다** — 기존 지도의 최소 작업일을 cutoff 로 쓴다.
+  ★경계를 아예 없애면 안 된다. 빌더는 아카이브와 지도를 함께 읽어 cutoff 로 다시 가르므로,
+    cutoff 를 비우면 **백업에 있던 것이 전부 지도로 돌아온다**(실측 4,731건이 되살아났다).
+  ★기본값은 종전대로 보존을 적용한다. 전 지사를 반영하는 정규 수집에서는 쓰지 마라.
+  ★지사 필터 같은 것은 **여기에 넣지 않는다.** 전지사·무필터가 원칙이고, 일회성 선별은
+    원본을 따로 만들어 인자로 넘긴다(2026-09-02 공사번호 필터로 67건이 잘린 전례).
 """
 
 import collections
@@ -852,6 +863,8 @@ def enrich_jongno(recs):
 
 def main():
     args = sys.argv[1:]
+    no_archive = '--no-archive' in args
+    args = [a for a in args if not a.startswith('--')]
     if args:
         raws = [Path(a) for a in args]
     else:
@@ -961,6 +974,7 @@ def main():
     #    ★백업본도 함께 읽는다. 지도에서 뺀 건이라도 원본 raw 가 없어지면 되살릴 길이 없다.
     #      여기서 같이 들고 있어야 보존 기간을 늘렸을 때 그대로 돌아온다.
     existing = []
+    _live_before = json.loads(OUT.read_text(encoding='utf-8')) if OUT.exists() else []
     for _src in (ARCHIVE, OUT):
         if _src.exists():
             existing += json.loads(_src.read_text(encoding='utf-8'))
@@ -999,7 +1013,14 @@ def main():
     #    시간만 지나면 지도에서 사라지는 것을 막는다(영준님 정정 2026-08-24).
     days = sorted({str(e.get('작업일') or '') for e in merged if str(e.get('작업일') or '').isdigit()})
     cutoff = ''
-    if days:
+    if no_archive:
+        # 지금 지도에 있는 것의 최소 작업일을 그대로 경계로 쓴다 — 아무것도 새로 빠지지 않고,
+        #   이미 백업에 있던 것도 돌아오지 않는다.
+        _cur = [str(e.get('작업일') or '') for e in _live_before if str(e.get('작업일') or '').isdigit()]
+        cutoff = min(_cur) if _cur else ''
+        print(f'★--no-archive — 보존 경계를 지금 상태로 묶는다(cutoff {cutoff or "(없음)"}). '
+              '새로 백업으로 빠지는 것도, 백업에서 돌아오는 것도 없다.')
+    elif days:
         # 영업일로 센다 — 달력 3일이면 주말 낀 월요일에 목·금 물량이 통째로 빠진다.
         cutoff = business_days_back(days[-1], RETAIN_BUSINESS_DAYS)
     # 고압은 merged 전체에서 뺀다 — raw 만 걸러도 아카이브에 남아 있던 것이 되살아난다.
