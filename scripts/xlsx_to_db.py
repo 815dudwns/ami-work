@@ -83,6 +83,11 @@ KNOWN_FILES = [
 #   `차수` 열로도 싣는다. 같은 날짜 파일이 서로를 지우는 것을 막는 유일한 장치다.
 DISCRIMINATORS = [
     ('준공 및 검수리스트', r'(실효\d+차)'),
+    # 25년 보강공사 원장 — 같은 날(2026-09-17) 같은 시트명으로 두 판이 왔다.
+    #   v1 = 필터 안 걸린 원본(세 시트 모두 숨김 0)
+    #   미청구2 = 같은 행에 숨김만 건 판정본(원장 보임 15,069 = 미청구 / 작업중 보임 65,547)
+    #   ★행 내용은 같고 visible 만 다르다. 판을 안 가르면 뒤엣것이 앞엣것을 지운다.
+    ('25년 AMI 보강공사', r'(v1|미청구\d*)'),
 ]
 DISCRIMINATOR_COL = '차수'
 
@@ -324,7 +329,8 @@ def hidden_rows(path, sheet_title):
 
 def load_sheet(con, path, ws, table, snapshot, disc=None):
     rows = list(ws.iter_rows(values_only=True))
-    ncol = ws.max_column
+    # reset_dimensions() 를 거친 시트는 max_column 이 None 이다(load_file 참고) — 행에서 센다.
+    ncol = ws.max_column or (max((len(r) for r in rows), default=0))
     hi = find_header(rows, ncol)
     if hi is None:
         raise SystemExit(f'  실패: [{ws.title}] 헤더 행을 찾지 못했다')
@@ -441,7 +447,15 @@ def load_file(con, path: Path):
         if skip_sheet(path, ws.title):
             log(f'  [제외] 시트 {ws.title!r} — 피벗 집계(원본 아님)')
             continue
-        if ws.max_row is None or ws.max_row < 2:
+        # ★<dimension> 을 믿지 마라 — 잘못 적힌 파일이 있다(2026-09-17 실측).
+        #   `모뎀설치불가개소_26년6월8일이전.xlsx` 는 실제 291행인데 dimension 이 "A1:V2" 라
+        #   read_only 모드가 2행만 읽고 끝냈다. 행 수 검증도 원본을 같은 방식으로 세니
+        #   **조용히 통과**했다(290행이 사라진 채 "일치"로 보고됨).
+        #   빈 시트 판정은 reset 전 값(declared)으로 하고, 실제 읽기는 reset 후에 한다.
+        #   reset_dimensions() 를 부르면 max_row 가 None 이 되므로 순서를 바꾸면 안 된다.
+        declared = ws.max_row
+        ws.reset_dimensions()
+        if declared is None or declared < 2:
             log(f'  [제외] 시트 {ws.title!r} — 비어 있음')
             continue
         table, how = table_for(path, ws.title, used)
