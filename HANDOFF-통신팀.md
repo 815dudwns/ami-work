@@ -8,19 +8,21 @@
 
 ## 현재 상태 (2026-09-17)
 
-### ★오늘 밤 남은 일 (이어받는 사람이 먼저 볼 것)
-- **합동 전 지사 재수집 + 반영**. 낮에 **서대문은평 15건만** 선반영했다(영준님 "서은만 넣어봐").
-  오전이라 다른 지사가 앱 작성을 안 끝냈다 — 노원도봉 0(평소 95)·마포용산 26·서울본부직할 28.
-  저녁에 `fetch_awms.py` 로 다시 받아 **전 지사**를 반영한다(정규 실행이면 무필터로 다 들어온다).
-- **3일 경과분 백업도 그때 함께**. 낮에는 일부러 건너뛰었다(`--no-archive`) —
-  지금 돌리면 경계가 밀려 **9/14 304건이 빠지는데 9/17 은 15건뿐이라 지도가 빈다.**
-  저녁 전지사 반영 뒤에는 정규 실행(옵션 없이)으로 돌려 9/14 분을 백업으로 보내면 된다.
-- **통계 인덱스는 PM 이 main 에서 돌린다.** 데스크에서 돌리지 마라.
-  현재 대조값: `hapdong-data.json` **1,111** + `archive` **4,731** = **h 5,842**.
-  반영 후에도 h 는 **늘기만** 해야 하고 archive 는 **줄면 안 된다**(누적 append).
+- **배포 상태**: main `4b3400a`(PM 이 머지·통계인덱스·푸시 완료) · tongsin `5f4ad24` ·
+  아미맵 화면 라벨 **`v20260917.1`**. 9/17 밤 남았던 일(합동 전지사 반영·3일 경과분 백업)은 전부 끝났다.
+- **데이터 현황 (2026-09-17 마감 기준, 다음 반영 때 대조값)**
 
-- **배포 상태**: main `2112c0e` · tongsin `d8b3aed` · 아미맵 화면 라벨 **`v20260917.1`**.
-  tongsin 은 main 을 포함한다(⊇ 확인).
+  | 데이터셋 | 건수 |
+  |---|---:|
+  | 실효 `site-data.json` | **3,166** (기존 3,096 + 보강현황 0917 신규 70) |
+  | 합동 `hapdong-data.json` | **1,132** (9/17 340 · 9/16 397 · 9/15 395) |
+  | 합동 `hapdong-data-archive.json` | **5,035** (9/14 304건 append 완료) |
+  | SKT | 41 · LP무기록 2,054 |
+  | 통계 인덱스 총계 | **56,127** (PM 이 main 에서 생성) |
+
+  ★`archive` 는 **줄면 안 된다**(누적 append). 합동 `h` 는 늘기만 한다.
+- **합동 보존 경계 = 영업일 3일**, 기준일은 오늘이 아니라 **데이터의 최신 작업일**이다.
+  9/17 기준 잔류는 9/17·9/16·9/15. 새 수집분이 들어와야 경계가 움직인다.
 - **지도에 올라가는 데이터셋 = 실효 · 합동 · skt + LP무기록(계정 제한)**.
   고압철거·장애는 남은 할 일이 없어 내렸는데 **`onMap:false` 이지 삭제가 아니다** —
   데이터 파일과 Firebase `|고압`·`|장애` workStatus 는 그대로 두고 통계 분모에도 남아 있다.
@@ -41,6 +43,17 @@
 - **블로커**: 검증관리자 터널 URL이 재기동마다 변경 → 화면 연결 끊김(근본은 고정주소 전환, 단 **C-3 인증 먼저**). / awms 관리자 페이지 = 사내망+관리자 등급이라 접근 불가.
 
 ### ★반드시 지킬 것 (2026-09-09~17 에 사고로 배운 것들)
+- **★한전이 대상에서 뺐다고 실효 리스트를 지도에서 내리지 마라**(2026-09-17 오발주를 되돌린 건).
+  한전 보강현황의 숨김/보임은 **한전의 대상 관리**이고 우리 지도는 **우리 작업 관리용**이다.
+  9/17 판에서 기존 실효 3,096건이 전부 숨김 처리됐지만, 그중 **555건이 우리 기준 미완료**였다
+  (불가 222·미착수 212·보류 121 — Firebase workStatus 실측). 내렸으면 작업자 화면에서 사라진다.
+  **새 리스트는 교체가 아니라 추가다.** 기존 유지 + 신규 append, 계기번호 중복만 확인해 보고한다.
+- **`data/rework-data.json` 은 없다**(2026-09-09 폐기, `js/datasets.js` 주석에 남아 있다).
+  CLAUDE.md 4.5 단계와 옛 발주서의 `apply_dcu_status.py <site> <rework>` 는 두 번째 인자에서 죽는다.
+  **`python3 scripts/apply_dcu_status.py data/site-data.json` 한 인자로 돌려라.**
+- **워크트리에서 작업할 때 입력 파일은 git 으로 안 넘어온다.** `data/inbox_hapdong/*_raw_*.json`
+  과 `data/inbox_jdg_*/*.xlsx` 는 gitignore 라 **머지해도 안 생긴다.** main 워크트리
+  (`~/Projects/ami-work/`)에서 직접 복사해 쓰고, 22MB 넘는 엑셀은 복사하지 말고 경로를 직접 읽어라.
 - **합동 빌더의 `--no-archive` 는 '경계를 지금 상태로 묶는' 것**이지 경계를 없애는 것이 아니다.
   빌더는 아카이브와 지도를 **함께 읽어 cutoff 로 다시 가른다** — cutoff 를 비우면
   **백업에 있던 것이 전부 지도로 돌아온다**(2026-09-17 실측 4,731건이 되살아났다).
@@ -77,6 +90,21 @@
 - **재구동은 `restart.sh` 로만** — launchd `KeepAlive` 가 있어 `kill` + `nohup` 은 두 인스턴스가 포트를 다툰다.
 
 ## 진행중 트랙
+- **★주덕기 과장 '미청구 대상' 필터 역산 (2026-09-17 완료) — 한전 청구대장 구조 해독본.**
+  보고 `research/미청구-필터역산-보고-20260917.md` · 재현 `scripts/미청구-필터역산-재현-20260917.py`
+  (원본 `data/inbox_jdg_20260917/25년 AMI 보강공사_미청구2.xlsx` 155MB · 기준선 `…_v1.xlsx`).
+  **확정 4가지**: ①원장 보임 = `상태(O)=='미청구'` 단독(반례 0) ②작업중 보임 = `대상(X)` 이
+  `제외(N차)` 아님(반례 0 — **`기성완료` 와 1:1 이 아니다, 1,595건 어긋난다**) ③**원장→작업중 진입
+  = `현장구분코드=='0' AND 구분∈{신규,신설}`** (258,394 완전재현). 즉 작업중은 **신규·신설 시공행만**
+  남긴 청구 대장이고 상태로 거른 것이 아니다 ④**Sheet2 = 미청구인데 그 계기에 신규·신설 시공행이
+  원장에 아예 없는 것**(+공종≠고압, 계기별 첫 행) — 2,650/2,654 재현, 오탐 0.
+  **미해결(과장에게 물어볼 것)**: Sheet2 P열 `#N/A` 가 데이터(2,655행)를 넘어 **4,397행까지** 값으로
+  박혀 있다 — 필터 전 후보가 4,396행이었다는 흔적인데 대응하는 집합을 못 찾았다. 과장의 **중간
+  작업 파일**이 있으면 바로 풀린다. 남는 4건(계기가 작업중에 `대상`으로 살아 있음)도 같이 확인.
+  ★**155MB 를 `read_excel` 로 열지 마라.** `iterparse` 로 1회 훑어 parquet 로 떨구고 그걸로 본다(44초).
+  ★**시트 이름과 파일 번호가 어긋난다** — `workbook.xml.rels` 를 먼저 읽어라.
+  ★**작업중 시트는 원장 복사본이 아니라 가공본**이다(계기 `98190283096` 은 원장 `신설/공종빈값`,
+    작업중 `신규/25년 보강`). 작업중 열값을 원장 근거로 인용하지 마라.
 - **★Tailscale 인프라 전환 (2026-07-19 개시)**: tailnet=맥(100.121.228.87)+A33+아이폰. **완료**: ①아미큐 백엔드 tailnet 전환 실증(`tailscale serve --https=8766`→ts.net 주소 cstBackend 발행, A33 요청 200 OK. ★폰 Tailscale VPN 상시 ON 필수 — 꺼짐=접속불가) ②A33 무선 adb 페어링(현장 LTE서 `adb connect 100.93.223.21:<포트>`, 포트는 무선디버깅 토글마다 변경) ③OTP adb 직독 실측 성공(dumpsys notification --noredact 본문 판독 — 카톡의존 수집 사슬 대체 후보, [[otp_adb_notification_read]]). **남은것**: start.sh tailnet 발행 영구화(지금은 재기동 시 trycloudflare로 복귀=안전폴백), 검증관리자 8765 tailnet화, A31 적용(주인협조 1회). 아미큐 맥세션 로그아웃=8766 `/api/session/push`에 무효 JSESSIONID(시크릿 cst-amiq-2026). [[tailscale_adoption]]
 - **★조직 배선 확정+검증팀 개소 (영준님 2026-07-19) — 정본 `research/조직배선_설계_20260719.md`**: **실조직축 3팀 = 통신팀(아미큐·헬퍼·아미맵) / 계기팀(계기큐·종로맵+snap·명륜·구로·OTP수집기) / 검증팀(검증관리자·데일리검진)** + ocr-meter(독립) + **PM=통합 CLAUDE.md·L0코어·HANDOFF·awms공통·스키마·배포정책·팀간조율 전결(실행자 아님)**. **감사 회신 반영(같은날 밤)**: 팀 표준=`.claude/agents/<팀>.md` 정의 하나(BlogAgent 실증, append-system-prompt 불필요), **운영=호출형(a) 채택**(PM이 Agent툴로 팀 호출 — 상주 세션(b)은 메모리분리 미검증이라 보류), **mailbox 폐기→PM간 통신=Orca terminal send**(핸들 매번 조회, read버그#8746→파일릴레이). **검증팀 생성·시운전 완료**: `.claude/agents/검증팀.md`(필독카드·전결·보고·사고이력 규칙) — 기동검증 통과(역할·카드접근·백엔드확인, 8765 IPv4/IPv6 2프로세스 지적까지). agent-memory/검증팀/ 폴더는 미생성 — 첫 실무(데일리검진 인수인계) 때 기록 축적 확인. **★2026-07-21 대폭 진전**: 통신팀·계기팀·검증팀 정의 3개 완비(`.claude/agents/`), **상주 Orca 세션(b) 실도입·검증**(영준님 직접 대화 가능, agent-memory 폴더 자동분리 실증 — 감사가 '보류'했던 (b)의 첫 실증). CLAUDE.md '조직·운영' 섹션+문서4층(글로벌 감사/프로젝트 PM/팀정의/옵시디언), **`docs/data-contract.md` 신설**(세션 공유 산출물 소유권·스키마 계약, daily_state.csv 사고서 도출). **Firebase 비용건 전체를 3팀 첫 실전협업으로 수행**(계기팀 P1/P3·검증팀 B2/B3+crop_fail·ocr-meter 조율). 감사 멀티에이전트 Part D 회신완료(/tmp/relay/ami-multiagent-decision.md: 코드=영역분담 확인→worktree split 불필요, 충돌은 데이터층→data-contract. Boundary필드·orca worktree ps 대시보드 adopt, restart복구 defer). Orca 규약: 세션 삭제 절대금지(닫기만), ★핸들 매번 재조회(오늘 여러번 변동), TUI엔 orchestration inject 불가→terminal send. [[org_three_teams_wiring]] [[pm_comm_orca_mailbox_deprecated]] [[firebase_cost_rtdb_catchup]]
 - **★4-desk 상주 조직 완성 (2026-07-23~24) — 감사 법전 최종판 집행**: orca-multiagent-law 1조 최종=**in-project git worktree**(`~/Projects/ami-work/workspaces/<데스크>`, 브랜치=데스크명 접두어없음: `tongsin`·`gyegi`·`geomjeung`·`ocr-meter`) + **lineage 필수**(`orca worktree set --parent-worktree`, 안 하면 앱에서 고아 탭). 옛 방침(815dudwns/접두어·`~/orca/workspaces`·호출형(a))은 **폐기**. **완료**: ①ocr-meter **물리 편입**=ami-work repo에 subtree 병합(커밋 e505d67f, 백업 브랜치 `backup-pre-ocr-merge`, `research/ocr_poc` 38GB는 gitignore untracked 유지·병합 무관) ②팀정의 3개(계기팀·통신팀·ami-pm) 유실→복구+**git 추적 전환**(a5098fc — 이전 untracked라 아래 stash사고로 갇혀 유실됐던 것) ③data-contract 4-desk 격리 조항 추가(3c2a736) ④검증팀 `~/orca/workspaces`→in-project 이관(브랜치 815dudwns/검증팀→`geomjeung`) ⑤**4데스크 상주 세션 기동+lineage+정체성 주입 완료 — 4개 다 앱 정상표시**(통신팀 tongsin·계기팀 gyegi·검증팀 geomjeung·ocr-meter). **계기팀(gyegi) 노드 미표시 해결됨**: orca 내부 instance 캐시 손상(timeout 반복조작 원인)으로 `orca rm`+재생성으로도 안 잡히던 것 → **orca 앱 재시작 후** gyegi 완전삭제(orca rm+worktree remove+branch -D)→재생성하니 노드 정상 등록(★교훈: 손상된 in-project worktree 노드는 orca 재시작 전엔 캐시가 안 지워짐, 재시작 후 재생성해야 새 노드 등록. 세션은 orca 재시작에도 복원됨). **★stash 교훈: `git stash push -u`가 세션 전체 미커밋작업(팀정의·CLAUDE.md 조직섹션·awms-extension·data/ 등)을 stash에 가두고 pop 실패한 사고(runner) → subtree 병합 전 stash 사용 시 pop 타이밍 필수 확인, 공유 untracked는 git 추적으로.** 정본 gamsa `docs/orca-multiagent-law.md` 1·3조. [[org_three_teams_wiring]]
