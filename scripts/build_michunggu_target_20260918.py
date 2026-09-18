@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""25년 미청구 최종 대상 8,512계기 확정 + DB 적재 + 2분할 (PM 발주 2026-09-18)
+"""25년 미청구 최종 대상 8,994계기 확정 + DB 적재 + 2분할 (PM 발주 2026-09-18)
 
-대상 정의 (차집합, 순서 무관)
+대상 정의 (차집합, 순서 무관) — 영준님 결정 2026-09-18 로 개정
     원장 상태='미청구' 계기 13,182
   − 고압      : ★원장 **전체 287,860행** 중 그 계기에 공종='고압' 행이 하나라도 있으면 제외
-                (미청구 행만 보면 635계기뿐이라 2건이 새어 8,514가 된다. 전체 기준이 8,512다)
+                (미청구 행만 보면 635계기뿐이라 2건이 샌다. 전체 기준이어야 PM 목록과 맞는다)
   − 26년 시공 : modem_work snapshot 20260908 에 있는 계기
-  − Sheet2    : 미청구2.xlsx Sheet2 계기 2,654
-  − 우리리스트: site-data 계기번호 ∪ 합동아카이브 계기번호·**계기번호_전**
-                (합동은 철거계기 열도 봐야 한다 — 재사용 계기가 그쪽에 남는다)
-  = 8,512   ← PM 산출 목록과 양방향 차집합 0 으로 대조 확인
+  − Sheet2    : 미청구2.xlsx Sheet2 계기 2,654 (우리 대상 아님 — 제외 확정)
+  = 8,994   ← PM 산출 목록과 양방향 차집합 0 으로 대조 확인
+
+★계기교체 축은 제외 사유가 **아니다**(영준님 2026-09-18).
+  25년 미청구는 **25년 모뎀공사** 건이다. 그 개소의 계기가 뒤에 교체되거나 재사용됐어도
+  거기 달린 **모뎀은 25년 자재 그대로**다. 그래서 실효 site-data·합동 아카이브·보강현황
+  계기교체로 뺐던 482건은 **전부 대상 복귀**한다. 빼는 것은 **26년에 같은 사업(모뎀)으로
+  다시 시공한 것**뿐이고, 그게 modem_work 다.
 
 필드 값은 **보정판**(research/미청구_보강_보정_20260918.json)에서 가져온다.
 보정판 = 계기번호 단독 매칭을 무효화한 판. 계기는 재사용되므로 계기키 매칭은 오염 11~18%다
@@ -34,9 +38,10 @@ ROOT = Path(__file__).resolve().parent.parent
 DB = ROOT / 'data/ami.db'
 TABLE = 'michunggu_target_20260918'
 BOOST = ROOT / 'research/미청구_보강_보정_20260918.json'
-PM_LIST = Path('/Users/woodelight/Projects/ami-work/research/미청구_최종대상_8512_계기목록_20260918.txt')
+PM_LIST = Path('/Users/woodelight/Projects/ami-work/research/미청구_최종대상_계기목록_20260918.txt')
 OUT_READY = ROOT / 'research/미청구_대상_지도업로드_20260918.json'
 OUT_WAIT = ROOT / 'research/미청구_대상_주소대기_20260918.json'
+AWMS = ROOT / 'research/미청구_awms주소회수_20260918.json'
 
 _s = importlib.util.spec_from_file_location('bld', str(ROOT / 'scripts/build_michunggu_boost_20260918.py'))
 B = importlib.util.module_from_spec(_s)
@@ -74,27 +79,15 @@ def build_target():
     s2df = R.load_sheet(str(B.XL), 'xl/worksheets/sheet2.xml', {'N': '계기번호'}, 'Sheet2')
     s2 = {nm(x) for x in s2df['계기번호'] if nm(x)}
 
-    ours = set()
-    for x in json.loads((ROOT / 'data/site-data.json').read_text()):
-        k = nm(x.get('계기번호'))
-        if k:
-            ours.add(k)
-    for x in json.loads((ROOT / 'data/hapdong-data-archive.json').read_text()):
-        for f in ('계기번호', '계기번호_전'):
-            k = nm(x.get(f))
-            if k:
-                ours.add(k)
-
-    log(f'\n제외 집합 — 고압 {len(hv):,} · 26년시공 {len(mw):,} · Sheet2 {len(s2):,} · 우리리스트 {len(ours):,}')
-    keep = [m for m in allm if m not in hv and m not in mw and m not in s2 and m not in ours]
+    log(f'\n제외 집합 — 고압 {len(hv):,} · 26년시공(modem_work 20260908) {len(mw):,} · Sheet2 {len(s2):,}')
+    keep = [m for m in allm if m not in hv and m not in mw and m not in s2]
     log(f'최종 대상 {len(keep):,}계기')
 
     drop = Counter()
     for m in allm:
         if m in keep:
             continue
-        drop['고압' if m in hv else '26년시공' if m in mw else
-             'Sheet2' if m in s2 else '우리리스트' if m in ours else '?'] += 1
+        drop['고압' if m in hv else '26년시공' if m in mw else 'Sheet2' if m in s2 else '?'] += 1
     log('  제외 내역(우선순위 순): ' + ' · '.join(f'{k} {v:,}' for k, v in drop.most_common()))
     return keep, targets
 
@@ -122,26 +115,52 @@ def main():
     boost = {nm(r['계기번호']): r for r in json.loads(BOOST.read_text())}
     keepset = set(keep)
 
+    # ── awms 회수 주소 덮기 ────────────────────────────────────────────────
+    # ★주소가 **없는 건에만** 얹는다. 원장/고객번호 매칭으로 이미 있는 주소는 건드리지 않는다.
+    # ★A/B 등급만 쓴다. C 는 다른 개소 의심이라 빈칸으로 둔다(빈칸이 틀린 주소보다 낫다).
+    #   등급 근거는 scripts/fetch_awms_addr_20260918.py 주석과 검증 결과 참조
+    #   (B_신설계기·시공일이전 오염 1.9% · B_철거계기 0% — 계기키 매칭 11~18% 대비 안전).
+    awms = {}
+    if AWMS.exists():
+        for r in json.loads(AWMS.read_text())['목록']:
+            if r.get('결과') != '적중' or not r.get('awms_주소'):
+                continue
+            if not str(r.get('신뢰등급', '')).startswith(('A_', 'B_')):
+                continue
+            awms[nm(r['계기번호'])] = r
+    log(f'awms 회수 주소(A/B 등급) {len(awms):,}건 대기')
+
     recs = []
+    awms_used = []
     for m in keep:
         r = boost.get(m)
         if not r:
             log(f'★보정판에 없는 계기 {m} — 중단')
             return 1
-        has_addr = bool(r['지번주소'] or r['도로명주소'])
+        jibun, road = r['지번주소'], r['도로명주소']
+        grade, addr_src = r['신뢰등급']['주소'], r['주소출처']
+        if not (jibun or road) and m in awms:
+            a = awms[m]
+            # awms 주소는 '도로명(지번,동호수)' 혼합 표기라 지번 칸에 원문 그대로 넣는다.
+            #   쪼개다 틀리느니 원문을 보존한다 — 현장은 이 표기 그대로 찾아간다.
+            jibun = a['awms_주소']
+            grade, addr_src = a['신뢰등급'], 'awms/fmpMtr1000'
+            awms_used.append(m)
+        has_addr = bool(jibun or road)
         recs.append({
             '계기번호': r['계기번호'],           # ★원문 보존 — 접두를 지우지 않는다
             '고객번호': r['고객번호'], '지사': r['지사'],
-            '지번주소': r['지번주소'], '도로명주소': r['도로명주소'],
+            '지번주소': jibun, '도로명주소': road,
             '변대주명': r['변대주명'], '변대주번호': r['변대주번호'],
             '통신방식': r['통신방식'], 'DCU_ID': r['DCU_ID'], 'MAC': r['MAC'],
             '공종': r['공종'], '구분': r['구분'], '계기타입': r['계기타입'],
             '최종시공일': r['최종시공일'],
-            '신뢰등급': r['신뢰등급']['주소'],
-            '주소출처': r['주소출처'], '변대주출처': r['변대주출처'],
+            '신뢰등급': grade,
+            '주소출처': addr_src, '변대주출처': r['변대주출처'],
             '상태': 'ready' if has_addr else 'await_addr',
         })
 
+    log(f'awms 주소로 채운 건 {len(awms_used):,}')
     ready = [x for x in recs if x['상태'] == 'ready']
     wait = [x for x in recs if x['상태'] == 'await_addr']
     log(f'\n분할: ready(주소보유) {len(ready):,} · await_addr(주소결손) {len(wait):,}'
