@@ -30,6 +30,11 @@ DATASETS = [
     #   계정 목록은 js/auth.js AUTH_GROUPS 가 단일 출처다(여기엔 그룹 이름만 둔다).
     {"code": "n", "file": "data/lpnoapp-data.json", "category": "LP무기록",
      "uiLabel": "LP 무기록(확인용)", "allowGroup": "staff"},
+    # 25년 미청구 — 주소 확보분 7,366만 지도에 올린다(결손 1,628 은 michunggu-pending.json).
+    #   ★allowGroup 이 걸려 있어 stats_sources() 가 건너뛴다 = 통계 분모에 안 들어간다.
+    #     작업 지시가 나가고 공개로 바꿀 때 그 점을 함께 판단해야 한다. js/datasets.js 주석 참조
+    {"code": "m", "file": "data/michunggu-data.json", "category": "미청구",
+     "uiLabel": "25년 미청구", "statsLabel": "25년 미청구", "allowGroup": "staff"},
     # 지도에는 안 올라가고 통계 분모에만 들어간다.
     {"code": "a", "category": "완료아카이브", "onMap": False, "statsLabel": "완료 아카이브",
      "archivesGlob": "data/site-data-completed-archive-*.json"},

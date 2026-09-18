@@ -84,6 +84,20 @@ const DATASET_REGISTRY = [
     //       카테고리로 분기하는데 LP무기록 분기가 없어 이미 개수가 찍히고 있었다.
     { code: 'n', file: './data/lpnoapp-data.json', category: 'LP무기록', label: null,
       uiLabel: 'LP 무기록(확인용)', allowGroup: 'staff' },
+    // 25년 미청구 — 한전 원장(미청구2.xlsx)에서 상태='미청구' 인 계기 중 우리가 갈 곳.
+    //   대상 정의: 미청구 13,182 − 고압 637 − modem_work(20260908) 945 − Sheet2 2,654 = 8,994
+    //   ★계기교체 축은 제외 사유가 아니다(영준님 2026-09-18) — 25년 미청구는 **모뎀** 공사
+    //     건이고, 그 개소 계기가 뒤에 교체·재사용됐어도 달려 있는 모뎀은 25년 자재 그대로다.
+    //     같은 사업(모뎀)으로 26년에 다시 시공한 것만 뺀다. 그게 modem_work 다.
+    //   ★여기 올라간 것은 **주소를 확보한 7,366계기**뿐이다. 주소가 없어 좌표를 못 만든
+    //     1,628계기는 data/michunggu-pending.json 에 있고, 주덕기 과장 회신이 오면 승격한다.
+    //   ★label: null = 마커에 **계기 개수**를 찍는다(실효와 같다). 한 모뎀에 여러 계기가
+    //     물린 구조라 개소당 몇 계기인지가 현장에서 곧 작업량이다.
+    //   ★allowGroup:'staff' — 작업 지시 전에 작업자 화면에 뜨면 혼선이 생긴다(영준님).
+    //     공개 시점은 PM 판단이고, 계정 목록은 js/auth.js 의 AUTH_GROUPS 가 단일 출처다.
+    //   생성 스크립트 scripts/build_michunggu_dataset_20260918.py
+    { code: 'm', file: './data/michunggu-data.json', category: '미청구', label: null,
+      uiLabel: '25년 미청구', statsLabel: '25년 미청구', allowGroup: 'staff' },
     // 완료 아카이브 — 실효에서 완료돼 빠진 건들. 지도에는 안 올라가고 통계 분모에만 들어간다.
     //   파일이 날짜별로 늘어나므로 glob 으로 잡는다(archivesGlob).
     { code: 'a', category: '완료아카이브', onMap: false, statsLabel: '완료 아카이브',
