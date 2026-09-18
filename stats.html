@@ -612,6 +612,9 @@ function renderBranchSummary(t) {
     const totalSites  = allSites(t.sites);
     const totalMeters = allMeters(t.meters);
     const rate = totalMeters ? (t.meters.complete / totalMeters * 100).toFixed(1) : '0.0';
+    // 불가 제외 실질 완료율 (영준님 2026-09-18)
+    const rateNet = (totalMeters - t.meters.fail) > 0
+        ? (t.meters.complete / (totalMeters - t.meters.fail) * 100).toFixed(1) : '0.0';
     return `
         <div class="summary">
             <div class="summary-row">
@@ -628,7 +631,7 @@ function renderBranchSummary(t) {
                 <div class="summary-item si-complete">
                     <div class="label">완료</div>
                     <div class="value">${t.sites.complete.toLocaleString()}</div>
-                    <div class="sub">개소 · 계기 ${t.meters.complete.toLocaleString()} · ${rate}%</div>
+                    <div class="sub">개소 · 계기 ${t.meters.complete.toLocaleString()} · ${rateNet}% <span style="color:#9ca3af;">(불가포함 ${rate}%)</span></div>
                 </div>
                 <div class="summary-item si-fail">
                     <div class="label">불가</div>
@@ -649,7 +652,13 @@ function renderBranchTable(rows, total) {
     if (rows.length === 0) {
         return `<div class="card"><div class="empty">지사 데이터 없음</div></div>`;
     }
+    // 완료율 두 벌 (영준님 2026-09-18): 실질 = 불가를 분모에서 뺀 값, 괄호 = 불가 포함.
+    //   불가는 우리가 더 할 수 없는 것이라 분모에 두면 실적이 실제보다 낮게 보인다.
+    //   그렇다고 빼기만 하면 불가가 얼마나 쌓였는지 화면에서 사라져 둘 다 보여준다.
     const rateOf = m => { const a = allMeters(m); return a ? (m.complete / a * 100).toFixed(1) : '0.0'; };
+    const rateNetOf = m => { const a = allMeters(m) - m.fail; return a > 0 ? (m.complete / a * 100).toFixed(1) : '0.0'; };
+    const rateCell = m => `<b style="color:#1d4ed8;">${rateNetOf(m)}%</b>`
+        + `<div style="font-size:10px;color:#9ca3af;font-weight:500;">불가포함 ${rateOf(m)}%</div>`;
     const cell = (s, m) => `${s ? s.toLocaleString() : '<span style="color:#d1d5db">-</span>'}${s ? `<div style="font-size:10px;color:#9ca3af;font-weight:500;">${m.toLocaleString()}</div>` : ''}`;
     const bodyRow = (name, agg) => `
         <tr>
@@ -660,7 +669,7 @@ function renderBranchTable(rows, total) {
             <td class="num hold">${cell(agg.sites.hold, agg.meters.hold)}</td>
             <td class="num fail">${cell(agg.sites.fail, agg.meters.fail)}</td>
             <td class="num" style="color:#6b7280;">${cell(agg.sites.pending, agg.meters.pending)}</td>
-            <td class="num"><b style="color:#1d4ed8;">${rateOf(agg.meters)}%</b></td>
+            <td class="num">${rateCell(agg.meters)}</td>
         </tr>`;
     return `
         <div class="card">
@@ -676,7 +685,7 @@ function renderBranchTable(rows, total) {
                         <th>보류<br><span style="font-weight:500;color:#9ca3af;">개소/계기</span></th>
                         <th>불가<br><span style="font-weight:500;color:#9ca3af;">개소/계기</span></th>
                         <th>미작업<br><span style="font-weight:500;color:#9ca3af;">개소/계기</span></th>
-                        <th>완료율</th>
+                        <th>완료율<br><span style="font-weight:500;color:#9ca3af;">불가제외/포함</span></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -689,7 +698,7 @@ function renderBranchTable(rows, total) {
                         <td class="num hold">${total.sites.hold.toLocaleString()}<div style="font-size:10px;color:#9ca3af;font-weight:500;">${total.meters.hold.toLocaleString()}</div></td>
                         <td class="num fail">${total.sites.fail.toLocaleString()}<div style="font-size:10px;color:#9ca3af;font-weight:500;">${total.meters.fail.toLocaleString()}</div></td>
                         <td class="num" style="color:#6b7280;">${total.sites.pending.toLocaleString()}<div style="font-size:10px;color:#9ca3af;font-weight:500;">${total.meters.pending.toLocaleString()}</div></td>
-                        <td class="num"><b style="color:#1d4ed8;">${rateOf(total.meters)}%</b></td>
+                        <td class="num">${rateCell(total.meters)}</td>
                     </tr>
                 </tbody>
             </table>
