@@ -159,6 +159,184 @@ def build_boranggi_index():
     return by_cust, by_mac, dcu_no, dcu_id
 
 
+# ─── 전수 재보강 (PM 발주 2026-09-18) ────────────────────────────────────────
+# 왜: 1차 보강은 boranggi 를 **고객번호가 있는 건에만** 걸었고, 필드도 빈 칸 위주로만 봤다.
+#     그래서 원장 주소를 가진 5,899건이 오히려 부실했다(인입주 55% vs 고객번호로 찾아온
+#     824건은 93%). **주소가 있다고 다른 리스트를 안 본 것**이 원인이다.
+# 규칙(영준님)
+#   ① 키는 고객번호 우선 -> 모뎀MAC 보조. **계기번호 단독 금지**(재사용 오염 17~51%)
+#   ② 빈 칸만 채운다. 값이 있으면 덮지 않는다(원장 값 우선)
+#   ③ 값이 있는데 소스가 **다른 값**을 주면 덮지 말고 <필드>_대안 에 따로 남긴다
+#   ④ 보강현황은 판이 여럿이라 최신판부터 훑고 출처에 판 날짜를 남긴다
+RESWEEP_FIELDS = ['인입주', '공동주택명', '상호', '계약종별', 'DCUID', '변대주',
+                  '변대주번호', 'DCU장애여부', 'DCU회선상태', '검침방법', '도로명주소']
+
+
+ROAD_RE = re.compile(r'[가-힣0-9]+(?:로|길)\d*[가-힣]*\s*\d')
+
+
+def _norm_cmp(v):
+    return re.sub(r'\s+', '', str(v or '')).upper()
+
+
+def build_resweep_index():
+    """[(출처명, by_cust, by_mac)] — 우선순위 순(먼저 온 것이 이긴다)."""
+    import sqlite3
+    con = sqlite3.connect(ROOT / 'data/ami.db')
+    c = con.cursor()
+    out = []
+
+    snaps = [r[0] for r in c.execute(
+        'SELECT DISTINCT snapshot FROM boranggi ORDER BY snapshot DESC')]
+    for sn in snaps:
+        bc, bm = {}, {}
+        for (cust, ipju, apt, sangho, cls, fault, chim, chim2,
+             did, did2, bdju, road, mac, mac2) in c.execute(
+                'SELECT 고객번호,인입주,공동주택명,상호명,계약종별,"DCU 장애여부",'
+                '검침방법,검침방법_2,"DCU ID","DCU ID_2",변대주,도로명,'
+                '"모뎀 MAC","모뎀 MAC_2" FROM boranggi WHERE snapshot=?', (sn,)):
+            d10 = B.norm_dcuid(did2) or B.norm_dcuid(did)
+            rec = {'인입주': blank(ipju), '공동주택명': blank(apt), '상호': blank(sangho),
+                   '계약종별': blank(cls), 'DCU장애여부': blank(fault),
+                   '검침방법': blank(chim2) or blank(chim),
+                   'DCUID': d10, '변대주': blank(bdju),
+                   '변대주번호': d10[:8] if d10 else '', '도로명주소': blank(road)}
+            rec = {k: v for k, v in rec.items() if v}
+            if not rec:
+                continue
+            cu = B.norm_cust(cust)
+            if cu:
+                bc.setdefault(cu, rec)
+            for mm in (B.norm_mac(mac2), B.norm_mac(mac)):
+                if mm:
+                    bm.setdefault(mm, rec)
+        out.append((f'boranggi:{sn}', bc, bm))
+
+    # site-data(실효) — 같은 스키마 계열이라 필드가 그대로 맞는다
+    sc, sm = {}, {}
+    sd = ROOT / 'data/site-data.json'
+    if sd.exists():
+        for x in json.loads(sd.read_text()):
+            rec = {'인입주': blank(x.get('인입주')), '공동주택명': blank(x.get('공동주택명')),
+                   '상호': blank(x.get('상호')), '계약종별': blank(x.get('계약종별')),
+                   'DCUID': B.norm_dcuid(x.get('DCUID')), '변대주': blank(x.get('변대주')),
+                   'DCU장애여부': blank(x.get('DCU장애여부')),
+                   'DCU회선상태': blank(x.get('DCU회선상태')),
+                   '검침방법': blank(x.get('검침방법')),
+                   '도로명주소': blank(x.get('도로명주소'))}
+            if rec['DCUID']:
+                rec['변대주번호'] = rec['DCUID'][:8]
+            rec = {k: v for k, v in rec.items() if v}
+            if not rec:
+                continue
+            cu = B.norm_cust(x.get('고객번호'))
+            if cu:
+                sc.setdefault(cu, rec)
+            mm = B.norm_mac(x.get('모뎀MAC'))
+            if mm:
+                sm.setdefault(mm, rec)
+        out.append(('site-data', sc, sm))
+
+    # jongno_jungong — 계약번호=고객번호. 주소만 있고 MAC 은 없다
+    jc = {}
+    for cust, addr in c.execute('SELECT 계약번호,주소 FROM jongno_jungong'):
+        cu = B.norm_cust(cust)
+        a = blank(addr)
+        if cu and a:
+            jc.setdefault(cu, {'도로명주소': a} if ROAD_RE.search(a) else {})
+    jc = {k: v for k, v in jc.items() if v}
+    out.append(('jongno_jungong', jc, {}))
+
+    con.close()
+    log('재보강 색인: ' + ' · '.join(
+        f'{n}(고객 {len(a):,}/MAC {len(b):,})' for n, a, b in out))
+    return out
+
+
+def build_dcu_index():
+    import sqlite3
+    con = sqlite3.connect(ROOT / 'data/ami.db')
+    by_no, by_id = {}, {}
+    for did, no, nmz, line, fault in con.execute(
+            'SELECT "DCU ID",변대주번호,변대주명,회선상태,장애여부 FROM dcu_all'):
+        d10, n8 = B.norm_dcuid(did), B.norm_bdju_no(no)
+        rec = {'DCUID': d10, '변대주번호': n8, '변대주': blank(nmz),
+               'DCU회선상태': blank(line), 'DCU장애여부': blank(fault)}
+        rec = {k: v for k, v in rec.items() if v}
+        if n8:
+            by_no.setdefault(n8, rec)
+        if d10:
+            by_id.setdefault(d10, rec)
+    con.close()
+    return by_no, by_id
+
+
+def resweep(rows, idx, dcu_no, dcu_id):
+    """전수 재보강. 반환 = (채운 건수 Counter, 대안 건수 Counter)"""
+    filled, alt = Counter(), Counter()
+    for x in rows:
+        cu, mac = B.norm_cust(x.get('고객번호')), B.norm_mac(x.get('모뎀MAC'))
+        for src, by_cust, by_mac in idx:
+            rec, how = None, ''
+            if cu and cu in by_cust:
+                rec, how = by_cust[cu], '고객번호'
+            elif mac and mac in by_mac:
+                rec, how = by_mac[mac], 'MAC'
+            if not rec:
+                continue
+            for f in RESWEEP_FIELDS:
+                v = rec.get(f)
+                if not v:
+                    continue
+                cur = x.get(f) or ''
+                if not cur:
+                    x[f] = v
+                    x[f + '출처'] = f'{src}/{how}'
+                    filled[f] += 1
+                elif _norm_cmp(cur) != _norm_cmp(v) and not x.get(f + '_대안'):
+                    # ★덮지 않는다. 다른 값이 있다는 사실만 남긴다(판정은 나중에)
+                    x[f + '_대안'] = v
+                    x[f + '_대안출처'] = f'{src}/{how}'
+                    alt[f] += 1
+        # dcu_all — 변대주번호/DCUID 로 (계기번호 안 쓴다)
+        d = dcu_no.get(x.get('변대주번호') or '') or dcu_id.get(x.get('DCUID') or '')
+        dsrc = ('dcu_all/변대주번호' if dcu_no.get(x.get('변대주번호') or '')
+                else ('dcu_all/DCUID' if dcu_id.get(x.get('DCUID') or '') else ''))
+        if d:
+            for f in ('DCUID', '변대주번호', '변대주', 'DCU회선상태', 'DCU장애여부'):
+                v = d.get(f)
+                if not v:
+                    continue
+                cur = x.get(f) or ''
+                if not cur:
+                    x[f] = v
+                    x[f + '출처'] = dsrc
+                    filled[f] += 1
+                elif _norm_cmp(cur) != _norm_cmp(v) and not x.get(f + '_대안'):
+                    x[f + '_대안'] = v
+                    x[f + '_대안출처'] = dsrc
+                    alt[f] += 1
+    return filled, alt
+
+
+def multi_box_stats(map_rows):
+    """한 주소 함체 2개 이상 — 무엇으로 갈라지나."""
+    import collections as _c
+    by = _c.defaultdict(list)
+    for x in map_rows:
+        by[x['주소']].append(x)
+    multi = {a: v for a, v in by.items() if len({y['모뎀MAC'] for y in v if y['모뎀MAC']}) > 1}
+    tot = sum(len(v) for v in multi.values())
+    per = {}
+    for f in ('공동주택명', '상호', '비고1', '비고2', '인입주'):
+        per[f] = sum(len(v) for v in multi.values()
+                     if len({y.get(f, '') for y in v if y.get(f)}) > 1)
+    combo = sum(len(v) for v in multi.values()
+                if len({(y.get('공동주택명', ''), y.get('상호', ''), y.get('비고1', ''),
+                         y.get('인입주', '')) for y in v}) > 1)
+    return len(multi), tot, per, combo
+
+
 def log(m):
     print(m, flush=True)
 
@@ -305,42 +483,35 @@ def main():
 
     allrows = map_rows + pend_rows
     n_all = len(allrows)
-    log(f'\n=== 필드 채움률 (전체 {n_all:,}) ===')
-    log(f'{"필드":16s} {"보유":>7s} {"결손":>7s}  채움률   출처')
-    for f in LEDGER_FIELDS:
-        v = sum(1 for x in allrows if x.get(f))
-        log(f'{f:16s} {v:7,} {n_all-v:7,}  {v/n_all*100:5.1f}%   원장(미청구 행)')
-    for f in BORANGGI_FIELDS + DCU_FIELDS:
-        v = sum(1 for x in allrows if x.get(f))
-        srcs = Counter(x.get(f + '출처') for x in allrows if x.get(f))
-        top = ' · '.join(f'{k} {c:,}' for k, c in srcs.most_common(2))
-        log(f'{f:16s} {v:7,} {n_all-v:7,}  {v/n_all*100:5.1f}%   {top}')
 
-    # ── 한 주소 여러 함체: 무엇으로 갈라지나 ────────────────────────────────
-    import collections as _c
-    by = _c.defaultdict(list)
-    for x in map_rows:
-        by[x['주소']].append(x)
-    multi = {a: v for a, v in by.items() if len({y['모뎀MAC'] for y in v if y['모뎀MAC']}) > 1}
-    tot = sum(len(v) for v in multi.values())
-    log(f'\n=== 한 주소 함체 2개 이상 — 주소 {len(multi):,} · 계기 {tot:,} ===')
-    log('  (현장에서 가장 헤매는 구간. 무엇으로 갈라지는지가 곧 회수율이다)')
-    # ★비고1·비고2 는 '현관입구 옆' 같은 위치메모가 아니다 — 고유값 83/46 뿐이고
-    #   대부분 '기존'·'추가'·'모뎀교체' 같은 작업 분류 태그다(실측 2026-09-18).
-    #   개소를 가르는 힘은 **공동주택명**('303호'·'4층상좌'·'공용(엘리베이터)')에 있다.
-    for f in ('공동주택명', '상호', '비고1', '비고2', '인입주'):
-        got = sum(1 for v in multi.values() for y in v if y.get(f))
-        # 그 주소 안에서 값이 2종 이상으로 갈리는가 = 실제로 구분에 쓸 수 있는가
-        split = sum(len(v) for v in multi.values()
-                    if len({y.get(f, '') for y in v if y.get(f)}) > 1)
-        log(f'  {f:10s} 값 보유 {got:5,}/{tot:,} ({got/tot*100:4.1f}%)'
-            f' · 그 주소 안에서 갈림 {split:5,} ({split/tot*100:4.1f}%)')
-    combo = 0
-    for v in multi.values():
-        keys = {(y.get('공동주택명', ''), y.get('상호', ''), y.get('비고1', '')) for y in v}
-        if len(keys) > 1:
-            combo += len(v)
-    log(f'  {"세 필드 조합":10s} 갈림 {combo:5,} ({combo/tot*100:4.1f}%)')
+    # ── 전수 재보강 ─────────────────────────────────────────────────────────
+    MEASURE = LEDGER_FIELDS + BORANGGI_FIELDS + ['DCU회선상태', 'DCUID', '변대주', '변대주번호',
+                                                '도로명주소']
+    before = {f: sum(1 for x in allrows if x.get(f)) for f in MEASURE}
+    b_multi, b_tot, b_per, b_combo = multi_box_stats(map_rows)
+
+    idx = build_resweep_index()
+    dcu_no, dcu_id = build_dcu_index()
+    filled, alt = resweep(allrows, idx, dcu_no, dcu_id)
+    after = {f: sum(1 for x in allrows if x.get(f)) for f in MEASURE}
+    a_multi, a_tot, a_per, a_combo = multi_box_stats(map_rows)
+
+    log(f'\n=== 필드 채움률 before/after (전체 {n_all:,}) ===')
+    log(f'{"필드":14s} {"before":>8s} {"after":>8s} {"증가":>7s}   after%   대안')
+    for f in MEASURE:
+        d = after[f] - before[f]
+        log(f'{f:14s} {before[f]:8,} {after[f]:8,} {d:+7,}   {after[f]/n_all*100:5.1f}%'
+            f'   {alt.get(f, 0):,}')
+    log(f'\n재보강으로 채운 값 {sum(filled.values()):,}개 · '
+        f'원장과 다른 값 발견 {sum(alt.values()):,}개(덮지 않고 <필드>_대안 에 남겼다)')
+
+    log(f'\n=== 한 주소 함체 2개 이상 — 주소 {a_multi:,} · 계기 {a_tot:,} ===')
+    log(f'{"필드":12s} {"before":>8s} {"after":>8s}')
+    for f in b_per:
+        log(f'{f:12s} {b_per[f]:8,} {a_per[f]:8,}')
+    log(f'{"네 필드 조합":12s} {b_combo:8,} {a_combo:8,}')
+    log(f'★못 가르는 계기 {b_tot - b_combo:,} -> {a_tot - a_combo:,}'
+        f' ({(b_tot-b_combo)-(a_tot-a_combo):+,})')
 
     OUT_MAP.write_text(json.dumps(map_rows, ensure_ascii=False, indent=1))
     OUT_PEND.write_text(json.dumps(pend_rows, ensure_ascii=False, indent=1))
