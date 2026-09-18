@@ -34,7 +34,8 @@ DATASETS = [
     #   ★allowGroup 이 걸려 있어 stats_sources() 가 건너뛴다 = 통계 분모에 안 들어간다.
     #     작업 지시가 나가고 공개로 바꿀 때 그 점을 함께 판단해야 한다. js/datasets.js 주석 참조
     {"code": "m", "file": "data/michunggu-data.json", "category": "미청구",
-     "uiLabel": "25년 미청구", "statsLabel": "25년 미청구", "allowGroup": "staff"},
+     "uiLabel": "25년 미청구", "statsLabel": "25년 미청구", "allowGroup": "staff",
+     "statsEvenIfGroup": True},
     # 지도에는 안 올라가고 통계 분모에만 들어간다.
     {"code": "a", "category": "완료아카이브", "onMap": False, "statsLabel": "완료 아카이브",
      "archivesGlob": "data/site-data-completed-archive-*.json"},
@@ -50,7 +51,9 @@ def stats_sources():
     out = []
     for d in DATASETS:
         # 확인용 계정제한 리스트는 실적 분모가 아니다 — 인덱스에 넣지 않는다.
-        if d.get("allowGroup"):
+        #   ★예외: statsEvenIfGroup 이 True 면 넣는다. 지도는 아직 일부 계정에만 열어두고
+        #     통계에는 실적으로 잡아야 하는 리스트가 있다(25년 미청구 — 영준님 2026-09-18).
+        if d.get("allowGroup") and not d.get("statsEvenIfGroup"):
             continue
         paths = []
         if d.get("file"):

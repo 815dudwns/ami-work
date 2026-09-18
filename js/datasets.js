@@ -96,8 +96,11 @@ const DATASET_REGISTRY = [
     //   ★allowGroup:'staff' — 작업 지시 전에 작업자 화면에 뜨면 혼선이 생긴다(영준님).
     //     공개 시점은 PM 판단이고, 계정 목록은 js/auth.js 의 AUTH_GROUPS 가 단일 출처다.
     //   생성 스크립트 scripts/build_michunggu_dataset_20260918.py
+    //   ★statsEvenIfGroup — 지도는 staff 에만 열어두되 통계 분모·선택지에는 넣는다.
+    //     확인용 리스트(LP무기록)와 달리 이건 실제 작업 대상이라 실적이다(영준님 2026-09-18).
     { code: 'm', file: './data/michunggu-data.json', category: '미청구', label: null,
-      uiLabel: '25년 미청구', statsLabel: '25년 미청구', allowGroup: 'staff' },
+      uiLabel: '25년 미청구', statsLabel: '25년 미청구', allowGroup: 'staff',
+      statsEvenIfGroup: true },
     // 완료 아카이브 — 실효에서 완료돼 빠진 건들. 지도에는 안 올라가고 통계 분모에만 들어간다.
     //   파일이 날짜별로 늘어나므로 glob 으로 잡는다(archivesGlob).
     { code: 'a', category: '완료아카이브', onMap: false, statsLabel: '완료 아카이브',
@@ -151,8 +154,9 @@ const DATASET_CATEGORY_BY_CODE = Object.fromEntries(
  *   ★onMap 에서 파생한다 — 따로 표를 두면 리스트를 내릴 때 한쪽을 빠뜨린다.
  */
 //   ★계정 제한이 걸린 리스트는 통계 선택지에서도 뺀다(확인용이라 실적 분모가 아니다).
+//     단 statsEvenIfGroup 이 걸린 것은 실적이라 남긴다 — scripts/datasets.py stats_sources() 와 짝이다.
 const DATASET_STATS_OPTS = DATASET_REGISTRY
-    .filter(d => datasetVisibleToUser(d) && !d.allowGroup)
+    .filter(d => datasetVisibleToUser(d) && (!d.allowGroup || d.statsEvenIfGroup))
     .map(d => ({
         key: d.code, label: d.statsLabel || d.uiLabel || d.category,
         done: d.onMap === false,
