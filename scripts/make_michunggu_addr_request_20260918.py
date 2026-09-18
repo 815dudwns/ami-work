@@ -12,6 +12,13 @@
   계기번호는 재사용되므로(오염 11~18% 실측) 계기번호만으로 조회하면 남의 개소가 나온다.
   그래서 'MAC + 계기번호 -> 설치주소' 형식으로 요청한다.
 
+★N2(재사용) 계기 355건은 요청에서 뺀다 (PM/영준님 확인 2026-09-18).
+  25년에 검기가 남은 채 철거된 계기가 26년 계기교체 때 **N2(재사용)로 다른 개소에 재투입**된
+  것들이다. 그래서 그 계기번호는 지금 우리 실효 site-data / 합동 아카이브에 살아 있다.
+  원장 주소에는 그 계기가 없으므로 한전에 주소를 물어봐야 **죽은 개소**를 가리킨다.
+  판별 = 우리 리스트(site-data · hapdong-data-archive)에 같은 계기번호가 존재하는가.
+  뺀 355건은 research/미청구_재사용제외_20260918.json 에 남긴다.
+
 ★현재확보주소 열은 **전건 공란**이다. 우리가 가진 모든 소스를 훑고도 못 찾았다는 뜻이고,
   계기번호 단독 매칭으로 나온 후보 1,587건은 오염되어 있어 **일부러 넣지 않았다**
   (영준님/PM 원칙: 빈칸이 틀린 주소보다 낫다).
@@ -28,10 +35,40 @@ from openpyxl.utils import get_column_letter
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / 'research/미청구_미상잔량_보정_20260918.json'
 OUT = ROOT / 'research/미청구_주소요청_주덕기과장_20260918.xlsx'
+OUT_REUSE = ROOT / 'research/미청구_재사용제외_20260918.json'
+# N2 재사용 판별에 쓰는 우리 리스트. 합동 '지도'(hapdong-data.json)는 넣지 않는다 —
+#   지금 작업 중인 개소라 재사용 판정 근거가 아니다.
+REUSE_LISTS = [('실효 site-data', 'data/site-data.json'),
+               ('합동 아카이브', 'data/hapdong-data-archive.json')]
 
 # 열 순서는 PM 지정(2026-09-18 재지시): 고객번호가 한전 조회에 가장 빠르므로 앞쪽에 둔다.
 COLS = ['계기번호', '모뎀MAC', '고객번호', '지사', '최종시공일', '현재확보주소(있으면)']
 WIDTHS = [16, 20, 14, 16, 20, 34]
+
+
+def norm_meter(v):
+    """계기번호 정규화 — 영문자 접두 보존. [[meter_no_prefix_preserve]]"""
+    s = re.sub(r'[\s\-]', '', str(v or '')).strip()
+    if not s or s.upper() in ('NAN', 'NONE', '#N/A', '0'):
+        return ''
+    return s.upper() if re.search(r'[A-Za-z]', s) else s.zfill(11)
+
+
+def load_reuse_index():
+    idx = {}
+    for name, rel in REUSE_LISTS:
+        p = ROOT / rel
+        if not p.exists():
+            print(f'  ★{rel} 없음 — 재사용 판별이 불완전해진다')
+            continue
+        n = 0
+        for x in json.loads(p.read_text()):
+            k = norm_meter(x.get('계기번호'))
+            if k and k not in idx:
+                idx[k] = (name, x)
+                n += 1
+        print(f'  재사용 색인 {name}: {n:,}')
+    return idx
 
 
 def fmt_day(v):
@@ -47,6 +84,28 @@ def fmt_day(v):
 def main():
     gap = json.loads(SRC.read_text())
     rows = [r for r in gap['목록'] if '주소전체' in r['결손필드']]
+    print(f'주소 전체 결손 {len(rows):,}건')
+
+    # ── N2(재사용) 계기 제외 ─────────────────────────────────────────────────
+    reuse = load_reuse_index()
+    excluded = []
+    keep = []
+    for r in rows:
+        hit = reuse.get(norm_meter(r['계기번호']))
+        if hit:
+            name, x = hit
+            excluded.append({
+                '계기번호': r['계기번호'],
+                '원장주소': r.get('지번주소', ''),      # 전건 공란 — 원장에 그 계기가 없다는 증거
+                '우리리스트주소': x.get('지번주소') or x.get('주소') or '',
+                '리스트출처': name,
+                '지사': r['지사'], '구분': r['구분'], '공종': r['공종'],
+                'MAC': r['MAC'], '고객번호': r['고객번호'], '최종시공일': r['최종시공일'],
+            })
+        else:
+            keep.append(r)
+    rows = keep
+    print(f'N2 재사용 제외 {len(excluded):,}건 -> 요청 대상 {len(rows):,}건')
     # 지사 -> 최종시공일 순으로 정렬해 과장이 보기 쉽게 한다
     rows.sort(key=lambda r: (r['지사'], re.sub(r'\D', '', str(r['최종시공일'] or ''))))
     print(f'대상 {len(rows):,}건 · MAC 보유 {sum(1 for r in rows if r["MAC"]):,}')
@@ -83,6 +142,21 @@ def main():
 
     wb.save(OUT)
     print(f'저장 {OUT}  {ws.max_row - 1:,}행')
+
+    from collections import Counter
+    OUT_REUSE.write_text(json.dumps({
+        '생성': '2026-09-18',
+        '사유': ('25년에 검기가 남은 채 철거된 계기가 26년 계기교체 때 N2(재사용)로 다른 개소에 '
+               '재투입됐다. 원장 주소에는 그 계기가 없으므로 한전에 주소를 물어도 죽은 개소를 '
+               '가리킨다 — 주소 요청에서 빼고 우리 대상에서도 제외한다(영준님 확인 2026-09-18).'),
+        '판별': '우리 리스트(data/site-data.json · data/hapdong-data-archive.json)에 같은 계기번호 존재',
+        '건수': len(excluded),
+        '리스트출처별': dict(Counter(e['리스트출처'] for e in excluded).most_common()),
+        '구분별': dict(Counter(e['구분'] for e in excluded).most_common()),
+        '지사별': dict(Counter(e['지사'] for e in excluded).most_common()),
+        '목록': excluded,
+    }, ensure_ascii=False, indent=1))
+    print(f'저장 {OUT_REUSE}  제외 {len(excluded):,}건')
 
     # ── 원본 대조 ────────────────────────────────────────────────────────────
     from openpyxl import load_workbook
