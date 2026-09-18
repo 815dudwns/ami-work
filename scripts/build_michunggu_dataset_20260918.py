@@ -177,6 +177,49 @@ def build_boranggi_index():
 RESWEEP_FIELDS = ['인입주', '공동주택명', '상호', '계약종별', 'DCUID', '변대주',
                   '변대주번호', '검침방법', '도로명주소']
 
+# ─── 매칭 축 분리 원칙 (영준님 2026-09-18) ──────────────────────────────────
+# "변대주명 매칭 · 전산화번호(변대주번호) 매칭 · DCUID 매칭 — 끼리끼리 해야만 한다."
+#   축을 넘나들며 유도하지 마라. 이름으로 찾은 것에 번호를 붙이거나, DCUID 앞 8자리로
+#   변대주번호를 만들어 본값에 넣는 식은 금지다.
+#   ★축을 넘을 수밖에 없으면 그 값은 **<필드>_유도** 에 넣고 본값에 섞지 않는다.
+#   ★검증 불가한 유도값은 값을 빼고 출처만 남긴다 — 빈칸이 틀린 값보다 낫다.
+# ※실측 2026-09-18: 대장(dcu_master 19,007) 안에서는 'DCU_ID 앞 8자리 == 변대주번호'가
+#   19,007/19,007 로 **예외가 없다.** 그래도 대장에 없는 DCUID 에 그 규칙을 적용한 값은
+#   확인할 길이 없으므로 본값에 넣지 않는다.
+CROSS_MARK = ('역산', '규칙/', '앞8')
+
+
+def split_cross_axis(rows):
+    """축을 넘어 유도된 값을 본값에서 빼 <필드>_유도 로 옮긴다.
+
+    ★어느 필드를 옮길지 주의. 보정판이 `변대주출처` 한 칸에 **번호의 출처를 먼저** 담는다
+      (t['출처']['변대주번호'] or t['출처']['변대주명']). 그래서 거기 붙은 '역산/규칙' 표시는
+      사실상 **변대주번호**의 내력이다. 이름(`변대주`)을 지우면 안 된다 —
+      처음에 그렇게 짰다가 이름 6,941 -> 5,933 으로 떨어지는 걸 보고 잡았다.
+    """
+    moved, dropped = Counter(), Counter()
+    for x in rows:
+        # (본값 필드, 출처가 실린 칸)
+        for f, srcfield in (('변대주번호', '변대주출처'), ('DCUID', 'DCUID출처')):
+            src = x.get(srcfield) or ''
+            if not any(k in src for k in CROSS_MARK):
+                continue
+            v = x.get(f)
+            if not v:
+                continue
+            if '대장미확인' in src:
+                # 대장에 없는 DCUID 로 만든 값 — 확인할 방법이 없다. 값을 버리고 출처만 남긴다
+                x[f] = ''
+                x[f + '출처'] = src + ' /검증불가라 값 제거'
+                dropped[f] += 1
+            else:
+                x[f + '_유도'] = v
+                x[f + '_유도출처'] = src
+                x[f] = ''
+                x[f + '출처'] = ''
+                moved[f] += 1
+    return moved, dropped
+
 
 ROAD_RE = re.compile(r'[가-힣0-9]+(?:로|길)\d*[가-힣]*\s*\d')
 
@@ -206,8 +249,9 @@ def build_resweep_index():
                    '계약종별': blank(cls),
                    '검침방법': blank(chim2) or blank(chim),
                    'DCUID': d10, '변대주': blank(bdju),
-                   # 변대주번호는 DCU ID 앞 8자리로 유도한다
-                   '변대주번호': d10[:8] if d10 else '', '도로명주소': blank(road)}
+                   # ★변대주번호를 DCU ID 앞 8자리로 만들지 않는다(축 넘기 금지).
+                   #   boranggi 에는 변대주번호 열이 없으므로 여기서는 채우지 않는다.
+                   '도로명주소': blank(road)}
             rec = {k: v for k, v in rec.items() if v}
             if not rec:
                 continue
@@ -227,11 +271,9 @@ def build_resweep_index():
             rec = {'인입주': blank(x.get('인입주')), '공동주택명': blank(x.get('공동주택명')),
                    '상호': blank(x.get('상호')), '계약종별': blank(x.get('계약종별')),
                    'DCUID': B.norm_dcuid(x.get('DCUID')), '변대주': blank(x.get('변대주')),
-                   'DCU회선상태': blank(x.get('DCU회선상태')),
                    '검침방법': blank(x.get('검침방법')),
                    '도로명주소': blank(x.get('도로명주소'))}
-            if rec['DCUID']:
-                rec['변대주번호'] = rec['DCUID'][:8]
+            # ★site-data 에도 변대주번호 열이 없다. DCUID 앞 8자리로 만들지 않는다(축 넘기 금지)
             rec = {k: v for k, v in rec.items() if v}
             if not rec:
                 continue
@@ -548,6 +590,15 @@ def main():
         for k in DROP:
             x.pop(k, None)
     log('제거한 DCU 필드: ' + ', '.join(DROP))
+
+    # ── 매칭 축 분리 ────────────────────────────────────────────────────────
+    moved, dropped = split_cross_axis(map_rows + pend_rows)
+    log(f'\n축 넘은 값 분리 — <필드>_유도 로 이동 {dict(moved)}'
+        f' · 검증불가라 값 제거 {dict(dropped)}')
+    for f in ('변대주번호', '변대주', 'DCUID'):
+        v = sum(1 for x in map_rows + pend_rows if x.get(f))
+        u = sum(1 for x in map_rows + pend_rows if x.get(f + '_유도'))
+        log(f'  {f}: 본값 {v:,} · 유도 {u:,}')
 
     OUT_MAP.write_text(json.dumps(map_rows, ensure_ascii=False, indent=1))
     OUT_PEND.write_text(json.dumps(pend_rows, ensure_ascii=False, indent=1))
