@@ -43,6 +43,12 @@ OUT_READY = ROOT / 'research/미청구_대상_지도업로드_20260918.json'
 OUT_WAIT = ROOT / 'research/미청구_대상_주소대기_20260918.json'
 AWMS = ROOT / 'research/미청구_awms주소회수_20260918.json'
 
+# ★awms 회수 주소 채택 여부 (영준님 2026-09-18: **보류**)
+#   awms 축은 아직 못 믿는다 — 주덕기 과장 회신 주소와 대조해 실제 정확도를 재고,
+#   맞으면 그때 일괄 채택한다. 대조는 scripts/compare_awms_vs_kepco_addr.py 가 한다.
+#   채택이 정해지면 이 값을 True 로 바꾸거나 --use-awms 로 돌린다.
+USE_AWMS = False
+
 _s = importlib.util.spec_from_file_location('bld', str(ROOT / 'scripts/build_michunggu_boost_20260918.py'))
 B = importlib.util.module_from_spec(_s)
 _s.loader.exec_module(B)
@@ -121,14 +127,14 @@ def main():
     #   등급 근거는 scripts/fetch_awms_addr_20260918.py 주석과 검증 결과 참조
     #   (B_신설계기·시공일이전 오염 1.9% · B_철거계기 0% — 계기키 매칭 11~18% 대비 안전).
     awms = {}
-    if AWMS.exists():
+    if USE_AWMS and AWMS.exists():
         for r in json.loads(AWMS.read_text())['목록']:
             if r.get('결과') != '적중' or not r.get('awms_주소'):
                 continue
             if not str(r.get('신뢰등급', '')).startswith(('A_', 'B_')):
                 continue
             awms[nm(r['계기번호'])] = r
-    log(f'awms 회수 주소(A/B 등급) {len(awms):,}건 대기')
+    log(f'awms 회수 주소 채택 {"O" if USE_AWMS else "X(보류)"} — 적용 대상 {len(awms):,}건')
 
     recs = []
     awms_used = []
@@ -209,4 +215,6 @@ def main():
 
 
 if __name__ == '__main__':
+    if '--use-awms' in sys.argv:
+        USE_AWMS = True
     sys.exit(main())

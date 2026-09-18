@@ -142,6 +142,11 @@ def main():
         k = norm_meter(x.get('WHM_NO10'))
         if k and k not in idx_new:
             idx_new[k] = x
+    # ★알려진 결함(2026-09-18, PM 지시로 **지금은 고치지 않는다**):
+    #   철거계기 색인 idx 는 WORK_DATE 최신 행을 남기는데, 신설계기 색인 idx_new 는
+    #   **처음 만난 행**을 남긴다. 같은 계기가 신설로 여러 번 등장하면(재사용) 엉뚱한
+    #   행이 잡힐 수 있다. awms 축 자체가 채택 보류라, 채택이 정해지면 그때
+    #   `--reuse-raw` 로 재판정하면서 함께 고친다(세션 없이 재판정된다).
     print(f'색인: 철거계기 {len(idx):,} · 신설계기 {len(idx_new):,}')
 
     targets = load_targets()
