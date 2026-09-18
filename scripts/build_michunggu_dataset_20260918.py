@@ -90,12 +90,14 @@ LEDGER_EXTRA = {
 LEDGER_FIELDS = ['시설형태', 'M/S', '집단', '485타입', '케이블', '커넥터', '신호레벨',
                  '시공자', '추가계기', '비고1', '비고2', '앱변대주']
 # boranggi 에서 고객번호(또는 MAC)로 끌어오는 것. 값마다 <필드>출처 를 따로 남긴다.
-# ★DCU 필드 정책 (영준님 2026-09-18 최종: "DCU 리스트 것은 반영하라, 장애여부는 빼고")
-#   싣는다  — dcu_철거예정 (+ 그 판정에 딸린 dcu_잔여호수·dcu_전체호수)
-#   안 싣는다 — DCUID(변대주번호 + 뒤 2자리로 유도되니 중복) · DCU회선상태 · DCU장애여부 계열
-#   DCU ID 는 **변대주번호를 유도하는 내부 키로만** 쓰고 출력하지 않는다.
+# ★DCU 필드 정책 (영준님 2026-09-18 최종: "회선여부나 장애 같은 것은 DCU DB 에 반영해라")
+#   **DCU 상태값을 리스트마다 복사해 박지 않는다.** dcu_all 이 단일 출처이고,
+#   리스트는 `DCUID` 로 조인해서 본다(data/dcu-db.json + js/dcu-db.js).
+#   싣는다   — DCUID(조인 키) · dcu_철거예정(+딸린 dcu_잔여호수·dcu_전체호수)
+#   안 싣는다 — DCU회선상태 · DCU장애여부 계열. 상태는 조인해서 읽는다.
+#              (상태를 복사해 두면 dcu_all 이 갱신돼도 리스트가 옛 값을 들고 있게 된다)
 BORANGGI_FIELDS = ['인입주', '공동주택명', '상호', '계약종별', '검침방법']
-DCU_FIELDS = []   # DCU 계열은 출력하지 않는다
+DCU_FIELDS = []   # 상태값은 싣지 않는다 — DCUID 로 조인한다
 
 
 def blank(v):
@@ -172,7 +174,7 @@ def build_boranggi_index():
 #   ② 빈 칸만 채운다. 값이 있으면 덮지 않는다(원장 값 우선)
 #   ③ 값이 있는데 소스가 **다른 값**을 주면 덮지 말고 <필드>_대안 에 따로 남긴다
 #   ④ 보강현황은 판이 여럿이라 최신판부터 훑고 출처에 판 날짜를 남긴다
-RESWEEP_FIELDS = ['인입주', '공동주택명', '상호', '계약종별', '변대주',
+RESWEEP_FIELDS = ['인입주', '공동주택명', '상호', '계약종별', 'DCUID', '변대주',
                   '변대주번호', '검침방법', '도로명주소']
 
 
@@ -203,8 +205,8 @@ def build_resweep_index():
             rec = {'인입주': blank(ipju), '공동주택명': blank(apt), '상호': blank(sangho),
                    '계약종별': blank(cls),
                    '검침방법': blank(chim2) or blank(chim),
-                   '변대주': blank(bdju),
-                   # DCU ID 는 싣지 않지만 **변대주번호를 유도하는 데는 쓴다**(앞 8자리)
+                   'DCUID': d10, '변대주': blank(bdju),
+                   # 변대주번호는 DCU ID 앞 8자리로 유도한다
                    '변대주번호': d10[:8] if d10 else '', '도로명주소': blank(road)}
             rec = {k: v for k, v in rec.items() if v}
             if not rec:
@@ -224,12 +226,12 @@ def build_resweep_index():
         for x in json.loads(sd.read_text()):
             rec = {'인입주': blank(x.get('인입주')), '공동주택명': blank(x.get('공동주택명')),
                    '상호': blank(x.get('상호')), '계약종별': blank(x.get('계약종별')),
-                   '변대주': blank(x.get('변대주')),
+                   'DCUID': B.norm_dcuid(x.get('DCUID')), '변대주': blank(x.get('변대주')),
+                   'DCU회선상태': blank(x.get('DCU회선상태')),
                    '검침방법': blank(x.get('검침방법')),
                    '도로명주소': blank(x.get('도로명주소'))}
-            _d10 = B.norm_dcuid(x.get('DCUID'))
-            if _d10:
-                rec['변대주번호'] = _d10[:8]
+            if rec['DCUID']:
+                rec['변대주번호'] = rec['DCUID'][:8]
             rec = {k: v for k, v in rec.items() if v}
             if not rec:
                 continue
@@ -264,7 +266,8 @@ def build_dcu_index():
     for did, no, nmz, line, fault in con.execute(
             'SELECT "DCU ID",변대주번호,변대주명,회선상태,장애여부 FROM dcu_all'):
         d10, n8 = B.norm_dcuid(did), B.norm_bdju_no(no)
-        rec = {'변대주번호': n8, '변대주': blank(nmz)}
+        rec = {'DCUID': d10, '변대주번호': n8, '변대주': blank(nmz),
+               'DCU회선상태': blank(line)}
         rec = {k: v for k, v in rec.items() if v}
         if n8:
             by_no.setdefault(n8, rec)
@@ -302,13 +305,11 @@ def resweep(rows, idx, dcu_no, dcu_id):
                     x[f + '_대안출처'] = f'{src}/{how}'
                     alt[f] += 1
         # dcu_all — 변대주번호/DCUID 로 (계기번호 안 쓴다)
-        # ★DCU ID 는 출력하지 않지만 **변대주를 찾는 키로는 쓴다**(보정판의 값을 내부 보관)
-        _did = x.get('_dcuid') or ''
-        d = dcu_no.get(x.get('변대주번호') or '') or dcu_id.get(_did)
+        d = dcu_no.get(x.get('변대주번호') or '') or dcu_id.get(x.get('DCUID') or '')
         dsrc = ('dcu_all/변대주번호' if dcu_no.get(x.get('변대주번호') or '')
-                else ('dcu_all/DCUID' if dcu_id.get(_did) else ''))
+                else ('dcu_all/DCUID' if dcu_id.get(x.get('DCUID') or '') else ''))
         if d:
-            for f in ('변대주번호', '변대주'):
+            for f in ('DCUID', '변대주번호', '변대주'):
                 v = d.get(f)
                 if not v:
                     continue
@@ -421,7 +422,7 @@ def main():
             # ★의미로 매핑 — 변대주=전주 '이름', DCUID=ID
             '변대주': r['변대주명'],
             '변대주번호': r['변대주번호'],
-            '_dcuid': r['DCU_ID'],        # ★내부 조회키. 저장 전에 지운다
+            'DCUID': r['DCU_ID'],
             '모뎀MAC': r['MAC'],
             '주소_원문': (r.get('_원문') or {}).get('지번주소', ''),
             '신뢰등급': r['신뢰등급']['주소'],
@@ -489,7 +490,7 @@ def main():
     n_all = len(allrows)
 
     # ── 전수 재보강 ─────────────────────────────────────────────────────────
-    MEASURE = LEDGER_FIELDS + BORANGGI_FIELDS + ['변대주', '변대주번호', '도로명주소']
+    MEASURE = LEDGER_FIELDS + BORANGGI_FIELDS + ['DCUID', '변대주', '변대주번호', '도로명주소']
     before = {f: sum(1 for x in allrows if x.get(f)) for f in MEASURE}
     b_multi, b_tot, b_per, b_combo = multi_box_stats(map_rows)
 
@@ -539,14 +540,14 @@ def main():
             + f'  | 변대주 없어 판정불가 {nobd:,}')
 
     # ★저장 전에 뺄 것만 턴다 — dcu_철거예정 계열은 남긴다
-    DROP = ('_dcuid', 'DCUID', 'DCUID출처', 'DCUID_대안', 'DCUID_대안출처',
-            'DCU회선상태', 'DCU회선상태출처', 'DCU회선상태_대안', 'DCU회선상태_대안출처',
-            'DCU장애여부', 'DCU장애여부출처', 'DCU장애여부_대안', 'DCU장애여부_대안출처',
-            'DCU장애여부_대장', 'DCU장애여부_대장출처')
+    # ★빼는 것은 **장애여부 계열뿐**이다(영준님 2026-09-18 재정정).
+    DROP = ('DCU장애여부', 'DCU장애여부출처', 'DCU장애여부_대안', 'DCU장애여부_대안출처',
+            'DCU장애여부_대장', 'DCU장애여부_대장출처',
+            'DCU회선상태', 'DCU회선상태출처', 'DCU회선상태_대안', 'DCU회선상태_대안출처')
     for x in map_rows + pend_rows:
         for k in DROP:
             x.pop(k, None)
-    log('제거한 DCU 필드: ' + ', '.join(k for k in DROP if k != '_dcuid'))
+    log('제거한 DCU 필드: ' + ', '.join(DROP))
 
     OUT_MAP.write_text(json.dumps(map_rows, ensure_ascii=False, indent=1))
     OUT_PEND.write_text(json.dumps(pend_rows, ensure_ascii=False, indent=1))
