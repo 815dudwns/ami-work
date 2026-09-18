@@ -37,6 +37,9 @@ TOKEN = Path.home() / '.awms-tokens' / 'fmpmtr.json'
 BASE = 'https://awms.kdn.com/ami/fmp/mtr/fmpMtr1000/selectList'
 OUT = ROOT / 'research/미청구_awms주소회수_20260918.json'
 RAW = ROOT / 'data/inbox_hapdong/awms-fmpmtr-full-20260918.json'
+# ★경량본(조회에 쓰는 열만, gzip). 원본 68MB 는 저장소에 넣지 않는다 —
+#   이 repo 는 .git 이 이미 517MB 라 큰 파일을 더 얹으면 clone·배포가 더 무거워진다.
+RAW_SLIM = ROOT / 'data/inbox_hapdong/awms-fmpmtr-slim-20260918.json.gz'
 WAIT = ROOT / 'research/미청구_대상_주소대기_20260918.json'
 REUSE = ROOT / 'research/미청구_재사용제외_20260918.json'
 
@@ -121,9 +124,15 @@ def load_targets():
 
 def main():
     sid = json.loads(TOKEN.read_text())['JSESSIONID']
-    if '--reuse-raw' in sys.argv and RAW.exists():
-        print(f'기존 원본 재사용 {RAW}')
-        rows = json.loads(RAW.read_text())['rows']
+    if '--reuse-raw' in sys.argv and (RAW.exists() or RAW_SLIM.exists()):
+        if RAW.exists():
+            print(f'기존 원본 재사용 {RAW}')
+            rows = json.loads(RAW.read_text())['rows']
+        else:
+            import gzip
+            print(f'경량본 재사용 {RAW_SLIM}')
+            with gzip.open(RAW_SLIM, 'rt', encoding='utf-8') as f:
+                rows = json.load(f)['rows']
     else:
         print('=== awms FMPMTR 지사 통째 수집 (조회 전용) ===', flush=True)
         rows = collect(sid)
@@ -219,6 +228,21 @@ def main():
     for k, v in st.most_common():
         print(f'  {k:42s} {v:6,}')
     print(f'\n대상 {len(targets):,} · 주소확보 {len(ok):,} · 그중 쓸 수 있는 등급 {len(usable):,}')
+
+    # ★덮어쓰기 가드 (2026-09-18 사고 후 추가)
+    #   옛 판(건별 searchVal)으로 띄워 둔 백그라운드 작업이 **2시간 뒤에 끝나면서**
+    #   이미 좋은 결과(적중 921)가 들어 있던 이 파일을 적중 11 짜리로 덮었다.
+    #   세션이 중간에 죽어 1,620건이 조회 0 이었는데도 그대로 저장한 것이다.
+    #   그래서 **기존 파일보다 적중이 적으면 저장하지 않는다**(--force 로만 통과).
+    if OUT.exists() and '--force' not in sys.argv:
+        try:
+            prev = json.loads(OUT.read_text()).get('주소확보', 0)
+        except Exception:
+            prev = 0
+        if len(ok) < prev:
+            print(f'\n★기존 파일이 더 낫다(주소확보 {prev:,} vs 이번 {len(ok):,})'
+                  f' — 저장하지 않는다. 덮으려면 --force', flush=True)
+            return 1
 
     OUT.write_text(json.dumps({
         '생성': '2026-09-18',

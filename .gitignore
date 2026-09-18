@@ -88,3 +88,6 @@ data/inbox_jdg_*/*.zip
 data/ami.db
 data/ami.db-wal
 data/ami.db-shm
+
+# awms 원본 덤프(68MB) — 경량본 awms-fmpmtr-slim-*.json.gz 만 추적한다
+data/inbox_hapdong/awms-fmpmtr-full-*.json
