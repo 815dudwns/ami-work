@@ -34,6 +34,8 @@ XL = MAIN / 'data/inbox_jdg_20260917/25년 AMI 보강공사_미청구2.xlsx'
 DB = ROOT / 'data/ami.db'
 OUT = ROOT / 'research/미청구_보강_20260918.json'
 OUT_GAP = ROOT / 'research/미청구_미상잔량_20260918.json'
+OUT_C = ROOT / 'research/미청구_보강_보정_20260918.json'
+OUT_GAP_C = ROOT / 'research/미청구_미상잔량_보정_20260918.json'
 
 _spec = importlib.util.spec_from_file_location(
     'recon', str(ROOT / 'scripts/미청구-필터역산-재현-20260917.py'))
@@ -50,6 +52,18 @@ LEDGER_COLS = {
 }
 
 BLANK = {'', '0', 'NAN', 'NONE', '#N/A', 'NAT', '00000000'}
+
+# ─── 계기번호 단독 매칭 신뢰 정책 (2026-09-18 추가검증 결과) ──────────────────
+# ★계기는 재사용된다. 철거한 계기가 다른 개소에 재투입돼 **같은 번호가 딴 주소에 산다.**
+#   그래서 계기번호 단독으로 끌어온 주소·변대주는 남의 개소 값일 수 있다.
+#   실측(scripts/verify_michunggu_meterkey_20260918.py):
+#     boranggi:20260917/계기번호  오염 17.6%  (정답지 기준)  ·  10.9% (적용집합 교차검증)
+#     boranggi:20260730/계기번호  25.3%   ·  20260828  51.6%  ·  site-data  19.6%
+#     반면 고객번호 키 0.1~1.0% · MAC 키 0.0% · 작업중/계기번호 0.0% · gapap/계기번호 0.0%
+#   -> 기본(CORRECTED=True)은 **계기번호 단독 매칭을 쓰지 않는다.**
+#      원장에 있던 값이 재사용 계기 때문에 덮이는 일은 없다(빈 칸만 채우므로).
+SAFE_METER_SOURCES = {'작업중', 'gapap', 'gapap_sheet2'}   # 실측 오염 0.0%
+CORRECTED = True
 
 
 def txt(v):
@@ -382,6 +396,9 @@ def _sweep(targets, S, contrib):
             if t['고객번호'] and t['고객번호'] in S.by_cust.get(src, {}):
                 rec, how = S.by_cust[src][t['고객번호']], '고객번호'
             elif t['_m'] and t['_m'] in S.by_meter.get(src, {}):
+                # ★계기번호 단독 매칭은 재사용 계기 때문에 오염된다 — 실측 소스만 허용한다.
+                if CORRECTED and src not in SAFE_METER_SOURCES:
+                    continue
                 rec, how = S.by_meter[src][t['_m']], '계기번호'
             if not rec:
                 continue
@@ -572,9 +589,28 @@ def main():
         r['변대주출처'] = t['출처']['변대주번호'] or t['출처']['변대주명']
         r['보강여부'] = {f: ('원장' if t['출처'][f] == '원장'
                           else ('보강' if t['출처'][f] else '미상')) for f in FIELDS}
+
+        def grade(src):
+            if not src:
+                return '미상'
+            if src == '원장':
+                return 'A_원장'
+            if src.endswith('/고객번호'):
+                return 'B_고객번호키'
+            if 'MAC' in src:
+                return 'B_MAC키'
+            if src.startswith('dcu_all') or src.startswith('규칙'):
+                return 'B_DCU대장역산'
+            if src.endswith('/계기번호'):
+                return ('B_계기번호키(오염0%실측)'
+                        if src.split('/')[0] in SAFE_METER_SOURCES else 'C_계기번호키(오염의심)')
+            return '기타'
+        r['신뢰등급'] = {'주소': grade(r['주소출처']), '변대주': grade(r['변대주출처'])}
         recs.append(r)
-    OUT.write_text(json.dumps(recs, ensure_ascii=False, indent=1))
-    log(f'\n저장 {OUT}  {len(recs):,}건')
+    out_path = OUT_C if CORRECTED else OUT
+    out_gap_path = OUT_GAP_C if CORRECTED else OUT_GAP
+    out_path.write_text(json.dumps(recs, ensure_ascii=False, indent=1))
+    log(f'\n저장 {out_path}  {len(recs):,}건')
 
     # 미상 잔량 = 주소 또는 변대주가 끝까지 안 채워진 계기
     # ★DCU_ID 는 **유선계열에서만** 결손으로 센다 — LTE 개소는 DCU 가 없는 것이 정상이다.
@@ -605,12 +641,14 @@ def main():
         '지사별_주소전체결손': dict(Counter(g['지사'] for g in noaddr).most_common()),
         '목록': gap,
     }
-    OUT_GAP.write_text(json.dumps(payload, ensure_ascii=False, indent=1))
-    log(f'저장 {OUT_GAP}  잔량 {len(gap):,}건 (주소 전체 결손 {len(noaddr):,})')
+    out_gap_path.write_text(json.dumps(payload, ensure_ascii=False, indent=1))
+    log(f'저장 {out_gap_path}  잔량 {len(gap):,}건 (주소 전체 결손 {len(noaddr):,})')
     log(f'  지사별: {dict(agg_dept.most_common())}')
     log(f'  결손필드별: {dict(agg_field.most_common())}')
     return 0
 
 
 if __name__ == '__main__':
+    if '--raw' in sys.argv:          # 보정 전(계기번호 단독 매칭 포함) 재현용
+        CORRECTED = False
     sys.exit(main())
