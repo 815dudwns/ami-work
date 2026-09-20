@@ -554,6 +554,17 @@ function aggregateRework(addresses) {
 
 // 같은 좌표에 겹친 마커 그룹을 좌표 중심으로 소용돌이(Sunflower spiral) 분산
 // 첫 마커는 정중앙, 이후 황금각(137.5°)으로 빡빡하게 나선형 확장
+// 마커 우선순위 — 겹칠 때 **중심에 남고 위에 그려지는** 순서(영준님 2026-09-20).
+//   합동 > 실효 > SKT > 25미청구 > 25년 미청구불가. 목록에 없는 카테고리는 뒤로 밀린다.
+//   ★두 군데서 쓴다: spreadOverlappingMarkers(중심 선점) · createMarker(zIndex).
+//     나선으로 밀어도 겹치는 부분이 남아 **나중에 그려진 마커가 가린다** — zIndex 가 있어야
+//     우선순위가 실제로 보인다(불가가 마지막에 그려져 미청구를 가리던 문제, 2026-09-20).
+const MARKER_PRIORITY = ['합동', '실효', 'skt', '미청구', '미청구불가'];
+function markerPriority(category) {
+    const i = MARKER_PRIORITY.indexOf(category);
+    return i === -1 ? MARKER_PRIORITY.length : i;
+}
+
 function spreadOverlappingMarkers(grouped) {
     const SPIRAL_EXACT  = 0.000025; // ≈ 2.8m 기본 간격 (exact)
     const SPIRAL_APPROX = 0.00008;  // ≈ 9m (approximate)
@@ -564,14 +575,7 @@ function spreadOverlappingMarkers(grouped) {
         if (!coordToKeys[k]) coordToKeys[k] = [];
         coordToKeys[k].push(key);
     });
-    // 겹칠 때 누가 원래 자리(중심)에 남는지 — 우선순위(영준님 2026-09-20).
-    //   합동 > 실효 > SKT > 25미청구 > 25년 미청구불가. 목록에 없는 카테고리는 뒤로 밀린다.
-    //   ★밀어내는 방식(나선) 자체는 그대로다 — 순서만 정한다.
-    const MARKER_PRIORITY = ['합동', '실효', 'skt', '미청구', '미청구불가'];
-    const prioOf = key => {
-        const i = MARKER_PRIORITY.indexOf(grouped[key].category);
-        return i === -1 ? MARKER_PRIORITY.length : i;
-    };
+    const prioOf = key => markerPriority(grouped[key].category);
     Object.values(coordToKeys).forEach(keys => {
         const n = keys.length;
         if (n <= 1) return;
@@ -716,7 +720,10 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const customOverlay = new kakao.maps.CustomOverlay({
         position: position,
         content: markerEl,  // DOM 엘리먼트로 전달
-        yAnchor: 1
+        yAnchor: 1,
+        // 우선순위가 높을수록 위에 그려진다. 안 주면 나중에 만든 마커가 이기므로
+        //   레지스트리 등록 순서(불가가 마지막)가 그대로 화면 우선순위가 돼 버린다.
+        zIndex: 100 - markerPriority(category)
     });
 
     customOverlay.setMap(map);
