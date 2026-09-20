@@ -226,8 +226,25 @@ def cell_text(v):
 
 # ─── 정규화 열 ───────────────────────────────────────────────────────────────
 def norm_meter(v):
-    d = re.sub(r'\D', '', v or '')
-    return d.zfill(11) if d else None
+    """계기번호 정규화 — ★영문 접두를 지우지 마라([[meter_no_prefix_preserve]]).
+
+    `A0530188699`·`LA530151258` 처럼 신설계기에 접두가 붙는다. 숫자만 뽑아 zfill 하면
+    `LA530149603` -> `00530149603` 으로 뭉개지고, 그 값으로 조인하면 남의 개소가 붙는다.
+    zfill 은 **엑셀이 숫자로 읽어 앞 0 이 날아간 것을 되돌리는 용도**다(11자리 고정).
+    """
+    s = re.sub(r'[\s\-]', '', v or '').upper()
+    if not s:
+        return None
+    return s.zfill(11) if s.isdigit() else s
+
+
+def norm_cust(v):
+    """고객번호 정규화 — 10자리 고정이라 자릿수로 앞 0 잘림을 판단한다.
+
+    ★`#N/A` 같은 엑셀 오류값을 그대로 실으면 조인할 때 한 덩어리로 붙는다 — 숫자만 받는다.
+    """
+    s = re.sub(r'[\s\-]', '', v or '')
+    return s.zfill(10) if s.isdigit() else None
 
 
 def norm_plain(v):
@@ -399,7 +416,7 @@ def load_sheet(con, path, ws, table, snapshot, disc=None):
         if ai is not None:
             rec.append(norm_plain(vals[ai]))
         if ci is not None:
-            rec.append(norm_plain(vals[ci]))
+            rec.append(norm_cust(vals[ci]))
         payload.append(rec)
 
     ph = ','.join('?' * len(all_cols))
