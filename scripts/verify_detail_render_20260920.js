@@ -30,6 +30,11 @@ const b = src.indexOf('const subDetails = subParts.length');
 if (a < 0 || b < 0) throw new Error('렌더 구간을 못 찾았다 — detail.js 구조가 바뀌었다');
 const body = src.slice(a, b);
 
+// ★비교 전에 태그를 턴다. 안 그러면 값 중간에 태그가 끼는 표기를 놓친다 —
+//   DCU ID 는 '<span>0329H751</span><span class=seg-dup>44</span>' 로 그려져서
+//   화면엔 0329H75144 로 보이는데 문자열 검사는 실패했다(2026-09-20 실측, 5,844건 오탐).
+const strip = (h) => String(h).replace(/<[^>]+>/g, '');
+
 const render = new Function('meter', 'currentAddress', 'commonDcuShown', `
 ${helpers}
 ${body}
@@ -43,7 +48,7 @@ const FIELDS = [
     '변대주', '변대주번호', 'DCUID', '모뎀MAC', '최종시공일', '구분', '공종',
     'M/S', '집단', '485타입', '케이블', '커넥터', '시설형태', '신호레벨',
     '추가계기', '비고1', '비고2', '앱변대주', '인입주', '공동주택명', '상호',
-    '계약종별', '검침방법', 'dcu_철거예정', 'DCU통신방식', '회선상태', '철거판정',
+    '계약종별', '검침방법', 'dcu_철거예정', 'DCU통신방식', '회선상태', '철거판정', 'DCU차수',
     'W_25대상', 'LP', '불가사유', '불가상세',
 ];
 // 계기목록 바깥(모달 헤더·상단 공통줄)에서 그려지는 값 — 이 스크립트가 보는 구간에 없다.
@@ -54,8 +59,13 @@ const ELSEWHERE = {
     // ★일부러 안 그리는 것 — 대장에 없는 개소의 원장 DCUID(25미청구 125건).
     //   대장미등재 = 'DCU 없음' 이라는 판별이라, 원장 값을 DCU 자리에 그리면 거짓이 된다
     //   (영준님 2026-09-20). 데이터에는 남아 있다.
-    DCUID: '차이분 = 대장미등재 개소의 원장 DCUID (의도적 비표시, DCU 없음)',
+    DCUID: '차이분 = 대장미등재 개소의 원장 DCUID (의도적 비표시 — 대장에 없으면 빈칸)',
+    // 상호와 같은 값이면 한 번만 그린다(기존 동작). 같은 글자를 두 번 찍지 않는다.
+    공동주택명: '차이분 = 상호와 같은 값이라 중복 제거',
 };
+
+// 기본값이라 화면에서 숨기는 상태값(영준님 2026-09-20). 데이터에는 전부 남는다.
+const HIDE_DEFAULT = { 회선상태: '개통', 철거판정: '미판정' };
 
 function check(file, listName, intended) {
     const rows = JSON.parse(fs.readFileSync(path.join(ROOT, file), 'utf8'));
@@ -71,17 +81,31 @@ function check(file, listName, intended) {
         // 일부러 안 그리는 필드 — **라벨**로 센다.
         //   값으로 세면 다른 줄에 같은 글자가 있을 때 걸려 올라온다(불가 통신방식 234건이
         //   그랬다 — 상단 DCU 통신방식 값과 겹친 것이지 이 줄이 그려진 게 아니다).
-        if (intended && intended[f]) {
+        if (intended && intended[f] && intended[f].label) {
             const { note, label } = intended[f];
-            const drawn = have.filter(r => (render(r, r.주소, false).sub).includes(label)).length;
+            const drawn = have.filter(r => strip(render(r, r.주소, false).sub).includes(label)).length;
             out.push([f, have.length, drawn, drawn === 0 ? note : `★${drawn}건 그려졌다 — 의도 위반`]);
+            continue;
+        }
+        // 기본값을 숨기는 필드 — 분모는 '기본값이 아닌 건' 이다.
+        //   숨긴 건이 미스로 잡히면 없는 버그를 쫓게 된다(회선상태 '개통'·철거판정 '미판정').
+        if (HIDE_DEFAULT[f]) {
+            const hv = HIDE_DEFAULT[f];
+            const vis = have.filter(r => String(r[f]).trim() !== hv);
+            const shown = vis.filter(r => {
+                const o = render(r, r.주소, false);
+                return strip(o.detail + ' · ' + o.sub).includes(String(r[f]).trim());
+            }).length;
+            out.push([f, have.length, shown,
+                `표시대상 ${vis.length.toLocaleString()} (기본값 '${hv}' ${(have.length - vis.length).toLocaleString()}건 숨김)`
+                + (shown === vis.length ? '' : ` ★${vis.length - shown}건 안 나옴`)]);
             continue;
         }
         // 값이 있는 레코드 전부를 렌더해 화면 문자열에 값이 들어갔는지 센다
         let shown = 0;
         for (const r of have) {
             const { detail, sub } = render(r, r.주소, false);
-            const html = detail + ' · ' + sub;
+            const html = strip(detail + ' · ' + sub);
             let needle;
             if (f === 'LP') needle = null;                     // 값이 변환되므로 라벨로 본다
             else if (f === '최종시공일') needle = null;         // 표시할 때 끊어 준다

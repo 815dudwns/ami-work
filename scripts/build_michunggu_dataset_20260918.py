@@ -456,11 +456,13 @@ def load_dcu_master():
     import sqlite3
     con = sqlite3.connect(ROOT / 'data/ami.db')
     by_id, by_no, by_name = {}, {}, {}
-    for did, no, nmz, comm, line, verdict in con.execute(
-            'SELECT DCU_ID,변대주번호,변대주명,인입망통신방식,회선상태,철거판정 FROM dcu_master'):
+    for did, no, nmz, comm, line, verdict, cha in con.execute(
+            'SELECT DCU_ID,변대주번호,변대주명,인입망통신방식,회선상태,철거판정,차수'
+            ' FROM dcu_master'):
         rec = {'DCU_ID': (did or '').strip(), '변대주번호': (no or '').strip(),
                '변대주명': (nmz or '').strip(), 'DCU통신방식': (comm or '').strip(),
-               '회선상태': (line or '').strip(), '철거판정': (verdict or '').strip()}
+               '회선상태': (line or '').strip(), '철거판정': (verdict or '').strip(),
+               'DCU차수': (cha or '').strip()}
         if rec['DCU_ID']:
             by_id.setdefault(rec['DCU_ID'], rec)
         if rec['변대주번호']:
@@ -534,9 +536,10 @@ def fix_bdju(rows, by_id, by_no, by_name):
             x['DCU통신방식'] = hit['DCU통신방식']
             x['회선상태'] = hit['회선상태']
             x['철거판정'] = hit['철거판정']
+            x['DCU차수'] = hit['DCU차수']
             x['대장출처'] = f'dcu_master/{axis}'
         else:
-            x['DCU통신방식'] = x['회선상태'] = x['철거판정'] = ''
+            x['DCU통신방식'] = x['회선상태'] = x['철거판정'] = x['DCU차수'] = ''
             x['대장출처'] = '대장미등재'
             st['대장 미등재'] += 1
 
@@ -945,6 +948,7 @@ def main():
 
     # ★저장 전에 뺄 것만 턴다 — dcu_철거예정 계열은 남긴다
     # ★빼는 것은 **장애여부 계열뿐**이다(영준님 2026-09-18 재정정).
+    # ★장애여부는 상단에 안 그린다(영준님 2026-09-20 정정) — 대장 묶음은 다섯이다.
     DROP = ('DCU장애여부', 'DCU장애여부출처', 'DCU장애여부_대안', 'DCU장애여부_대안출처',
             'DCU장애여부_대장', 'DCU장애여부_대장출처',
             'DCU회선상태', 'DCU회선상태출처', 'DCU회선상태_대안', 'DCU회선상태_대안출처')
