@@ -57,7 +57,7 @@ const ELSEWHERE = {
     DCUID: '차이분 = 대장미등재 개소의 원장 DCUID (의도적 비표시, DCU 없음)',
 };
 
-function check(file, listName) {
+function check(file, listName, intended) {
     const rows = JSON.parse(fs.readFileSync(path.join(ROOT, file), 'utf8'));
     const out = [];
     for (const f of FIELDS) {
@@ -68,6 +68,15 @@ function check(file, listName) {
             return String(v).trim() !== '';
         });
         if (!have.length) { out.push([f, 0, 0, '데이터 없음']); continue; }
+        // 일부러 안 그리는 필드 — **라벨**로 센다.
+        //   값으로 세면 다른 줄에 같은 글자가 있을 때 걸려 올라온다(불가 통신방식 234건이
+        //   그랬다 — 상단 DCU 통신방식 값과 겹친 것이지 이 줄이 그려진 게 아니다).
+        if (intended && intended[f]) {
+            const { note, label } = intended[f];
+            const drawn = have.filter(r => (render(r, r.주소, false).sub).includes(label)).length;
+            out.push([f, have.length, drawn, drawn === 0 ? note : `★${drawn}건 그려졌다 — 의도 위반`]);
+            continue;
+        }
         // 값이 있는 레코드 전부를 렌더해 화면 문자열에 값이 들어갔는지 센다
         let shown = 0;
         for (const r of have) {
@@ -82,7 +91,7 @@ function check(file, listName) {
             if (ok) shown++;
         }
         const note = shown === have.length ? ''
-            : (ELSEWHERE[f] ? ELSEWHERE[f] : `★${have.length - shown}건 안 나옴`);
+            : ((intended && intended[f]) || ELSEWHERE[f] || `★${have.length - shown}건 안 나옴`);
         out.push([f, have.length, shown, note]);
     }
     console.log(`\n=== ${listName} (${file}) · ${rows.length.toLocaleString()}건 ===`);
@@ -95,4 +104,11 @@ function check(file, listName) {
 }
 
 check('data/michunggu-data.json', '25미청구');
-check('data/michunggu-bulga-data.json', '25년 미청구불가');
+check('data/michunggu-bulga-data.json', '25년 미청구불가', {
+    // 모뎀을 못 단 개소라 '현재 통신방식'이라 부를 것이 없다(영준님 2026-09-20).
+    //   계기가 원래 쓰던 방식이고, 상단 DCU 통신방식과 헷갈리기만 한다. 데이터에는 남아 있다.
+    통신방식: {
+        label: '현재 통신방식',
+        note: '일부러 안 그림 — 모뎀 MAC 칸이 없는 리스트(모뎀 미시공). 라벨 0건 확인',
+    },
+});
