@@ -293,6 +293,84 @@ def _norm_cmp(v):
 #          그 모뎀은 여전히 25년 자재라 우리 대상이고, 오히려 계기가 늘어 작업량이 커졌다.
 #          (관련 MAC 11개에 우리 계기 30건이 매달려 있고 그중 마스터는 1건뿐이다 —
 #           현장에서 모뎀 교체 시 붙은 계기를 전부 재결합해야 한다.)
+# ─── 제외축: 계기번호 타입코드 오류 (영준님 2026-09-20 "계기번호 오류면 다 빼") ────
+# 계기번호 3~4번째가 **타입코드**다. 대장(boranggi)에 단 한 번도 안 나오는 코드면 오타다.
+# ★형태 게이트(^[0-9A-Z]{2}[0-9]{9}$)로는 안 걸리는 종류다 — 자릿수·형태는 멀쩡하다.
+# ★코드 집합을 하드코딩하지 않는다. 대장에서 뽑아 쓴다 — 새 타입이 생기면 따라간다.
+#   대신 **표본이 적은 코드(5건 미만)는 로그로 찍어** 사람이 보게 한다. 대장에 몇 건 있다고
+#   무조건 정상은 아니고, 거기도 오타가 섞여 있을 수 있기 때문이다.
+# ★번호를 고치지 않는다 — 빼기만 한다. 추정으로 고치면 없는 계기를 만든다
+#   (07510112531 은 고객번호 경유로 07530112533 이 보이지만 그래도 교정하지 않는다).
+METER_CODE_RARE_N = 5
+METER_CODE_OUT = ROOT / 'research/계기번호오류제외_20260920.json'
+
+
+def meter_code_index():
+    """(대장 실재 타입코드 집합, 표본 적은 코드 dict, 고객번호->대장 계기 dict)"""
+    import sqlite3
+    from collections import defaultdict
+    con = sqlite3.connect(ROOT / 'data/ami.db')
+    c = con.cursor()
+    seen = Counter()
+    by_cust = defaultdict(set)
+    for cust, m1, m2 in c.execute('SELECT 고객번호,계기번호,계기번호_2 FROM boranggi'):
+        cu = B.norm_cust(cust)
+        for m in (m1, m2):
+            s = str(m or '').strip()
+            if len(s) >= 4 and _re2.fullmatch(r'\d{2}', s[2:4]):
+                seen[s[2:4]] += 1
+            v = nm(m)
+            if cu and v:
+                by_cust[cu].add(v)
+    con.close()
+    rare = {k: v for k, v in sorted(seen.items()) if v < METER_CODE_RARE_N}
+    log(f'대장 타입코드 {len(seen)}종 — ' + ' · '.join(f'{k}:{v:,}' for k, v in sorted(seen.items())))
+    if rare:
+        log(f'  ★표본 {METER_CODE_RARE_N}건 미만이라 사람이 볼 코드: {rare}'
+            f'  (대장에 있다고 무조건 정상은 아니다)')
+    return set(seen), rare, by_cust
+
+
+def meter_code_bad(rows, idx=None):
+    """타입코드가 대장에 없는 건 + 판정근거. 반환 [(row, 근거dict)]"""
+    real, _rare, by_cust = idx or meter_code_index()
+    out = []
+    for r in rows:
+        m = str(r.get('계기번호') or '').strip()
+        code = m[2:4]
+        if code in real:
+            continue
+        # 고객번호로 대장을 거치면 정답이 보이는가 — 근거로만 적고 **고치지는 않는다**
+        cu = B.norm_cust(r.get('고객번호'))
+        cand = sorted(x for x in by_cust.get(cu or '', ()) if x != nm(m))
+        out.append((r, {'타입코드': code,
+                        '판정근거': ('대장 0건 · 고객번호 경유 정답 후보 있음'
+                                     if cand else '대장 0건 · 정답 못 찾음'),
+                        '고객번호경유_후보': cand}))
+    return out
+
+
+def meter_code_write(list_name, bad):
+    """제외분 기록. 두 빌더가 따로 도니 자기 리스트 몫만 갈아끼운다."""
+    prev = []
+    if METER_CODE_OUT.exists():
+        try:
+            prev = [x for x in json.loads(METER_CODE_OUT.read_text())
+                    if x.get('리스트') != list_name]
+        except Exception:
+            prev = []
+    rows = [{'리스트': list_name, '계기번호': r.get('계기번호'), '타입코드': ev['타입코드'],
+             '계기타입': r.get('계기타입'), '고객번호': r.get('고객번호'),
+             '모뎀MAC': r.get('모뎀MAC'), '주소': r.get('주소'), '지사': r.get('지사'),
+             '판정근거': ev['판정근거'], '고객번호경유_후보': ev['고객번호경유_후보'],
+             # 되살리기용
+             '도로명주소': r.get('도로명주소'), '변대주': r.get('변대주'),
+             'DCUID': r.get('DCUID'), '최종시공일': r.get('최종시공일'),
+             '불가사유': r.get('불가사유'), '불가상세': r.get('불가상세')}
+            for r, ev in bad]
+    METER_CODE_OUT.write_text(json.dumps(prev + rows, ensure_ascii=False, indent=1))
+
+
 # 원장 변대주번호 칸의 **미입력 표기** — 전산화번호가 아니다. 디테일에도 싣지 않는다.
 LEDGER_NO_EMPTY = {'LTEDCUSU', 'LTEDCU', 'NONE', 'NULL', '-'}
 
@@ -957,6 +1035,19 @@ def main():
 
     map_rows = [rec(r, True) for r in has]
     pend_rows = [rec(r, False) for r in pend]
+
+    # ── 제외축: 계기번호 타입코드 오류 (영준님 2026-09-20) ───────────────────
+    _bad = meter_code_bad(map_rows + pend_rows)
+    if _bad:
+        _bset = {nm(r['계기번호']) for r, _ in _bad}
+        log(f'계기번호 타입코드 오류 {len(_bad)}건 제외:')
+        for r, ev in _bad:
+            log(f"   {r['계기번호']} 코드={ev['타입코드']} 타입={r.get('계기타입')}"
+                f" — {ev['판정근거']}")
+        meter_code_write('25미청구', _bad)
+        map_rows = [x for x in map_rows if nm(x['계기번호']) not in _bset]
+        pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _bset]
+        pm = [m for m in pm if m not in _bset]          # 게이트 기대치도 같이 줄인다
 
     # ── 제외축: 고객번호 경유 26년 신설 (영준님 2026-09-20) ──────────────────
     #   ★신설만 뺀다. 기설은 우리가 갈아야 할 25년 모뎀에 계기가 추가된 것이라 남긴다.
