@@ -276,6 +276,27 @@ def main():
     else:
         log('S(표준형) 계기 0건')
 
+    # ── 제외축: 계기번호 오류 계열 (영준님 2026-09-20) ──────────────────────
+    #   판정은 미청구 빌더와 **같은 함수**를 쓴다.
+    _err = D.meter_err_bad(recs)
+    if _err:
+        _eset = {nm(r['계기번호']) for r, _ in _err}
+        log(f'계기번호 오류 계열 {len(_err)}건 제외'
+            f' — {dict(Counter(k for _, k in _err).most_common())}')
+        D.meter_err_write('25년 미청구불가', _err)
+        recs = [x for x in recs if nm(x['계기번호']) not in _eset]
+        keep = [v for v in keep if v['_m'] not in _eset]
+    else:
+        log('계기번호 오류 계열 0건')
+    _hint = 0
+    for x in recs:
+        v = D.field_meter_hint(x)
+        if v:
+            x['현장계기번호_추정'] = v
+            _hint += 1
+    if _hint:
+        log(f'  현장계기번호_추정 담은 건 {_hint}(리스트에 남는 건 기준)')
+
     # ── 제외축: 고객번호 경유 26년 신설 (영준님 2026-09-20) ──────────────────
     #   판정은 미청구 빌더와 **같은 함수**를 쓴다. 두 리스트에 다른 잣대를 대지 않는다.
     #   ★신설만 뺀다. 기설은 우리가 갈아야 할 25년 모뎀에 계기가 추가된 것이라 남긴다.

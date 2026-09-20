@@ -412,6 +412,68 @@ def standard_type_write(list_name, bad):
     STANDARD_OUT.write_text(json.dumps(prev + rows, ensure_ascii=False, indent=1))
 
 
+# ─── 제외축: 계기번호 오류 계열 (영준님 2026-09-20 "필터해") ─────────────────
+# 불가사유·불가상세에 **현장이 '번호가 틀렸다' 고 적어 보낸** 건이다.
+# ★판정은 (불가사유 + 불가상세)를 **공백 전부 제거해 이어붙인 문자열**로 한다 —
+#   '계기번호 불일치' · '계기번호불일치' 처럼 띄어쓰기가 제각각이라 그대로 두면 절반을 놓친다.
+# ★우선순위대로 **첫 매칭에서 멈춘다.** 한 건이 여러 문구를 갖고 있어도 한 유형으로만 센다.
+# ★'주소불일치' 는 분류만 하고 **빼지 않는다** — 계기번호 문제가 아니라 주소가 틀린 것이라
+#   주소만 맞으면 작업한다.
+METER_ERR_RULES = [
+    ('오계기',        re.compile(r'오계기')),
+    ('계기번호오류',   re.compile(r'계기번호오류|계기번호.{0,4}오류|실계기.{0,6}오류')),
+    ('각인번호오류',   re.compile(r'각인번호오류|각인.{0,4}오류')),
+    ('계기번호불일치', re.compile(r'계기번호불일치|계기불일치|지도계기번호')),
+    ('주소불일치',     re.compile(r'주소불일치')),
+]
+METER_ERR_DROP = {'오계기', '계기번호오류', '각인번호오류', '계기번호불일치'}
+METER_ERR_OUT = ROOT / 'research/계기번호오류계열제외_20260920.json'
+# 현장이 상세 칸에 적어 놓은 **실제 계기번호**. 11자리만 긁는다.
+#   ★리스트를 이 번호로 고치지 않는다 — 담기만 한다(영준님). 추정으로 고치면 없는 계기를 만든다.
+_M11 = re.compile(r'(?<![0-9])([0-9]{11})(?![0-9])')
+
+
+def meter_err_kind(r):
+    s = re.sub(r'\s+', '', f"{r.get('불가사유') or ''} {r.get('불가상세') or ''}")
+    for name, rx in METER_ERR_RULES:
+        if rx.search(s):
+            return name
+    return ''
+
+
+def field_meter_hint(r):
+    """상세 칸에서 원본과 **다른** 11자리 번호를 뽑는다. 없으면 ''."""
+    s = f"{r.get('불가사유') or ''} {r.get('불가상세') or ''}"
+    me = str(r.get('계기번호') or '').strip()
+    cand = [x for x in dict.fromkeys(_M11.findall(s)) if x != me]
+    return ' / '.join(cand)
+
+
+def meter_err_bad(rows):
+    """제외 대상 [(row, 유형)]. 주소불일치는 빼지 않으므로 여기 안 들어온다."""
+    return [(r, k) for r in rows
+            if (k := meter_err_kind(r)) in METER_ERR_DROP]
+
+
+def meter_err_write(list_name, bad):
+    prev = []
+    if METER_ERR_OUT.exists():
+        try:
+            prev = [x for x in json.loads(METER_ERR_OUT.read_text())
+                    if x.get('리스트') != list_name]
+        except Exception:
+            prev = []
+    rows = [{'리스트': list_name, '유형': k, '계기번호': r.get('계기번호'),
+             '현장계기번호_추정': field_meter_hint(r),
+             '고객번호': r.get('고객번호'), '주소': r.get('주소'), '지사': r.get('지사'),
+             '불가사유': r.get('불가사유'), '불가상세': r.get('불가상세'),
+             # 되살리기용
+             '도로명주소': r.get('도로명주소'), '변대주': r.get('변대주'),
+             'DCUID': r.get('DCUID'), '계기타입': r.get('계기타입')}
+            for r, k in bad]
+    METER_ERR_OUT.write_text(json.dumps(prev + rows, ensure_ascii=False, indent=1))
+
+
 # 원장 변대주번호 칸의 **미입력 표기** — 전산화번호가 아니다. 디테일에도 싣지 않는다.
 LEDGER_NO_EMPTY = {'LTEDCUSU', 'LTEDCU', 'NONE', 'NULL', '-'}
 
@@ -1102,6 +1164,28 @@ def main():
         pm = [m for m in pm if m not in _sset]
     else:
         log('S(표준형) 계기 0건')
+
+    # ── 제외축: 계기번호 오류 계열 (영준님 2026-09-20) ──────────────────────
+    _err = meter_err_bad(map_rows + pend_rows)
+    if _err:
+        _eset = {nm(r['계기번호']) for r, _ in _err}
+        log(f'계기번호 오류 계열 {len(_err)}건 제외'
+            f' — {dict(Counter(k for _, k in _err).most_common())}')
+        meter_err_write('25미청구', _err)
+        map_rows = [x for x in map_rows if nm(x['계기번호']) not in _eset]
+        pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _eset]
+        pm = [m for m in pm if m not in _eset]
+    else:
+        log('계기번호 오류 계열 0건')
+    # ★현장이 적어 놓은 실제 계기번호는 **남는 건에도** 담아 둔다(교정하지 않는다).
+    _hint = 0
+    for x in map_rows + pend_rows:
+        v = field_meter_hint(x)
+        if v:
+            x['현장계기번호_추정'] = v
+            _hint += 1
+    if _hint:
+        log(f'  현장계기번호_추정 담은 건 {_hint}(리스트에 남는 건 기준)')
 
     # ── 제외축: 고객번호 경유 26년 신설 (영준님 2026-09-20) ──────────────────
     #   ★신설만 뺀다. 기설은 우리가 갈아야 할 25년 모뎀에 계기가 추가된 것이라 남긴다.
