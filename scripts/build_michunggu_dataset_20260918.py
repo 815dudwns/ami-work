@@ -76,18 +76,16 @@ TAG_RE = re.compile(r'^[가-힣]*_?\d{3,}_\s*')
 #   ⑤ 종암동은 같은 MAC 함체 10계기가 전부 미청구라 어차피 통째로 가야 한다
 # ★교정 근거는 같은 MAC · 같은 주소 · 연번 · 보강현황 실재다. 출처를 레코드에 남긴다.
 #   이 목록에 없는 형태 위반은 **고치지 마라** — 정답을 특정 못 하면 보류가 맞다.
-# ─── 미연계 — ★제외 **보류** (PM 2026-09-20) ────────────────────────────────
+# ─── 미연계 제외 (영준님 확정 2026-09-20) ───────────────────────────────────
 # 과장이 `25년미청구분_v2` Sheet1 에서 빼내 `미연계` 시트로 따로 정리한 개소다(126행·계기 124).
-# 한때 '대장 정정 건이니 우리 대상이 아니다' 로 빼려 했으나 **되돌렸다.**
-# ★보류 이유: '미연계' 가 정확히 무엇을 뜻하는지 파일에 근거가 없다 —
-#   한전 대장에 안 붙었다는 것인지 · DCU 연계가 안 됐다는 것인지 · 청구 라인에서 빠진 것인지
-#   가릴 수 없다. LP 는 126건 중 125건이 정상이라 **모뎀은 돌고 있고**, 전부 '신규' 시공
-#   기록이 있다. 빼야 할지 남겨야 할지는 **주덕기 과장에게 물어서 정한다.**
-# ★그때까지 리스트에 남긴다. 답이 오면 EXCLUDE_MIYEONGYE 를 True 로 바꾸면 그만이다.
-#   질의용 후보 목록은 research/미청구_미연계_질의대상_20260920.json 에 있다(실측 겹침 114건).
-EXCLUDE_MIYEONGYE = False
+# ★**제외한다.** 과장 의견을 일단 따르고, '미연계' 가 무엇을 뜻하는지는 메일로 따로 묻는다.
+#   (한전 대장 미등재인지 · DCU 연계 실패인지 · 청구 라인 제외인지 파일에 근거가 없다.
+#    LP 는 126건 중 125건이 정상이라 모뎀은 돌고 있고, 전부 '신규' 시공 기록이 있다.)
+# ★되살릴 수 있게 제외분 전체를 research/미청구_미연계제외_20260920.json 에 남긴다 —
+#   답이 오면 이 플래그를 False 로 되돌리면 그대로 복귀한다.
+EXCLUDE_MIYEONGYE = True
 MIYEONGYE_TABLE = '미연계'
-MIYEONGYE_OUT = ROOT / 'research/미청구_미연계_질의대상_20260920.json'
+MIYEONGYE_OUT = ROOT / 'research/미청구_미연계제외_20260920.json'
 
 METER_TYPO_FIX = {
     '4719B160548': ('47198160548', 'MAC E0AEED95323B · 성북구 종암동 125-40'),
@@ -560,7 +558,8 @@ def main():
     _mc = _sq3.connect(ROOT / 'data/ami.db').cursor()
     _mi_cols = [r[1] for r in _mc.execute(f'PRAGMA table_info("{MIYEONGYE_TABLE}")')]
     _lpc = [x for x in _mi_cols if x.startswith('LP')]
-    _sel = ['계기번호', '주소', '고객번호', '비고1', '비고2'] + _lpc
+    # 작성툴 = 고유키(플러스 / 현장관리 / 구시공앱) — 어느 앱으로 쓴 건인지가 되살릴 때 단서다
+    _sel = ['계기번호', '주소', '고객번호', '비고1', '비고2', '고유키'] + _lpc
     _mi = {}
     for _r in _mc.execute(f'SELECT {",".join(chr(34)+x+chr(34) for x in _sel)}'
                           f' FROM "{MIYEONGYE_TABLE}"'):
@@ -579,20 +578,21 @@ def main():
     MIYEONGYE_OUT.write_text(json.dumps({
         '생성': '2026-09-20',
         '출처': 'data/inbox_jdg_20260920/25년미청구분_v2.xlsx · 미연계 시트',
-        '상태': '질의 대상 — 제외 보류(2026-09-20). 리스트에는 남아 있다',
+        '상태': '제외됨(2026-09-20). 과장 답이 오면 EXCLUDE_MIYEONGYE=False 로 되살린다',
         '물어볼 것': ("'미연계' 가 무엇을 뜻하는가 — 한전 대장 미등재인지 · DCU 연계 실패인지"
                   " · 청구 라인 제외인지. 파일에 근거가 없다."
                   " LP 는 126건 중 125건이 정상이라 모뎀은 돌고 있고 전부 '신규' 시공 기록이 있다."),
-        '겹침건수': len(_hit),
+        '제외건수': len(_hit),
         '목록': [{'계기번호': str(_mi[m]['계기번호']).strip(),
                 '주소': _mi[m].get('주소') or '',
                 '고객번호': _mi[m].get('고객번호') or '',
                 'LP': {k: (str(_mi[m][k]).strip() if _mi[m][k] is not None else '')
                        for k in _lpc},
-                '비고1': _mi[m].get('비고1') or '', '비고2': _mi[m].get('비고2') or ''}
+                '비고1': _mi[m].get('비고1') or '', '비고2': _mi[m].get('비고2') or '',
+                '작성툴': _mi[m].get('고유키') or ''}
                for m in _hit],
     }, ensure_ascii=False, indent=1))
-    log(f'저장 {MIYEONGYE_OUT} {len(_hit):,}건 (질의용)')
+    log(f'저장 {MIYEONGYE_OUT} {len(_hit):,}건 (되살리기용)')
     boost = {nm(r['계기번호']): r for r in json.loads(BOOST.read_text())}
     log(f'PM 목록 {len(pm):,} · 고유 {len(set(pm)):,}')
 
