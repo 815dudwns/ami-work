@@ -263,6 +263,19 @@ def main():
         recs = [x for x in recs if nm(x['계기번호']) not in _bset]
         keep = [v for v in keep if v['_m'] not in _bset]   # 게이트 기대치도 같이 줄인다
 
+    # ── 제외축: S(표준형) 계기 (영준님 2026-09-20) ──────────────────────────
+    #   판정은 미청구 빌더와 **같은 함수**를 쓴다.
+    _std = D.standard_type_bad(recs)
+    if _std:
+        _sset = {nm(r['계기번호']) for r, _ in _std}
+        log(f'S(표준형) 계기 {len(_std)}건 제외'
+            f' — 타입코드 {dict(Counter(str(r["계기번호"])[2:4] for r, _ in _std).most_common())}')
+        D.standard_type_write('25년 미청구불가', _std)
+        recs = [x for x in recs if nm(x['계기번호']) not in _sset]
+        keep = [v for v in keep if v['_m'] not in _sset]
+    else:
+        log('S(표준형) 계기 0건')
+
     # ── 제외축: 고객번호 경유 26년 신설 (영준님 2026-09-20) ──────────────────
     #   판정은 미청구 빌더와 **같은 함수**를 쓴다. 두 리스트에 다른 잣대를 대지 않는다.
     #   ★신설만 뺀다. 기설은 우리가 갈아야 할 25년 모뎀에 계기가 추가된 것이라 남긴다.
