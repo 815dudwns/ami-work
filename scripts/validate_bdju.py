@@ -23,6 +23,28 @@ NAME = re.compile(r'[가-힣]')
 NUM8 = re.compile(r'^[0-9A-Z]{8}$')
 DCU10 = re.compile(r'^[0-9A-Z]{10}$')
 
+# ─── 계기번호 형태 ──────────────────────────────────────────────────────────
+# 법칙: 11자리 · 1~2번째만 영문 가능 · 3~4번째는 타입코드(숫자) · 나머지 숫자.
+#   예) 07530186525 · A0530188699 · LA530151258
+# ★자동 교정은 하지 않는다. 추정으로 고치면 **없는 계기를 만든다** —
+#   오타 6건을 MAC·고객번호로 역추적하니 4건은 제대로 된 번호가 이미 처리돼 있었고
+#   2건은 원장·awms 어디에도 없었다(2026-09-20). 건수와 값만 찍고 사람이 판단한다.
+METER_RE = re.compile(r'^[0-9A-Z]{2}[0-9]{9}$')
+F_METER = ('계기번호',)
+# ★판단 보류분 — 원장·awms 어디에도 없어 정답을 못 찾은 것들(PM 2026-09-20).
+#   지도에는 남기고 주 과장에게 '계기번호 확인 요망' 으로 물었다. 게이트 실패로 세지 않는다.
+#   답이 오면 이 목록에서 빼라. 새 위반은 여전히 실패로 잡힌다.
+METER_PENDING = {
+    # PM 이 역추적해 보류로 정한 2건(지도)
+    '4719B160548': 'MAC E0AEED95323B · 원장·awms 에 없음 — 과장 확인 요청',
+    '3919048106A': 'MAC 847207B592E2 · 원장·awms 에 없음 — 과장 확인 요청',
+    # 통신팀이 **대기분에서 새로 찾은 3건**(2026-09-20). 전부 주소 결손이라 어차피 요청 대상이다.
+    #   같은 MAC 으로 원장을 훑어도 정답을 특정할 수 없어 고치지 않았다(추정 금지).
+    '2519B153734': 'MAC 01254353542 · 같은 MAC 에 정상번호 3건(25199153340 등) 있으나 정답 특정 불가',
+    '255300B3580': 'MAC 01249849755 · 원장에도 이 오타 그대로 1행뿐 — 대조할 정상번호가 없다',
+    '45530L93990': 'MAC 01249850270 · 같은 MAC 에 정상번호 3건(45530193985 등), L↔1 혼동 의심이나 뒷자리도 달라 특정 불가',
+}
+
 F_NAME = ('변대주', '변대주명')
 F_NUM = ('변대주번호', '변대주전산화번호')
 F_DCU = ('DCUID', 'DCU_ID', 'DCU ID')
@@ -61,6 +83,25 @@ def check_records(rows, label='산출물'):
     r0 = rows[0]
     cn, cnum, cd = pick(r0, F_NAME), pick(r0, F_NUM), pick(r0, F_DCU)
     bad, msg = 0, []
+
+    # ── 계기번호 형태 검사 ──────────────────────────────────────────────────
+    cm = pick(r0, F_METER)
+    if cm:
+        allbad = [str(r.get(cm) or '').strip() for r in rows
+                  if str(r.get(cm) or '').strip()
+                  and not METER_RE.match(str(r.get(cm) or '').strip().upper())]
+        held = [x for x in allbad if x in METER_PENDING]
+        wrongm = [x for x in allbad if x not in METER_PENDING]
+        bad += len(wrongm)
+        if held:
+            msg.append(f'  보류 {cm:<8}(형태) 확인 요청 중 {len(held):,}  {held}')
+        mark = 'OK ' if not wrongm else '★NG'
+        msg.append(f'  {mark} {cm:<8}(형태) 법칙 위반 {len(wrongm):,}'
+                   + (f'  {wrongm[:8]}' if wrongm else ''))
+        if wrongm:
+            msg.append('       ^ 11자리·1~2번째만 영문·나머지 숫자.'
+                       ' **자동 교정 금지** — MAC·고객번호로 역추적해 사람이 판단한다')
+
     for col, want in ((cn, '이름'), (cnum, '번호'), (cd, 'DCUID')):
         if not col:
             continue

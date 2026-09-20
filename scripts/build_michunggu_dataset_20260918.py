@@ -62,6 +62,18 @@ H_LOAD = _R2.load_sheet
 TAG_RE = re.compile(r'^[가-힣]*_?\d{3,}_\s*')
 
 
+# ─── 계기번호 오타 제외 (PM 2026-09-20) ─────────────────────────────────────
+# 형태 법칙 위반 6건을 MAC·고객번호로 역추적한 결과 4건은 **제대로 된 번호가 이미 처리돼
+# 있었다.** 오타본을 그대로 두면 없는 계기를 현장에 보내게 된다.
+# ★자동 교정은 하지 않는다 — 정답을 확인한 것만 이름으로 빼고 사유를 남긴다.
+METER_TYPO_EXCLUDE = {
+    '0753G186525': '정답 07530186525 — 원장 상태 청구완료',
+    '071909442S1': '정답 02190944829 — awms 에 신설 2행·2026-09-08 개통',
+    '2450090698': '정답 02450090698 — 원장 상태 청구완료',
+    '9419007057': '정답 94199007057 — 같은 주소(중구 신당동 304-488)에 정상 번호가 이미 대상',
+}
+
+
 def clean_addr(a):
     return TAG_RE.sub('', str(a or '')).strip()
 
@@ -506,7 +518,14 @@ def log(m):
 
 
 def main():
-    pm = [nm(x) for x in PM_LIST.read_text().split() if nm(x)]
+    pm_all = [nm(x) for x in PM_LIST.read_text().split() if nm(x)]
+    _ex = {nm(k): v for k, v in METER_TYPO_EXCLUDE.items()}
+    pm = [m for m in pm_all if m not in _ex]
+    for m in pm_all:
+        if m in _ex:
+            log(f'계기번호 오타 제외: {m} — {_ex[m]}')
+    if len(pm) != len(pm_all):
+        log(f'대상 {len(pm_all):,} -> {len(pm):,} (오타 제외 {len(pm_all)-len(pm)})')
     boost = {nm(r['계기번호']): r for r in json.loads(BOOST.read_text())}
     log(f'PM 목록 {len(pm):,} · 고유 {len(set(pm)):,}')
 
