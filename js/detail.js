@@ -920,7 +920,10 @@ function renderMetersList() {
             const stTxt = /^\d{14}$/.test(st)
                 ? `${st.slice(0, 4)}-${st.slice(4, 6)}-${st.slice(6, 8)} ${st.slice(8, 10)}:${st.slice(10, 12)}`
                 : (/^\d{8}$/.test(st) ? `${st.slice(0, 4)}-${st.slice(4, 6)}-${st.slice(6, 8)}` : st);
-            if (meter.지사) subParts.push(`지사 ${meter.지사}`);
+            // ★지사는 그리지 않는다(영준님 2026-09-20) — 지도가 어차피 지사로 필터되니
+            //   디테일에서 다시 볼 이유가 없다. 데이터에는 남긴다(필터·통계가 쓴다).
+            //   ※고압철거 블록의 지사는 그대로 둔다 — 거기는 소재지 구와 어긋나는 개소
+            //     (지하철 등) 때문에 주소와 함께 읽히라고 넣은 것이다(2026-08-18).
             if (stTxt) subParts.push(`최종시공일 ${stTxt}`);
             [
                 '구분', '공종', 'M/S', '집단', '485타입', '케이블', '커넥터',
