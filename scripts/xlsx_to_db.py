@@ -225,56 +225,31 @@ def cell_text(v):
 
 
 # ─── 정규화 열 ───────────────────────────────────────────────────────────────
-# ★규칙 정본 = CLAUDE.md '한전 엑셀 자릿수' 표.
-#   zfill 은 **자릿수가 하나로 고정된 필드에만** 쓴다.
-#   계기번호 11 고정(단 영문 접두 보존) · 고객번호 10 고정 · MAC 은 11/12 혼재라 zfill 금지.
-BAD = {'', '#N/A', '#N/A!', 'NA', 'N/A', '-', 'NONE', 'NAN', 'NAT', 'NULL'}
-
-
-def _clean(v):
-    s = re.sub(r'[\s\-]', '', str(v if v is not None else '')).strip()
-    return '' if s.upper() in BAD else s
-
-
 def norm_meter(v):
-    """계기번호 — 영문 접두를 지우지 마라.
+    """계기번호 정규화 — ★영문 접두를 지우지 마라([[meter_no_prefix_preserve]]).
 
-    ★2026-09-20 수정. 그 전에는 숫자만 뽑아 zfill(11) 해서 `LA530149603` 가
-      `00530149603` 이 됐다. 이 한 줄이 DB 전체를 오염시켰다(boranggi 47,675건·v2 654건).
-      매칭이 조용히 어긋나는 종류의 버그다. [[meter_no_prefix_preserve]]
-    - 영문자가 섞였으면 그대로 둔다(공백·하이픈만 제거·대문자화)
-    - 순수 숫자면 11자리로 zfill — 자릿수가 고정이라 짧으면 앞 0 이 잘린 것이다
+    `A0530188699`·`LA530151258` 처럼 신설계기에 접두가 붙는다. 숫자만 뽑아 zfill 하면
+    `LA530149603` -> `00530149603` 으로 뭉개지고, 그 값으로 조인하면 남의 개소가 붙는다.
+    zfill 은 **엑셀이 숫자로 읽어 앞 0 이 날아간 것을 되돌리는 용도**다(11자리 고정).
     """
-    s = _clean(v)
+    s = re.sub(r'[\s\-]', '', v or '').upper()
     if not s:
         return None
-    if re.search(r'[A-Za-z]', s):
-        return s.upper()
-    return s.zfill(11) if s.isdigit() else s.upper()
+    return s.zfill(11) if s.isdigit() else s
 
 
 def norm_cust(v):
-    """고객번호 — 10자리 고정. 길이를 세서 zfill(10).
+    """고객번호 정규화 — 10자리 고정이라 자릿수로 앞 0 잘림을 판단한다.
 
-    ★`#N/A` 를 그대로 싣지 마라. 2026-09-20 실측: v2 Sheet1 의 고객번호_norm 이
-      `#N/A` 5,402건 그대로였다 — 조인하면 그 5,402건이 한 덩어리로 붙는다.
+    ★`#N/A` 같은 엑셀 오류값을 그대로 실으면 조인할 때 한 덩어리로 붙는다 — 숫자만 받는다.
     """
-    s = _clean(v)
-    if not s or not s.isdigit() or not s.strip('0'):
-        return None
-    return s.zfill(10) if len(s) <= 10 else s
-
-
-def norm_mac(v):
-    """모뎀 MAC — **zfill 금지**(11·12 자리가 섞여 짧은 쪽을 늘리면 틀린 값이 된다).
-    [[boranggi_mac_restore_and_amigo_wireless]]"""
-    s = re.sub(r'[\s:\-*.]', '', str(v if v is not None else '')).strip()
-    return None if not s or s.upper() in BAD else s.upper()
+    s = re.sub(r'[\s\-]', '', v or '')
+    return s.zfill(10) if s.isdigit() else None
 
 
 def norm_plain(v):
     """하이픈·공백만 제거. 앞 0 은 그대로 둔다."""
-    s = _clean(v)
+    s = re.sub(r'[\s\-]', '', v or '')
     return s.upper() or None
 
 
@@ -399,8 +374,10 @@ def load_sheet(con, path, ws, table, snapshot, disc=None):
     mac_c = pick(names, '기존모뎀MAC', '모뎀MAC', '현재맥', 'MAC')
 
     # 보조 고객번호 열(고객번호_2 …) — coalesce 대상.
+    #   ★한 시트에 고객번호가 두 칸으로 나뉘어 오는 판이 있다. 주덕기 9/20 `25년미청구분_v2`
+    #     Sheet1 은 O열 `고객번호` 가 #N/A 투성이(유효 4,926)이고 BC열에 4,612 가 따로 있다.
+    #     합치지 않으면 조인 키가 절반이 된다(실측 4,926 -> 7,254).
     #   ★같은 헤더가 두 번 오면 ensure_table 이 `_2` 를 붙이므로 이름으로 잡을 수 있다.
-    #   주덕기 9/20 v2 는 O열 고객번호가 #N/A 투성이(유효 4,926)이고 BC열에 4,612 가 따로 있다.
     cust2_c = next((x for x in names
                     if x != cust_c and re.fullmatch(r'고객번호[_.]?\d+', x)), None)
 
@@ -447,8 +424,9 @@ def load_sheet(con, path, ws, table, snapshot, disc=None):
         if ri is not None:
             rec.append(norm_meter(vals[ri]))
         if ai is not None:
-            rec.append(norm_mac(vals[ai]))
+            rec.append(norm_plain(vals[ai]))
         if ci is not None:
+            # ★O열이 비면 보조 열로 넘어간다. 둘 다 있고 값이 다르면 **O열을 택한다**
             rec.append(norm_cust(vals[ci])
                        or (norm_cust(vals[c2i]) if c2i is not None else None))
         payload.append(rec)

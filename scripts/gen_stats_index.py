@@ -73,6 +73,24 @@ for code, path, meters_key in stats_sources():
         else:
             items.append((code, it))
 
+# ─── 합동 x 실효 중복은 실효로 몬다 (영준님 2026-09-18, 통계에서만) ──────────
+# ★왜: 같은 개소가 실효(s)와 합동(h) 양쪽에 있으면 분모가 두 번 세진다.
+#   합동은 다른 지역 계기팀이 계기만 갈고 간 개소라 실효와 겹치는 일이 생긴다.
+#   ★지도 데이터(hapdong-data.json)는 그대로 둔다 — 여기서만 뺀다.
+#   매칭키는 고객번호다(계기번호는 교체로 바뀐다 — [[ledger_match_key_rule]]).
+_sil_cust = {
+    str(it.get("고객번호") or "").strip()
+    for code, it in items
+    if code == "s" and str(it.get("고객번호") or "").strip()
+}
+_before = sum(1 for code, _ in items if code == "h")
+items = [
+    (code, it) for code, it in items
+    if not (code == "h" and str(it.get("고객번호") or "").strip() in _sil_cust)
+]
+_dropped = _before - sum(1 for code, _ in items if code == "h")
+print(f"  합동 x 실효 중복 제외(고객번호 기준): {_dropped:,}건 -> 실효로 귀속")
+
 
 def _round6(v):
     """좌표를 소수 6자리로. 개소(고유 좌표) 집계용이라 자리수를 줄여 파일 크기를 아낀다.
