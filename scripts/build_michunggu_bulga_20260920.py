@@ -250,6 +250,18 @@ def main():
     # ── 보강현황 보강 — 좌표 **전**에 돌린다(도로명이 지오코딩 입력이다) ──────
     boost_from_boranggi(recs)
 
+    # ── 제외축: 고객번호 경유 26년 신설 (영준님 2026-09-20) ──────────────────
+    #   판정은 미청구 빌더와 **같은 함수**를 쓴다. 두 리스트에 다른 잣대를 대지 않는다.
+    #   ★신설만 뺀다. 기설은 우리가 갈아야 할 25년 모뎀에 계기가 추가된 것이라 남긴다.
+    _drop, _keep = D.via_cust_26_hits(recs)
+    if _drop or _keep:
+        _dset = {nm(r['계기번호']) for r, _ in _drop}
+        log(f'고객번호경유 26년시공 — 신설 {len(_drop)}건 **제외**'
+            f' · 기설 {len(_keep)}건 **유지**')
+        D.via_cust_write('25년 미청구불가', _drop, _keep)
+        recs = [x for x in recs if nm(x['계기번호']) not in _dset]
+        keep = [v for v in keep if v['_m'] not in _dset]     # 게이트 기대치도 같이 줄인다
+
     # ── 좌표 ────────────────────────────────────────────────────────────────
     has = [x for x in recs if x['주소']]
     pend = [x for x in recs if not x['주소']]
