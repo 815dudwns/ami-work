@@ -23,6 +23,9 @@ NAME = re.compile(r'[가-힣]')
 NUM8 = re.compile(r'^[0-9A-Z]{8}$')
 DCU10 = re.compile(r'^[0-9A-Z]{10}$')
 
+METER_OK = re.compile(r'^[0-9A-Z]{2}[0-9]{9}$')
+F_METER = ('계기번호', '계기번호_norm')
+
 F_NAME = ('변대주', '변대주명')
 F_NUM = ('변대주번호', '변대주전산화번호')
 F_DCU = ('DCUID', 'DCU_ID', 'DCU ID')
@@ -74,6 +77,19 @@ def check_records(rows, label='산출물'):
         mark = 'OK ' if n == 0 else '★NG'
         msg.append(f'  {mark} {col:<8}(={want}) 어긋남 {n:,}'
                    + (f'  {wrong}' if wrong else ''))
+    # ─ 계기번호 형태 (영준님 2026-09-20) ─
+    #   11자리 · 1~2번째만 영문 가능 · 3~4번째 타입코드 · 5~11 전부 숫자.
+    #   ★자동 교정하지 마라 — 추정으로 고치면 없는 계기를 만든다. MAC·고객번호로 확인하고,
+    #     근거가 없으면 그대로 두고 한전에 묻는다. 오타 계기는 대장에 안 붙어 '유령 건' 으로 남는다.
+    cm = pick(r0, F_METER)
+    if cm:
+        ng = [str(r.get(cm)).strip() for r in rows
+              if str(r.get(cm) or '').strip()
+              and not METER_OK.match(str(r[cm]).strip().upper())]
+        bad += len(ng)
+        msg.append(f'  {"OK " if not ng else "★NG"} {cm:<8}(형태) 위반 {len(ng):,}'
+                   + (f'  {ng[:6]}' if ng else ''))
+
     # DCUID 앞 8자리 = 전산화번호 (대장 19,007건 예외 0 — 계산이지 조회가 아니다)
     if cnum and cd:
         both = [r for r in rows if str(r.get(cnum) or '').strip() and str(r.get(cd) or '').strip()]
@@ -97,7 +113,8 @@ def main(paths):
         fail += bad
     if fail:
         print(f'\n★게이트 실패 — 형태가 어긋난 값 {fail:,}건. 산출물을 내지 마라.')
-        print('  한글=이름칸 / 8자리=번호칸 / 10자리=DCUID칸. 그 외는 버린다.')
+        print('  변대주: 한글=이름칸 / 8자리=번호칸 / 10자리=DCUID칸. 그 외는 버린다.')
+        print('  계기번호: 11자리 · 1~2번째만 영문 · 5~11 숫자. 자동 교정 금지 — MAC·고객번호로 확인하라.')
         return 1
     print('\n게이트 통과.')
     return 0
