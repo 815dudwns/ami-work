@@ -371,6 +371,47 @@ def meter_code_write(list_name, bad):
     METER_CODE_OUT.write_text(json.dumps(prev + rows, ensure_ascii=False, indent=1))
 
 
+# ─── 제외축: S(표준형) 계기 (영준님 2026-09-20 "S타입 표준형이면 다 빼") ──────
+# ★판정은 **계기타입 문자열**이다 — 타입코드가 아니다.
+#   타입코드로 걸면 틀린다: 실측 37건이 코드 35(32) · 15(3) · 34(1) · 14(1) 로 흩어져 있고,
+#   그 코드들은 다른 타입 계기도 함께 쓴다(코드와 타입은 1:1 이 아니다).
+# ★표기가 흔들린다 — 우리 원장은 'S', 보강현황은 '표준형' 이다. 둘 다 잡는다.
+#   ※'S' 로 **시작**하는 다른 타입이 있는지 전 데이터셋을 확인했다(없다). 그래서 정확 일치로 건다 —
+#     부분일치로 걸면 나중에 'SMGW' 같은 값이 들어올 때 조용히 같이 빠진다.
+STANDARD_TYPES = {'S', '표준형', 'S타입', '표준형계기'}
+STANDARD_OUT = ROOT / 'research/S표준형제외_20260920.json'
+
+
+def standard_type_bad(rows):
+    """계기타입이 S(표준형)인 건. 반환 [(row, 타입원문)]"""
+    out = []
+    for r in rows:
+        v = str(r.get('계기타입') or '').strip()
+        if v.upper().replace(' ', '') in {x.upper() for x in STANDARD_TYPES}:
+            out.append((r, v))
+    return out
+
+
+def standard_type_write(list_name, bad):
+    """제외분 기록. 두 빌더가 따로 도니 자기 리스트 몫만 갈아끼운다."""
+    prev = []
+    if STANDARD_OUT.exists():
+        try:
+            prev = [x for x in json.loads(STANDARD_OUT.read_text())
+                    if x.get('리스트') != list_name]
+        except Exception:
+            prev = []
+    rows = [{'리스트': list_name, '계기번호': r.get('계기번호'),
+             '타입코드': str(r.get('계기번호') or '')[2:4], '계기타입': v,
+             '고객번호': r.get('고객번호'), '주소': r.get('주소'), '지사': r.get('지사'),
+             # 되살리기용
+             '도로명주소': r.get('도로명주소'), '변대주': r.get('변대주'),
+             'DCUID': r.get('DCUID'), '최종시공일': r.get('최종시공일'),
+             '불가사유': r.get('불가사유'), '불가상세': r.get('불가상세')}
+            for r, v in bad]
+    STANDARD_OUT.write_text(json.dumps(prev + rows, ensure_ascii=False, indent=1))
+
+
 # 원장 변대주번호 칸의 **미입력 표기** — 전산화번호가 아니다. 디테일에도 싣지 않는다.
 LEDGER_NO_EMPTY = {'LTEDCUSU', 'LTEDCU', 'NONE', 'NULL', '-'}
 
@@ -1048,6 +1089,19 @@ def main():
         map_rows = [x for x in map_rows if nm(x['계기번호']) not in _bset]
         pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _bset]
         pm = [m for m in pm if m not in _bset]          # 게이트 기대치도 같이 줄인다
+
+    # ── 제외축: S(표준형) 계기 (영준님 2026-09-20) ──────────────────────────
+    _std = standard_type_bad(map_rows + pend_rows)
+    if _std:
+        _sset = {nm(r['계기번호']) for r, _ in _std}
+        log(f'S(표준형) 계기 {len(_std)}건 제외'
+            f' — 타입코드 {dict(Counter(str(r["계기번호"])[2:4] for r, _ in _std).most_common())}')
+        standard_type_write('25미청구', _std)
+        map_rows = [x for x in map_rows if nm(x['계기번호']) not in _sset]
+        pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _sset]
+        pm = [m for m in pm if m not in _sset]
+    else:
+        log('S(표준형) 계기 0건')
 
     # ── 제외축: 고객번호 경유 26년 신설 (영준님 2026-09-20) ──────────────────
     #   ★신설만 뺀다. 기설은 우리가 갈아야 할 25년 모뎀에 계기가 추가된 것이라 남긴다.
