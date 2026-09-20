@@ -649,12 +649,16 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const isHapdong = category === '합동';
     const isJangae = category === '장애';
     const isLpNoApp = category === 'LP무기록';
+    const isBulga = category === '미청구불가';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
     if (isTou) color = 'tou';
     if (isLpNoApp) color = 'lpnoapp';   // 확인용 리스트 — 진보라(영준님 2026-09-15)
+    // 25년 미청구불가 — SKT 와 같은 라벤더. 가운데 흰 원은 유지한다(영준님 2026-09-20).
+    //   ★색만 빌려 쓰는 것이고 미완 리스트라 흰 원 규칙은 green 을 따른다.
+    if (isBulga) color = 'bulga';
     // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
     if (state === 'complete') color = 'gray';
     else if (state === 'hold') color = 'blue';
@@ -731,11 +735,15 @@ function repaintMarker(marker) {
     const isHapdong = marker.category === '합동';
     const isJangae = marker.category === '장애';
     const isLpNoApp = marker.category === 'LP무기록';
+    const isBulga = marker.category === '미청구불가';
 
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
     if (isTou) color = 'tou';
     if (isLpNoApp) color = 'lpnoapp';   // 확인용 리스트 — 진보라(영준님 2026-09-15)
+    // 25년 미청구불가 — SKT 와 같은 라벤더. 가운데 흰 원은 유지한다(영준님 2026-09-20).
+    //   ★색만 빌려 쓰는 것이고 미완 리스트라 흰 원 규칙은 green 을 따른다.
+    if (isBulga) color = 'bulga';
     // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
     if (state === 'complete') color = 'gray';
     else if (state === 'hold') color = 'blue';
