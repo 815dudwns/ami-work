@@ -766,6 +766,16 @@ function renderMetersList() {
         const mlp = michungguLp(meter);
         if (mlp) subParts.push(`LP ${mlp}`);
 
+        // 6.6) 불가사유 — 25년 미청구불가가 쓰는 값. 현장에서 '왜 못 했는지'가 곧 정보다.
+        //   ★카테고리가 아니라 **필드 유무로 건다**(michungguLp·lp_이력과 같은 방식) —
+        //     나중에 같은 필드를 쓰는 리스트가 들어와도 코드를 안 고치고 그대로 나온다.
+        //   ★판단 유도 문구는 붙이지 않는다(영준님 2026-09-20). 값만 보여준다.
+        //   상세가 없으면 사유만 찍는다(실측 5,694건 중 4건이 상세 없음).
+        if (meter.불가사유) {
+            const d = String(meter.불가상세 || '').trim();
+            subParts.push(`불가사유 ${meter.불가사유}${d ? ` / ${d}` : ''}`);
+        }
+
         // 7) TOU 전용 필드 (category=tou일 때)
         if (meter.category === 'tou') {
             if (meter.재 || meter.tou_type === 'rework')
