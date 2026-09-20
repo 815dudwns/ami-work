@@ -69,6 +69,38 @@ function poleDisplay(m, iconSvg, btnStyle) {
 //   하나만 보면 오판한다. ★'9/24'·'36/96' 은 정상이다(24개 중 9개라 미달로 보이지만
 //   한전이 정상으로 판정한 실증이 있다). 실패는 '0/24' 뿐이다.
 //   -> { text, bad } 를 돌려준다. bad(0수신)일 때만 빨강으로 그린다.
+/** 미청구 LP 7일치 — **표시할 때만** %로 바꾼다(영준님 2026-09-20).
+ *
+ * ★저장값은 원본 그대로 둔다. 1·0·소수·'#N/A' 를 그대로 들고 있어야 나중에 재판정이 된다.
+ *   화면에서만 1 -> 100% · 0 -> 0% · 0.9583333 -> 95.8% · '#N/A' -> 조회불가.
+ * ★뭉개지 마라 — 추이가 정보다. 6월 0 인데 9월 100% 면 그사이 해결된 것이고,
+ *   9월 중 100% -> 0% 로 꺾이면 최근에 끊긴 것이다.
+ * 날짜는 월/일만 남긴다: 'LP 06/10' -> '06/10' · 'LP 09-05' -> '09-05'.
+ */
+function michungguLp(meter) {
+    const lp = meter && meter.LP;
+    if (!lp || typeof lp !== 'object') return null;
+    const keys = Object.keys(lp);
+    if (!keys.length) return null;
+    const pct = (v) => {
+        const s = String(v == null ? '' : v).trim();
+        if (!s) return '';
+        if (s === '#N/A') return '조회불가';
+        const n = Number(s);
+        if (!isFinite(n)) return s;                 // 뜻 모를 값은 원문 그대로 보여준다
+        const p = n * 100;
+        // 소수점 한 자리면 충분하다. 100.0%·0.0% 는 정수로 떨어뜨린다
+        return (Math.round(p * 10) % 10 === 0 ? String(Math.round(p)) : p.toFixed(1)) + '%';
+    };
+    const parts = keys.map(k => {
+        const v = pct(lp[k]);
+        if (!v) return null;
+        return `${k.replace(/^LP\s*/, '')} ${v}`;
+    }).filter(Boolean);
+    return parts.length ? parts.join(' · ') : null;
+}
+
+
 function lpSummary(meter) {
     const rows = meter && meter.lp_이력;
     if (!Array.isArray(rows) || !rows.length) return null;
@@ -727,6 +759,13 @@ function renderMetersList() {
         //   들어와도 그대로 나온다. 실효·재방문·고압·합동은 필드가 없어 아무것도 안 그린다.
         const lp = lpSummary(meter);
         if (lp) subParts.push(lp.bad ? `<span style="color:#dc2626;">${lp.text}</span>` : lp.text);
+        // 6.5) 25미청구 전용 — W(25대상)과 LP 7일치.
+        //   ★LP 는 **표시만** %로 바꾼다(michungguLp). 데이터는 원본 값 그대로다.
+        //   ★판단 유도는 하지 않는다(영준님 2026-09-20) — 값만 보여주고 배지·경고는 붙이지 않는다.
+        if (meter.W_25대상) subParts.push(`25대상 ${meter.W_25대상}`);
+        const mlp = michungguLp(meter);
+        if (mlp) subParts.push(`LP ${mlp}`);
+
         // 7) TOU 전용 필드 (category=tou일 때)
         if (meter.category === 'tou') {
             if (meter.재 || meter.tou_type === 'rework')
