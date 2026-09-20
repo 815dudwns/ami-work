@@ -62,6 +62,33 @@ H_LOAD = _R2.load_sheet
 TAG_RE = re.compile(r'^[가-힣]*_?\d{3,}_\s*')
 
 
+# ─── 계기번호 오타 제외 (PM 2026-09-20) ─────────────────────────────────────
+# 형태 법칙 위반 6건을 MAC·고객번호로 역추적한 결과 4건은 **제대로 된 번호가 이미 처리돼
+# 있었다.** 오타본을 그대로 두면 없는 계기를 현장에 보내게 된다.
+# ★자동 교정은 하지 않는다 — 정답을 확인한 것만 이름으로 빼고 사유를 남긴다.
+# ─── 계기번호 오타 교정 (PM 2026-09-20 재판정) ──────────────────────────────
+# 아래 2건은 **제외가 아니라 번호만 고쳐 대상에 남긴다.** 근거:
+#   ① 25년 원장에서 오타번호가 **미청구** 상태다(시공일 20260604 · 20260420)
+#   ② 정답번호는 원장에 없다 = 25년에 청구된 적이 없다
+#   ③ modem_work(awms 26년)에 오타·정답 모두 0행 = 26년 자재로 간 적도 없다
+#   ④ 보강현황에서 사라진 것은 계기팀이 26년 3~4월에 **계기를 교체해 LP 가 붙은** 탓이지
+#      우리 모뎀이 청구됐다는 뜻이 아니다
+#   ⑤ 종암동은 같은 MAC 함체 10계기가 전부 미청구라 어차피 통째로 가야 한다
+# ★교정 근거는 같은 MAC · 같은 주소 · 연번 · 보강현황 실재다. 출처를 레코드에 남긴다.
+#   이 목록에 없는 형태 위반은 **고치지 마라** — 정답을 특정 못 하면 보류가 맞다.
+METER_TYPO_FIX = {
+    '4719B160548': ('47198160548', 'MAC E0AEED95323B · 성북구 종암동 125-40'),
+    '3919048106A': ('39190481064', 'MAC 847207B592E2 · 성북구 석관동 334-63'),
+}
+
+METER_TYPO_EXCLUDE = {
+    '0753G186525': '정답 07530186525 — 원장 상태 청구완료',
+    '071909442S1': '정답 02190944829 — awms 에 신설 2행·2026-09-08 개통',
+    '2450090698': '정답 02450090698 — 원장 상태 청구완료',
+    '9419007057': '정답 94199007057 — 같은 주소(중구 신당동 304-488)에 정상 번호가 이미 대상',
+}
+
+
 def clean_addr(a):
     return TAG_RE.sub('', str(a or '')).strip()
 
@@ -506,7 +533,14 @@ def log(m):
 
 
 def main():
-    pm = [nm(x) for x in PM_LIST.read_text().split() if nm(x)]
+    pm_all = [nm(x) for x in PM_LIST.read_text().split() if nm(x)]
+    _ex = {nm(k): v for k, v in METER_TYPO_EXCLUDE.items()}
+    pm = [m for m in pm_all if m not in _ex]
+    for m in pm_all:
+        if m in _ex:
+            log(f'계기번호 오타 제외: {m} — {_ex[m]}')
+    if len(pm) != len(pm_all):
+        log(f'대상 {len(pm_all):,} -> {len(pm):,} (오타 제외 {len(pm_all)-len(pm)})')
     boost = {nm(r['계기번호']): r for r in json.loads(BOOST.read_text())}
     log(f'PM 목록 {len(pm):,} · 고유 {len(set(pm)):,}')
 
@@ -689,6 +723,13 @@ def main():
             'LP': r.get('LP') or {},
         }
 
+        # ★오타 교정 — 정답이 확인된 것만. 키 조회는 **원래 번호**로 하고 출력만 바꾼다
+        _fix = METER_TYPO_FIX.get(str(r['계기번호']).strip())
+        if _fix:
+            out['계기번호'] = _fix[0]
+            out['계기번호_원문'] = str(r['계기번호']).strip()
+            out['계기번호출처'] = f'계기번호 교정/MAC 역추적 ({_fix[1]})'
+
         m = nm(r['계기번호'])
         # ① 원장 현장 필드 — 그 계기의 미청구 행에서 온다(교차매칭 아님)
         for f, v in (led_extra.get(m) or {}).items():
@@ -856,7 +897,8 @@ def main():
 
     # ── 검증 게이트 ─────────────────────────────────────────────────────────
     log('\n=== 검증 게이트 ===')
-    src = set(pm)
+    _fixmap = {nm(k): nm(v[0]) for k, v in METER_TYPO_FIX.items()}
+    src = {_fixmap.get(m, m) for m in pm}
     got = {nm(x['계기번호']) for x in map_rows} | {nm(x['계기번호']) for x in pend_rows}
     alpha_src = sum(1 for x in src if re.search(r'[A-Za-z]', x))
     alpha_out = sum(1 for x in map_rows + pend_rows
