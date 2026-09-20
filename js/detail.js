@@ -20,13 +20,54 @@ let currentSortMode = 'none';
 //     '같다'로 뭉쳐진다. 그 마커는 계기마다 DCU 가 달라 개별 표시로 내려가는 게 맞다.
 //   ※값이 빈 계기가 섞여 있으면(원천에 없는 1건) 공통으로 보지 않는다 — 나머지와 같다는
 //     근거가 없다. 그 마커는 계기별로 각자 찍힌다.
+//   ※전산화번호가 실린 필드 이름이 데이터셋마다 다르다 — 합동 종로는 `변대주전산화`,
+//     25미청구·미청구불가는 `변대주번호` 다. 뜻이 같으니 여기서 하나로 읽는다.
+//     ★데이터 쪽 이름을 바꾸지 않는다(빌더·게이트가 그 이름으로 검사한다).
+function poleNoOf(m) {
+    return (m && (m.변대주전산화 || m.변대주번호)) || '';
+}
 function poleIdOf(m) {
-    return `${(m && m.변대주전산화) || ''}|${(m && m.DCUID) || ''}`;
+    return `${poleNoOf(m)}|${(m && m.DCUID) || ''}`;
 }
 function isPoleCommon(meters) {
     if (!meters || !meters.length) return false;
-    if (!(meters[0].변대주전산화 || meters[0].DCUID)) return false;
+    if (!(poleNoOf(meters[0]) || meters[0].DCUID)) return false;
     return meters.every(m => poleIdOf(m) === poleIdOf(meters[0]));
+}
+
+// ── 변대주 영역 = 'DCU 로 통신하는 곳인가' 를 보여주는 자리 ────────────────────
+//   영준님 2026-09-20: "변대주 필드가 있는 이유 = 이 주소에 들어간 곳이 DCU 로 통신하는
+//   곳인지 아닌지를 보여주는 것". 작업자는 이걸 보고 PLC 계열로 갈지 LTE 로 갈지 정한다.
+//   ★그러니 이 영역의 원천은 **DCU DB(dcu_master) 하나뿐**이다.
+//     변대주명·전산화번호로 대장을 찾고, 찾으면 그 행의 DCU_ID·인입망통신방식·
+//     회선상태·철거판정을 **통째로** 읽는다. 넷 중 하나만 채우는 일이 없다.
+//   ★★대장에 없으면 '결손'이 아니라 **판별 결과**다 — 'DCU 없음' 으로 명시한다.
+//     빈칸으로 두면 '모른다'로 읽힌다. 원장·보강현황의 변대주 값으로 이 줄을 채우지 마라.
+//   ★디테일(원장·현장 기록)과 서로 메우지 않는다. 상단 PLC · 디테일 LTE 가 동시에
+//     맞을 수 있다(실측 1,187건) — 그 변대주엔 PLC DCU 가 달려 있고 우리 계기는 LTE 로
+//     따로 간 것이다. 비교해 한쪽을 고치거나 문구를 띄우지 마라.
+//   ★판단 문구 금지 — 값만 보여주면 작업자가 안다.
+//   세 갈래: 대장 매칭 -> 'DCU …' / 변대주는 있는데 대장에 없음 -> 'DCU 없음' /
+//            변대주 자체가 없음 -> 판별할 근거가 없으니 줄을 안 그린다.
+function dcuLedgerLine(m) {
+    if (!m || !m.대장출처) return '';            // 대장 조회를 안 거친 리스트엔 이 줄이 없다
+    const rest = ['DCU통신방식', '회선상태', '철거판정']
+        .map(k => String(m[k] || '').trim()).filter(Boolean);
+    if (rest.length) {
+        // ID 가 없고 통신방식만 있을 수 있다(전산화번호로 찾은 경우) — 그땐 ID 자리를 비운다
+        const id = String(m.DCUID || '').trim();
+        return `DCU ${[id, ...rest].filter(Boolean).join(' · ')}`;
+    }
+    if (!(poleNoOf(m) || m.변대주)) return '';   // 변대주가 없다 — 판별 근거 자체가 없다
+    return 'DCU 없음';
+}
+// 대장에 없는 개소에서 화면에 쓸 DCU ID — **없다.**
+//   원장이 DCUID 를 실어 보낸 건이 있지만(25미청구 125건) 대장에 없으면 DCU 개소가
+//   아니라는 판별이므로 그 값을 변대주 줄에 그리지 않는다. 데이터에는 남겨 둔다.
+function poleMeterForDisplay(m) {
+    if (!m || !m.대장출처) return m;
+    const hit = !!(m.DCU통신방식 || m.회선상태 || m.철거판정);
+    return hit ? m : Object.assign({}, m, { DCUID: '' });
 }
 
 // 변대주 한 줄의 HTML — { html, copyVal }.
@@ -34,7 +75,7 @@ function isPoleCommon(meters) {
 //     실효·재방문·고압은 그 필드가 없다(site-data 10,404건 전부). 그 경우 예전 그대로 그린다.
 //     종로맵(jongno-combined/js/detail.js)과 형식·복사값을 맞춘 것이다.
 function poleDisplay(m, iconSvg, btnStyle) {
-    const poleNo = (m && m.변대주전산화) || '';
+    const poleNo = poleNoOf(m);
     const dcu = (m && m.DCUID) || '';
     let valHtml, copyVal;
     if (poleNo) {
@@ -69,13 +110,21 @@ function poleDisplay(m, iconSvg, btnStyle) {
 //   하나만 보면 오판한다. ★'9/24'·'36/96' 은 정상이다(24개 중 9개라 미달로 보이지만
 //   한전이 정상으로 판정한 실증이 있다). 실패는 '0/24' 뿐이다.
 //   -> { text, bad } 를 돌려준다. bad(0수신)일 때만 빨강으로 그린다.
-/** 미청구 LP 7일치 — **표시할 때만** %로 바꾼다(영준님 2026-09-20).
+/** 미청구 LP 7일치 — **표시할 때만** 줄여 보여준다(영준님 2026-09-20).
  *
- * ★저장값은 원본 그대로 둔다. 1·0·소수·'#N/A' 를 그대로 들고 있어야 나중에 재판정이 된다.
- *   화면에서만 1 -> 100% · 0 -> 0% · 0.9583333 -> 95.8% · '#N/A' -> 조회불가.
+ * ★저장값은 건드리지 않는다. 1·0·소수·'#N/A' 를 그대로 들고 있어야 나중에 재판정이 된다.
+ *   화면에서만 1 -> 100% · 0 -> 0% · 0.9583333 -> 95.8% · '#N/A' -> n/a.
+ * ★'n/a' 와 '0%' 는 **뜻이 다르다** — 0 은 무수신이고 n/a 는 조회 자체가 안 된 것이다.
+ *   보기 좋다고 둘을 같은 표기로 합치지 마라.
  * ★뭉개지 마라 — 추이가 정보다. 6월 0 인데 9월 100% 면 그사이 해결된 것이고,
  *   9월 중 100% -> 0% 로 꺾이면 최근에 끊긴 것이다.
- * 날짜는 월/일만 남긴다: 'LP 06/10' -> '06/10' · 'LP 09-05' -> '09-05'.
+ * 날짜는 앞 0 을 떼고 '/' 로 통일한다: 'LP 06/10' -> '6/10' · 'LP 09-05' -> '9/5'.
+ * 같은 값이 이어지면 묶는다: '9/5 100% · 9/6 100% · 9/7 100%' -> '9/5~9/7 100%'.
+ *   ★묶음 판정은 **저장값**으로 한다(표시값이 아니라). 표시값은 소수점 한 자리로
+ *     반올림되므로 0.958 과 0.9583 이 둘 다 '95.8%' 가 되어 **다른 값이 묶인다** —
+ *     실제로 그렇게 짜서 걸렸다(2026-09-20). 95.8% 와 95.83% 는 같은 값이 아니다.
+ *   ★값이 빈 회차는 줄에서 빠지는데, 그 자리에서 묶음도 끊는다.
+ *     건너뛰고 이으면 "그 사이 내내 같았다"는 없는 말을 하게 된다.
  */
 function michungguLp(meter) {
     const lp = meter && meter.LP;
@@ -85,18 +134,30 @@ function michungguLp(meter) {
     const pct = (v) => {
         const s = String(v == null ? '' : v).trim();
         if (!s) return '';
-        if (s === '#N/A') return '조회불가';
+        if (s === '#N/A') return 'n/a';
         const n = Number(s);
         if (!isFinite(n)) return s;                 // 뜻 모를 값은 원문 그대로 보여준다
         const p = n * 100;
         // 소수점 한 자리면 충분하다. 100.0%·0.0% 는 정수로 떨어뜨린다
         return (Math.round(p * 10) % 10 === 0 ? String(Math.round(p)) : p.toFixed(1)) + '%';
     };
-    const parts = keys.map(k => {
-        const v = pct(lp[k]);
-        if (!v) return null;
-        return `${k.replace(/^LP\s*/, '')} ${v}`;
-    }).filter(Boolean);
+    // 'LP 06/10' · 'LP 09-05' -> '6/10' · '9/5'. 형태가 다르면 원문 그대로 둔다.
+    const day = (k) => {
+        const s = String(k).replace(/^LP\s*/, '').trim();
+        const mm = s.match(/^(\d{1,2})[/\-.](\d{1,2})$/);
+        return mm ? `${Number(mm[1])}/${Number(mm[2])}` : s;
+    };
+    const runs = [];
+    keys.forEach(k => {
+        const raw = String(lp[k] == null ? '' : lp[k]).trim();
+        const v = pct(raw);
+        if (!v) { runs.push(null); return; }         // 빈 회차 = 묶음이 여기서 끊긴다
+        const last = runs[runs.length - 1];
+        if (last && last.raw === raw) last.to = day(k);   // ★저장값이 같을 때만 묶는다
+        else runs.push({ from: day(k), to: day(k), v, raw });
+    });
+    const parts = runs.filter(Boolean)
+        .map(r => `${r.from === r.to ? r.from : `${r.from}~${r.to}`} ${r.v}`);
     return parts.length ? parts.join(' · ') : null;
 }
 
@@ -341,13 +402,20 @@ function showDetail(address, meters, addresses, statusKeys) {
     const commonPoleEl = document.getElementById('common-pole');
     if (isPoleCommon(meters)) {
         const POLE_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
-        const pole = poleDisplay(meters[0], POLE_ICON, 'margin-left:6px;');
+        const pole = poleDisplay(poleMeterForDisplay(meters[0]), POLE_ICON, 'margin-left:6px;');
         // 라벨 '변대주' + 전산화번호 + 차수(회색) + (전주명) + 통신방식.
         //   전주명 괄호는 종로맵과 형식을 맞춘 것이다(영준님 지적 2026-08-19).
         //   통신방식은 대장에서 확정된 값이다.
-        const commTxt = meters[0].통신방식
+        // ★대장 조회를 거친 리스트(25미청구·미청구불가)는 여기에 **대장 값만** 올린다
+        //   (영준님 2026-09-20 "변대주 필드는 변대주 필드임"). 그 리스트의 `통신방식` 은
+        //   계기에 지금 달려 있는 것이라 뜻이 다르다 — 디테일의 '현재 통신방식'으로 내린다.
+        const ledgerLine = dcuLedgerLine(meters[0]);
+        const isLedger = !!meters[0].대장출처;
+        const commTxt = (!isLedger && meters[0].통신방식)
             ? `<span style="margin-left:10px;color:#dc2626;">${meters[0].통신방식}</span>` : '';
-        commonPoleEl.innerHTML = `변대주 ${pole.html}${commTxt}`;
+        const ledgerTxt = ledgerLine
+            ? `<span style="margin-left:10px;">${ledgerLine}</span>` : '';
+        commonPoleEl.innerHTML = `변대주 ${pole.html}${commTxt}${ledgerTxt}`;
         commonPoleEl.style.display = 'block';
         commonPoleEl.querySelector('.pole-copy-btn').addEventListener('click', (e) => {
             e.stopPropagation();
@@ -373,8 +441,13 @@ function showDetail(address, meters, addresses, statusKeys) {
         //   그대로 두면 작업자가 PLC 로 알고 갔다가 곧 철거될 DCU 에 물리게 된다 —
         //   실제로는 LTE 로 시공해야 한다. 그래서 '현재 무엇으로 적혀 있는지'를 같이 보여준다.
         //   ※카테고리로 걸지 않는다 — 실효에도 같은 충돌이 있다(태그 4건 전부 KS-PLC·HPGP).
+        //   ※단 **대장 조회를 거친 리스트(25미청구·미청구불가)에서는 띄우지 않는다**
+        //     (영준님 2026-09-20 "변대주 필드는 변대주 필드임"). 그 리스트의 `통신방식` 은
+        //     계기에 지금 달려 있는 것이고 상단은 변대주(DCU) 것이라, 둘이 다른 게 정상이다
+        //     (실측 1,187건). 여기서 비교해 문구를 띄우면 없는 모순을 만들어낸다.
         const DCU_COMM = ['PLC', 'KS-PLC', 'K-DCU', 'HPGP'];
-        const commMeter = meters.find(m => m.통신방식 && DCU_COMM.indexOf(m.통신방식) !== -1);
+        const commMeter = meters.some(m => m.대장출처) ? null
+            : meters.find(m => m.통신방식 && DCU_COMM.indexOf(m.통신방식) !== -1);
         const conflictTxt = (isRemove && commMeter)
             ? ` — 현재 ${commMeter.통신방식} 로 적혀 있으나 LTE 로 시공` : '';
         const tagHtml =
@@ -662,10 +735,23 @@ function renderMetersList() {
         //     공통에서도 개별에서도 빠져 변대주가 어디에도 안 나온다(영준님 지적 2026-08-19).
         //   전산화번호가 있으면 라벨도 '변대주'로 맞춘다 — 실제로 그리는 값이 변대주이기 때문.
         //   없으면 예전 그대로 'DCU ID'(영문자면 끝 2자리 강조 + 복사 시 절단, 숫자만이면 전체).
-        if (!commonDcuShown && (meter.변대주전산화 || meter.DCUID)) {
+        //   ★대장 조회를 거친 리스트는 대장에 없는 개소의 원장 DCUID 를 그리지 않는다
+        //     (poleMeterForDisplay). 그 개소는 'DCU 없음' 이지 'DCU 가 이것' 이 아니다.
+        const poleM = poleMeterForDisplay(meter);
+        if (!commonDcuShown && (poleNoOf(poleM) || poleM.DCUID)) {
             const P_ICON = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
-            const p = poleDisplay(meter, P_ICON, 'margin-left:3px;');
-            detailParts.push(`${meter.변대주전산화 ? '변대주' : 'DCU ID'} ${p.html}`);
+            const p = poleDisplay(poleM, P_ICON, 'margin-left:3px;');
+            // 대장 묶음(DCU ID·통신방식·회선상태·철거판정)은 변대주 줄에 이어 붙인다.
+            //   공통줄이 떴으면 거기 이미 있으므로 여기선 안 그린다(같은 값 두 번 금지).
+            const lg = dcuLedgerLine(meter);
+            detailParts.push(`${poleNoOf(poleM) ? '변대주' : 'DCU ID'} ${p.html}`
+                + (lg ? ` <span style="font-size:0.9em;">${lg}</span>` : ''));
+        } else if (!commonDcuShown) {
+            // 변대주명만 있고 번호·DCU 가 없는 개소(25미청구 202 · 불가 21).
+            //   ★전주 표찰 이름은 현장에서 쓰이니 남긴다. 단 DCU 정보와 섞이지 않게
+            //     자리를 갈라 '변대주명' 으로 적고 판별 결과를 따로 붙인다.
+            const lg = dcuLedgerLine(meter);
+            if (lg) detailParts.push(`변대주명 ${meter.변대주} <span style="font-size:0.9em;">${lg}</span>`);
         }
         // 상호 (있을 때)
         if (meter.상호 && meter.상호 !== '0') detailParts.push(`상호 ${meter.상호}`);
@@ -679,21 +765,31 @@ function renderMetersList() {
         }
         // 작은 글씨 영역
         const subParts = [];
-        // 1) 통신방식 (빨강) · 변대주 한글명 · 인입주
-        if (meter.통신방식) subParts.push(`<span class="comm-type">${meter.통신방식}</span>`);
+        // 1) 통신방식 · 변대주 한글명 · 인입주
+        //   ★빨강 강조를 뗐다(영준님 2026-09-20) — 지금 달려 있는 값이라 강조할 이유가 없다.
+        //   ★대장 조회를 거친 리스트는 위 변대주 줄에도 통신방식이 나온다(대장=DCU 인입망).
+        //     뜻이 다르니 라벨을 갈라 준다: 상단 'DCU … PLC' / 여기 '현재 통신방식 LTE'.
+        //     어느 리스트인지는 `대장출처` 유무로 안다 — 그 리스트에만 있는 필드다.
+        if (meter.통신방식) {
+            subParts.push(meter.대장출처 ? `현재 통신방식 ${meter.통신방식}` : meter.통신방식);
+        }
         // 변대주 — 이름 + 전산화번호.
         //   2026-08-06 에 번호를 뺀 것은 **큰 글씨(상위)에서 강등**한다는 뜻이었고, 디테일에는
         //   있어야 한다(영준님 2026-08-12 정정). 그때 문제였던 "대장에서 이름으로 찾은 번호가
         //   16% 어긋난다"는 여기 해당하지 않는다 — 아래 값은 별도 소스가 아니라 **DCUID 에서
         //   끝 2자리(DCU 차수)를 뗀 도출값**이라 DCU ID 줄과 항상 정합한다.
         //   ★숫자형 DCUID 는 전산화번호가 아니라 LTE 회선번호(012 생략)라 붙이지 않는다.
-        if (meter.변대주) {
+        if (meter.변대주 || poleNoOf(meter)) {
             const dcuRaw = meter.DCUID || '';
-            // 전산화번호 — 변대주전산화(합동 종로)가 있으면 그것을 쓴다. LTE 는 DCUID 가 없어
-            //   예전 방식(DCUID 에서 끝 2자리 절단)으로는 번호가 아예 안 나왔다.
+            // 전산화번호 — 변대주전산화(합동 종로)·변대주번호(25미청구 계열)가 있으면 그것을 쓴다.
+            //   LTE 는 DCUID 가 없어 예전 방식(DCUID 에서 끝 2자리 절단)으로는 번호가 안 나왔다.
             //   그 필드가 없는 실효·재방문·고압은 예전 그대로 도출값을 쓴다.
-            const bdjuNo = meter.변대주전산화 || (/[A-Za-z]/.test(dcuRaw) ? dcuRaw.slice(0, -2) : '');
-            subParts.push(`변대주 ${meter.변대주}${bdjuNo ? ` (${bdjuNo})` : ''}`);
+            const bdjuNo = poleNoOf(meter) || (/[A-Za-z]/.test(dcuRaw) ? dcuRaw.slice(0, -2) : '');
+            // ★이름이 없고 번호만 있는 건도 그린다(미청구 728건·불가 1,715건).
+            //   예전엔 이름이 없으면 줄 자체가 빠져 번호까지 같이 사라졌다.
+            subParts.push(meter.변대주
+                ? `변대주 ${meter.변대주}${bdjuNo ? ` (${bdjuNo})` : ''}`
+                : `변대주번호 ${bdjuNo}`);
         }
         // DCU 상태(회선상태·장애여부) 표시는 뺐다 — 영준님 2026-08-12: 우리 대상은 원본이
         //   'DCU 장애여부 = 정상' 으로 걸러 받은 개소라 다 정상이고, 확정적으로 받은 것은
@@ -759,12 +855,51 @@ function renderMetersList() {
         //   들어와도 그대로 나온다. 실효·재방문·고압·합동은 필드가 없어 아무것도 안 그린다.
         const lp = lpSummary(meter);
         if (lp) subParts.push(lp.bad ? `<span style="color:#dc2626;">${lp.text}</span>` : lp.text);
+        // 6.4) 25미청구·미청구불가 — 원장·현장 기록 전 필드.
+        //   영준님 2026-09-20 "디테일에 다 넣어, 내가 빼란 것 빼고".
+        //   ★빼는 것은 둘뿐이다: 시공자 · DCU장애여부.
+        //   ★화면에 안 그리는 것 = 내부 메타뿐 — 각종 출처 필드·신뢰등급·대장출처·
+        //     주소_원문·lat·lng·좌표정확도. 추적용이라 데이터에는 남기고 화면에서만 뺀다.
+        //   ★블록 전체를 `대장출처` 로 거는 이유: 이 필드들(특히 지사·계약종별·검침방법)은
+        //     실효·합동·재방문에도 있어서 무조건 그리면 **모든 리스트의 화면이 바뀐다.**
+        //     `대장출처` 는 이 두 리스트에만 있는 필드라 그걸 리스트 표식으로 쓴다.
+        //     안쪽은 필드마다 값 유무로 건다 — 빈 필드는 줄만 길어지니 안 그린다.
+        //   ★라벨은 필드명 그대로. 판단 유도·경고 문구는 붙이지 않는다.
+        if (meter.대장출처) {
+            // 최종시공일 — 원본은 '20250822155556' 같은 14자리라 그대로는 못 읽는다.
+            //   ★표시만 끊어 준다. 저장값은 건드리지 않는다(michungguLp 와 같은 원칙).
+            const st = String(meter.최종시공일 || '').trim();
+            const stTxt = /^\d{14}$/.test(st)
+                ? `${st.slice(0, 4)}-${st.slice(4, 6)}-${st.slice(6, 8)} ${st.slice(8, 10)}:${st.slice(10, 12)}`
+                : (/^\d{8}$/.test(st) ? `${st.slice(0, 4)}-${st.slice(4, 6)}-${st.slice(6, 8)}` : st);
+            if (meter.지사) subParts.push(`지사 ${meter.지사}`);
+            if (stTxt) subParts.push(`최종시공일 ${stTxt}`);
+            [
+                '구분', '공종', 'M/S', '집단', '485타입', '케이블', '커넥터',
+                '시설형태', '신호레벨', '추가계기', '비고1', '비고2', '앱변대주',
+                '계약종별', '검침방법',
+            ].forEach(k => {
+                const v = String(meter[k] == null ? '' : meter[k]).trim();
+                if (v) subParts.push(`${k} ${v}`);
+            });
+        }
+
         // 6.5) 25미청구 전용 — W(25대상)과 LP 7일치.
         //   ★LP 는 **표시만** %로 바꾼다(michungguLp). 데이터는 원본 값 그대로다.
         //   ★판단 유도는 하지 않는다(영준님 2026-09-20) — 값만 보여주고 배지·경고는 붙이지 않는다.
         if (meter.W_25대상) subParts.push(`25대상 ${meter.W_25대상}`);
         const mlp = michungguLp(meter);
         if (mlp) subParts.push(`LP ${mlp}`);
+
+        // 6.6) 불가사유 — 25년 미청구불가가 쓰는 값. 현장에서 '왜 못 했는지'가 곧 정보다.
+        //   ★카테고리가 아니라 **필드 유무로 건다**(michungguLp·lp_이력과 같은 방식) —
+        //     나중에 같은 필드를 쓰는 리스트가 들어와도 코드를 안 고치고 그대로 나온다.
+        //   ★판단 유도 문구는 붙이지 않는다(영준님 2026-09-20). 값만 보여준다.
+        //   상세가 없으면 사유만 찍는다(실측 5,694건 중 4건이 상세 없음).
+        if (meter.불가사유) {
+            const d = String(meter.불가상세 || '').trim();
+            subParts.push(`불가사유 ${meter.불가사유}${d ? ` / ${d}` : ''}`);
+        }
 
         // 7) TOU 전용 필드 (category=tou일 때)
         if (meter.category === 'tou') {

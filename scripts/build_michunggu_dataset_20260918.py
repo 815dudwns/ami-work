@@ -500,24 +500,41 @@ def fix_bdju(rows, by_id, by_no, by_name):
             x[f + '출처'] = srcs.get(k, '') if vals[k] else ''
 
         # ── 대장 조회: DCUID -> 번호 -> 이름 순 ──────────────────────────────
-        hit = None
+        #   ★축 넘나들기가 아니다 — 번호로 대장의 번호를, 이름으로 대장의 이름을 찾는다.
+        #     찾은 뒤 그 **한 행이 이미 갖고 있는** DCU_ID·인입망통신방식·회선상태·철거판정을
+        #     읽는 것이라 계산도 유도도 아니다(영준님 2026-09-20).
+        #   ★넷은 **한 묶음**이다. 하나만 채우고 나머지를 비우면 안 된다 —
+        #     실제로 불가 리스트가 통신방식만 가져오고 DCU_ID 를 안 가져와 0건이었다.
+        hit, axis = None, ''
         if x['DCUID']:
-            hit = by_id.get(x['DCUID'].upper())
+            hit, axis = by_id.get(x['DCUID'].upper()), 'DCUID'
         if not hit and x['변대주번호']:
-            hit = by_no.get(x['변대주번호'].upper())
+            hit, axis = by_no.get(x['변대주번호'].upper()), '전산화번호'
         if not hit and x['변대주']:
-            hit = by_name.get(_re2.sub(r'\s+', '', x['변대주']).upper())
+            hit, axis = by_name.get(_re2.sub(r'\s+', '', x['변대주']).upper()), '변대주명'
         if hit:
             st['대장 매칭'] += 1
+            st[f'  축 {axis}'] += 1
             if not x['변대주']:
                 x['변대주'] = hit['변대주명']            # ★이름은 대장에서만 가져온다
                 x['변대주출처'] = 'dcu_master/이름조회'
                 st['이름 대장에서 채움'] += 1
-            # 상단(변대주 영역) — 대장 값 그대로. 해석·경고를 붙이지 않는다
+            if not x['변대주번호'] and hit['변대주번호']:
+                x['변대주번호'] = hit['변대주번호']
+                x['변대주번호출처'] = f'dcu_master/{axis}'
+                st['번호 대장에서 채움'] += 1
+            if not x['DCUID'] and hit['DCU_ID']:
+                x['DCUID'] = hit['DCU_ID']
+                x['DCUID출처'] = f'dcu_master/{axis}'
+                st['DCUID 대장에서 채움'] += 1
+            # 상단(변대주 영역) — 대장 값 그대로. 해석·경고를 붙이지 않는다.
+            #   ★디테일(원장·현장 기록)과 서로 메우지 않는다(영준님 2026-09-20).
+            #     상단 PLC · 디테일 LTE 는 모순이 아니다 — 그 변대주엔 PLC DCU 가 달려 있고
+            #     우리 계기는 LTE 로 따로 간 것이다. 둘을 비교해 한쪽을 고치지 마라.
             x['DCU통신방식'] = hit['DCU통신방식']
             x['회선상태'] = hit['회선상태']
             x['철거판정'] = hit['철거판정']
-            x['대장출처'] = 'dcu_master'
+            x['대장출처'] = f'dcu_master/{axis}'
         else:
             x['DCU통신방식'] = x['회선상태'] = x['철거판정'] = ''
             x['대장출처'] = '대장미등재'
