@@ -268,6 +268,95 @@ def _norm_cmp(v):
     return re.sub(r'\s+', '', str(v or '')).upper()
 
 
+# ─── 제외축: 고객번호 경유 26년 신설 (영준님 2026-09-20) ─────────────────────
+# 우리 계기가 modem_work_all 에 **직접 없어도**, 고객번호로 보강현황을 거쳐 그 개소의
+# 다른 계기번호를 찾고 그 계기가 awms 에 있으면 '26년에 시공된 개소' 다.
+# 계기가 교체돼 번호가 바뀐 경우가 이렇게 잡힌다(modem_work_all 에 고객번호 열이 없어
+# boranggi 를 다리로 쓴다).
+#
+# ★다리는 boranggi 의 **`계기번호`(철거 쪽) 열만** 쓴다. `계기번호_2` 는 계기팀이 26년에
+#   새로 단 계기라 그걸로 이으면 과잉 매칭이 된다 — 실측 2026-09-20: `_2` 를 함께 쓰면
+#   57건(신설 33)이 되는데 늘어난 9건이 전부 **방학동 715-7 한 덩어리**였다.
+#   철거 열만 쓰면 48건(신설 24 · 기설 24)으로 PM 실측과 정확히 맞는다.
+#   [[boranggi_meter_column_pair_removed_new]]
+#
+# ★**신설만 제외하고 기설은 절대 빼지 않는다**(영준님).
+#   신설 = 기존모뎀MAC 이 23/24 에서 바뀌었다 = 26년에 모뎀을 새로 달았다 -> 우리 대상 아님.
+#   기설 = MAC 이 23/24 그대로다 = **우리가 갈아야 할 25년 모뎀에 26년에 계기를 추가로 물린 것**.
+#          그 모뎀은 여전히 25년 자재라 우리 대상이고, 오히려 계기가 늘어 작업량이 커졌다.
+#          (관련 MAC 11개에 우리 계기 30건이 매달려 있고 그중 마스터는 1건뿐이다 —
+#           현장에서 모뎀 교체 시 붙은 계기를 전부 재결합해야 한다.)
+VIA_CUST_DROP_KINDS = ('신설',)
+VIA_CUST_OUT = ROOT / 'research/미청구_고객번호경유_26년신설제외_20260920.json'
+
+
+def via_cust_write(list_name, drop, keep):
+    """제외분 기록. 두 빌더가 따로 도니 **자기 리스트 몫만 갈아끼우고 남은 건 보존**한다."""
+    prev = []
+    if VIA_CUST_OUT.exists():
+        try:
+            prev = [x for x in json.loads(VIA_CUST_OUT.read_text())
+                    if x.get('리스트') != list_name]
+        except Exception:
+            prev = []
+    def row(r, ev, act):
+        return {'리스트': list_name, '처리': act,
+                '계기번호': r.get('계기번호'), '고객번호': r.get('고객번호'),
+                'awms계기': ev['awms계기'], '작업일': ev['작업일'],
+                '작업구분': ev['작업구분'], 'MAC': ev['MAC'],
+                '주소': r.get('주소'), '지사': r.get('지사'),
+                # 되살리기용 — 원본 레코드의 주요 필드
+                '변대주': r.get('변대주'), '변대주번호': r.get('변대주번호'),
+                '모뎀MAC': r.get('모뎀MAC'), '최종시공일': r.get('최종시공일')}
+    out = prev + [row(r, ev, '제외') for r, ev in drop] \
+               + [row(r, ev, '유지(기설 — 25년 모뎀에 계기 추가)') for r, ev in keep]
+    VIA_CUST_OUT.write_text(json.dumps(out, ensure_ascii=False, indent=1))
+    return len(out)
+
+
+def via_cust_26_index():
+    """(고객번호 -> 철거계기 집합, awms 계기 -> (작업일, 작업구분, MAC, 지사))"""
+    import sqlite3
+    from collections import defaultdict
+    con = sqlite3.connect(ROOT / 'data/ami.db')
+    c = con.cursor()
+    bridge = defaultdict(set)
+    for cust, m in c.execute('SELECT 고객번호,계기번호 FROM boranggi'):
+        cu, v = B.norm_cust(cust), nm(m)
+        if cu and v:
+            bridge[cu].add(v)
+    aw = {}
+    for m, day, kind, mac, jisa in c.execute(
+            'SELECT 계기번호_norm,작업일자,작업구분,기존모뎀MAC,지사 FROM modem_work_all'):
+        if m and m not in aw:
+            aw[m] = (day, kind, mac, jisa)
+    con.close()
+    log(f'고객번호경유 색인 — 다리(고객번호) {len(bridge):,} · awms 고유계기 {len(aw):,}')
+    return bridge, aw
+
+
+def via_cust_26_hits(rows, bridge=None, aw=None):
+    """rows(레코드 리스트) 중 고객번호 경유로 26년 시공이 확인된 건.
+
+    반환 = (제외 대상 [(row, 근거)], 유지 [(row, 근거)]) — 유지는 기설이라 **빼지 않는다**.
+    """
+    if bridge is None or aw is None:
+        bridge, aw = via_cust_26_index()
+    drop, keep = [], []
+    for r in rows:
+        me, cu = nm(r.get('계기번호')), B.norm_cust(r.get('고객번호'))
+        if not cu or me in aw:          # 계기번호로 직접 걸리는 건 다른 축이 잡는다
+            continue
+        for other in sorted(bridge.get(cu, ())):
+            if other == me or other not in aw:
+                continue
+            day, kind, mac, jisa = aw[other]
+            ev = {'awms계기': other, '작업일': day, '작업구분': kind, 'MAC': mac, 'awms지사': jisa}
+            (drop if kind in VIA_CUST_DROP_KINDS else keep).append((r, ev))
+            break
+    return drop, keep
+
+
 def build_resweep_index():
     """[(출처명, by_cust, by_mac)] — 우선순위 순(먼저 온 것이 이긴다)."""
     import sqlite3
@@ -851,6 +940,18 @@ def main():
 
     map_rows = [rec(r, True) for r in has]
     pend_rows = [rec(r, False) for r in pend]
+
+    # ── 제외축: 고객번호 경유 26년 신설 (영준님 2026-09-20) ──────────────────
+    #   ★신설만 뺀다. 기설은 우리가 갈아야 할 25년 모뎀에 계기가 추가된 것이라 남긴다.
+    _drop, _keep = via_cust_26_hits(map_rows + pend_rows)
+    if _drop or _keep:
+        _dset = {nm(r['계기번호']) for r, _ in _drop}
+        log(f'고객번호경유 26년시공 — 신설 {len(_drop)}건 **제외**'
+            f' · 기설 {len(_keep)}건 **유지**(25년 모뎀에 계기 추가 — 빼지 않는다)')
+        via_cust_write('25미청구', _drop, _keep)
+        map_rows = [x for x in map_rows if nm(x['계기번호']) not in _dset]
+        pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _dset]
+        pm = [m for m in pm if m not in _dset]          # 게이트 기대치도 같이 줄인다
 
     acc = Counter(x['좌표정확도'] for x in map_rows)
     log(f'좌표: {dict(acc)}')
