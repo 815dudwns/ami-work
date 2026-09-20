@@ -30,9 +30,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'scripts'))
 
 BOOST = ROOT / 'research/미청구_보강_보정_20260918.json'
-PM_LIST = Path('/Users/woodelight/Projects/ami-work/research/미청구_최종대상_계기목록_20260918.txt')
+# ★9/20 갱신: 9/8 이후 이미 시공된 475계기를 뺀 8,519 목록
+PM_LIST = Path('/Users/woodelight/Projects/ami-work/research/미청구_최종대상_계기목록_20260920.txt')
 OUT_MAP = ROOT / 'data/michunggu-data.json'
 OUT_PEND = ROOT / 'data/michunggu-pending.json'
+AWMS = ROOT / 'research/미청구_awms주소회수_20260918.json'
 
 _s = importlib.util.spec_from_file_location(
     'bld', str(ROOT / 'scripts/build_michunggu_boost_20260918.py'))
@@ -402,6 +404,83 @@ def main():
             return 1
         tgt.append(r)
 
+    # ── 한전 회신(주덕기 9/20) 주소·변대주 얹기 ───────────────────────────────
+    # ★키는 고객번호 우선 -> MAC 보조. 계기번호 단독 금지(재사용 오염 17~51%).
+    #   과장 파일은 고객번호가 10,333행 전건에 있어 키가 충분하다.
+    # ★빈 칸만 채운다. 원장 값은 덮지 않는다.
+    import sqlite3 as _sq
+    _con = _sq.connect(ROOT / 'data/ami.db')
+    _cur = _con.cursor()
+    kep_c, kep_m = {}, {}
+    # ★고객번호가 두 칸으로 나뉘어 온다 — O열 `고객번호` 는 #N/A 가 많고(유효 4,926),
+    #   BC열 `고객번호_2` 가 따로 4,612 있다. 둘을 coalesce 해야 키가 9,538행으로 는다.
+    #   발주서의 "고객번호 전건 10,333" 은 O열만 보면 성립하지 않는다.
+    for _cu, _cu2, _mac, _ad, _b1, _b2 in _cur.execute(
+            'SELECT 고객번호,고객번호_2,MAC,주소,기존변대주,변경변대주'
+            ' FROM "25년미청구분_v2__sheet1"'):
+        _rec = {'지번주소': blank(_ad),
+                '변대주명': (blank(_b1) or blank(_b2))}
+        _rec = {k: v for k, v in _rec.items() if v and v != '0'}
+        if not _rec:
+            continue
+        _c2 = B.norm_cust(_cu) or B.norm_cust(_cu2)
+        if _c2 and _c2 not in kep_c:
+            kep_c[_c2] = _rec
+        _mm = B.norm_mac(_mac)
+        if _mm and _mm not in kep_m:
+            kep_m[_mm] = _rec
+    _con.close()
+    log(f'한전 회신 색인 — 고객번호 {len(kep_c):,} · MAC {len(kep_m):,}')
+
+    kep_fill = Counter()
+    for r in tgt:
+        hit, how = None, ''
+        if r['고객번호'] and r['고객번호'] in kep_c:
+            hit, how = kep_c[r['고객번호']], '고객번호'
+        elif r['MAC'] and r['MAC'] in kep_m:
+            hit, how = kep_m[r['MAC']], 'MAC'
+        if not hit:
+            continue
+        for f in ('지번주소', '변대주명'):
+            if not r.get(f) and hit.get(f):
+                r[f] = hit[f]
+                if f == '지번주소':
+                    r['주소출처'] = f'한전회신/주덕기 20260920/{how}'
+                    r['신뢰등급'] = dict(r['신뢰등급'])
+                    r['신뢰등급']['주소'] = 'A_한전회신'
+                else:
+                    r['변대주출처'] = f'한전회신/주덕기 20260920/{how}'
+                kep_fill[f] += 1
+    log(f'한전 회신으로 채움 — {dict(kep_fill)}')
+
+    # ── awms 회수 주소 얹기 (채택 결정 2026-09-20) ────────────────────────────
+    # ★한전 회신과 대조해 판정가능 159 중 불일치 1, **정확도 99.4%** 로 근거가 나와 채택했다.
+    #   그래도 신뢰등급은 **B 로 유지**한다(영준님) — 한전 원천이 아니라 우리가 조회한 값이다.
+    # ★한전 회신이 먼저다. awms 는 회신에도 없는 빈 칸만 메운다.
+    aw_fill = 0
+    if AWMS.exists():
+        _aw = {}
+        for x in json.loads(AWMS.read_text())['목록']:
+            if x.get('결과') != '적중' or not x.get('awms_주소'):
+                continue
+            if not str(x.get('신뢰등급', '')).startswith(('A_', 'B_')):
+                continue
+            _aw[nm(x['계기번호'])] = x
+        for r in tgt:
+            if r['지번주소'] or r['도로명주소']:
+                continue
+            a = _aw.get(nm(r['계기번호']))
+            if not a:
+                continue
+            r['지번주소'] = a['awms_주소']
+            r['주소출처'] = 'awms/fmpMtr1000'
+            g = str(a.get('신뢰등급', ''))
+            r['신뢰등급'] = dict(r['신뢰등급'])
+            # ★A_awms 로 잡힌 것도 B 로 내린다 — 등급은 출처의 성격이지 매칭 품질이 아니다
+            r['신뢰등급']['주소'] = 'B_awms' + (g[g.find('('):] if '(' in g else '')
+            aw_fill += 1
+    log(f'awms 로 채움 — {aw_fill:,} (한전 회신에도 없던 빈 칸)')
+
     # 작업 태그를 떼고 원문을 따로 보관한다
     tagged = 0
     for r in tgt:
@@ -431,6 +510,7 @@ def main():
     # ── 폴백: 그래도 실패한 주소는 **구 중심**으로 넣는다 ─────────────────────
     #   ★행을 버리지 않는다(발주서). 좌표정확도에 approximate 로 표시해 구분 가능하게 둔다.
     from geocode_cascade import resolve as geo_resolve
+    globals()['geo_resolve'] = geo_resolve
     gu_cache = {}
     fixed = 0
     for jib, road in pairs:
@@ -558,6 +638,40 @@ def main():
     log(f'{"네 필드 조합":12s} {b_combo:8,} {a_combo:8,}')
     log(f'★못 가르는 계기 {b_tot - b_combo:,} -> {a_tot - a_combo:,}'
         f' ({(b_tot-b_combo)-(a_tot-a_combo):+,})')
+
+    # ── 재보강 뒤 주소가 생긴 대기 건을 지도로 올린다 ────────────────────────
+    # ★분할(ready/await)은 주소 유무로 가르는데, 재보강이 그 **뒤에** 돌아 도로명주소를
+    #   채운다. 그대로 두면 '대기인데 주소가 있는' 행이 남아 두 파일의 뜻이 어긋난다.
+    #   좌표까지 붙여 지도로 옮긴다 — 주소가 있으면 지도에 있어야 한다.
+    promoted = [x for x in pend_rows if x.get('주소') or x.get('도로명주소')]
+    if promoted:
+        newpairs = sorted({(x.get('주소', ''), x.get('도로명주소', '')) for x in promoted})
+        cache = H.geocode_all(newpairs, cache)
+        for jib, road in newpairs:
+            k = f'{jib} {road}'
+            v = cache.get(k)
+            if v and v[2] and v[3]:
+                continue
+            gu = gu_of(jib) or gu_of(road)
+            if gu:
+                hit = geo_resolve(jibun=gu, road='')
+                if hit and hit.lat:
+                    cache[k] = ['approximate', gu, hit.lat, hit.lng, '구중심폴백', '', '']
+        H.GEO_CACHE.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding='utf-8')
+        for x in promoted:
+            v = cache.get(f"{x.get('주소','')} {x.get('도로명주소','')}")
+            if v and v[2] and v[3]:
+                x['lat'], x['lng'], x['좌표정확도'] = v[2], v[3], v[0]
+            else:
+                x['lat'] = x['lng'] = None
+                x['좌표정확도'] = 'fail'
+        keep_pend = [x for x in pend_rows if not (x.get('주소') or x.get('도로명주소'))]
+        ok_prom = [x for x in promoted if x['lat'] is not None]
+        keep_pend += [x for x in promoted if x['lat'] is None]
+        map_rows += ok_prom
+        pend_rows[:] = keep_pend
+        log(f'\n재보강으로 주소가 생긴 대기 {len(promoted):,}건 -> 지도로 이동 {len(ok_prom):,}'
+            f' (좌표 실패로 대기 유지 {len(promoted)-len(ok_prom):,})')
 
     # ── DCU 철거예정 태그 ───────────────────────────────────────────────────
     # ★1차 리스트업 때는 apply_dcu_status.py 를 손으로 한 번 돌렸는데, 그 뒤 빌더를 다시
