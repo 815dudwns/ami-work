@@ -47,27 +47,61 @@ function isPoleCommon(meters) {
 //     맞을 수 있다(실측 1,187건) — 그 변대주엔 PLC DCU 가 달려 있고 우리 계기는 LTE 로
 //     따로 간 것이다. 비교해 한쪽을 고치거나 문구를 띄우지 마라.
 //   ★판단 문구 금지 — 값만 보여주면 작업자가 안다.
-//   세 갈래: 대장 매칭 -> 'DCU …' / 변대주는 있는데 대장에 없음 -> 'DCU 없음' /
-//            변대주 자체가 없음 -> 판별할 근거가 없으니 줄을 안 그린다.
+//   세 갈래: 대장 매칭 -> '4차 · PLC · 개통 · 미판정' / 변대주는 있는데 대장에 없음 ->
+//            'DCU 없음' / 변대주 자체가 없음 -> 판별할 근거가 없으니 줄을 안 그린다.
+//   ★DCU ID 는 여기 안 넣는다 — 줄 맨 앞 값이 이미 DCU ID 다(중복).
+//   ★차수는 dcu_master 의 '차수' 열에서 **같은 행으로** 온다(영준님 2026-09-20).
+//     예전엔 DCUID 끝 2자리를 회색으로 떼어 차수처럼 보여줬는데 그건 표기일 뿐 차수가 아니다.
+//   ★**기본 상태값은 숨긴다**(영준님 2026-09-20). 대부분이 기본값이라 찍으면 줄만 길어지고,
+//     정작 봐야 할 값이 묻힌다. 뭔가 뒤에 붙어 있으면 그 자체가 정보다.
+//       회선상태 — '개통'(대장 18,692/19,007) 숨김 / 정지 196 · 해지 119 표시
+//       철거판정 — '미판정'(18,713) 숨김 / 해지 283 · 유지 11 표시
+//     ★값은 대장 표기 그대로 쓴다 — '철거예정' 같은 말로 바꾸지 않는다.
+//     ★판단 문구도 안 붙인다. 숨기는 것은 **화면뿐**이고 데이터에는 전부 남는다.
+//   ※장애여부는 상단에 안 그린다(영준님 정정). 대장에서 읽는 묶음은 다섯이다 —
+//     DCU_ID · 인입망통신방식 · 회선상태 · 철거판정 · 차수.
 function dcuLedgerLine(m) {
     if (!m || !m.대장출처) return '';            // 대장 조회를 안 거친 리스트엔 이 줄이 없다
-    const rest = ['DCU통신방식', '회선상태', '철거판정']
-        .map(k => String(m[k] || '').trim()).filter(Boolean);
-    if (rest.length) {
-        // ID 가 없고 통신방식만 있을 수 있다(전산화번호로 찾은 경우) — 그땐 ID 자리를 비운다
-        const id = String(m.DCUID || '').trim();
-        return `DCU ${[id, ...rest].filter(Boolean).join(' · ')}`;
+    // ★함수 안에 둔다 — 밖에 두면 검증 하네스(렌더 구간만 떼어 돌린다)가 못 집어 간다.
+    const HIDE = { 회선상태: '개통', 철거판정: '미판정' };
+    const KEYS = ['DCU차수', 'DCU통신방식', '회선상태', '철거판정'];
+    // ★대장 매칭 판정은 **표시 여부와 따로** 한다. 기본값만 있는 개소를 'DCU 없음' 으로
+    //   떨어뜨리면 거짓말이 된다 — 그 개소는 DCU 가 있고 상태가 평범한 것이다.
+    const matched = KEYS.some(k => String(m[k] || '').trim());
+    if (matched) {
+        return KEYS.map(k => String(m[k] || '').trim())
+            .filter((v, i) => v && v !== HIDE[KEYS[i]])
+            .join(' · ');
     }
-    if (!(poleNoOf(m) || m.변대주)) return '';   // 변대주가 없다 — 판별 근거 자체가 없다
-    return 'DCU 없음';
+    // ── 대장 미등재. 여기서 **두 경우를 가른다**(영준님 2026-09-20 정정) ─────
+    // ① 우리 리스트에 DCUID 가 실려 있는데 그 변대주가 대장에 없다 -> **아무것도 안 쓴다.**
+    //    원장 DCUID 를 그리지도 않고 'DCU 없음' 글자도 찍지 않는다 —
+    //    대장이 원천인데 대장에 없으니 할 말이 없다.
+    if (String(m.DCUID || '').trim()) return '';
+    // ② 변대주 값은 있는데 대장 조회로 DCU 를 못 찾았다 -> **'DCU 없음'**.
+    //    빈칸이 아니라 판별 결과다 — 그 개소는 DCU 통신이 아니다.
+    if (poleNoOf(m) || m.변대주) return 'DCU 없음';
+    // ③ 변대주 자체가 없다 -> 판별 근거가 없으니 줄을 안 그린다.
+    return '';
 }
 // 대장에 없는 개소에서 화면에 쓸 DCU ID — **없다.**
 //   원장이 DCUID 를 실어 보낸 건이 있지만(25미청구 125건) 대장에 없으면 DCU 개소가
 //   아니라는 판별이므로 그 값을 변대주 줄에 그리지 않는다. 데이터에는 남겨 둔다.
 function poleMeterForDisplay(m) {
     if (!m || !m.대장출처) return m;
-    const hit = !!(m.DCU통신방식 || m.회선상태 || m.철거판정);
-    return hit ? m : Object.assign({}, m, { DCUID: '' });
+    const hit = !!(m.DCU차수 || m.DCU통신방식 || m.회선상태 || m.철거판정);
+    if (!hit) return Object.assign({}, m, { DCUID: '' });
+    // ★대장 매칭이면 전산화번호도 **대장 기준**(DCUID 앞 8자리)으로 그린다.
+    //   원장 번호를 그리면 DCU ID 가 화면에서 통째로 가려진다 — poleDisplay 는 번호로
+    //   시작하는 DCUID 일 때만 끝 2자리를 이어 붙이기 때문이다. 원장 번호와 DCUID 앞 8이
+    //   어긋나는 340건이 그래서 'DCU ID 안 보임' 이 됐다(2026-09-20 대조표에서 잡았다).
+    //   상단의 유일 원천은 대장이니 표시도 대장으로 맞춘다. ★데이터는 안 건드린다 —
+    //   원장 번호는 `변대주번호` 에, 대장 파생은 `변대주번호_대안` 에 그대로 있다.
+    const id = String(m.DCUID || '').trim();
+    if (id.length === 10 && poleNoOf(m) && poleNoOf(m).toUpperCase() !== id.slice(0, 8)) {
+        return Object.assign({}, m, { 변대주전산화: id.slice(0, 8), 변대주번호: id.slice(0, 8) });
+    }
+    return m;
 }
 
 // 변대주 한 줄의 HTML — { html, copyVal }.
@@ -415,7 +449,10 @@ function showDetail(address, meters, addresses, statusKeys) {
             ? `<span style="margin-left:10px;color:#dc2626;">${meters[0].통신방식}</span>` : '';
         const ledgerTxt = ledgerLine
             ? `<span style="margin-left:10px;">${ledgerLine}</span>` : '';
-        commonPoleEl.innerHTML = `변대주 ${pole.html}${commTxt}${ledgerTxt}`;
+        // ★라벨('변대주 ')을 뗐다(영준님 2026-09-20) — 값부터 시작한다.
+        //   최종 형태: 'DCU ID (전주명) [복사] 차수 · 통신방식 · 회선상태 · 철거판정'.
+        //   복사 버튼 값은 **전산화번호 그대로** 둔다 — awms 에 넣는 값이 그것이다.
+        commonPoleEl.innerHTML = `${pole.html}${commTxt}${ledgerTxt}`;
         commonPoleEl.style.display = 'block';
         commonPoleEl.querySelector('.pole-copy-btn').addEventListener('click', (e) => {
             e.stopPropagation();
@@ -743,15 +780,16 @@ function renderMetersList() {
             const p = poleDisplay(poleM, P_ICON, 'margin-left:3px;');
             // 대장 묶음(DCU ID·통신방식·회선상태·철거판정)은 변대주 줄에 이어 붙인다.
             //   공통줄이 떴으면 거기 이미 있으므로 여기선 안 그린다(같은 값 두 번 금지).
+            //   ★라벨('변대주 '/'DCU ID ')을 뗐다(영준님 2026-09-20) — 값부터 시작한다.
             const lg = dcuLedgerLine(meter);
-            detailParts.push(`${poleNoOf(poleM) ? '변대주' : 'DCU ID'} ${p.html}`
+            detailParts.push(p.html
                 + (lg ? ` <span style="font-size:0.9em;">${lg}</span>` : ''));
-        } else if (!commonDcuShown) {
+        } else if (!commonDcuShown && meter.대장출처 && meter.변대주) {
             // 변대주명만 있고 번호·DCU 가 없는 개소(25미청구 202 · 불가 21).
-            //   ★전주 표찰 이름은 현장에서 쓰이니 남긴다. 단 DCU 정보와 섞이지 않게
-            //     자리를 갈라 '변대주명' 으로 적고 판별 결과를 따로 붙인다.
+            //   ★전주 표찰 이름은 현장에서 쓰이니 남긴다. DCU 부분은 붙이지 않는다(빈칸).
             const lg = dcuLedgerLine(meter);
-            if (lg) detailParts.push(`변대주명 ${meter.변대주} <span style="font-size:0.9em;">${lg}</span>`);
+            detailParts.push(meter.변대주
+                + (lg ? ` <span style="font-size:0.9em;">${lg}</span>` : ''));
         }
         // 상호 (있을 때)
         if (meter.상호 && meter.상호 !== '0') detailParts.push(`상호 ${meter.상호}`);
@@ -888,6 +926,11 @@ function renderMetersList() {
                 '구분', '공종', 'M/S', '집단', '485타입', '케이블', '커넥터',
                 '시설형태', '신호레벨', '추가계기', '비고1', '비고2', '앱변대주',
                 '계약종별', '검침방법',
+                // 불가 원장에만 있는 것들(영준님 2026-09-20 "불가에 들어갈 디테일도 다 넣어").
+                //   ★봉인은 빌더에서 미입력 표기(9999999·0000000)와 구분자를 이미 턴다.
+                //   ★0건인 칸(지도구분·철거구분·철거날짜 등)은 값이 없어 자연히 안 나온다.
+                '앱넘버', '순번', '우선일자', '지도구분', '철거구분', '철거날짜',
+                '함체봉인1', '함체봉인2', '계기봉인1', '계기봉인2', '외부봉인1', '외부봉인2',
             ].forEach(k => {
                 const v = String(meter[k] == null ? '' : meter[k]).trim();
                 if (v) subParts.push(`${k} ${v}`);

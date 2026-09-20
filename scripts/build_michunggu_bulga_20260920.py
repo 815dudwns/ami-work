@@ -47,6 +47,87 @@ METER_TYPO_EXCLUDE = {
 }
 
 
+SEAL_EMPTY = {'9999999', '0000000', '000000', '9999999999'}
+
+
+def seal(v):
+    """봉인 — '9999999|' 처럼 구분자로 이어 붙어 온다. 실값만 남긴다.
+
+    원본 5,695행 중 함체봉인1 이 구분자 '|' 뿐인 것이 5,626건이고,
+    남은 69건도 9999999(64)·0000000(5) 로 **미입력 표기**다.
+    그대로 그리면 전 건에 의미 없는 숫자가 붙는다(영준님 2026-09-20 판단 승인).
+    """
+    parts = [p.strip() for p in str(v if v is not None else '').split('|')]
+    parts = [p for p in parts if p and p not in SEAL_EMPTY]
+    return ' / '.join(dict.fromkeys(parts))
+
+
+def boost_from_boranggi(recs):
+    """보강현황에서 계기 부가정보를 채운다 (PM 발주 2026-09-20).
+
+    ★불가는 보강 단계를 아예 안 돌렸었다 — 인입주·공동주택명·상호·계약종별·검침방법이
+      통째로 0건이었다. 미청구에 쓴 로직을 그대로 태운다.
+    ★매칭키는 **고객번호 전용**이다. 불가는 MAC 칸에 계기번호가 들어 있어 MAC 을 안 싣는다
+      (=보조키가 없다). 대신 고객번호가 5,670/5,694 = 99.6% 라 미청구(87%)보다 키가 좋다.
+      ★계기번호 단독 매칭은 금지 — 계기가 재사용돼 딴 개소에 살아 있어 오염이 17~51% 다.
+    ★빈 칸만 채운다. 값이 있는데 다르면 덮지 않고 `<필드>_대안` 에 남긴다(판정은 나중에).
+    ★변대주·DCU 계열은 건드리지 않는다 — 그건 대장이 원천이고 이미 들어가 있다.
+    ★485타입은 못 채운다 — boranggi 에 그 열이 **없다**(미청구의 485타입은 원장 V열 유래).
+    """
+    FILL = ['인입주', '공동주택명', '상호', '계약종별', '검침방법']
+    by_cust, _by_mac, _dn, _di = D.build_boranggi_index()
+
+    # 도로명 — build_boranggi_index 의 rec 에는 없어 따로 색인한다(최신 판이 이긴다)
+    road = {}
+    c2 = sqlite3.connect(DB).cursor()
+    for sn in [r[0] for r in c2.execute(
+            'SELECT DISTINCT snapshot FROM boranggi ORDER BY snapshot DESC')]:
+        for cust, rd in c2.execute(
+                'SELECT 고객번호,도로명 FROM boranggi WHERE snapshot=?', (sn,)):
+            cu, v = D.B.norm_cust(cust), blank(rd)
+            if cu and v and cu not in road:
+                road[cu] = (v, f'boranggi:{sn}')
+
+    before = {f: sum(1 for x in recs if str(x.get(f) or '').strip())
+              for f in FILL + ['도로명주소']}
+    filled, alt, nokey, nohit = Counter(), Counter(), 0, 0
+    for x in recs:
+        cu = D.B.norm_cust(x.get('고객번호'))
+        if not cu:
+            nokey += 1
+            continue
+        hit = by_cust.get(cu)
+        if not hit and cu not in road:
+            nohit += 1
+            continue
+        if hit:
+            rec, src = hit
+            for f in FILL:
+                v = rec.get(f)
+                if not v:
+                    continue
+                cur = str(x.get(f) or '').strip()
+                if not cur:
+                    x[f] = v
+                    x[f + '출처'] = f'{src}/고객번호'
+                    filled[f] += 1
+                elif D._norm_cmp(cur) != D._norm_cmp(v) and not x.get(f + '_대안'):
+                    x[f + '_대안'] = v
+                    x[f + '_대안출처'] = f'{src}/고객번호'
+                    alt[f] += 1
+        if cu in road and not str(x.get('도로명주소') or '').strip():
+            x['도로명주소'], s = road[cu][0], road[cu][1]
+            x['도로명주소출처'] = f'{s}/고객번호'
+            filled['도로명주소'] += 1
+    after = {f: sum(1 for x in recs if str(x.get(f) or '').strip())
+             for f in FILL + ['도로명주소']}
+    log(f'보강현황 보강 — 고객번호 없음 {nokey:,} · 매칭 실패 {nohit:,}')
+    for f in FILL + ['도로명주소']:
+        log(f'  {f:8s} {before[f]:5,} -> {after[f]:5,}  (+{filled[f]:,}'
+            + (f' · 대안 {alt[f]:,}' if alt[f] else '') + ')')
+    return before, after
+
+
 def main():
     con = sqlite3.connect(DB)
     c = con.cursor()
@@ -141,11 +222,33 @@ def main():
             '공동주택명': '', '상호': '',
             '최종시공일': blank(r.get('시공일')), '구분': blank(r.get('구분')),
             '공종': blank(r.get('공종')), 'dcu_철거예정': '',
+            # ── 계기에 딸린 원장 열 전부 (영준님 2026-09-20 '불가에 들어갈 디테일도 다 넣어')
+            #   PM 승인(2026-09-20)으로 뺀 것:
+            #     고유키·현장구분·현장구분코드·1차사업소·col_15 — 전 건 같은 값이라 정보량 0
+            #     시공일2 — 시공일과 **전 건 동일**(다른 행 0)
+            #     변경변대주 — 변대주 계열은 대장이 원천이라 건드리지 않는다
+            #     MAC — 5,691/5,695 가 계기번호와 같다(원본이 MAC 칸에 계기번호를 넣었다)
+            #     시공자·철거작업자·작업자맥 — 작업자 정보 / 기성완료 — 청구 관리용
+            '앱넘버': blank(r.get('앱넘버')), '순번': blank(r.get('순번')),
+            '우선일자': blank(r.get('우선일자')),
+            # ★봉인은 원본이 '9999999|' 처럼 **구분자 '|' 로 이어 붙은** 형태다.
+            #   구분자만 남은 칸이 5,626건이고, 9999999·0000000 은 미입력 표기다 —
+            #   그대로 그리면 5,694건 전부에 의미 없는 숫자가 붙는다. 실값만 남긴다(69+5건).
+            '함체봉인1': seal(r.get('함체봉인1')), '함체봉인2': seal(r.get('함체봉인2')),
+            '계기봉인1': seal(r.get('계기봉인1')), '계기봉인2': seal(r.get('계기봉인2')),
+            '외부봉인1': seal(r.get('외부봉인1')), '외부봉인2': seal(r.get('외부봉인2')),
+            # 원본 0건이지만 칸은 둔다 — 다음 판에 값이 오면 코드를 안 고치고 그대로 나온다
+            '커넥터': blank(r.get('커넥터')), '신호레벨': blank(r.get('신호레벨')),
+            '앱변대주': blank(r.get('앱변대주')), '지도구분': blank(r.get('지도구분')),
+            '철거구분': blank(r.get('철거구분')), '철거날짜': blank(r.get('철거날짜')),
         })
 
     # ── 변대주 3축 교정 + 대장 조회 ─────────────────────────────────────────
     by_id, by_no, by_name = D.load_dcu_master()
     D.fix_bdju(recs, by_id, by_no, by_name)
+
+    # ── 보강현황 보강 — 좌표 **전**에 돌린다(도로명이 지오코딩 입력이다) ──────
+    boost_from_boranggi(recs)
 
     # ── 좌표 ────────────────────────────────────────────────────────────────
     has = [x for x in recs if x['주소']]
