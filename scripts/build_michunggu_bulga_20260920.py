@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""25년 미청구불가 리스트업 (PM 발주 2026-09-20)
+
+대상: 25년 불가(고압 제외) 중 사유조합이 '대상' 으로 판정된 계기에서 중복 제외.
+  판정 정본 = research/불가사유_분류_확정_20260920.json (사유조합 945종, 분류 대상/제외)
+  중복 제외축 = modem_work(20260908·20260920) · site-data · 합동 아카이브 · 미청구 대상
+
+★리스트 데이터에 **판정 메타를 넣지 않는다**(영준님 2026-09-20).
+  분류 정본의 `판정`(영준님/PM추정/PM판정)·`분류` 는 작업 이력이라 research/ 에만 둔다.
+  지도 데이터셋에는 **결과만** — 대상으로 판정된 것만 싣고, 디테일에는 불가사유·불가상세만.
+★모뎀 MAC 은 넣지 않는다 — 불가 건은 MAC 칸에 계기번호가 들어가 있다(11,009/11,015).
+★변대주는 3축 교정 + dcu_master 조회를 거친다. 원장이 이름 칸에 전산화번호를 실어 보낸다
+  (대상 5,856 중 8자리가 5,168 · 한글 이름은 21건뿐).
+"""
+import importlib.util
+import json
+import re
+import sqlite3
+import sys
+from collections import Counter
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'scripts'))
+DB = ROOT / 'data/ami.db'
+CLASS = ROOT / 'research/불가사유_분류_확정_20260920.json'
+OUT = ROOT / 'data/michunggu-bulga-data.json'
+OUT_PEND = ROOT / 'data/michunggu-bulga-pending.json'
+
+_d = importlib.util.spec_from_file_location(
+    'ds', str(ROOT / 'scripts/build_michunggu_dataset_20260918.py'))
+D = importlib.util.module_from_spec(_d)
+_d.loader.exec_module(D)          # log·blank·fix_bdju·load_dcu_master·gu_of 재사용
+_h = D.H                           # 합동 빌더(좌표 파이프라인)
+nm, log, blank = D.nm, D.log, D.blank
+
+
+def main():
+    con = sqlite3.connect(DB)
+    c = con.cursor()
+
+    # ── 대상 사유조합 ────────────────────────────────────────────────────────
+    cls = json.loads(CLASS.read_text())
+    keep_pairs = {(x['b1'], x['b2']) for x in cls if x.get('분류') == '대상'}
+    log(f'사유조합 {len(cls):,}종 중 대상 {len(keep_pairs):,}종')
+
+    rows = [dict(zip([d[0] for d in c.description], r)) for r in c.execute(
+        'SELECT * FROM "25년_보강_불가__sheet1"')]
+    log(f'25년 불가 원장 {len(rows):,}행')
+
+    # 고압 제외 — 불가 행의 공종열 기준(9/18 에 확정한 정의)
+    hv = {nm(r['계기번호']) for r in rows if str(r.get('공종') or '').strip() == '고압'}
+    hv.discard('')
+
+    per = {}
+    st = Counter()
+    for r in rows:
+        m = nm(r.get('계기번호'))
+        if not m or m in hv:
+            st['고압/무효' if m else '계기번호 없음'] += 1
+            continue
+        # ★사유는 비고1·비고2 다(발주서 표기 그대로). 불가개소 테이블의
+        #   '불가,철거사유' 와 열 이름이 다르니 헷갈리지 마라 — 여기는 25년 불가 원장이다.
+        b1 = str(r.get('비고1') or '').strip()
+        b2 = str(r.get('비고2') or '').strip()
+        if (b1, b2) not in keep_pairs:
+            st['사유조합이 제외'] += 1
+            continue
+        if m in per:
+            st['같은 계기 중복행'] += 1
+            continue
+        per[m] = {'_m': m, 'r': r, 'b1': b1, 'b2': b2}
+    log(f'고압 제외 후 대상 사유 계기 {len(per):,}  ({dict(st.most_common())})')
+
+    # ── 중복 제외축 ─────────────────────────────────────────────────────────
+    dedup = {}
+    for lab, q in (('modem_work 20260908', "SELECT 계기번호 FROM modem_work WHERE snapshot='20260908'"),
+                   ('modem_work 20260920', "SELECT 계기번호 FROM modem_work WHERE snapshot='20260920'")):
+        dedup[lab] = {nm(x[0]) for x in c.execute(q)} - {''}
+    for lab, f in (('site-data', 'data/site-data.json'),
+                   ('합동 아카이브', 'data/hapdong-data-archive.json')):
+        p = ROOT / f
+        s = set()
+        if p.exists():
+            for x in json.loads(p.read_text()):
+                for k in ('계기번호', '계기번호_전'):
+                    v = nm(x.get(k))
+                    if v:
+                        s.add(v)
+        dedup[lab] = s
+    mich = set()
+    for f in ('data/michunggu-data.json', 'data/michunggu-pending.json'):
+        p = ROOT / f
+        if p.exists():
+            mich |= {nm(x['계기번호']) for x in json.loads(p.read_text())}
+    dedup['미청구 대상'] = mich
+
+    claimed, drop = set(), Counter()
+    for lab, s in dedup.items():
+        hit = (set(per) & s) - claimed
+        claimed |= hit
+        drop[lab] = len(hit)
+    keep = [v for k, v in per.items() if k not in claimed]
+    log(f'중복 제외 {len(claimed):,} ({dict(drop)}) -> 최종 {len(keep):,}계기')
+
+    # ── 레코드 ──────────────────────────────────────────────────────────────
+    recs = []
+    for v in keep:
+        r = v['r']
+        bd = str(r.get('기존변대주') or '').strip()
+        recs.append({
+            '지사': blank(r.get('2차사업소')), '주소': blank(r.get('주소')), '도로명주소': '',
+            '계기번호': str(r.get('계기번호') or '').strip(),
+            '계기타입': blank(r.get('계기타입')), '고객번호': D.B.norm_cust(r.get('고객번호')) or '',
+            '통신방식': blank(r.get('통신방식')),
+            '변대주': bd if bd != '0' else '', '변대주번호': '', 'DCUID': blank(r.get('DCU')),
+            # ★불가 리스트에는 모뎀 MAC 을 넣지 않는다(MAC 칸에 계기번호가 들어 있다)
+            '불가사유': v['b1'], '불가상세': v['b2'],
+            '시설형태': blank(r.get('시설형태')), 'M/S': blank(r.get('M/S')),
+            '집단': blank(r.get('집/단')), '485타입': blank(r.get('485타입')),
+            '케이블': blank(r.get('케이블')), '인입주': '', '계약종별': '', '검침방법': '',
+            '공동주택명': '', '상호': '',
+            '최종시공일': blank(r.get('시공일')), '구분': blank(r.get('구분')),
+            '공종': blank(r.get('공종')), 'dcu_철거예정': '',
+        })
+
+    # ── 변대주 3축 교정 + 대장 조회 ─────────────────────────────────────────
+    by_id, by_no, by_name = D.load_dcu_master()
+    D.fix_bdju(recs, by_id, by_no, by_name)
+
+    # ── 좌표 ────────────────────────────────────────────────────────────────
+    has = [x for x in recs if x['주소']]
+    pend = [x for x in recs if not x['주소']]
+    log(f'주소 보유 {len(has):,} · 결손 {len(pend):,}')
+    pairs = sorted({(x['주소'], x['도로명주소']) for x in has})
+    cache = _h.load_geo_cache()
+    cache = _h.geocode_all(pairs, cache)
+    from geocode_cascade import resolve as geo_resolve
+    fixed = 0
+    for jib, road in pairs:
+        k = f'{jib} {road}'
+        v = cache.get(k)
+        if v and v[2] and v[3]:
+            continue
+        gu = D.gu_of(jib) or D.gu_of(road)
+        if gu:
+            hit = geo_resolve(jibun=gu, road='')
+            if hit and hit.lat:
+                cache[k] = ['approximate', gu, hit.lat, hit.lng, '구중심폴백', '', '']
+                fixed += 1
+    if fixed:
+        log(f'구 중심 폴백 {fixed}')
+    _h.GEO_CACHE.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding='utf-8')
+    for x in has:
+        v = cache.get(f"{x['주소']} {x['도로명주소']}")
+        if v and v[2] and v[3]:
+            x['lat'], x['lng'], x['좌표정확도'] = v[2], v[3], v[0]
+            x['도로명주소'] = x['도로명주소'] or (v[5] or '')
+        else:
+            x['lat'] = x['lng'] = None
+            x['좌표정확도'] = 'fail'
+    bad = [x for x in has if x['lat'] is None]
+    has = [x for x in has if x['lat'] is not None]
+    pend += bad
+    log(f'좌표: {dict(Counter(x["좌표정확도"] for x in has))} · 좌표실패로 대기 {len(bad)}')
+
+    # ── DCU 철거예정 ────────────────────────────────────────────────────────
+    _dc = importlib.util.spec_from_file_location('dcu', str(ROOT / 'scripts/apply_dcu_status.py'))
+    DC = importlib.util.module_from_spec(_dc)
+    _dc.loader.exec_module(DC)
+    removal, comm = DC.load_reference()
+    for rows_, lab in ((has, '지도'), (pend, '대기')):
+        DC.apply_to(rows_, removal, comm)
+        log(f'  [{lab} {len(rows_):,}] '
+            + ' · '.join(f'{k} {v:,}' for k, v in
+                         Counter(x.get('dcu_철거예정') or '(없음)' for x in rows_).most_common()))
+    for x in has + pend:
+        for k in ('DCU장애여부', 'DCU장애여부출처', 'DCU회선상태출처'):
+            x.pop(k, None)
+
+    OUT.write_text(json.dumps(has, ensure_ascii=False, indent=1))
+    OUT_PEND.write_text(json.dumps(pend, ensure_ascii=False, indent=1))
+    log(f'저장 {OUT} {len(has):,} · {OUT_PEND} {len(pend):,}')
+
+    # ── 게이트 ──────────────────────────────────────────────────────────────
+    log('\n=== 검증 게이트 ===')
+    src = {v['_m'] for v in keep}
+    got = {nm(x['계기번호']) for x in has + pend}
+    alpha_s = sum(1 for x in src if re.search(r'[A-Za-z]', x))
+    alpha_o = sum(1 for x in has + pend if re.search(r'[A-Za-z]', str(x['계기번호'])))
+    dup = len(has) + len(pend) - len(got)
+    nullc = sum(1 for x in has if x['lat'] is None)
+    checks = [(f'지도 {len(has):,} + 대기 {len(pend):,} = {len(has)+len(pend):,} (기대 {len(src):,})',
+               len(has) + len(pend) == len(src)),
+              (f'계기 차집합 — 대상에만 {len(src-got)} · 산출에만 {len(got-src)}', src == got),
+              (f'영문자 접두 {alpha_s} · 산출 {alpha_o}', alpha_s == alpha_o),
+              (f'lat/lng null {nullc}', nullc == 0),
+              (f'중복 계기번호 {dup}', dup == 0)]
+    ok = True
+    for msg, good in checks:
+        log(f'  [{"OK" if good else "실패"}] {msg}')
+        ok &= good
+    _vs = importlib.util.spec_from_file_location('vb', str(ROOT / 'scripts/validate_bdju.py'))
+    VB = importlib.util.module_from_spec(_vs)
+    _vs.loader.exec_module(VB)
+    err = 0
+    for rows_, lab in ((has, 'bulga-data'), (pend, 'bulga-pending')):
+        n_, msgs = VB.check_records(rows_, lab)
+        err += n_
+        for m_ in msgs:
+            log('  ' + m_)
+    log(f'  [{"OK" if err == 0 else "실패"}] 변대주 3축 게이트 — 어긋난 값 {err:,}')
+    ok &= err == 0
+    log('  판정: ' + ('OK' if ok else '★게이트 불통과'))
+    return 0 if ok else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

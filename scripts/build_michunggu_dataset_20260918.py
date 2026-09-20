@@ -387,6 +387,120 @@ def multi_box_stats(map_rows):
     return len(multi), tot, per, combo
 
 
+# ─── 변대주 3축 교정 (영준님 2026-09-20) ────────────────────────────────────
+# "변대주명 매칭 · 전산화번호 매칭 · DCUID 매칭 — 끼리끼리 해야만 한다."
+#   한전 회신을 붙일 때 전산화번호를 **이름 칸에도 복사**해 NG 1,555건이 났다.
+#   형태로 판정해 제자리에 넣고, 이름은 dcu_master 에서 **조회해서만** 채운다.
+# ★DCUID 앞 8자리 = 전산화번호 는 대장 19,007건 예외 0 인 **계산**이라 유도해도 된다.
+#   (조회와 다르다 — 계산은 입력만 맞으면 결과가 결정된다)
+#   단 원장 번호와 어긋나면 **원장을 남기고** 파생은 `_대안` 으로만 둔다.
+import re as _re2
+
+_NAME_RE = _re2.compile(r'[가-힣]')
+_NUM8_RE = _re2.compile(r'^[0-9A-Z]{8}$')
+_DCU10_RE = _re2.compile(r'^[0-9A-Z]{10}$')
+
+
+def _kind(v):
+    s = str(v or '').strip().upper()
+    if not s:
+        return None
+    if _NAME_RE.search(s):
+        return 'name'
+    if _DCU10_RE.match(s):
+        return 'dcu'
+    if _NUM8_RE.match(s):
+        return 'num'
+    return 'junk'
+
+
+def load_dcu_master():
+    import sqlite3
+    con = sqlite3.connect(ROOT / 'data/ami.db')
+    by_id, by_no, by_name = {}, {}, {}
+    for did, no, nmz, comm, line, verdict in con.execute(
+            'SELECT DCU_ID,변대주번호,변대주명,인입망통신방식,회선상태,철거판정 FROM dcu_master'):
+        rec = {'DCU_ID': (did or '').strip(), '변대주번호': (no or '').strip(),
+               '변대주명': (nmz or '').strip(), 'DCU통신방식': (comm or '').strip(),
+               '회선상태': (line or '').strip(), '철거판정': (verdict or '').strip()}
+        if rec['DCU_ID']:
+            by_id.setdefault(rec['DCU_ID'], rec)
+        if rec['변대주번호']:
+            by_no.setdefault(rec['변대주번호'], rec)
+        if rec['변대주명']:
+            # ★이름 비교는 공백만 제거(대장 고유 18,993, 충돌 0). 저장은 원문 그대로.
+            by_name.setdefault(_re2.sub(r'\s+', '', rec['변대주명']).upper(), rec)
+    con.close()
+    log(f'dcu_master 색인 — DCUID {len(by_id):,} · 번호 {len(by_no):,} · 이름 {len(by_name):,}')
+    return by_id, by_no, by_name
+
+
+def fix_bdju(rows, by_id, by_no, by_name):
+    """3축 제자리 배치 -> 대장 조회 -> DCUID 앞8 계산으로 번호 보완."""
+    st = Counter()
+    for x in rows:
+        vals = {'name': '', 'num': '', 'dcu': ''}
+        srcs = {}
+        for f, want in (('변대주', 'name'), ('변대주번호', 'num'), ('DCUID', 'dcu')):
+            v = str(x.get(f) or '').strip()
+            k = _kind(v)
+            if k is None:
+                continue
+            if k == 'junk':
+                st['버림(형태 불명)'] += 1
+                continue
+            if k != want:
+                st[f'자리옮김 {want}칸->{k}'] += 1
+            if not vals[k]:
+                # ★번호·DCUID 는 코드다 — 대문자로 저장한다(대장도 대문자).
+                #   원장에 '0000q000' 처럼 소문자가 섞여 오면 게이트가 형태 불일치로 잡는다.
+                #   이름만 원문 그대로 둔다(표기가 곧 정보다).
+                vals[k] = v if k == 'name' else v.upper()
+                srcs[k] = x.get(f + '출처') or ''
+        x['변대주'], x['변대주번호'], x['DCUID'] = vals['name'], vals['num'], vals['dcu']
+        for f, k in (('변대주', 'name'), ('변대주번호', 'num'), ('DCUID', 'dcu')):
+            x[f + '출처'] = srcs.get(k, '') if vals[k] else ''
+
+        # ── 대장 조회: DCUID -> 번호 -> 이름 순 ──────────────────────────────
+        hit = None
+        if x['DCUID']:
+            hit = by_id.get(x['DCUID'].upper())
+        if not hit and x['변대주번호']:
+            hit = by_no.get(x['변대주번호'].upper())
+        if not hit and x['변대주']:
+            hit = by_name.get(_re2.sub(r'\s+', '', x['변대주']).upper())
+        if hit:
+            st['대장 매칭'] += 1
+            if not x['변대주']:
+                x['변대주'] = hit['변대주명']            # ★이름은 대장에서만 가져온다
+                x['변대주출처'] = 'dcu_master/이름조회'
+                st['이름 대장에서 채움'] += 1
+            # 상단(변대주 영역) — 대장 값 그대로. 해석·경고를 붙이지 않는다
+            x['DCU통신방식'] = hit['DCU통신방식']
+            x['회선상태'] = hit['회선상태']
+            x['철거판정'] = hit['철거판정']
+            x['대장출처'] = 'dcu_master'
+        else:
+            x['DCU통신방식'] = x['회선상태'] = x['철거판정'] = ''
+            x['대장출처'] = '대장미등재'
+            st['대장 미등재'] += 1
+
+        # ── DCUID 앞 8자리 = 전산화번호 (계산) ──────────────────────────────
+        if x['DCUID'] and len(x['DCUID']) == 10:
+            derived = x['DCUID'][:8].upper()
+            if not x['변대주번호']:
+                x['변대주번호'] = derived
+                x['변대주번호출처'] = '규칙/DCUID앞8자리'
+                st['번호 DCUID앞8로 채움'] += 1
+            elif x['변대주번호'].upper() != derived:
+                # ★원장 번호를 남기고 파생은 대안으로만
+                x['변대주번호_대안'] = derived
+                x['변대주번호_대안출처'] = '규칙/DCUID앞8자리'
+                st['번호 어긋남(원장 유지·대안 기록)'] += 1
+    log('3축 교정: ' + ' · '.join(f'{k} {v:,}' for k, v in st.most_common()))
+    return st
+
+
 def log(m):
     print(m, flush=True)
 
@@ -415,13 +529,25 @@ def main():
     # ★고객번호가 두 칸으로 나뉘어 온다 — O열 `고객번호` 는 #N/A 가 많고(유효 4,926),
     #   BC열 `고객번호_2` 가 따로 4,612 있다. 둘을 coalesce 해야 키가 9,538행으로 는다.
     #   발주서의 "고객번호 전건 10,333" 은 O열만 보면 성립하지 않는다.
-    for _cu, _cu2, _mac, _ad, _b1, _b2 in _cur.execute(
-            'SELECT 고객번호,고객번호_2,MAC,주소,기존변대주,변경변대주'
-            ' FROM "25년미청구분_v2__sheet1"'):
+    # ★LP 는 **7열 전부** 원문 그대로 싣는다(영준님 2026-09-20).
+    #   1=정상수신 · 0=무수신 · #N/A=조회불가 · 소수=부분수신율.
+    #   반올림하거나 정상/실패로 뭉개지 마라 — **추이가 정보다**
+    #   (6월 0 인데 9월 1 이면 그사이 해결 · 9월 중 1->0 이면 최근에 끊긴 것).
+    #   ★단 LP 는 대상 판정에 쓰지 않는다 — LP 무관 전 개소 방문이 방침이다. 참고 정보다.
+    LPC = ['LP 06/10', 'LP 09-05', 'LP 09-06', 'LP 09-07', 'LP 09-08', 'LP 09-09', 'LP 09-13']
+    _q = ('SELECT 고객번호,고객번호_2,MAC,주소,기존변대주,변경변대주,"25대상",'
+          + ','.join(f'"{x}"' for x in LPC) + ' FROM "25년미청구분_v2__sheet1"')
+    for _row in _cur.execute(_q):
+        _cu, _cu2, _mac, _ad, _b1, _b2, _w = _row[:7]
+        _lp = dict(zip(LPC, _row[7:]))
         _rec = {'지번주소': blank(_ad),
                 '변대주명': (blank(_b1) or blank(_b2))}
         _rec = {k: v for k, v in _rec.items() if v and v != '0'}
-        if not _rec:
+        # W·LP 는 값이 비어도 싣는다(디테일 표시용) — 주소·변대주와 달리 '채우기'가 아니다
+        _rec['_W'] = blank(_w)
+        _rec['_LP'] = {k: (str(v).strip() if v is not None else '') for k, v in _lp.items()}
+        if not any(k for k in _rec if not k.startswith('_')) and not _rec['_W'] \
+                and not any(_rec['_LP'].values()):
             continue
         _c2 = B.norm_cust(_cu) or B.norm_cust(_cu2)
         if _c2 and _c2 not in kep_c:
@@ -441,6 +567,11 @@ def main():
             hit, how = kep_m[r['MAC']], 'MAC'
         if not hit:
             continue
+        # W(25대상)·LP 7열 — 디테일 표시용. 덮어쓰기 개념이 아니라 그대로 얹는다
+        if hit.get('_W'):
+            r['W_25대상'] = hit['_W']
+        if hit.get('_LP'):
+            r['LP'] = hit['_LP']
         for f in ('지번주소', '변대주명'):
             if not r.get(f) and hit.get(f):
                 r[f] = hit[f]
@@ -553,6 +684,9 @@ def main():
             '최종시공일': r['최종시공일'],
             '구분': r['구분'],
             '공종': r['공종'],
+            # 디테일 표시용 — 한전 회신에서 얹은 값(대상 판정에는 쓰지 않는다)
+            'W_25대상': r.get('W_25대상', ''),
+            'LP': r.get('LP') or {},
         }
 
         m = nm(r['계기번호'])
@@ -673,6 +807,10 @@ def main():
         log(f'\n재보강으로 주소가 생긴 대기 {len(promoted):,}건 -> 지도로 이동 {len(ok_prom):,}'
             f' (좌표 실패로 대기 유지 {len(promoted)-len(ok_prom):,})')
 
+    # ── 변대주 3축 교정 + 대장 조회 ─────────────────────────────────────────
+    by_id, by_no, by_name = load_dcu_master()
+    fix_bdju(map_rows + pend_rows, by_id, by_no, by_name)
+
     # ── DCU 철거예정 태그 ───────────────────────────────────────────────────
     # ★1차 리스트업 때는 apply_dcu_status.py 를 손으로 한 번 돌렸는데, 그 뒤 빌더를 다시
     #   돌릴 때마다 파일을 새로 써서 태그가 통째로 날아갔다(실측: 7,366건 전부 빈값).
@@ -705,14 +843,11 @@ def main():
             x.pop(k, None)
     log('제거한 DCU 필드: ' + ', '.join(DROP))
 
-    # ── 매칭 축 분리 ────────────────────────────────────────────────────────
-    moved, dropped = split_cross_axis(map_rows + pend_rows)
-    log(f'\n축 넘은 값 분리 — <필드>_유도 로 이동 {dict(moved)}'
-        f' · 검증불가라 값 제거 {dict(dropped)}')
-    for f in ('변대주번호', '변대주', 'DCUID'):
-        v = sum(1 for x in map_rows + pend_rows if x.get(f))
-        u = sum(1 for x in map_rows + pend_rows if x.get(f + '_유도'))
-        log(f'  {f}: 본값 {v:,} · 유도 {u:,}')
+    # ★옛 split_cross_axis 는 fix_bdju 로 대체됐다 — 더 부르지 않는다.
+    #   그쪽은 '축을 넘은 값은 전부 _유도로 빼라'였는데, 지금 규칙은 다르다:
+    #   형태로 제자리에 놓고, 이름은 대장 조회로만 채우고,
+    #   DCUID 앞 8자리 = 전산화번호는 **계산**이라 본값에 넣어도 된다(대장 예외 0).
+    #   둘을 같이 돌리면 방금 제자리에 놓은 번호를 다시 _유도로 빼 간다(실측 975건).
 
     OUT_MAP.write_text(json.dumps(map_rows, ensure_ascii=False, indent=1))
     OUT_PEND.write_text(json.dumps(pend_rows, ensure_ascii=False, indent=1))
@@ -740,6 +875,20 @@ def main():
     for msg, good in checks:
         log(f'  [{"OK" if good else "실패"}] {msg}')
         ok &= good
+    # ★변대주 3축 게이트 — 실패하면 산출물을 내지 않는다(영준님 2026-09-20)
+    import importlib.util as _iu
+    _vs = _iu.spec_from_file_location('vb', str(ROOT / 'scripts/validate_bdju.py'))
+    VB = _iu.module_from_spec(_vs)
+    _vs.loader.exec_module(VB)
+    bd_err = 0
+    for rows_, lab in ((map_rows, 'michunggu-data'), (pend_rows, 'michunggu-pending')):
+        n_, msgs = VB.check_records(rows_, lab)
+        bd_err += n_
+        for m_ in msgs:
+            log('  ' + m_)
+    log(f'  [{"OK" if bd_err == 0 else "실패"}] 변대주 3축 게이트 — 어긋난 값 {bd_err:,}')
+    ok = ok and bd_err == 0
+
     log('  판정: ' + ('OK' if ok else '★게이트 불통과'))
     return 0 if ok else 1
 

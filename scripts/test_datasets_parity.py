@@ -80,7 +80,10 @@ def main():
     m = re.search(r"NAMESPACED_CATEGORIES\s*=\s*\[([^\]]*)\]", sk)
     ns = {x.strip().strip("'\"") for x in m.group(1).split(",") if x.strip()} if m else set()
     cats = {d.get("category") for d in py if d.get("category")}
-    unknown = ns - cats
+    # ★리스트를 내려도 네임스페이스는 남긴다 — Firebase workStatus 가 그 키로 쌓여 있어서,
+    #   지우면 지난 작업 이력을 못 읽는다(LP무기록 2026-09-20 철수). 은퇴분은 예외로 둔다.
+    RETIRED_NS = {'LP무기록', 'tou', '재방문'}
+    unknown = ns - cats - RETIRED_NS
     if unknown:
         problems.append(f"status-key 의 네임스페이스 카테고리가 레지스트리에 없다: {sorted(unknown)}")
 

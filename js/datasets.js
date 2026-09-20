@@ -21,6 +21,7 @@
 //              지정하면 통계 인덱스가 계기 단위로 펼친다(안 펼치면 한 함체가 1계기로 잡힌다)
 //   onMap      false 면 지도에 안 올린다(통계 분모 전용)
 //   allowGroup 지정하면 그 계정 그룹에만 보인다(js/auth.js AUTH_GROUPS). 통계 분모에서도 빠진다
+//              ★2026-09-20 현재 쓰는 리스트가 없다 — 25미청구·미청구불가는 전 작업자 공개다
 const DATASET_REGISTRY = [
     { code: 's', file: './data/site-data.json', category: '실효', label: null, uiLabel: '실효계기',
       statsLabel: '실효' },
@@ -67,23 +68,6 @@ const DATASET_REGISTRY = [
     //     장애는 미착수 0건이라 내린 채로 둔다.
     { code: 'j', file: './data/jangae-data.json', category: '장애', label: null, uiLabel: '장애',
       metersKey: '계기목록', onMap: false },
-    // LP 무기록(확인용) — 보강현황 9/8판에서 **한전이 숨긴 행**(우리 대상에서 뺀 것) 중
-    //   awms 26년시공앱·불가앱에 우리 기록이 전혀 없는데 LP 는 올라온 개소(2026-09-15 전 지사로 확대).
-    //   누가 어떻게 붙였는지 확인하려고 띄우는 **임시 리스트**다(영준님 2026-09-15).
-    //   ★allowGroup — 그 그룹 계정에만 보인다. 작업자 일반에게는 할 일이 아니다.
-    //     2026-09-15: 우영준(admin) 단독 -> **윤용운 반장(user09) 추가**(영준님 지시).
-    //     ★계정 목록은 여기 적지 않는다 — js/auth.js 의 AUTH_GROUPS 가 단일 출처이고
-    //       판정도 authAllowsGroup() 한 곳이 한다. 계정을 더 열 때는 그 표만 고친다.
-    //   ★통계 분모에 넣지 않는다(실적이 아니라 확인용). archives 도 없다.
-    //   ★추가 필터 없다 — SMGW-C 도 포함한다(영준님 정정). 지도에 싣는 계기는 **신설계기**다.
-    //   확인이 끝나면 통째로 내린다(onMap:false 가 아니라 이 줄을 지우고 파일도 지운다).
-    //   ★label 은 null 이다 = 마커에 **계기 개수**를 찍는다(실효와 같다).
-    //     이 리스트는 한 DCU·한 모뎀에 여러 계기가 물린 구조라(2,126건/1,038개소)
-    //     개소당 몇 계기인지가 현장에서 곧 정보다.
-    //     ※예전엔 'LP' 였는데 **화면에 쓰이지 않는 죽은 값**이었다 — createMarker 가
-    //       카테고리로 분기하는데 LP무기록 분기가 없어 이미 개수가 찍히고 있었다.
-    { code: 'n', file: './data/lpnoapp-data.json', category: 'LP무기록', label: null,
-      uiLabel: 'LP 무기록(확인용)', allowGroup: 'staff' },
     // 25년 미청구 — 한전 원장(미청구2.xlsx)에서 상태='미청구' 인 계기 중 우리가 갈 곳.
     //   대상 정의: 미청구 13,182 − 고압 637 − modem_work(20260908) 945 − Sheet2 2,654 = 8,994
     //   ★계기교체 축은 제외 사유가 아니다(영준님 2026-09-18) — 25년 미청구는 **모뎀** 공사
@@ -99,8 +83,15 @@ const DATASET_REGISTRY = [
     //   ★statsEvenIfGroup — 지도는 staff 에만 열어두되 통계 분모·선택지에는 넣는다.
     //     확인용 리스트(LP무기록)와 달리 이건 실제 작업 대상이라 실적이다(영준님 2026-09-18).
     { code: 'm', file: './data/michunggu-data.json', category: '미청구', label: null,
-      uiLabel: '25년 미청구', statsLabel: '25년 미청구', allowGroup: 'staff',
-      statsEvenIfGroup: true },
+      uiLabel: '25미청구', statsLabel: '25미청구' },
+    // 25년 미청구불가 — 25년 불가 중 '가서 다시 해볼 수 있는' 사유만 추린 것.
+    //   판정 정본 research/불가사유_분류_확정_20260920.json (사유조합 945종 중 대상 505종).
+    //   ★리스트에는 판정 메타(분류·판정자)를 싣지 않는다 — 대상으로 정해진 것만 올라온다.
+    //   ★모뎀 MAC 을 싣지 않는다 — 불가 건은 MAC 칸에 계기번호가 들어가 있다(11,009/11,015).
+    //   디테일에 불가사유(비고1)·불가상세(비고2)가 들어간다.
+    //   생성 scripts/build_michunggu_bulga_20260920.py
+    { code: 'u', file: './data/michunggu-bulga-data.json', category: '미청구불가', label: null,
+      uiLabel: '25년 미청구불가', statsLabel: '25년 미청구불가' },
     // 완료 아카이브 — 실효에서 완료돼 빠진 건들. 지도에는 안 올라가고 통계 분모에만 들어간다.
     //   파일이 날짜별로 늘어나므로 glob 으로 잡는다(archivesGlob).
     { code: 'a', category: '완료아카이브', onMap: false, statsLabel: '완료 아카이브',
