@@ -564,9 +564,19 @@ function spreadOverlappingMarkers(grouped) {
         if (!coordToKeys[k]) coordToKeys[k] = [];
         coordToKeys[k].push(key);
     });
+    // 겹칠 때 누가 원래 자리(중심)에 남는지 — 우선순위(영준님 2026-09-20).
+    //   합동 > 실효 > SKT > 25미청구 > 25년 미청구불가. 목록에 없는 카테고리는 뒤로 밀린다.
+    //   ★밀어내는 방식(나선) 자체는 그대로다 — 순서만 정한다.
+    const MARKER_PRIORITY = ['합동', '실효', 'skt', '미청구', '미청구불가'];
+    const prioOf = key => {
+        const i = MARKER_PRIORITY.indexOf(grouped[key].category);
+        return i === -1 ? MARKER_PRIORITY.length : i;
+    };
     Object.values(coordToKeys).forEach(keys => {
         const n = keys.length;
         if (n <= 1) return;
+        // i=0 이 중심이므로 우선순위가 높은 것부터 앞에 둔다(동순위는 원래 순서 유지 — 안정 정렬).
+        keys.sort((a, b) => prioOf(a) - prioOf(b));
         const hasApprox = keys.some(k => grouped[k].meters.some(m => m.좌표정확도 === 'approximate'));
         const c = hasApprox ? SPIRAL_APPROX : SPIRAL_EXACT;
         // Sunflower seed pattern: r = c·√i, θ = i·golden_angle
