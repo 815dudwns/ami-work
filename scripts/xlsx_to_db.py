@@ -83,6 +83,11 @@ KNOWN_FILES = [
 #   `차수` 열로도 싣는다. 같은 날짜 파일이 서로를 지우는 것을 막는 유일한 장치다.
 DISCRIMINATORS = [
     ('준공 및 검수리스트', r'(실효\d+차)'),
+    # 25년 보강공사 원장 — 같은 날(2026-09-17) 같은 시트명으로 두 판이 왔다.
+    #   v1 = 필터 안 걸린 원본(세 시트 모두 숨김 0)
+    #   미청구2 = 같은 행에 숨김만 건 판정본(원장 보임 15,069 = 미청구 / 작업중 보임 65,547)
+    #   ★행 내용은 같고 visible 만 다르다. 판을 안 가르면 뒤엣것이 앞엣것을 지운다.
+    ('25년 AMI 보강공사', r'(v1|미청구\d*)'),
 ]
 DISCRIMINATOR_COL = '차수'
 
@@ -220,14 +225,56 @@ def cell_text(v):
 
 
 # ─── 정규화 열 ───────────────────────────────────────────────────────────────
+# ★규칙 정본 = CLAUDE.md '한전 엑셀 자릿수' 표.
+#   zfill 은 **자릿수가 하나로 고정된 필드에만** 쓴다.
+#   계기번호 11 고정(단 영문 접두 보존) · 고객번호 10 고정 · MAC 은 11/12 혼재라 zfill 금지.
+BAD = {'', '#N/A', '#N/A!', 'NA', 'N/A', '-', 'NONE', 'NAN', 'NAT', 'NULL'}
+
+
+def _clean(v):
+    s = re.sub(r'[\s\-]', '', str(v if v is not None else '')).strip()
+    return '' if s.upper() in BAD else s
+
+
 def norm_meter(v):
-    d = re.sub(r'\D', '', v or '')
-    return d.zfill(11) if d else None
+    """계기번호 — 영문 접두를 지우지 마라.
+
+    ★2026-09-20 수정. 그 전에는 숫자만 뽑아 zfill(11) 해서 `LA530149603` 가
+      `00530149603` 이 됐다. 이 한 줄이 DB 전체를 오염시켰다(boranggi 47,675건·v2 654건).
+      매칭이 조용히 어긋나는 종류의 버그다. [[meter_no_prefix_preserve]]
+    - 영문자가 섞였으면 그대로 둔다(공백·하이픈만 제거·대문자화)
+    - 순수 숫자면 11자리로 zfill — 자릿수가 고정이라 짧으면 앞 0 이 잘린 것이다
+    """
+    s = _clean(v)
+    if not s:
+        return None
+    if re.search(r'[A-Za-z]', s):
+        return s.upper()
+    return s.zfill(11) if s.isdigit() else s.upper()
+
+
+def norm_cust(v):
+    """고객번호 — 10자리 고정. 길이를 세서 zfill(10).
+
+    ★`#N/A` 를 그대로 싣지 마라. 2026-09-20 실측: v2 Sheet1 의 고객번호_norm 이
+      `#N/A` 5,402건 그대로였다 — 조인하면 그 5,402건이 한 덩어리로 붙는다.
+    """
+    s = _clean(v)
+    if not s or not s.isdigit() or not s.strip('0'):
+        return None
+    return s.zfill(10) if len(s) <= 10 else s
+
+
+def norm_mac(v):
+    """모뎀 MAC — **zfill 금지**(11·12 자리가 섞여 짧은 쪽을 늘리면 틀린 값이 된다).
+    [[boranggi_mac_restore_and_amigo_wireless]]"""
+    s = re.sub(r'[\s:\-*.]', '', str(v if v is not None else '')).strip()
+    return None if not s or s.upper() in BAD else s.upper()
 
 
 def norm_plain(v):
     """하이픈·공백만 제거. 앞 0 은 그대로 둔다."""
-    s = re.sub(r'[\s\-]', '', v or '')
+    s = _clean(v)
     return s.upper() or None
 
 
@@ -324,7 +371,8 @@ def hidden_rows(path, sheet_title):
 
 def load_sheet(con, path, ws, table, snapshot, disc=None):
     rows = list(ws.iter_rows(values_only=True))
-    ncol = ws.max_column
+    # reset_dimensions() 를 거친 시트는 max_column 이 None 이다(load_file 참고) — 행에서 센다.
+    ncol = ws.max_column or (max((len(r) for r in rows), default=0))
     hi = find_header(rows, ncol)
     if hi is None:
         raise SystemExit(f'  실패: [{ws.title}] 헤더 행을 찾지 못했다')
@@ -350,6 +398,12 @@ def load_sheet(con, path, ws, table, snapshot, disc=None):
     cust_c = pick(names, '고객번호')
     mac_c = pick(names, '기존모뎀MAC', '모뎀MAC', '현재맥', 'MAC')
 
+    # 보조 고객번호 열(고객번호_2 …) — coalesce 대상.
+    #   ★같은 헤더가 두 번 오면 ensure_table 이 `_2` 를 붙이므로 이름으로 잡을 수 있다.
+    #   주덕기 9/20 v2 는 O열 고객번호가 #N/A 투성이(유효 4,926)이고 BC열에 4,612 가 따로 있다.
+    cust2_c = next((x for x in names
+                    if x != cust_c and re.fullmatch(r'고객번호[_.]?\d+', x)), None)
+
     extra = ['snapshot', 'src_file', 'visible', 'xl_row']
     disc_col = None
     if disc:
@@ -368,7 +422,8 @@ def load_sheet(con, path, ws, table, snapshot, disc=None):
 
     log(f'    헤더 {hi + 1}행째 · 열 {len(names)} · 데이터 {src_rows}행 -> "{table}"')
     log(f'      정규화: 계기번호={meter_c or "-"} / 철거계기={remv_c or "-"}'
-        f' / MAC={mac_c or "-"} / 고객번호={cust_c or "-"}')
+        f' / MAC={mac_c or "-"} / 고객번호={cust_c or "-"}'
+        f'{f" (+{cust2_c} coalesce)" if cust2_c else ""}')
 
     ensure_table(con, table, all_cols)
     con.execute(f'DELETE FROM "{table}" WHERE snapshot=?', (snapshot,))   # 멱등
@@ -376,6 +431,7 @@ def load_sheet(con, path, ws, table, snapshot, disc=None):
     mi = names.index(meter_c) if meter_c else None
     ri = names.index(remv_c) if remv_c else None
     ci = names.index(cust_c) if cust_c else None
+    c2i = names.index(cust2_c) if cust2_c else None
     ai = names.index(mac_c) if mac_c else None
     src = str(path.relative_to(ROOT)) if str(path).startswith(str(ROOT)) else str(path)
 
@@ -391,9 +447,10 @@ def load_sheet(con, path, ws, table, snapshot, disc=None):
         if ri is not None:
             rec.append(norm_meter(vals[ri]))
         if ai is not None:
-            rec.append(norm_plain(vals[ai]))
+            rec.append(norm_mac(vals[ai]))
         if ci is not None:
-            rec.append(norm_plain(vals[ci]))
+            rec.append(norm_cust(vals[ci])
+                       or (norm_cust(vals[c2i]) if c2i is not None else None))
         payload.append(rec)
 
     ph = ','.join('?' * len(all_cols))
@@ -441,7 +498,15 @@ def load_file(con, path: Path):
         if skip_sheet(path, ws.title):
             log(f'  [제외] 시트 {ws.title!r} — 피벗 집계(원본 아님)')
             continue
-        if ws.max_row is None or ws.max_row < 2:
+        # ★<dimension> 을 믿지 마라 — 잘못 적힌 파일이 있다(2026-09-17 실측).
+        #   `모뎀설치불가개소_26년6월8일이전.xlsx` 는 실제 291행인데 dimension 이 "A1:V2" 라
+        #   read_only 모드가 2행만 읽고 끝냈다. 행 수 검증도 원본을 같은 방식으로 세니
+        #   **조용히 통과**했다(290행이 사라진 채 "일치"로 보고됨).
+        #   빈 시트 판정은 reset 전 값(declared)으로 하고, 실제 읽기는 reset 후에 한다.
+        #   reset_dimensions() 를 부르면 max_row 가 None 이 되므로 순서를 바꾸면 안 된다.
+        declared = ws.max_row
+        ws.reset_dimensions()
+        if declared is None or declared < 2:
             log(f'  [제외] 시트 {ws.title!r} — 비어 있음')
             continue
         table, how = table_for(path, ws.title, used)
