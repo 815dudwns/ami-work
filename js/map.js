@@ -496,7 +496,12 @@ function loadMarkers() {
         // 좌표 기준 그룹핑 — 같은 좌표(=같은 지점)면 한 마커로 합침.
         //   도로명으로 좌표 뽑아 인접 다른 지번이 같은 좌표에 박힌 케이스(재건축 한 건물 등) 통합.
         //   카테고리(실효/skt/tou) 다르면 다른 사업이라 별도 마커 유지.
-        const key = `${item.category}||${item.lat}||${item.lng}`;
+        // ★좌표를 **정규화해서** 키를 만든다(영준님 2026-09-21 '연희맛로 20').
+        //   예전엔 원값 문자열이라 값이 같아도 자릿수가 다르면(37.566847167 vs
+        //   37.5668471674677) 다른 마커가 됐고, 아래 spreadOverlappingMarkers 는
+        //   toFixed(6) 로 같다고 보고 **나선형으로 벌려 놓기까지** 했다.
+        //   ★spread 쪽과 **같은 자릿수(6)** 여야 한다 — 다르면 또 어긋난다.
+        const key = `${item.category}||${(+item.lat).toFixed(6)}||${(+item.lng).toFixed(6)}`;
         if (!grouped[key]) {
             grouped[key] = {
                 meters: [],

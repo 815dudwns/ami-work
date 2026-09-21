@@ -436,7 +436,11 @@ def unify_addr_coords(rows, label=''):
         if k and x.get('lat') is not None and x.get('lng') is not None:
             by[k].append(x)
     for k, grp in by.items():
-        pts = {(round(x['lat'], 9), round(x['lng'], 9)) for x in grp}
+        # ★**원값**으로 본다. 반올림해서 비교하면 자릿수만 다른 좌표를 '같다'고 보고 넘어간다 —
+        #   2026-09-21 에 round(…,9) 로 짰다가 정확히 그 함정에 빠졌다. 값은 같은데
+        #   9자리/13자리로 갈린 좌표가 그대로 남아 마커가 계속 둘이었다.
+        #   지도 그룹 키가 **좌표 원값 문자열**이라 자릿수가 다르면 다른 마커가 된다(js/map.js).
+        pts = {(x['lat'], x['lng']) for x in grp}
         if len(pts) < 2:
             continue
         pl = sorted(pts)
@@ -451,11 +455,11 @@ def unify_addr_coords(rows, label=''):
             continue
         ex = [x for x in grp if str(x.get('좌표정확도') or '') == 'exact']
         pool, rule = (ex, 'exact 우선') if ex else (grp, '전체(exact 없음)')
-        cnt = _C((round(x['lat'], 9), round(x['lng'], 9)) for x in pool)
+        cnt = _C((x['lat'], x['lng']) for x in pool)
         top = cnt.most_common()
         if len(top) > 1 and top[0][1] == top[1][1]:
             first = sorted(pool, key=lambda x: str(x.get('계기번호') or ''))[0]
-            rep = (round(first['lat'], 9), round(first['lng'], 9))
+            rep = (first['lat'], first['lng'])
             rule += ' + 동률이라 계기번호 첫 건'
         else:
             rep = top[0][0]
@@ -463,9 +467,11 @@ def unify_addr_coords(rows, label=''):
         st['통합개소'] += 1
         st['규칙'][rule] += 1
         for x in grp:
-            cur = (round(x['lat'], 9), round(x['lng'], 9))
+            cur = (x['lat'], x['lng'])
             if cur != rep:
                 st['이동거리'].append(round(_meters(cur, rep), 1))
+                # ★대표 좌표를 **그대로 복사**한다. 반올림·재포맷 금지 —
+                #   자릿수가 갈리는 순간 지도에서 다른 마커가 된다.
                 x['lat'], x['lng'] = rep[0], rep[1]
                 x['좌표통합'] = f'같은 지번 대표좌표로 통합 ({rule})'
                 st['좌표변경'] += 1

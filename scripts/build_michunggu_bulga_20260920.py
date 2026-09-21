@@ -207,7 +207,10 @@ def main():
         r = v['r']
         bd = str(r.get('기존변대주') or '').strip()
         recs.append({
-            '지사': blank(r.get('2차사업소')), '주소': blank(r.get('주소')), '도로명주소': '',
+            # ★주소 앞에 '우선_0611_' 같은 **작업 태그**가 붙어 온다 — 주소의 일부가 아니다.
+            #   미청구 빌더와 같은 TAG_RE 를 쓴다(실측 4건).
+            '지사': blank(r.get('2차사업소')),
+            '주소': D.clean_addr(blank(r.get('주소'))), '도로명주소': '',
             '계기번호': str(r.get('계기번호') or '').strip(),
             '계기타입': blank(r.get('계기타입')), '고객번호': D.B.norm_cust(r.get('고객번호')) or '',
             '통신방식': blank(r.get('통신방식')),
