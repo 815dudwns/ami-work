@@ -22,6 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'scripts'))
+import exclusions as EX   # 제외 이력 자동 누적(영준님 2026-09-20)
 DB = ROOT / 'data/ami.db'
 CLASS = ROOT / 'research/불가사유_분류_확정_20260920.json'
 OUT = ROOT / 'data/michunggu-bulga-data.json'
@@ -129,6 +130,7 @@ def boost_from_boranggi(recs):
 
 
 def main():
+    EX.stage_reset(EX.L_BULGA)   # 재실행이 멱등이어야 한다
     con = sqlite3.connect(DB)
     c = con.cursor()
 
@@ -260,6 +262,8 @@ def main():
             log(f"   {r['계기번호']} 코드={ev['타입코드']} 타입={r.get('계기타입')}"
                 f" — {ev['판정근거']}")
         D.meter_code_write('25년 미청구불가', _bad)
+        EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, 'C1', r, ev['판정근거'],
+                                     f"타입코드 {ev['타입코드']}") for r, ev in _bad])
         recs = [x for x in recs if nm(x['계기번호']) not in _bset]
         keep = [v for v in keep if v['_m'] not in _bset]   # 게이트 기대치도 같이 줄인다
 
@@ -271,6 +275,8 @@ def main():
         log(f'S(표준형) 계기 {len(_std)}건 제외'
             f' — 타입코드 {dict(Counter(str(r["계기번호"])[2:4] for r, _ in _std).most_common())}')
         D.standard_type_write('25년 미청구불가', _std)
+        EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, 'C2', r, f'계기타입 {v}',
+                                     f'계기타입={v}') for r, v in _std])
         recs = [x for x in recs if nm(x['계기번호']) not in _sset]
         keep = [v for v in keep if v['_m'] not in _sset]
     else:
@@ -284,6 +290,8 @@ def main():
         log(f'계기번호 오류 계열 {len(_err)}건 제외'
             f' — {dict(Counter(k for _, k in _err).most_common())}')
         D.meter_err_write('25년 미청구불가', _err)
+        EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, 'C3', r, k,
+                                     f"{r.get('불가사유')} / {r.get('불가상세')}") for r, k in _err])
         recs = [x for x in recs if nm(x['계기번호']) not in _eset]
         keep = [v for v in keep if v['_m'] not in _eset]
     else:
@@ -306,6 +314,9 @@ def main():
         log(f'고객번호경유 26년시공 — 신설 {len(_drop)}건 **제외**'
             f' · 기설 {len(_keep)}건 **유지**')
         D.via_cust_write('25년 미청구불가', _drop, _keep)
+        EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, 'C4', r, f"awms {ev['작업구분']}",
+                                     f"awms계기 {ev['awms계기']} · {ev['작업일']} · {ev['작업구분']}")
+                              for r, ev in _drop])
         recs = [x for x in recs if nm(x['계기번호']) not in _dset]
         keep = [v for v in keep if v['_m'] not in _dset]     # 게이트 기대치도 같이 줄인다
 
