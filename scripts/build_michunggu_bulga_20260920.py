@@ -421,6 +421,15 @@ def main():
         for k in ('DCU장애여부', 'DCU장애여부출처', 'DCU회선상태출처'):
             x.pop(k, None)
 
+    # ── 주소 접두 정규화 + 같은 지번 좌표 통합 (영준님 2026-09-21) ──────────
+    #   미청구 빌더와 **같은 함수**를 쓴다.
+    _ust = D.unify_addr_coords(has + pend, '25년불가')
+    if _ust['보류목록']:
+        _bp = ROOT / 'research/좌표통합_보류_20260921.json'
+        _prev = json.loads(_bp.read_text()) if _bp.exists() else {}
+        _prev['25년불가'] = _ust['보류목록']
+        _bp.write_text(json.dumps(_prev, ensure_ascii=False, indent=1))
+
     OUT.write_text(json.dumps(has, ensure_ascii=False, indent=1))
     OUT_PEND.write_text(json.dumps(pend, ensure_ascii=False, indent=1))
     log(f'저장 {OUT} {len(has):,} · {OUT_PEND} {len(pend):,}')

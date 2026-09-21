@@ -372,6 +372,112 @@ def meter_code_write(list_name, bad):
     METER_CODE_OUT.write_text(json.dumps(prev + rows, ensure_ascii=False, indent=1))
 
 
+# ─── 주소 정규화 · 같은 지번 좌표 통합 (영준님 2026-09-21) ───────────────────
+# 영준님 "연희맛로 20 은 왜 주소가 두 개로 나눠졌니".
+# 같은 건물(연희동 188-51 · 계기 7 · 변대주 '연궁간 4')인데 마커가 둘로 갈렸다.
+#   '서울 서대문구 연희맛로 20'      3건 -> 37.5668326713136, 126.929984045924
+#   '서울특별시 서대문구 연희맛로 20' 4건 -> 37.5668471674677, 126.92996739334
+# 원인: 도로명 접두가 '서울'/'서울특별시' 로 섞여 지오코더에 다른 문자열이 들어갔고,
+#       미세하게 다른 좌표를 받았다. 지도는 **좌표로 마커를 묶으니** 갈린다
+#       [[amimap_marker_coord_merge]]. 작업자가 한 건물을 두 군데로 보게 된다.
+SIDO_CANON = {
+    '서울': '서울특별시', '부산': '부산광역시', '대구': '대구광역시', '인천': '인천광역시',
+    '광주': '광주광역시', '대전': '대전광역시', '울산': '울산광역시', '세종': '세종특별자치시',
+    '경기': '경기도', '강원': '강원특별자치도', '충북': '충청북도', '충남': '충청남도',
+    '전북': '전라북도', '전남': '전라남도', '경북': '경상북도', '경남': '경상남도',
+    '제주': '제주특별자치도',
+}
+_SIDO_RE = re.compile(r'^(' + '|'.join(SIDO_CANON) + r')(?=\s)')
+# ★같은 지번인데 이만큼 떨어져 있으면 **합치지 않는다.** 같은 지번이 아니라 다른 개소일 수
+#   있다(큰 지번 하나에 건물이 여럿인 경우 — 실측 대조동 197-5 는 1.5km 떨어져 있다).
+COORD_MERGE_MAX_M = 30
+
+
+def norm_sido(a):
+    """'서울 서대문구 …' -> '서울특별시 서대문구 …'. 규칙 밖이면 원문 그대로."""
+    s = str(a or '').strip()
+    m = _SIDO_RE.match(s)
+    return SIDO_CANON[m.group(1)] + s[m.end():] if m else s
+
+
+def _jibun_key(v):
+    return re.sub(r'\s+', '', str(v or ''))
+
+
+def _meters(a, b):
+    import math
+    return math.hypot((a[0] - b[0]) * 111000, (a[1] - b[1]) * 88800)
+
+
+def unify_addr_coords(rows, label=''):
+    """도로명 접두 정규화 + 같은 지번 좌표 통합. 반환 = 통계 dict.
+
+    ★**좌표를 다시 따지 않는다.** 이미 있는 좌표 중에서 고른다 —
+      새로 조회하면 API 응답이 또 달라져 같은 문제가 재발한다.
+    대표 좌표: ①좌표정확도 exact 우선 ②그중 다수인 좌표 ③동률이면 계기번호 오름차순 첫 건.
+    """
+    from collections import Counter as _C, defaultdict as _dd
+    st = {'접두정규화': 0, '통합개소': 0, '좌표변경': 0, '보류개소': 0, '보류계기': 0,
+          '규칙': _C(), '보류목록': [], '이동거리': []}
+    for x in rows:
+        for f in ('도로명주소', '주소', '도로명주소_대안'):
+            v = x.get(f)
+            if not v:
+                continue
+            n = norm_sido(v)
+            if n != v:
+                x[f] = n
+                if f == '도로명주소':
+                    st['접두정규화'] += 1
+
+    by = _dd(list)
+    for x in rows:
+        k = _jibun_key(x.get('주소'))
+        if k and x.get('lat') is not None and x.get('lng') is not None:
+            by[k].append(x)
+    for k, grp in by.items():
+        pts = {(round(x['lat'], 9), round(x['lng'], 9)) for x in grp}
+        if len(pts) < 2:
+            continue
+        pl = sorted(pts)
+        far = max(_meters(a, b) for i, a in enumerate(pl) for b in pl[i + 1:])
+        if far > COORD_MERGE_MAX_M:
+            # ★합치지 않는다 — 같은 지번이 아니라 다른 개소일 수 있다
+            st['보류개소'] += 1
+            st['보류계기'] += len(grp)
+            st['보류목록'].append({'지번': grp[0].get('주소'), '계기수': len(grp),
+                                  '좌표종류': len(pts), '최대거리m': round(far),
+                                  '계기번호': sorted(str(x.get('계기번호')) for x in grp)[:6]})
+            continue
+        ex = [x for x in grp if str(x.get('좌표정확도') or '') == 'exact']
+        pool, rule = (ex, 'exact 우선') if ex else (grp, '전체(exact 없음)')
+        cnt = _C((round(x['lat'], 9), round(x['lng'], 9)) for x in pool)
+        top = cnt.most_common()
+        if len(top) > 1 and top[0][1] == top[1][1]:
+            first = sorted(pool, key=lambda x: str(x.get('계기번호') or ''))[0]
+            rep = (round(first['lat'], 9), round(first['lng'], 9))
+            rule += ' + 동률이라 계기번호 첫 건'
+        else:
+            rep = top[0][0]
+            rule += ' + 다수 좌표'
+        st['통합개소'] += 1
+        st['규칙'][rule] += 1
+        for x in grp:
+            cur = (round(x['lat'], 9), round(x['lng'], 9))
+            if cur != rep:
+                st['이동거리'].append(round(_meters(cur, rep), 1))
+                x['lat'], x['lng'] = rep[0], rep[1]
+                x['좌표통합'] = f'같은 지번 대표좌표로 통합 ({rule})'
+                st['좌표변경'] += 1
+    log(f'주소 정규화{" " + label if label else ""} — 접두 {st["접두정규화"]:,}건 ·'
+        f' 좌표 통합 {st["통합개소"]:,}개소({st["좌표변경"]:,}계기)'
+        + (f' · ★{COORD_MERGE_MAX_M}m 초과라 보류 {st["보류개소"]}개소'
+           f'({st["보류계기"]}계기)' if st['보류개소'] else ''))
+    if st['규칙']:
+        log('  대표좌표 선택 규칙: ' + ' · '.join(f'{k} {v:,}' for k, v in st['규칙'].most_common()))
+    return st
+
+
 # ─── 제외축: 기설(이미 설치됨) · 계기교체됨 — 영준님 2026-09-21 ──────────────
 # 현장이 불가사유·불가상세에 "이미 설치돼 있다" 고 적은 건. 우리가 또 갈 일이 없다.
 # ★판정은 (불가사유+불가상세)를 **공백 제거해** 이어붙인 문자열로 한다 —
@@ -1455,6 +1561,13 @@ def main():
     #   형태로 제자리에 놓고, 이름은 대장 조회로만 채우고,
     #   DCUID 앞 8자리 = 전산화번호는 **계산**이라 본값에 넣어도 된다(대장 예외 0).
     #   둘을 같이 돌리면 방금 제자리에 놓은 번호를 다시 _유도로 빼 간다(실측 975건).
+
+    # ── 주소 접두 정규화 + 같은 지번 좌표 통합 (영준님 2026-09-21) ──────────
+    #   ★저장 직전에 한다. 좌표 파이프라인이 끝난 뒤라야 '이미 있는 좌표 중에서' 고를 수 있다.
+    _ust = unify_addr_coords(map_rows + pend_rows, '25미청구')
+    if _ust['보류목록']:
+        (ROOT / 'research/좌표통합_보류_20260921.json').write_text(json.dumps(
+            {'25미청구': _ust['보류목록']}, ensure_ascii=False, indent=1))
 
     OUT_MAP.write_text(json.dumps(map_rows, ensure_ascii=False, indent=1))
     OUT_PEND.write_text(json.dumps(pend_rows, ensure_ascii=False, indent=1))
