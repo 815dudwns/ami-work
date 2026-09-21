@@ -1036,6 +1036,19 @@ def main():
     live = [e for e in merged if _keep(e)]
     archived = [e for e in merged if not _keep(e)]
 
+    # ── 주소 접두 정규화 + 같은 지번 좌표 통합 (영준님 2026-09-21) ──────────
+    #   미청구·불가 빌더와 **같은 함수**를 쓴다. 지금 합동은 분열이 0 이지만
+    #   접두가 '서울'/'서울특별시' 로 섞여 있어(938/1) 새 판이 오면 또 갈린다.
+    try:
+        import importlib.util as _iu
+        _sp = _iu.spec_from_file_location(
+            'mich', str(ROOT / 'scripts/build_michunggu_dataset_20260918.py'))
+        _M = _iu.module_from_spec(_sp)
+        _sp.loader.exec_module(_M)
+        _M.unify_addr_coords(live + archived, '합동')
+    except Exception as e:                      # 공용 함수가 없어도 합동 빌드는 계속된다
+        print(f'  (주소 정규화 건너뜀: {e})')
+
     OUT.write_text(json.dumps(live, ensure_ascii=False, indent=1), encoding='utf-8')
     if archived or ARCHIVE.exists():
         ARCHIVE.write_text(json.dumps(archived, ensure_ascii=False, indent=1), encoding='utf-8')
