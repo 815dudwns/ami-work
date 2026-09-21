@@ -52,7 +52,9 @@ const NAMESPACED_CATEGORIES = ['고압', '합동', 'skt', '장애', 'LP무기록
 
 // 마커 식별자 — map.js loadMarkers()의 그룹핑 키와 같은 형식이어야 한다.
 function markerKeyOf(item) {
-    return `${item.category}||${item.lat}||${item.lng}`;
+    // ★map.js loadMarkers() 와 **같은 자릿수**여야 한다(2026-09-21 toFixed(6) 로 통일).
+    //   한쪽만 바꾸면 갈림 판정이 어긋나 상태키가 흔들리고 작업기록이 고아가 된다.
+    return `${item.category}||${(+item.lat).toFixed(6)}||${(+item.lng).toFixed(6)}`;
 }
 
 // 인덱스 조회용 내부 키. ★마커키만으로는 부족하다 — 합친 마커(같은 좌표·같은 카테고리에
