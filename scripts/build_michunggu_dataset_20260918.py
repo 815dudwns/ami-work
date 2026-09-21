@@ -372,6 +372,143 @@ def meter_code_write(list_name, bad):
     METER_CODE_OUT.write_text(json.dumps(prev + rows, ensure_ascii=False, indent=1))
 
 
+# ─── 제외축: 고객번호 경유 후속 청구 (영준님 2026-09-21 "계기교체건 청구된거 빼") ──
+# 우리 건의 고객번호로 원장·보강현황을 조회해 **같은 고객번호의 다른 계기**를 찾는다.
+# 그 계기의 작업일이 **우리 시공일보다 나중**이고 원장 상태가 **'청구'** 면 제외한다.
+# 그 개소는 이미 정리돼 우리가 또 갈 일이 없다.
+#
+# ★상대 계기를 어디서 찾았든 **그 계기번호로 원장을 다시 조회해** 청구 여부를 판정한다.
+#   보강현황에서 찾은 상대의 상태를 빈 값으로 두면 **청구 확인 자체를 못 해** 28건이 누락된다
+#   (PM 첫 집계 68 vs 재현 96 의 차이가 정확히 이것이었다, 2026-09-21).
+#   판정은 **계기 단위** — 그 계기의 어느 행에든 col_15='청구' 면 청구다(고압 판정과 같은 원칙).
+# ★'작업만 되고 청구 안 된' 건은 빼지 않는다 — 보강현황엔 올랐는데 청구가 없으면 여지가 남았다.
+#
+# ★★오타 쌍 게이트 — **번호 차이만으로 판단하지 않는다.**
+#   계기번호는 연번이라 옆집 계기와 1~2자리 차이가 흔하다(실측 42쌍 중 19쌍은 상대가 '청구').
+#   그래서 번호 차이는 **의심 표식**으로만 쓰고, 실재 여부는 보강현황으로 가린다:
+#     · 보강현황에 **계기교체일과 모뎀 MAC 이 둘 다** 있으면 실재하는 계기다 -> 정상 제외 대상
+#     · 그 기록이 없으면 **오타 등재 의심** -> 제외하지 않고 목록으로 남긴다
+FOLLOWUP_OUT = ROOT / 'research/고객번호경유_후속청구제외_20260921.json'
+FOLLOWUP_TYPO_OUT = ROOT / 'research/후속청구_오타의심_20260921.json'
+FOLLOWUP_LONG_DAYS = 180        # 이보다 오래 지난 건은 사유에 표식을 남긴다
+
+
+def _ymd(v):
+    s = re.sub(r'\D', '', str(v or ''))
+    return s[:8] if len(s) >= 8 else ''
+
+
+def _daygap(a, b):
+    import datetime as _dt
+    try:
+        return (_dt.date(int(b[:4]), int(b[4:6]), int(b[6:8]))
+                - _dt.date(int(a[:4]), int(a[4:6]), int(a[6:8]))).days
+    except ValueError:
+        return 0
+
+
+def followup_index():
+    """(계기->원장행들, 고객번호->계기집합, 고객번호->{계기:(교체일, MAC유무)})"""
+    import sqlite3
+    from collections import defaultdict as _dd
+    con = sqlite3.connect(ROOT / 'data/ami.db')
+    c = con.cursor()
+    led, by_cust = _dd(list), _dd(set)
+    for cust, m, st, d2 in c.execute(
+            f'SELECT 고객번호,계기번호,{LEDGER_STATE_COL},시공일2 FROM "{LEDGER_TABLE}"'):
+        k = nm(m)
+        if not k:
+            continue
+        led[k].append((_ymd(d2), str(st or '').strip()))
+        cu = B.norm_cust(cust)
+        if cu:
+            by_cust[cu].add(k)
+    bo = _dd(dict)
+    for cust, m1, m2, d, mac1, mac2 in c.execute(
+            'SELECT 고객번호,계기번호,계기번호_2,"계기교체일(A)","모뎀 MAC","모뎀 MAC_2"'
+            ' FROM boranggi'):
+        cu = B.norm_cust(cust)
+        if not cu:
+            continue
+        day = _ymd(d)
+        has_mac = bool(str(mac1 or '').strip() or str(mac2 or '').strip())
+        for m in (m1, m2):
+            k = nm(m)
+            if k and day and k not in bo[cu]:
+                bo[cu][k] = (day, has_mac)
+    con.close()
+    log(f'후속청구 색인 — 원장 계기 {len(led):,} · 고객번호 {len(by_cust):,}'
+        f' · 보강 고객번호 {len(bo):,}')
+    return led, by_cust, bo
+
+
+def followup_billed_bad(rows, idx=None, list_name=''):
+    """반환 = ([(row, 근거)], 오타의심목록, 작업만목록)"""
+    led, by_cust, bo = idx or followup_index()
+    out, typo, worked = [], [], []
+    for x in rows:
+        me, cu = nm(x.get('계기번호')), B.norm_cust(x.get('고객번호'))
+        if not cu:
+            continue
+        mine = led.get(me) or []
+        ours = max((d for d, _ in mine if d), default='') or _ymd(x.get('최종시공일'))
+        if not ours:
+            continue
+        for other in sorted(set(by_cust.get(cu, ())) | set(bo.get(cu, {}))):
+            if other == me:
+                continue
+            bd, has_mac = bo.get(cu, {}).get(other, ('', False))
+            # 번호가 1~2자리만 다르면 **의심**. 실재 여부는 보강현황 기록으로 가린다.
+            near = (len(other) == len(me)
+                    and 1 <= sum(1 for a, b in zip(me, other) if a != b) <= 2)
+            if near and not (bd and has_mac):
+                typo.append({'리스트': list_name, '계기번호': x.get('계기번호'),
+                             '상대계기': other, '고객번호': x.get('고객번호'),
+                             '주소': x.get('주소'),
+                             '사유': '번호가 1~2자리만 다른데 보강현황에 계기교체일·모뎀MAC'
+                                     ' 기록이 없다 = 오타 등재 의심'})
+                continue
+            orow = led.get(other) or []
+            od = max(filter(None, [max((d for d, _ in orow if d), default=''), bd]), default='')
+            billed = any(st == '청구' for _, st in orow)
+            if not od or od <= ours:
+                continue
+            gap = _daygap(ours, od)
+            if not billed:
+                worked.append({'리스트': list_name, '계기번호': x.get('계기번호'),
+                               '상대계기': other, '상대작업일': od, '간격일': gap})
+                break
+            out.append((x, {'우리시공일': ours, '상대계기': other, '상대작업일': od,
+                            '간격일': gap, '상대상태': '청구', '번호근접': near}))
+            break
+    return out, typo, worked
+
+
+def followup_write(list_name, out, typo):
+    """제외분·오타의심 기록. 두 빌더가 따로 도니 자기 리스트 몫만 갈아끼운다."""
+    def _merge(path, key, rows):
+        prev = []
+        if path.exists():
+            try:
+                prev = [z for z in json.loads(path.read_text()) if z.get('리스트') != key]
+            except Exception:
+                prev = []
+        path.write_text(json.dumps(prev + rows, ensure_ascii=False, indent=1))
+
+    _merge(FOLLOWUP_OUT, list_name, [
+        {'리스트': list_name, '계기번호': r.get('계기번호'), '고객번호': r.get('고객번호'),
+         '지사': r.get('지사'), '주소': r.get('주소'),
+         '우리시공일': ev['우리시공일'], '상대계기': ev['상대계기'],
+         '상대작업일': ev['상대작업일'], '간격일': ev['간격일'], '상대상태': ev['상대상태'],
+         '번호근접': ev['번호근접'],
+         '장기간격': ev['간격일'] > FOLLOWUP_LONG_DAYS,
+         '도로명주소': r.get('도로명주소'), '변대주': r.get('변대주'),
+         'DCUID': r.get('DCUID'), '계기타입': r.get('계기타입'),
+         '불가사유': r.get('불가사유'), '불가상세': r.get('불가상세')}
+        for r, ev in out])
+    _merge(FOLLOWUP_TYPO_OUT, list_name, typo)
+
+
 # ─── 주소 정규화 · 같은 지번 좌표 통합 (영준님 2026-09-21) ───────────────────
 # 영준님 "연희맛로 20 은 왜 주소가 두 개로 나눠졌니".
 # 같은 건물(연희동 188-51 · 계기 7 · 변대주 '연궁간 4')인데 마커가 둘로 갈렸다.
@@ -1567,6 +1704,41 @@ def main():
     #   형태로 제자리에 놓고, 이름은 대장 조회로만 채우고,
     #   DCUID 앞 8자리 = 전산화번호는 **계산**이라 본값에 넣어도 된다(대장 예외 0).
     #   둘을 같이 돌리면 방금 제자리에 놓은 번호를 다시 _유도로 빼 간다(실측 975건).
+
+    # ── 제외축: 고객번호 경유 후속 청구 (영준님 2026-09-21) ─────────────────
+    #   같은 고객번호의 다른 계기가 **우리 시공 이후에** 작업되고 청구까지 간 건.
+    #   ★상대를 어디서 찾았든 **그 계기번호로 원장을 다시 조회해** 청구를 판정한다 —
+    #     보강현황에서 찾은 상대의 상태를 빈 값으로 두면 청구 확인을 아예 못 한다(28건 누락 전례).
+    _fu, _fu_typo, _fu_worked = followup_billed_bad(
+        map_rows + pend_rows, list_name='25미청구')
+    if _fu or _fu_typo:
+        _fset = {nm(r['계기번호']) for r, _ in _fu}
+        _long = [e for _, e in _fu if e['간격일'] > FOLLOWUP_LONG_DAYS]
+        log(f'고객번호 경유 후속 청구 {len(_fu):,}건 제외'
+            f' · 오타 의심 {len(_fu_typo)}건(제외 안 함)'
+            f' · 작업만 되고 청구 없음 {len(_fu_worked)}건(제외 안 함)')
+        if _long:
+            log(f'  ★{FOLLOWUP_LONG_DAYS}일 초과 {len(_long)}건'
+                f' (최대 {max(e["간격일"] for e in _long)}일) — 사유에 표식을 남겼다')
+        followup_write('25미청구', _fu, _fu_typo)
+        EX.stage(EX.L_MICH, [EX.row(
+            EX.L_MICH, 'M6', r,
+            사유상세=(f"우리 시공 {ev['우리시공일'][:4]}-{ev['우리시공일'][4:6]}-"
+                      f"{ev['우리시공일'][6:8]} 이후인 {ev['상대작업일'][:4]}-"
+                      f"{ev['상대작업일'][4:6]}-{ev['상대작업일'][6:8]} 에 같은 고객번호"
+                      f"({r.get('고객번호')})의 다른 계기 {ev['상대계기']} 가 작업되고"
+                      f" 상태 '{ev['상대상태']}' 가 됐다(+{ev['간격일']}일)."
+                      ' 그 개소는 이미 정리됐다.'
+                      + (f" ★{FOLLOWUP_LONG_DAYS}일을 넘는 간격이라 별개 작업일 수 있다."
+                         if ev['간격일'] > FOLLOWUP_LONG_DAYS else '')
+                      + (' ※번호가 1~2자리만 다르지만 보강현황에 계기교체일·모뎀MAC 이 있어'
+                         ' 실재하는 계기로 확인됐다.' if ev['번호근접'] else '')),
+            근거값=(f"상대계기 {ev['상대계기']} · 상대작업일 {ev['상대작업일']}"
+                    f" · 간격 {ev['간격일']}일 · 상대상태 {ev['상대상태']}"))
+            for r, ev in _fu])
+        map_rows = [x for x in map_rows if nm(x['계기번호']) not in _fset]
+        pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _fset]
+        pm = [m for m in pm if m not in _fset]
 
     # ── 주소 접두 정규화 + 같은 지번 좌표 통합 (영준님 2026-09-21) ──────────
     #   ★저장 직전에 한다. 좌표 파이프라인이 끝난 뒤라야 '이미 있는 좌표 중에서' 고를 수 있다.

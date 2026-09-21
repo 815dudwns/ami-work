@@ -424,6 +424,43 @@ def main():
         for k in ('DCU장애여부', 'DCU장애여부출처', 'DCU회선상태출처'):
             x.pop(k, None)
 
+    # ── 제외축: 고객번호 경유 후속 청구 (영준님 2026-09-21) ─────────────────
+    #   같은 고객번호의 다른 계기가 **우리 시공 이후에** 작업되고 청구까지 간 건.
+    #   ★상대를 어디서 찾았든 **그 계기번호로 원장을 다시 조회해** 청구를 판정한다 —
+    #     보강현황에서 찾은 상대의 상태를 빈 값으로 두면 청구 확인을 아예 못 한다(28건 누락 전례).
+    #   ★이 지점은 has/pend 로 이미 갈린 뒤다 — recs 를 걸러도 반영되지 않는다.
+    #     둘을 합쳐 판정하고 **양쪽에서** 뺀다(2026-09-21 에 recs 로 짰다가 게이트가 잡았다).
+    _fu, _fu_typo, _fu_worked = D.followup_billed_bad(
+        has + pend, list_name='25년 미청구불가')
+    if _fu or _fu_typo:
+        _fset = {nm(r['계기번호']) for r, _ in _fu}
+        _long = [e for _, e in _fu if e['간격일'] > D.FOLLOWUP_LONG_DAYS]
+        log(f'고객번호 경유 후속 청구 {len(_fu):,}건 제외'
+            f' · 오타 의심 {len(_fu_typo)}건(제외 안 함)'
+            f' · 작업만 되고 청구 없음 {len(_fu_worked)}건(제외 안 함)')
+        if _long:
+            log(f'  ★{D.FOLLOWUP_LONG_DAYS}일 초과 {len(_long)}건'
+                f' (최대 {max(e["간격일"] for e in _long)}일) — 사유에 표식을 남겼다')
+        D.followup_write('25년 미청구불가', _fu, _fu_typo)
+        EX.stage(EX.L_BULGA, [EX.row(
+            EX.L_BULGA, 'B9', r,
+            사유상세=(f"우리 시공 {ev['우리시공일'][:4]}-{ev['우리시공일'][4:6]}-"
+                      f"{ev['우리시공일'][6:8]} 이후인 {ev['상대작업일'][:4]}-"
+                      f"{ev['상대작업일'][4:6]}-{ev['상대작업일'][6:8]} 에 같은 고객번호"
+                      f"({r.get('고객번호')})의 다른 계기 {ev['상대계기']} 가 작업되고"
+                      f" 상태 '{ev['상대상태']}' 가 됐다(+{ev['간격일']}일)."
+                      ' 그 개소는 이미 정리됐다.'
+                      + (f" ★{D.FOLLOWUP_LONG_DAYS}일을 넘는 간격이라 별개 작업일 수 있다."
+                         if ev['간격일'] > D.FOLLOWUP_LONG_DAYS else '')
+                      + (' ※번호가 1~2자리만 다르지만 보강현황에 계기교체일·모뎀MAC 이 있어'
+                         ' 실재하는 계기로 확인됐다.' if ev['번호근접'] else '')),
+            근거값=(f"상대계기 {ev['상대계기']} · 상대작업일 {ev['상대작업일']}"
+                    f" · 간격 {ev['간격일']}일 · 상대상태 {ev['상대상태']}"))
+            for r, ev in _fu])
+        has = [x for x in has if nm(x['계기번호']) not in _fset]
+        pend = [x for x in pend if nm(x['계기번호']) not in _fset]
+        keep = [v for v in keep if v['_m'] not in _fset]
+
     # ── 주소 접두 정규화 + 같은 지번 좌표 통합 (영준님 2026-09-21) ──────────
     #   미청구 빌더와 **같은 함수**를 쓴다.
     _ust = D.unify_addr_coords(has + pend, '25년불가')
