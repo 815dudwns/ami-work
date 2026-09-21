@@ -278,6 +278,19 @@ def main():
         for r in fails:
             print('   ', r['계기번호'], r['지사'], r['주소'])
 
+    # ── 주소 접두 정규화 + 같은 지번 좌표 통합 (영준님 2026-09-21) ──────────
+    #   미청구·불가·합동 빌더와 **같은 함수**를 쓴다. 고압은 좌표 분열이 0 이지만
+    #   접두가 '서울'/'서울특별시'/'경기' 로 섞여 있어(227/9/3) 새 판이 오면 갈린다.
+    try:
+        import importlib.util as _iu
+        _sp = _iu.spec_from_file_location(
+            'mich', str(BASE / 'scripts/build_michunggu_dataset_20260918.py'))
+        _M = _iu.module_from_spec(_sp)
+        _sp.loader.exec_module(_M)
+        _M.unify_addr_coords(recs, '고압')
+    except Exception as e:                      # 공용 함수가 없어도 고압 빌드는 계속된다
+        print(f'  (주소 정규화 건너뜀: {e})')
+
     OUT.write_text(json.dumps(recs, ensure_ascii=False, indent=2), encoding='utf-8')
     acc_cnt = collections.Counter(r['좌표정확도'] for r in recs)
     print(f'\n생성: {OUT} — {len(recs)}건')
