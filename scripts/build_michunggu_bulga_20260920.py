@@ -298,9 +298,12 @@ def main():
         log('계기번호 오류 계열 0건')
     _hint = 0
     for x in recs:
-        v = D.field_meter_hint(x)
-        if v:
-            x['현장계기번호_추정'] = v
+        mv, kv = D.field_meter_hint(x)
+        if mv:
+            x['현장계기번호_추정'] = mv
+        if kv:
+            x['현장모뎀MAC_추정'] = kv
+        if mv or kv:
             _hint += 1
     if _hint:
         log(f'  현장계기번호_추정 담은 건 {_hint}(리스트에 남는 건 기준)')
