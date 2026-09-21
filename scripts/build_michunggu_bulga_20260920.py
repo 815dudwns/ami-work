@@ -288,6 +288,26 @@ def main():
         recs = [x for x in recs if nm(x['계기번호']) not in _boset]
         keep = [v for v in keep if v['_m'] not in _boset]
 
+    # ── 제외축: 기설(이미 설치됨) · 계기교체됨 — 영준님 2026-09-21 ──────────
+    for code, fn, label in (('B7', D.gisul_bad, '기설(이미 설치됨)'),
+                            ('B8', D.swapped_bad, '계기교체됨')):
+        hits = fn(recs)
+        if not hits:
+            log(f'{label} 0건')
+            continue
+        hset = {nm(r['계기번호']) for r, _ in hits}
+        log(f'{label} {len(hits):,}건 제외'
+            f' — 걸린 문구 {dict(Counter(k for _, k in hits).most_common(5))}')
+        EX.stage(EX.L_BULGA, [EX.row(
+            EX.L_BULGA, code, r,
+            사유상세=(f'현장이 적은 "{r.get("불가사유")} / {r.get("불가상세")}" 에서'
+                      f' \'{k}\' 에 걸렸다.'
+                      + (' 이미 설치된 개소라 우리가 또 갈 일이 없다.' if code == 'B7'
+                         else ' 계기가 이미 교체된 개소다.')),
+            근거값=f'문구 \'{k}\' · 원문 {r.get("불가상세")}') for r, k in hits])
+        recs = [x for x in recs if nm(x['계기번호']) not in hset]
+        keep = [v for v in keep if v['_m'] not in hset]
+
     # ── 제외축: S(표준형) 계기 (영준님 2026-09-20) ──────────────────────────
     #   판정은 미청구 빌더와 **같은 함수**를 쓴다.
     _std = D.standard_type_bad(recs)
