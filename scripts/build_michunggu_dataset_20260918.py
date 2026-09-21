@@ -372,6 +372,55 @@ def meter_code_write(list_name, bad):
     METER_CODE_OUT.write_text(json.dumps(prev + rows, ensure_ascii=False, indent=1))
 
 
+# ─── 제외축: 25년 청구 겹침 (고객번호 경유) — 영준님 2026-09-21 ────────────
+# 같은 고객번호에 25년에 **이미 청구된 다른 계기**가 있고, 현장도 불가상세에
+# '교체·기설치' 라고 적은 건. 그 개소는 이미 해결돼 우리가 또 갈 일이 없다.
+# ★둘 중 **하나만으로는 빼지 않는다.** 겹침만 있는 21건은 근거가 부족하다
+#   (기계식 4 · 문잠김/주차 5 · 계기못찾음 8 · 기타 4) — 다른 계기가 청구됐을 뿐일 수 있다.
+# ★가장 강한 증거는 **현장이 적은 번호가 원장 청구 계기와 글자까지 같은** 경우다
+#   (37450092655 -> 79450047940 · 02450085783 -> 25450129899).
+BILLED_SWAP_RE = re.compile(r'기설치|계기교체|계기변경|교체기설')
+LEDGER_TABLE = '20260227다운로드_2025_03_24에서2026_0'
+LEDGER_STATE_COL = 'col_15'      # ★엑셀 O열인데 헤더가 비어 이 이름으로 적재됐다
+
+
+def billed_index():
+    """고객번호 -> 상태=청구 인 계기 집합 (원장)"""
+    import sqlite3
+    con = sqlite3.connect(ROOT / 'data/ami.db')
+    out = {}
+    for cust, m, st in con.execute(
+            f'SELECT 고객번호,계기번호,{LEDGER_STATE_COL} FROM "{LEDGER_TABLE}"'):
+        if str(st or '').strip() != '청구':
+            continue
+        cu = B.norm_cust(cust)
+        v = nm(m)
+        if cu and v:
+            out.setdefault(cu, set()).add(v)
+    con.close()
+    log(f'원장 청구 색인 — 고객번호 {len(out):,}')
+    return out
+
+
+def billed_overlap_bad(rows, idx=None):
+    """반환 [(row, 근거dict)] — 겹침 AND 교체표현 둘 다일 때만."""
+    idx = idx if idx is not None else billed_index()
+    out = []
+    for x in rows:
+        cu = B.norm_cust(x.get('고객번호'))
+        if not cu:
+            continue
+        others = sorted(v for v in idx.get(cu, ()) if v and v != nm(x.get('계기번호')))
+        if not others:
+            continue
+        s = _re2.sub(r'\s+', '', f"{x.get('불가사유') or ''} {x.get('불가상세') or ''}")
+        mm = BILLED_SWAP_RE.search(s)
+        if not mm:
+            continue
+        out.append((x, {'청구계기': others, '표현': mm.group(0)}))
+    return out
+
+
 # ─── 제외축: S(표준형) 계기 (영준님 2026-09-20 "S타입 표준형이면 다 빼") ──────
 # ★판정은 **계기타입 문자열**이다 — 타입코드가 아니다.
 #   타입코드로 걸면 틀린다: 실측 37건이 코드 35(32) · 15(3) · 34(1) · 14(1) 로 흩어져 있고,
@@ -1179,8 +1228,10 @@ def main():
             log(f"   {r['계기번호']} 코드={ev['타입코드']} 타입={r.get('계기타입')}"
                 f" — {ev['판정근거']}")
         meter_code_write('25미청구', _bad)
-        EX.stage(EX.L_MICH, [EX.row(EX.L_MICH, 'C1', r, ev['판정근거'],
-                                    f"타입코드 {ev['타입코드']}") for r, ev in _bad])
+        EX.stage(EX.L_MICH, [EX.row(EX.L_MICH, 'C1', r,
+            f"계기번호 3~4번째 타입코드가 '{ev['타입코드']}' 인데 대장(boranggi 66만행)에"
+            f" 단 1건도 없다 = 계기번호 오타다. {ev['판정근거']}",
+            f"타입코드 {ev['타입코드']} · 대장 0건") for r, ev in _bad])
         map_rows = [x for x in map_rows if nm(x['계기번호']) not in _bset]
         pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _bset]
         pm = [m for m in pm if m not in _bset]          # 게이트 기대치도 같이 줄인다
@@ -1192,8 +1243,10 @@ def main():
         log(f'S(표준형) 계기 {len(_std)}건 제외'
             f' — 타입코드 {dict(Counter(str(r["계기번호"])[2:4] for r, _ in _std).most_common())}')
         standard_type_write('25미청구', _std)
-        EX.stage(EX.L_MICH, [EX.row(EX.L_MICH, 'C2', r, f'계기타입 {v}',
-                                    f'계기타입={v}') for r, v in _std])
+        EX.stage(EX.L_MICH, [EX.row(EX.L_MICH, 'C2', r,
+            f"계기타입이 '{v}'(표준형)다. 코드가 무엇이든 표준형이면 제외하라는 지시다"
+            f" — 이 리스트에서는 타입코드 35·15·34·14 에 흩어져 있다.",
+            f'계기타입={v}') for r, v in _std])
         map_rows = [x for x in map_rows if nm(x['계기번호']) not in _sset]
         pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _sset]
         pm = [m for m in pm if m not in _sset]
@@ -1207,8 +1260,10 @@ def main():
         log(f'계기번호 오류 계열 {len(_err)}건 제외'
             f' — {dict(Counter(k for _, k in _err).most_common())}')
         meter_err_write('25미청구', _err)
-        EX.stage(EX.L_MICH, [EX.row(EX.L_MICH, 'C3', r, k,
-                                    f"{r.get('불가사유')} / {r.get('불가상세')}") for r, k in _err])
+        EX.stage(EX.L_MICH, [EX.row(EX.L_MICH, 'C3', r,
+            f"현장이 불가상세에 번호가 틀렸다고 적었다(유형 {k})."
+            f" 원문: \"{r.get('불가사유')} / {r.get('불가상세')}\"",
+            f"유형 {k} · 원문 {r.get('불가상세')}") for r, k in _err])
         map_rows = [x for x in map_rows if nm(x['계기번호']) not in _eset]
         pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _eset]
         pm = [m for m in pm if m not in _eset]
@@ -1235,8 +1290,11 @@ def main():
         log(f'고객번호경유 26년시공 — 신설 {len(_drop)}건 **제외**'
             f' · 기설 {len(_keep)}건 **유지**(25년 모뎀에 계기 추가 — 빼지 않는다)')
         via_cust_write('25미청구', _drop, _keep)
-        EX.stage(EX.L_MICH, [EX.row(EX.L_MICH, 'C4', r, f"awms {ev['작업구분']}",
-                                    f"awms계기 {ev['awms계기']} · {ev['작업일']} · {ev['작업구분']}")
+        EX.stage(EX.L_MICH, [EX.row(EX.L_MICH, 'C4', r,
+            f"고객번호 {r.get('고객번호')} 로 보강현황을 거쳐 같은 개소의 계기"
+            f" {ev['awms계기']} 를 찾았고, 그 계기가 awms 에 '{ev['작업구분']}' 으로"
+            f" {str(ev['작업일'])[:10]} 에 시공돼 있다. 계기가 교체돼 번호가 바뀐 개소다.",
+            f"awms계기 {ev['awms계기']} · {str(ev['작업일'])[:10]} · {ev['작업구분']}")
                              for r, ev in _drop])
         map_rows = [x for x in map_rows if nm(x['계기번호']) not in _dset]
         pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _dset]
