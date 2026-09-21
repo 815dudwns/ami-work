@@ -61,7 +61,9 @@ NAMESPACED_CATEGORIES = ("고압", "합동", "skt", "장애", "LP무기록", "�
 
 def marker_key_of(item):
     """마커 식별자 — js/map.js loadMarkers()의 그룹핑 키와 같은 형식."""
-    return "{}||{}||{}".format(item.get("category"), item.get("lat"), item.get("lng"))
+    # ★js/map.js loadMarkers() 와 같은 자릿수(2026-09-21 toFixed(6) 로 통일).
+    return "{}||{:.6f}||{:.6f}".format(
+        item.get("category"), float(item.get("lat") or 0), float(item.get("lng") or 0))
 
 
 def _lookup_key(marker_key, addr):

@@ -968,6 +968,9 @@ async function sanitizeStoredMirror() {
 //     이제 미러도 함께 비운다. 이것이 진짜 최종 수단이다.
 //   ※미전송 이벤트 큐(localStorage)는 건드리지 않는다 — 그것만은 다시 만들 수 없다.
 async function forceFullResync() {
+    // ★진행 표시를 띄운다(영준님 2026-09-21) — 전량 수신은 오래 걸리는데 화면이 멈춘 것처럼
+    //   보이면 작업자가 버튼을 다시 누르거나 앱을 끈다. reload 직전까지 떠 있어야 한다.
+    try { showSyncProgress('작업상태를 처음부터 다시 받는 중…'); } catch (e) {}
     try {
         if (typeof idbSet === 'function') {
             await idbSet(WS_IDB_KEY, {});     // 미러를 비운다 — 이것이 빠져 있었다
