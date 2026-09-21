@@ -67,11 +67,14 @@ def fetch(c, t, want):
 # ─────────────────────────────────────────────────────────────────────────────
 def michunggu_outside(c):
     """빌더 밖 미청구 축 — 고압 · Sheet2 · 26년보강시공 · 미연계 · 계기번호오타"""
-    want = {'계기번호': '계기번호', '상태': '상태', '공종': '공종', '고객번호': '고객번호',
-            '지사': '2차사업소', '주소': '주소', '계기타입': '계기타입', '시공일': '시공일'}
-    want['상태'] = LEDGER_STATE
+    # ★원장 행을 **통째로** 담는다(영준님 2026-09-21 "필드 선별 금지").
+    #   이 축들은 리스트에 올라간 적이 없어 데이터셋 레코드가 없다 — 원장 행이 곧 원본이다.
+    names = cols(c, LEDGER)
     per, hv_all = {}, set()
-    for r in fetch(c, LEDGER, want):
+    for raw in c.execute(f'SELECT * FROM "{LEDGER}"'):
+        r = dict(zip(names, raw))
+        r['상태'] = r.get(LEDGER_STATE)
+        r['지사'] = r.get('2차사업소')
         m = nm(r.get('계기번호'))
         if not m:
             continue
@@ -85,16 +88,17 @@ def michunggu_outside(c):
             continue
         if m in per:
             continue
-        per[m] = {'계기번호': str(r.get('계기번호') or '').strip(),
-                  '고객번호': B.norm_cust(r.get('고객번호')) or '',
-                  '지사': r.get('지사') or '', '주소': r.get('주소') or '',
-                  '계기타입': r.get('계기타입') or '', '최종시공일': r.get('시공일') or ''}
-    log(f'모집단 — 원장 상태=미청구 고유계기 {len(per):,}')
+        r['고객번호'] = B.norm_cust(r.get('고객번호')) or (r.get('고객번호') or '')
+        per[m] = r
+    log(f'모집단 — 원장 상태=미청구 고유계기 {len(per):,} (원본 {len(names)}필드 통째)')
 
     out = []
     # M1 고압
     hv = [m for m in per if m in hv_all]
-    out += [EX.row(EX.L_MICH, 'M1', per[m], '원장 공종=고압', '공종=고압') for m in hv]
+    out += [EX.row(EX.L_MICH, 'M1', per[m],
+                   f'원장에서 이 계기의 공종이 고압이다. 고압은 건물 변압기 모자분리라'
+                   f' DCU 계통이 아니어서 우리 사업 대상이 아니다.',
+                   '원장 공종=고압') for m in hv]
     # M2 Sheet2
     s2 = set()
     for r in fetch(c, SHEET2, {'계기번호': '계기번호'}):
@@ -102,8 +106,10 @@ def michunggu_outside(c):
         if v:
             s2.add(v)
     hit = [m for m in per if m in s2]
-    out += [EX.row(EX.L_MICH, 'M2', per[m], 'Sheet2 에 실림 = 신규·신설 시공행 없음',
-                   'sheet2') for m in hit]
+    out += [EX.row(EX.L_MICH, 'M2', per[m],
+                   '한전이 원본 2번 시트로 따로 뽑아 놓은 계기다. 그 계기에 신규·신설'
+                   ' 시공행 자체가 없어 청구 근거가 없다(필터역산으로 재현 확인).',
+                   'Sheet2 에 실림') for m in hit]
     # M3 26년 보강시공 (계기번호 직접)
     aw = {}
     for m, day in c.execute('SELECT 계기번호_norm,작업일자 FROM modem_work_all'):
@@ -114,8 +120,10 @@ def michunggu_outside(c):
         d = d.replace('/', '-')[:10]
         return bool(d) and lo <= d <= hi
     hit3 = [m for m in per if m in aw and in_win(aw[m])]
-    out += [EX.row(EX.L_MICH, 'M3', per[m], '26년 자재로 이미 시공',
-                   f'awms 작업일 {aw[m][:10]}') for m in hit3]
+    out += [EX.row(EX.L_MICH, 'M3', per[m],
+                   f'이 계기번호가 awms 26년 시공기록에 직접 있다(작업일 {aw[m][:10]}).'
+                   f' 이미 26년 자재로 시공돼 우리가 또 갈 일이 없다.',
+                   f'modem_work_all 작업일 {aw[m][:10]}') for m in hit3]
     # M4 미연계
     mi = set()
     for r in fetch(c, '미연계', {'계기번호': '계기번호'}):
@@ -123,7 +131,10 @@ def michunggu_outside(c):
         if v:
             mi.add(v)
     hit4 = [m for m in per if m in mi]
-    out += [EX.row(EX.L_MICH, 'M4', per[m], '과장 9/20 미연계 시트', '미연계') for m in hit4]
+    out += [EX.row(EX.L_MICH, 'M4', per[m],
+                   '주덕기 과장이 9/20 자료에서 미연계 시트로 따로 분리해 보낸 개소다.'
+                   " '미연계' 가 무엇을 뜻하는지는 과장 회신 대기 중 — 회신이 오면 되살릴 수 있다.",
+                   '미연계 시트 수록') for m in hit4]
     # M5 계기번호 오타
     _d = importlib.util.spec_from_file_location(
         'ds', str(ROOT / 'scripts/build_michunggu_dataset_20260918.py'))
@@ -132,7 +143,9 @@ def michunggu_outside(c):
     for k, why in D.METER_TYPO_EXCLUDE.items():
         m = nm(k)
         rec = per.get(m) or {'계기번호': k}
-        out.append(EX.row(EX.L_MICH, 'M5', rec, why, k))
+        out.append(EX.row(EX.L_MICH, 'M5', rec,
+                          f'계기번호 형태 법칙을 어긴다. MAC·고객번호로 역추적한 결과 — {why}',
+                          f'원문 {k}'))
     log(f'  M1 고압 {len(hv):,} · M2 Sheet2 {len(hit):,} · M3 26년시공 {len(hit3):,}'
         f' · M4 미연계 {len(hit4):,} · M5 오타 {len(D.METER_TYPO_EXCLUDE)}')
     return per, out
@@ -140,10 +153,8 @@ def michunggu_outside(c):
 
 def bulga_outside(c):
     """빌더 밖 불가 축 — 고압 · 불가사유 분류 · 중복"""
-    want = {'계기번호': '계기번호', '공종': '공종', '고객번호': '고객번호',
-            '지사': '2차사업소', '주소': '주소', '계기타입': '계기타입',
-            '시공일': '시공일', '비고1': '비고1', '비고2': '비고2'}
-    rows = list(fetch(c, BULGA, want))
+    names = cols(c, BULGA)
+    rows = [dict(zip(names, raw)) for raw in c.execute(f'SELECT * FROM "{BULGA}"')]
     per, hv = {}, set()
     for r in rows:
         m = nm(r.get('계기번호'))
@@ -153,15 +164,18 @@ def bulga_outside(c):
             hv.add(m)
         if m in per:
             continue
-        per[m] = {'계기번호': str(r.get('계기번호') or '').strip(),
-                  '고객번호': B.norm_cust(r.get('고객번호')) or '',
-                  '지사': r.get('지사') or '', '주소': r.get('주소') or '',
-                  '계기타입': r.get('계기타입') or '', '최종시공일': r.get('시공일') or '',
-                  '불가사유': str(r.get('비고1') or '').strip(),
-                  '불가상세': str(r.get('비고2') or '').strip()}
-    log(f'모집단 — 불가 원장 {len(rows):,}행 -> 고유계기 {len(per):,}')
+        # ★원장 행 통째 + 읽기 편한 별칭 몇 개(원본 열은 그대로 남는다)
+        r['지사'] = r.get('2차사업소')
+        r['고객번호'] = B.norm_cust(r.get('고객번호')) or (r.get('고객번호') or '')
+        r['불가사유'] = str(r.get('비고1') or '').strip()
+        r['불가상세'] = str(r.get('비고2') or '').strip()
+        per[m] = r
+    log(f'모집단 — 불가 원장 {len(rows):,}행 -> 고유계기 {len(per):,}'
+        f' (원본 {len(names)}필드 통째)')
 
-    out = [EX.row(EX.L_BULGA, 'B1', per[m], '불가 원장 공종=고압', '공종=고압')
+    out = [EX.row(EX.L_BULGA, 'B1', per[m],
+            '불가 원장에서 이 계기의 공종이 고압이다. 미청구 M1 과 같은 성격으로 우리 대상이 아니다.',
+            '불가 원장 공종=고압')
            for m in sorted(hv) if m in per]
     # B2 사유 분류
     cls = json.loads((ROOT / 'research/불가사유_분류_확정_20260920.json').read_text())
@@ -169,9 +183,14 @@ def bulga_outside(c):
     drop_reason = {(x['b1'], x['b2']): x.get('제외사유', '') for x in cls}
     hit2 = [m for m, v in per.items()
             if m not in hv and (v['불가사유'], v['불가상세']) not in keep]
-    out += [EX.row(EX.L_BULGA, 'B2', per[m], drop_reason.get(
-        (per[m]['불가사유'], per[m]['불가상세'])) or '사유조합이 제외 분류',
-        f"{per[m]['불가사유']} / {per[m]['불가상세']}") for m in hit2]
+    out += [EX.row(
+        EX.L_BULGA, 'B2', per[m],
+        (f"불가사유 조합 \"{per[m]['불가사유']} / {per[m]['불가상세']}\" 이(가) '제외' 로"
+         ' 분류된 조합이다. 분류 기준 = 다시 가거나 26년 자재로 해결되면 대상,'
+         ' 물리적 불가·설비 파손·대상 소멸이면 제외.'
+         + (f" 조합별 사유: {drop_reason.get((per[m]['불가사유'], per[m]['불가상세']))}"
+            if drop_reason.get((per[m]['불가사유'], per[m]['불가상세'])) else '')),
+        f"사유조합 ({per[m]['불가사유']} / {per[m]['불가상세']})") for m in hit2]
     # B3 중복
     claimed = set(hv) | set(hit2)
     dedup = {}
@@ -200,7 +219,10 @@ def bulga_outside(c):
         hit = (set(per) & s) - seen
         seen |= hit
         n3[lab] = len(hit)
-        out += [EX.row(EX.L_BULGA, 'B3', per[m], f'{lab} 와 겹침', lab) for m in hit]
+        out += [EX.row(EX.L_BULGA, 'B3', per[m],
+                       f'이 계기가 {lab} 에도 있다. 같은 계기를 두 리스트에 올리면'
+                       f' 작업자가 중복으로 가게 되므로 불가 쪽에서 뺀다.',
+                       f'{lab} 와 겹침') for m in hit]
     # B5 계기번호 오타 — 불가 빌더도 METER_TYPO_EXCLUDE 로 뺀다
     _b = importlib.util.spec_from_file_location(
         'bl', str(ROOT / 'scripts/build_michunggu_bulga_20260920.py'))
@@ -210,7 +232,9 @@ def bulga_outside(c):
     for k, why in BL.METER_TYPO_EXCLUDE.items():
         m = nm(k)
         if m in per:
-            out.append(EX.row(EX.L_BULGA, 'B5', per[m], why, k))
+            out.append(EX.row(EX.L_BULGA, 'B5', per[m],
+                              f'계기번호 형태 법칙을 어긴다. 역추적 결과 — {why}',
+                              f'원문 {k}'))
             n5 += 1
     log(f'  B5 계기번호 오타 {n5}')
     log(f'  B1 고압 {len(hv):,} · B2 사유분류 {len(hit2):,} · B3 중복 {sum(n3.values()):,} {dict(n3)}')
@@ -239,10 +263,20 @@ def main():
         uniq.setdefault((r['원본리스트'], r['축코드'], r['계기번호_norm']), r)
     rows = list(uniq.values())
 
+    # ★원장 원본을 소급해 붙인다 — 우리 리스트에 없는 정보가 거기 있다(상태·공종·구분·비고).
+    m_rows = [r for r in rows if r['원본리스트'] == EX.L_MICH]
+    b_rows = [r for r in rows if r['원본리스트'] == EX.L_BULGA]
+    miss_m = EX.attach_ledger(m_rows, LEDGER)
+    miss_b = EX.attach_ledger(b_rows, BULGA)
+    log(f'\n원장 원본 부착 — 25미청구 {len(m_rows)-miss_m:,}/{len(m_rows):,}'
+        f' · 25년불가 {len(b_rows)-miss_b:,}/{len(b_rows):,}'
+        + (f'  ★원장에서 못 찾은 것 {miss_m+miss_b:,}' if miss_m + miss_b else ''))
+
     counts = Counter(r['축코드'] for r in rows)
     EX.write_rules()
     EX.write_index(rows, {k: f'{v:,}' for k, v in counts.items()})
-    log(f'\n저장 {EX.INDEX} — {len(rows):,}행')
+    sz = EX.INDEX.stat().st_size / 1024 / 1024
+    log(f'\n저장 {EX.INDEX} — {len(rows):,}행 · {sz:.1f}MB')
     log(f'저장 {EX.RULES_OUT} — 축 {len(EX.RULES)}개')
 
     # ── 검증 ────────────────────────────────────────────────────────────────

@@ -62,13 +62,26 @@ def show(rows, m):
     for h in hits:
         rule = EX.RULE_BY_CODE.get(h['축코드'], {})
         print(f'\n  [{h["축코드"]}] {h["축이름"]}  ({h["원본리스트"]})')
-        print(f'     사유   : {h["사유상세"] or "-"}')
-        print(f'     근거값 : {h["근거값"] or "-"}')
-        print(f'     정의   : {rule.get("정의", "-")}')
-        print(f'     판정   : {rule.get("판정방법", "-")}')
-        print(f'     되살리기: {h["되살리기"] or "-"}')
-        if h.get('원본필드'):
-            print('     원본   : ' + ' · '.join(f'{k} {v}' for k, v in h['원본필드'].items()))
+        print(f'     왜     : {h.get("사유") or "-"}')
+        print(f'     판정근거: {h.get("판정근거") or "-"}')
+        print(f'     판정방법: {h.get("판정방법") or rule.get("판정방법", "-")}')
+        print(f'     되살리기: {h.get("되살리기") or "-"}')
+        print(f'     지시    : {h.get("지시근거") or "-"}  (판정 {h.get("제외시각") or "-"})')
+        o = h.get('원본') or {}
+        if o:
+            keys = [k for k in o if not k.endswith('출처') and k not in
+                    ('lat', 'lng', '좌표정확도', '신뢰등급', '대장출처', '주소_원문')]
+            print(f'     원본({len(o)}필드): '
+                  + ' · '.join(f'{k}={o[k]}' for k in keys[:12] if o.get(k)))
+            if len(keys) > 12:
+                print(f'              … 외 {len(keys)-12}필드 (전문은 data/exclusions.json)')
+        lg = h.get('원장원본') or []
+        if lg:
+            g0 = lg[0]
+            keep = {k: v for k, v in g0.items()
+                    if v not in (None, '') and k not in ('snapshot', 'src_file', 'visible')}
+            print(f'     원장({len(lg)}행, {len(g0)}필드): '
+                  + ' · '.join(f'{k}={v}' for k, v in list(keep.items())[:10]))
 
 
 def summary(rows):
@@ -116,7 +129,7 @@ def main():
         print(f'  판정: {rule.get("판정방법", "-")}')
         print(f'  되살리기: {rule.get("되살리는법", "-")}\n')
         for r in hit[:200]:
-            print(f'  {r["계기번호"]:13s} {r["지사"]:12s} {r["사유상세"][:40]:42s} {r["주소"][:30]}')
+            print(f'  {r["계기번호"]:13s} {r["지사"]:12s} {(r.get("판정근거") or "")[:36]:38s} {r["주소"][:28]}')
         if len(hit) > 200:
             print(f'  … 외 {len(hit)-200:,}건 (전량은 data/exclusions.json)')
         return 0
@@ -125,7 +138,7 @@ def main():
         hit = [r for r in rows if re.sub(r'\D', '', r['고객번호'] or '').zfill(10) == cu]
         print(f'=== 고객번호 {cu} — 제외 기록 {len(hit)}건 ===')
         for r in hit:
-            print(f'  {r["계기번호"]} [{r["축코드"]}] {r["축이름"]} — {r["사유상세"]}')
+            print(f'  {r["계기번호"]} [{r["축코드"]}] {r["축이름"]}\n      {r.get("사유") or "-"}')
         if not hit:
             print('  제외 기록 없음')
         return 0

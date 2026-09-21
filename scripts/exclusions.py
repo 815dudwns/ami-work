@@ -122,13 +122,26 @@ RULES = [
          판정방법='build_michunggu_bulga_20260920.py 의 METER_TYPO_EXCLUDE 목록',
          적용순서=5, 근거='PM 2026-09-20',
          되살리는법='METER_TYPO_EXCLUDE 에서 빼면 된다', 공용함수명=''),
+    dict(축코드='B6', 대상리스트=L_BULGA, 축이름='25년 청구 겹침(고객번호 경유)',
+         정의='같은 고객번호에 25년에 이미 청구된 다른 계기가 있고,'
+              ' 현장도 불가상세에 교체·기설치라고 적은 건',
+         판정방법='고객번호 -> 원장(20260227다운로드…)에서 col_15=청구 인 다른 계기 존재'
+                  " **AND** 불가상세에 교체 표현(기설치|계기교체|계기변경|교체기설)."
+                  ' ★둘 중 하나만으로는 안 뺀다 — 겹침만 있는 21건은 근거가 부족하다'
+                  '(기계식 4 · 문잠김/주차 5 · 계기못찾음 8 · 기타 4)',
+         적용순서=6, 근거='영준님 2026-09-21 "7건만 빼고 푸시해"',
+         되살리는법='research/불가_25청구겹침_28건분석_20260921.txt 에 28건 전량 분석이 있다',
+         공용함수명='billed_overlap_bad'),
 ]
 RULE_BY_CODE = {r['축코드']: r for r in RULES}
 
 
 # ─── 빌더가 쓰는 기록 API ────────────────────────────────────────────────────
-_ORIG_FIELDS = ('주소', '도로명주소', '변대주', '변대주번호', 'DCUID', '모뎀MAC',
-                '계기타입', '최종시공일', '불가사유', '불가상세')
+# ★원본 레코드를 **통째로** 담는다(영준님 2026-09-21 "제외한 정보와 이유는 다 표시해 저장해라").
+#   예전엔 필드를 골라 담았는데, 고를 때 판단이 들어가고 나중에 필요해진 필드는 이미 없다.
+#   `원본` = 제외 시점의 그 계기 레코드 전체 · `원장원본` = 원장 행 전체(우리 리스트에 없는
+#   정보가 거기 있다 — 상태·공종·구분·비고). ★열 이름이 비어 col_15 로 들어간 것도 그대로 둔다.
+BUILDER_VERSION = '2026-09-21'
 
 
 def _norm(m):
@@ -138,25 +151,73 @@ def _norm(m):
     return s.upper() if re.search(r'[A-Za-z]', s) else s.zfill(11)
 
 
-def row(list_name, rule_code, rec, 사유상세='', 근거값=''):
-    """제외 한 건을 통일 스키마로 만든다. rec 는 데이터셋 레코드(dict)."""
+_LEDGER_CACHE = {}
+
+
+def ledger_rows(table):
+    """계기번호_norm -> 원장 행(dict) 전체. 한 계기에 여러 행이면 전부 담는다."""
+    if table in _LEDGER_CACHE:
+        return _LEDGER_CACHE[table]
+    con = sqlite3.connect(DB)
+    c = con.cursor()
+    try:
+        names = [r[1] for r in c.execute(f'PRAGMA table_info("{table}")')]
+        if not names:
+            raise ValueError
+        out = {}
+        for row in c.execute(f'SELECT * FROM "{table}"'):
+            d = dict(zip(names, row))
+            k = _norm(d.get('계기번호'))
+            if k:
+                out.setdefault(k, []).append(d)
+    except Exception:
+        out = {}
+    con.close()
+    _LEDGER_CACHE[table] = out
+    return out
+
+
+def row(list_name, rule_code, rec, 사유상세='', 근거값='', 원장원본=None, 제외시각=''):
+    """제외 한 건. rec 는 데이터셋 레코드(dict) — **통째로** 담는다."""
     rule = RULE_BY_CODE.get(rule_code, {})
     m = str(rec.get('계기번호') or '').strip()
     return {
+        # 조회용으로 펼쳐 두는 열
         '계기번호': m, '계기번호_norm': _norm(m),
         '고객번호': rec.get('고객번호') or '', '지사': rec.get('지사') or '',
         '주소': rec.get('주소') or '',
-        '원본리스트': list_name, '축코드': rule_code,
-        '축이름': rule.get('축이름', ''),
-        '사유상세': 사유상세, '근거값': 근거값,
+        '원본리스트': list_name, '축코드': rule_code, '축이름': rule.get('축이름', ''),
+        # ★사람이 읽는 이유 — 축코드만으로는 나중에 못 읽는다
+        '사유': 사유상세 or rule.get('정의', ''),
+        '판정근거': 근거값,
+        '판정방법': rule.get('판정방법', ''),
         '되살리기': rule.get('되살리는법', ''),
-        '제외일자': '2026-09-20',
-        '원본필드': {k: rec.get(k) for k in _ORIG_FIELDS if rec.get(k)},
+        '지시근거': rule.get('근거', ''),
+        # ★언제 판정한 것이냐
+        '제외일자': (제외시각 or BUILDER_VERSION)[:10],
+        '제외시각': 제외시각 or BUILDER_VERSION,
+        '빌더버전': BUILDER_VERSION,
+        # ★원본 통째
+        '원본': dict(rec),
+        '원장원본': 원장원본 if 원장원본 is not None else [],
     }
 
 
+def attach_ledger(rows, table):
+    """소급 포함 — 각 행에 원장 원본을 붙인다. 없으면 빈 리스트."""
+    idx = ledger_rows(table)
+    miss = 0
+    for r in rows:
+        if not r.get('원장원본'):
+            got = idx.get(r['계기번호_norm'], [])
+            r['원장원본'] = got
+            if not got:
+                miss += 1
+    return miss
+
+
 def stage(list_name, rows):
-    """빌더가 제외할 때마다 부른다. 누적만 하고 파일은 flush 에서 쓴다."""
+    """빌더가 제외할 때마다 부른다. 누적만 하고 파일은 인덱스 빌드에서 합친다."""
     STAGE_DIR.mkdir(exist_ok=True)
     p = STAGE_DIR / f'{list_name}.json'
     prev = json.loads(p.read_text()) if p.exists() else []
@@ -186,14 +247,19 @@ def write_index(rows, counts=None):
     con = sqlite3.connect(DB)
     c = con.cursor()
     c.execute('DROP TABLE IF EXISTS exclusions')
+    # ★조회용 열은 펼쳐 두고, 전문은 원본_json·원장원본_json 에 통째로 넣는다
     c.execute('CREATE TABLE exclusions (계기번호 TEXT, 계기번호_norm TEXT, 고객번호 TEXT,'
               ' 지사 TEXT, 주소 TEXT, 원본리스트 TEXT, 축코드 TEXT, 축이름 TEXT,'
-              ' 사유상세 TEXT, 근거값 TEXT, 되살리기 TEXT, 제외일자 TEXT, 원본필드 TEXT)')
-    c.executemany('INSERT INTO exclusions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+              ' 사유 TEXT, 판정근거 TEXT, 판정방법 TEXT, 되살리기 TEXT, 지시근거 TEXT,'
+              ' 제외일자 TEXT, 제외시각 TEXT, 빌더버전 TEXT,'
+              ' 원본_json TEXT, 원장원본_json TEXT)')
+    c.executemany('INSERT INTO exclusions VALUES (' + ','.join('?' * 18) + ')',
                   [(r['계기번호'], r['계기번호_norm'], r['고객번호'], r['지사'], r['주소'],
-                    r['원본리스트'], r['축코드'], r['축이름'], r['사유상세'], r['근거값'],
-                    r['되살리기'], r['제외일자'],
-                    json.dumps(r['원본필드'], ensure_ascii=False)) for r in rows])
+                    r['원본리스트'], r['축코드'], r['축이름'], r['사유'], r['판정근거'],
+                    r['판정방법'], r['되살리기'], r['지시근거'],
+                    r['제외일자'], r['제외시각'], r['빌더버전'],
+                    json.dumps(r['원본'], ensure_ascii=False),
+                    json.dumps(r['원장원본'], ensure_ascii=False)) for r in rows])
     for col in ('계기번호_norm', '고객번호', '축코드', '원본리스트'):
         c.execute(f'CREATE INDEX idx_excl_{col} ON exclusions("{col}")')
     c.execute('DROP TABLE IF EXISTS exclusion_rules')

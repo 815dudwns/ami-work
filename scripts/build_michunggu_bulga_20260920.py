@@ -262,10 +262,31 @@ def main():
             log(f"   {r['계기번호']} 코드={ev['타입코드']} 타입={r.get('계기타입')}"
                 f" — {ev['판정근거']}")
         D.meter_code_write('25년 미청구불가', _bad)
-        EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, 'C1', r, ev['판정근거'],
-                                     f"타입코드 {ev['타입코드']}") for r, ev in _bad])
+        EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, 'C1', r,
+            f"계기번호 3~4번째 타입코드가 '{ev['타입코드']}' 인데 대장(boranggi 66만행)에"
+            f" 단 1건도 없다 = 계기번호 오타다. {ev['판정근거']}",
+            f"타입코드 {ev['타입코드']} · 대장 0건") for r, ev in _bad])
         recs = [x for x in recs if nm(x['계기번호']) not in _bset]
         keep = [v for v in keep if v['_m'] not in _bset]   # 게이트 기대치도 같이 줄인다
+
+    # ── 제외축: 25년 청구 겹침(고객번호 경유) — 영준님 2026-09-21 ────────────
+    #   ★겹침 **AND** 교체표현 둘 다일 때만 뺀다. 겹침만 있는 21건은 근거가 부족하다.
+    _bo = D.billed_overlap_bad(recs)
+    if _bo:
+        _boset = {nm(r['계기번호']) for r, _ in _bo}
+        log(f'25년 청구 겹침(고객번호 경유) {len(_bo)}건 제외')
+        for r, ev in _bo:
+            log(f"   {r['계기번호']} cust={r.get('고객번호')}"
+                f" 청구계기={','.join(ev['청구계기'])} | {r.get('불가상세')}")
+        EX.stage(EX.L_BULGA, [EX.row(
+            EX.L_BULGA, 'B6', r,
+            사유상세=(f"고객번호 {r.get('고객번호')} 로 원장을 보면 같은 개소 계기"
+                      f" {', '.join(ev['청구계기'])} 이(가) 이미 상태=청구 다."
+                      f" 불가상세 \"{r.get('불가상세')}\" 의 '{ev['표현']}' 가 교체 표현에 해당한다"),
+            근거값=f"청구계기 {','.join(ev['청구계기'])} · 표현 '{ev['표현']}'")
+            for r, ev in _bo])
+        recs = [x for x in recs if nm(x['계기번호']) not in _boset]
+        keep = [v for v in keep if v['_m'] not in _boset]
 
     # ── 제외축: S(표준형) 계기 (영준님 2026-09-20) ──────────────────────────
     #   판정은 미청구 빌더와 **같은 함수**를 쓴다.
@@ -275,8 +296,10 @@ def main():
         log(f'S(표준형) 계기 {len(_std)}건 제외'
             f' — 타입코드 {dict(Counter(str(r["계기번호"])[2:4] for r, _ in _std).most_common())}')
         D.standard_type_write('25년 미청구불가', _std)
-        EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, 'C2', r, f'계기타입 {v}',
-                                     f'계기타입={v}') for r, v in _std])
+        EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, 'C2', r,
+            f"계기타입이 '{v}'(표준형)다. 코드가 무엇이든 표준형이면 제외하라는 지시다"
+            f" — 이 리스트에서는 타입코드 35·15·34·14 에 흩어져 있다.",
+            f'계기타입={v}') for r, v in _std])
         recs = [x for x in recs if nm(x['계기번호']) not in _sset]
         keep = [v for v in keep if v['_m'] not in _sset]
     else:
@@ -290,8 +313,10 @@ def main():
         log(f'계기번호 오류 계열 {len(_err)}건 제외'
             f' — {dict(Counter(k for _, k in _err).most_common())}')
         D.meter_err_write('25년 미청구불가', _err)
-        EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, 'C3', r, k,
-                                     f"{r.get('불가사유')} / {r.get('불가상세')}") for r, k in _err])
+        EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, 'C3', r,
+            f"현장이 불가상세에 번호가 틀렸다고 적었다(유형 {k})."
+            f" 원문: \"{r.get('불가사유')} / {r.get('불가상세')}\"",
+            f"유형 {k} · 원문 {r.get('불가상세')}") for r, k in _err])
         recs = [x for x in recs if nm(x['계기번호']) not in _eset]
         keep = [v for v in keep if v['_m'] not in _eset]
     else:
@@ -317,8 +342,11 @@ def main():
         log(f'고객번호경유 26년시공 — 신설 {len(_drop)}건 **제외**'
             f' · 기설 {len(_keep)}건 **유지**')
         D.via_cust_write('25년 미청구불가', _drop, _keep)
-        EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, 'C4', r, f"awms {ev['작업구분']}",
-                                     f"awms계기 {ev['awms계기']} · {ev['작업일']} · {ev['작업구분']}")
+        EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, 'C4', r,
+            f"고객번호 {r.get('고객번호')} 로 보강현황을 거쳐 같은 개소의 계기"
+            f" {ev['awms계기']} 를 찾았고, 그 계기가 awms 에 '{ev['작업구분']}' 으로"
+            f" {str(ev['작업일'])[:10]} 에 시공돼 있다. 계기가 교체돼 번호가 바뀐 개소다.",
+            f"awms계기 {ev['awms계기']} · {str(ev['작업일'])[:10]} · {ev['작업구분']}")
                               for r, ev in _drop])
         recs = [x for x in recs if nm(x['계기번호']) not in _dset]
         keep = [v for v in keep if v['_m'] not in _dset]     # 게이트 기대치도 같이 줄인다
