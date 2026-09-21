@@ -442,12 +442,40 @@ def meter_err_kind(r):
     return ''
 
 
-def field_meter_hint(r):
-    """상세 칸에서 원본과 **다른** 11자리 번호를 뽑는다. 없으면 ''."""
+_METER_FORM = re.compile(r'^[0-9A-Z]{2}[0-9]{9}$')
+_field_hint_codes = None
+
+
+def field_meter_hint(r, real_codes=None):
+    """상세 칸에서 원본과 **다른** 11자리 번호를 뽑아 갈라 담는다.
+
+    반환 = (계기번호 후보 문자열, 모뎀MAC 후보 문자열) — 없으면 ''.
+
+    ★11자리만 긁으면 **모뎀 MAC 이 계기번호 칸에 섞인다**(실측 2026-09-20: 6건).
+      현장이 '기설치 01230201260' 처럼 MAC 을 적어 보내기 때문이다. 게이트 둘을 건다:
+        ① '012' 로 시작하면 계기번호가 아니라 **MAC** 이다 -> 따로 담는다.
+           ★MAC 은 11·12 자리가 섞이니 zfill 금지 [[boranggi_mac_restore_and_amigo_wireless]].
+        ② 계기 형태 법칙 통과 + **타입코드가 대장 실재 집합에 있을 때만** 계기번호로 담는다.
+           집합은 meter_code_index() 가 대장에서 뽑아 쓰는 그것이다(하드코딩 금지).
+      어느 쪽도 아니면 **담지 않는다.** 원문은 불가상세에 그대로 있으니 잃는 것이 없다
+      (실측: 타입코드 72 인 84720704975 한 건이 이렇게 걸러진다).
+    """
+    global _field_hint_codes
+    if real_codes is None:
+        if _field_hint_codes is None:
+            _field_hint_codes = meter_code_index()[0]
+        real_codes = _field_hint_codes
     s = f"{r.get('불가사유') or ''} {r.get('불가상세') or ''}"
     me = str(r.get('계기번호') or '').strip()
-    cand = [x for x in dict.fromkeys(_M11.findall(s)) if x != me]
-    return ' / '.join(cand)
+    meters, macs = [], []
+    for x in dict.fromkeys(_M11.findall(s)):
+        if x == me:
+            continue
+        if x.startswith('012'):
+            macs.append(x)
+        elif _METER_FORM.match(x) and x[2:4] in real_codes:
+            meters.append(x)
+    return ' / '.join(meters), ' / '.join(macs)
 
 
 def meter_err_bad(rows):
@@ -465,7 +493,8 @@ def meter_err_write(list_name, bad):
         except Exception:
             prev = []
     rows = [{'리스트': list_name, '유형': k, '계기번호': r.get('계기번호'),
-             '현장계기번호_추정': field_meter_hint(r),
+             '현장계기번호_추정': field_meter_hint(r)[0],
+             '현장모뎀MAC_추정': field_meter_hint(r)[1],
              '고객번호': r.get('고객번호'), '주소': r.get('주소'), '지사': r.get('지사'),
              '불가사유': r.get('불가사유'), '불가상세': r.get('불가상세'),
              # 되살리기용
@@ -1188,9 +1217,12 @@ def main():
     # ★현장이 적어 놓은 실제 계기번호는 **남는 건에도** 담아 둔다(교정하지 않는다).
     _hint = 0
     for x in map_rows + pend_rows:
-        v = field_meter_hint(x)
-        if v:
-            x['현장계기번호_추정'] = v
+        mv, kv = field_meter_hint(x)
+        if mv:
+            x['현장계기번호_추정'] = mv
+        if kv:
+            x['현장모뎀MAC_추정'] = kv
+        if mv or kv:
             _hint += 1
     if _hint:
         log(f'  현장계기번호_추정 담은 건 {_hint}(리스트에 남는 건 기준)')
