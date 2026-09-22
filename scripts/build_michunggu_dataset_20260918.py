@@ -921,6 +921,68 @@ def via_cust_26_hits(rows, bridge=None, aw=None):
     return drop, keep
 
 
+def master_only_index():
+    """(계기 -> 마스터로 있는 MAC 집합, 슬레이브가 전부 '청구' 인 MAC, 슬레이브가 있는 MAC)
+
+    ★상태(청구/미청구)는 원장에만 있다 — DB 원장 테이블의 col_15 다(엑셀 O열인데 헤더가 비어
+      그 이름으로 적재됐다. LEDGER_STATE_COL 과 같은 열이다).
+    ★snapshot 은 미청구2 판으로 고정한다 — 두 판이 한 테이블에 같이 들어 있어(575,720행)
+      안 거르면 같은 행을 두 번 센다. 집합 연산이라 결론은 같지만 로그 수치가 두 배로 보인다.
+    ★MAC 이 빈 행은 함체를 특정할 수 없으므로 건너뛴다.
+    """
+    import sqlite3
+    from collections import defaultdict
+    con = sqlite3.connect(ROOT / 'data/ami.db')
+    master_of = defaultdict(set)
+    sl_all_billed, sl_any = defaultdict(lambda: True), set()
+    for m, mac, ms, st in con.execute(
+            f'SELECT 계기번호,mac_norm,"M/S",{LEDGER_STATE_COL} FROM "{LEDGER_TABLE}"'
+            " WHERE snapshot='20260917-미청구2'"):
+        mk = str(mac or '').strip().upper()
+        if not mk or mk in ('NAN', 'NONE'):
+            continue
+        role, state, v = str(ms or '').strip(), str(st or '').strip(), nm(m)
+        if role.startswith('마스터'):
+            if v:
+                master_of[v].add(mk)
+        elif role.startswith('슬레이브'):
+            sl_any.add(mk)
+            if state != '청구':
+                sl_all_billed[mk] = False
+    con.close()
+    ok = {k for k in sl_any if sl_all_billed[k]}
+    log(f'마스터단독 색인 — 마스터 계기 {len(master_of):,} ·'
+        f' 슬레이브 있는 함체 {len(sl_any):,} (그중 전건 청구 {len(ok):,})')
+    return master_of, ok, sl_any
+
+
+def master_only_unbilled(rows, idx=None):
+    """마스터만 미청구로 남고 같은 함체 슬레이브가 전부 청구인 건 (영준님 2026-09-22).
+
+    반환 [(row, 근거dict)].
+
+    왜 빼나 — **청구는 모뎀(함체) 단위로 움직인다.** 슬레이브가 전부 청구된 함체라면 그
+      함체는 이미 청구가 끝난 것이고, 남은 마스터 한 건은 모뎀을 새로 시설해도 청구에
+      올라오지 않는다(영준님 2026-09-22 "얘는 청구 못하는 것으로 마무리해야 해").
+      실측 표본 01254428954 — 마스터 1건 미청구 · 슬레이브 8건 전부 청구, 9건 모두
+      2026-01-13 16:40~16:42 에 연달아 시공된 한 함체였다.
+    ★한 계기가 여러 함체에 마스터로 걸릴 수 있다(PLC MAC 으로 시공 -> 신호미약 -> LTE MAC
+      으로 재시공하면 원장에 두 MAC 이 다 남는다). 그때는 **모든 함체에서 조건이 맞을 때만**
+      뺀다 — 한 함체만 보고 빼면 근거가 갈린 건까지 쓸려 나간다
+      (실측 2026-09-22: 엇갈리는 건이 미청구 767 · 불가 1).
+    ★슬레이브가 없는 함체(마스터 단독)는 판정에서 뺀다 — 비교할 짝이 없다.
+    """
+    master_of, ok, sl_any = idx if idx is not None else master_only_index()
+    out = []
+    for x in rows:
+        v = nm(x.get('계기번호'))
+        rel = [k for k in master_of.get(v, ()) if k in sl_any]
+        if not rel or not all(k in ok for k in rel):
+            continue
+        out.append((x, {'함체': sorted(rel)}))
+    return out
+
+
 def build_resweep_index():
     """[(출처명, by_cust, by_mac)] — 우선순위 순(먼저 온 것이 이긴다)."""
     import sqlite3
@@ -1593,6 +1655,25 @@ def main():
         map_rows = [x for x in map_rows if nm(x['계기번호']) not in _dset]
         pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _dset]
         pm = [m for m in pm if m not in _dset]          # 게이트 기대치도 같이 줄인다
+
+    # ── 제외축: 마스터만 미청구 · 함체 슬레이브 전부 청구 (영준님 2026-09-22) ────
+    #   청구는 모뎀 단위로 움직인다 — 슬레이브가 다 청구된 함체의 남은 마스터 한 건은
+    #   모뎀을 새로 시설해도 청구에 안 올라온다. 청구 불가로 마무리한다.
+    _mo = master_only_unbilled(map_rows + pend_rows)
+    if _mo:
+        _mset = {nm(r['계기번호']) for r, _ in _mo}
+        log(f"마스터단독 미청구 — {len(_mo)}건 **제외**(함체 슬레이브가 전부 청구)")
+        (ROOT / 'research/마스터만미청구_제외_20260922.json').write_text(json.dumps(
+            [dict({k: r.get(k) for k in ('계기번호', '지사', '주소', '고객번호', '모뎀MAC')},
+                  **ev) for r, ev in _mo], ensure_ascii=False, indent=1))
+        EX.stage(EX.L_MICH, [EX.row(EX.L_MICH, 'C5', r,
+            f"이 계기가 마스터인 함체({' · '.join(ev['함체'])})의 슬레이브가 **전부 청구**다."
+            " 청구는 모뎀 단위로 움직이므로, 남은 마스터 한 건은 모뎀을 새로 시설해도"
+            " 청구에 올라오지 않는다 — 청구 불가로 마무리한 건이다.",
+            f"함체 {' · '.join(ev['함체'])}") for r, ev in _mo])
+        map_rows = [x for x in map_rows if nm(x['계기번호']) not in _mset]
+        pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _mset]
+        pm = [m for m in pm if m not in _mset]
 
     acc = Counter(x['좌표정확도'] for x in map_rows)
     log(f'좌표: {dict(acc)}')
