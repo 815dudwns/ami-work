@@ -1,0 +1,1 @@
+[{"ORD":1,"USE_YN":"Y","DEFAULT_LINK_YN":"Y","LINK_SEQ":1,"LINK_URL":"https://home.kepco.co.kr/kepco/main.do","LINK_NM":"한국전력공사"},{"ORD":2,"USE_YN":"Y","DEFAULT_LINK_YN":"Y","LINK_SEQ":2,"LINK_URL":"https://www.kdn.com/","LINK_NM":"한전KDN"}]

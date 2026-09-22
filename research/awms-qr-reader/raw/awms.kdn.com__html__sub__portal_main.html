@@ -1,0 +1,273 @@
+<script type="text/javascript" src="../../assets/js/main.js"></script>
+
+<div class="main_wrap" id="appMain">
+	<section class="main_inner">
+	    <section class="top_logo">
+	        <a href="javascript:void(0);" class="logo"><img src="/images/common/KDN_CI_05.png" :alt="defaultInfo.SITE_NM"></a>
+					<h1 class="project-name">AMI 현장관리 시스템</h1>
+	    </section>
+	    
+	   	<section class="main_tab_wrap" id="mainListLoading">
+	        <ul class="main_tab_box">
+	            <li :class="{'on':layoutList.rowposition == index}" v-for="(item, index) in layoutList.getData()">
+	                <div class="tab_content" id="subListLoading" v-if="layoutList.rowposition == index">
+	                    <div class="widget_list" v-if="layoutContentList.length > 0">
+	                    	<grid-layout :layout.sync="layoutContentList" :col-num="3" :row-height="120" :auto-size="true" :is-resizable="false" :vertical-compact="true" :is-draggable="false" :responsive="true" :use-css-transforms="true" :breakpoints="{lg: 1920, md: 1500, sm: 800, xs: 480, xxs: 0}" :cols="{lg:3, md:3, sm:2, xs:1, xxs:1}" :margin="widgetMargin" @layout-mounted="layoutMountedEvent">
+								<grid-item class="handle main-grid" v-for="(item, index) in layoutContentList" :x="item.x" :y="item.y" :w="item.w" :h="item.h" :i="item.i" style="background:#ffffff;" :key="index">
+									<component :is="item.URL" :appid="item.APP_ID" :widgetseq="item.WIDGET_SEQ" :key="index" :parameter="item.PARAMETER"></component>
+								</grid-item>
+							</grid-layout>
+	                   	</div>
+	              	</div>
+	           	</li>
+	      	</ul>
+	   	</section>
+	</section>
+</div>
+<script type="text/javascript">
+/*******************************************************************************************************************************************************************
+ * vue start 
+ ********************************************************************************************************************************************************************/
+ var vmPortalMain = new Vue({
+    el: '#appMain',
+    //사용할 데이터
+    data: {
+    	layoutList: new Dataset(),
+    	layoutContentList: [],
+    	bannerPostList: new Dataset(),
+    	mainListLoading: {id:'mainListLoading', val:false},
+    	subListLoading: {id:'subListLoading', val:false},
+    	widgetMargin: [0,0],
+    	
+    	pushIljeongCount: 0,
+    	pushMailCount: 0,
+    	pushNotyCount: 0,
+    	pushMsgCount: 0,	
+    	emailUseYn : false
+    },
+    //마운트 된 시점수행
+    watch: {
+    	'layoutList.rowposition': {
+			handler: function (val, oldVal) {
+				if(this.layoutList.enableevent){
+					this.layoutContentList = [];
+					this.setMyLayoutContent();
+				}
+			}
+		},		
+		'mainListLoading.val': {
+	    	handler: function (val, oldVal) {
+				this.LoadingOverlay($('#'+this.mainListLoading.id), val);
+			}
+	    },
+	    'subListLoading.val': {
+	    	handler: function (val, oldVal) {
+				this.LoadingOverlay($('#'+this.subListLoading.id), val);
+			}
+	    },
+    },
+    created: function(){
+       	var wwidth = $(window).width();
+       	
+       	if (wwidth < 481) {
+       		this.widgetMargin = [3,20];
+       	}else{
+       		this.widgetMargin = [30,30];
+       	}
+       	
+    	// this.setBannerPostList();
+    },
+    //마운트 된 시점수행
+    mounted: function(){
+    	this.setLayoutList();    	
+    	this.setPushCount(staticVue.pushAlarmCount);
+    },
+    //함수
+    methods: {
+    	setPushCount: function (pCntObj) {
+    		var cntObj = pCntObj;
+    		var headerIljeongClass = 'new';
+    		var headerNotiClass = 'new';
+    		var headerTalkClass = 'new';
+
+    		this.pushIljeongCount = cntObj.iljeongCnt;
+    		this.pushMailCount = cntObj.mailCnt;
+    		this.pushNotyCount = cntObj.notyCnt;
+    		this.pushMsgCount = cntObj.msgCnt;
+    		
+    		headerTalkClass = (this.pushMsgCount > 0)?'new':'';		
+    		$('#appListArea > div.menu_bar > span').attr('class','btn_talk ' + headerTalkClass);
+    		$('#icon-message-circle-new').attr('class', headerTalkClass);
+    		
+    		headerNotiClass = (this.pushNotyCount > 0)?'new':'';		
+    		$('#icon-noti-circle-new').attr('class', headerNotiClass);
+    		
+    		headerIljeongClass = (this.pushIljeongCount > 0)?'new':'';		
+    		$('#icon-email-circle-new').attr('class', headerIljeongClass);
+    	},
+		setLayoutList: function(){
+			try{
+				var param = {pSearchGb:'main'};
+				var self = this;
+				//self.mainListLoading.val = true;
+				var returnVal = layoutApi.layout(param, false);
+				
+				returnVal.then(function(response) {
+					self.layoutList.setData(response.data);
+					self.layoutList.selectRow(0);
+				}).catch(function(error) {
+					console.error('error:', error);
+				}).finally(function(){
+					//self.mainListLoading.val = false;
+				});
+			} catch(err){
+				console.log('setLayoutList() Error : '+err.message);
+			};
+		},
+		setMyLayoutContent: function(){
+			try{
+				var self = this;
+				
+				if(self.layoutList.currentRow && self.layoutList.rowposition > -1){
+					self.subListLoading.val = true;
+					var returnVal = layoutApi.layoutContent(self.layoutList.currentRow, false);
+					
+					returnVal.then(function(response) {
+						self.layoutContentList = response.data;
+					}).catch(function(error) {
+						console.error('error:', error);
+					}).finally(function(){
+						self.subListLoading.val = false;
+					});
+				}
+			} catch(err){
+				console.log('setMyLayoutContent() Error : '+err.message);
+			};
+		},
+		setBannerPostList: function(){
+			try{
+				var self = this;
+				var returnVal = bannerApiApi.bannerPosts({'BANNER_GROUP_SEQ':'1'}, false);
+				
+				returnVal.then(function(response) {
+					self.bannerPostList.setData(response.data);
+					//메인 carousel 슬라이더
+					self.$nextTick(function() {
+						$('.main_carousel').slick({
+							autoplay: true,
+							autoplaySpeed: 3000,
+						});	
+					});
+				}).catch(function(error) {
+					console.error('error:', error);
+				}).finally(function(){
+					//self.mainListLoading.val = false;
+				});
+			} catch(err){
+				console.log('setBannerPostList() Error : '+err.message);
+			};
+		},
+        layoutMountedEvent: function() {
+        	try{
+	        	var wwidth = $(window).width();
+	        	
+	        	if (wwidth < 481) {
+	                // 모바일일때 위젯 접고, 펼침
+	                // PHS: 모바일일때 위젯을 접지 않음.
+	                //mwidget()
+	            } else if (wwidth > 480) {}
+	        	
+	        	function mwidget() {	
+	        		//모바일일때 위젯 접고, 펼침	        	
+	        		$('.widget_list').css({ 'overflow': 'hidden' });
+	        	    $('.widget_list .widget_box .title_box').on('click', function() {
+	        			var that = $(this);
+	        			var pheight = $(this).parent().parent().height();
+	        	        if ($(this).hasClass('on')) {
+	        	            setTimeout(function() {
+	        	                var centerTabHeight3 = $(that).closest('.widget_list').outerHeight() + $(".main_tab_box").outerHeight() + 150;
+	        	                $(".main_tab_wrap").height(centerTabHeight3);
+	        	            }, 500);
+	        	            $(this).siblings('.content_box').slideUp();
+	        	            $(this).parent().parent().stop().animate({'maxHeight':'85px'});
+	        	            $(this).removeClass('on');
+	
+	        	        } else {
+	        	            setTimeout(function() {
+	        	            	theOffset = jQuery(that).offset();
+	        	            	jQuery('body,html').animate({ scrollTop: theOffset.top - 30 });
+	        	                var centerTabHeight3 = $(that).closest('.widget_list').outerHeight() + $(".main_tab_box").outerHeight() + 150;
+	        	                $(".main_tab_wrap").height(centerTabHeight3);
+	        	            }, 500);
+	        	            $('.widget_list .widget_box .content_box').slideUp();
+	        	            $('.widget_list .main-grid').css({'maxHeight':'85px'});	        	            
+	        	            $(this).parent().parent().stop().animate({'maxHeight':'100%'});
+	        	            $(this).parent().parent().siblings().find('.title_box').removeClass('on');
+	        	            $(this).siblings('.content_box').slideDown();
+	        	            $(this).addClass('on');
+	        	        }
+	        	    });
+	        	} 
+	        	
+	        	var delta = 200;
+	            var timer = null;
+
+	            var cachedWidth = $(window).width();
+
+	            $(window).resize(function() {
+	                var newWidth = $(window).width();
+	                if (newWidth !== cachedWidth) {
+	                    // 모바일일때 위젯 접고, 펼침
+	                    // PHS: 모바일일때 위젯을 접지 않음. 
+	                    if (newWidth < 481 && false) {
+	                        clearTimeout(timer);
+	                        timer = setTimeout(mwidget, delta);
+	                        $('.widget_list .main-grid').stop().animate({'height':'85px'});
+	                        //$('.widget_box .title_box').siblings('.content_box').slideUp();
+	                        $('.widget_box .title_box').removeClass('on');
+	                        setTimeout(function() {
+	                            var centerTabHeight3 = $('.widget_list').outerHeight() + $(".main_tab_box").outerHeight() + 150;
+	                            $(".main_tab_wrap").height(centerTabHeight3);
+	                        }, 500);
+
+	                    } else if (newWidth > 480 || true) {
+	                    	$('.widget_list .main-grid').stop().animate({'height':'auto'});
+	                        //$('.widget_box .content_box').slideDown();
+	                        $('.widget_list .widget_box .title_box').off('click');
+	                        setTimeout(function() {
+	                            var centerTabHeight3 = $('.widget_list').outerHeight() + $(".main_tab_box").outerHeight() + 150;
+	                            $(".main_tab_wrap").height(centerTabHeight3);
+	                        }, 500);
+	                    }
+	                    cachedWidth = newWidth;
+	                }
+	            });
+        	} catch(err){
+				console.log('setMyLayoutContent() Error : '+err.message);
+			};
+        },
+		modiImgAddr: function(pAddr){
+			var modiAddr = '';
+			
+			if(!isNull(pAddr)){
+				modiAddr = pAddr.replace(/\\/g, '/'); 
+				
+				if(modiAddr.substring(1,4) == 'SMN'){
+					modiAddr = '/upload' + modiAddr;
+				}
+			}else{
+				modiAddr = '/service/design/images/mypage/noimage.png';
+			}
+			
+			return modiAddr;
+		}
+    }
+});
+$(function() {
+	$('.main_user_photo img').on('error', function() {$(this).attr('src', '/service/design/images/mypage/noimage.png');});
+	$('.user_photo img').on('error', function() {$(this).attr('src', '/service/design/images/mypage/noimage.png');});
+});
+/*******************************************************************************************************************************************************************
+ * vue end 
+ ********************************************************************************************************************************************************************/
+ </script>

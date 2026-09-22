@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html>
+	<head>
+	    <meta charset="utf-8" />
+	    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+	    <meta http-equiv="Pragma" content="no-cache">
+		<meta http-equiv="Cache-control" content="no-cache">
+	    <meta http-equiv="Expires" content="-1">
+		<meta name="theme-color" content="#000000">
+		<meta name="mobile-web-app-capable" content="yes">
+		<meta name="apple-mobile-web-app-capable" content="yes">
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+		<meta name="apple-mobile-web-app-title" content="AMI 현장관리">
+
+		<!-- 웹 앱 매니페스트 -->
+		<link rel="manifest" href="/icon/manifest.json">
+
+		<!-- Apple 아이콘 -->
+		<link rel="apple-touch-icon" sizes="57x57" href="/icon/apple-icon-57x57.png">
+		<link rel="apple-touch-icon" sizes="60x60" href="/icon/apple-icon-60x60.png">
+		<link rel="apple-touch-icon" sizes="72x72" href="/icon/apple-icon-72x72.png">
+		<link rel="apple-touch-icon" sizes="76x76" href="/icon/apple-icon-76x76.png">
+		<link rel="apple-touch-icon" sizes="114x114" href="/icon/apple-icon-114x114.png">
+		<link rel="apple-touch-icon" sizes="120x120" href="/icon/apple-icon-120x120.png">
+		<link rel="apple-touch-icon" sizes="144x144" href="/icon/apple-icon-144x144.png">
+		<link rel="apple-touch-icon" sizes="152x152" href="/icon/apple-icon-152x152.png">
+		<link rel="apple-touch-icon" sizes="180x180" href="/icon/apple-icon-180x180.png">
+
+		<!-- Android 아이콘 -->
+		<link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
+		<link rel="icon" href="/favicon.ico" type="image/x-icon">
+		<link rel="icon" type="image/png" sizes="192x192" href="/icon/android-icon-192x192.png">
+		<link rel="icon" type="image/png" sizes="32x32" href="/icon/favicon-32x32.png">
+		<link rel="icon" type="image/png" sizes="96x96" href="/icon/favicon-96x96.png">
+		<link rel="icon" type="image/png" sizes="16x16" href="/icon/favicon-16x16.png">
+		<link rel="icon" type="image/png" sizes="192x192" href="/icon/appicon_192.png">
+		<link rel="icon" type="image/png" sizes="512x512" href="/icon/appicon_512.png">
+
+
+		<!-- Microsoft 타일 아이콘 -->
+		<meta name="msapplication-TileColor" content="#ffffff">
+		<meta name="msapplication-TileImage" content="/icon/ms-icon-144x144.png">
+
+		<title>통합로그인</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0 ,maximum-scale=1.0, minimum-scale=1.0,user-scalable=no, viewport-fit=contain">
+	    <link rel="stylesheet" type="text/css" href="/assets/css/reset.css" />
+	    <link rel="stylesheet" type="text/css" href="/assets/css/jui/jui-ui.classic.css">
+	    <link rel="stylesheet" type="text/css" href="/assets/css/iframe_layout.css" />
+	    <link rel="stylesheet" type="text/css" href="/assets/css/feather.css" />
+	    <link rel="stylesheet" type="text/css" href="/assets/css/login.css">
+	
+	    <script src="/assets/js/vendor/rsa/jsbn.js"></script>
+	    <script src="/assets/js/vendor/rsa/rsa.js"></script>
+	    <script src="/assets/js/vendor/rsa/prng4.js"></script>
+	    <script src="/assets/js/vendor/rsa/rng.js"></script>
+	
+	    <script type="text/javascript" src="/assets/js/vendor/jquery-3.2.1.min.js"></script>
+	    <style>
+	        .otp-info {
+	            display: none;
+	            justify-content: center;
+	            margin-top: 10px;
+	            font-size: 0.9em;
+	            color: #555;
+				flex-direction: column;
+				align-items: center;				
+	        }
+	
+	        .otp-info p {
+	            margin-bottom: 5px;
+	        }
+	
+	        #loginErrorMsg {
+	            color: red;
+	            text-align: center;
+	            margin-bottom: 10px;
+	            font-weight: bold;
+	        }
+	
+	        .otp-box {
+	            font-size: 24px;
+	            text-align: center;
+	            border: 2px solid #ccc;
+	            border-radius: 7px !important;
+	        }
+	
+	        .otp-box:focus {
+	            border-color: #007BFF;
+	            outline: none;
+	        }
+	
+	        .otp-wrap {
+	            display: none;
+	            justify-content: center;
+	            gap: 8px;
+	            margin-top: 10px;
+	        }
+	
+	        .btn-line {
+	            margin-top: 20px;
+	            text-align: center;
+	        }
+	
+	        .btn-author,
+	        .btn-login {
+	            padding: 10px 20px;
+	            font-size: 16px;
+	            margin: 5px;
+				align-items: center;
+				justify-content: center;
+	        }
+	    </style>
+	</head>
+
+	<body class="jui feather">
+	    <div id="wrap" class="login_wrap">
+	        <div class="login-inner">
+	            <div class="logo-line">
+	                <img id="logo" class="logo" src="/images/common/KDN_CI_05.png" alt="기본 로고">
+	                <span class="project-name">AMI 현장관리 시스템</span>
+	            </div>
+	            <p class="eng-tit">Advanced Metering Infrastructure</p>
+	            <h2 id="login_title">AMI 현장관리 시스템 로그인</h2>
+	
+				<div class="login-form">
+				    <form id="frmLogin" action="/login" method="POST" onsubmit="return false;">
+				        <input type="hidden" name="uid" id="uid" />
+				        <input type="hidden" name="upw" id="upw" />
+				        <input type="hidden" name="returnUrl" id="returnUrl" />
+				        <input type="hidden" id="authorization" />
+				    </form>
+				    <!-- Step 1: ID/PW -->
+				    <div class="input-wrap">
+				        <input type="text" class="size-l" placeholder="ID" id="id">
+				    </div>
+				    <div class="input-wrap">
+				        <input type="password" class="size-l" placeholder="Password" id="pw">
+				    </div>
+					<div class="checkbox type04 size-l">
+					    <input type="checkbox" id="rememberId" style="transform: scale(1.2);">
+					    <label for="rememberId" style="font-size: 0.9em; color: #333;">아이디 저장</label>
+						<i class="icon-check"></i>
+					</div>
+				    <!-- Step 2: OTP -->
+				    <div class="input-wrap otp-wrap" id="otpWrap" style="display:none;">
+				        <input type="text" class="otp-box" inputmode="numeric">
+				        <input type="text" maxlength="1" class="otp-box" inputmode="numeric">
+				        <input type="text" maxlength="1" class="otp-box" inputmode="numeric">
+				        <input type="text" maxlength="1" class="otp-box" inputmode="numeric">
+				        <input type="text" maxlength="1" class="otp-box" inputmode="numeric">
+				        <input type="text" maxlength="1" class="otp-box" inputmode="numeric">
+				    </div>
+
+				    <!-- Error / Info -->
+				    <div class="status-wrap">
+				        <div id="loginErrorMsg" class="error-msg"></div>
+				        <div class="otp-info" style="display:none;">
+				            <p>남은 유효 시간: <span id="otpTimerDisplay">--:--</span></p>
+				        </div>
+				    </div>
+
+				    <!-- Buttons -->
+				    <div class="btn-line" id="btnLine">
+						<button type="button" class="btn-author" id="btnAuthor" style="line-height: 0px;">인증번호 받기</button>
+				        <button type="button" class="btn-login" id="btnLogin" style="display:none; line-height: 0px;" disabled>로그인</button>
+				    </div>
+					<div style="display: flex; justify-content: center;">
+						<button type="button" class="" id="btnRetry" style="display:none; line-height: 0px;">
+							<p style="text-decoration : underline; color: #808080">인증번호 재발송</p>
+						</button>
+					</div>
+
+				</div>
+	            <p class="copyright"><strong>ⓒ 한전KDN(주).</strong> All right reserved</p>
+	        </div>
+	    </div>
+	
+	    <script type="text/javascript">
+	        const otpInputs = document.querySelectorAll('.otp-box');
+	        const otpWrap = document.getElementById('otpWrap');
+	        const btnAuthor = document.getElementById('btnAuthor');
+	        const btnLogin = document.getElementById('btnLogin');
+			const btnRetry = document.getElementById('btnRetry');
+			const otpInfo = document.querySelector('.otp-info');
+			const otpTimerDisplay = document.querySelector('#otpTimerDisplay');
+			const loginErrorMsg = document.querySelector('#loginErrorMsg');
+			
+			let isPasting = false;
+			let otpTimerInterval;
+			let otpTotalSecondsClient;
+			let maxOtpAttemptsClient;
+			let currentOtpAttemptsClient;
+
+			// ==== UI Helper ====
+			function setErrorMessage(msg) {
+			    loginErrorMsg.textContent = msg || '';
+			}
+			function toggleOtpStep(show) {
+			    otpWrap.style.display = show ? 'flex' : 'none';
+			    otpInfo.style.display = show ? 'flex' : 'none';
+				btnLogin.style.display = show ? 'flex' : 'none';
+				btnAuthor.style.display = show ? 'none' : 'flex';
+				btnRetry.style.display = show ? 'flex' : 'none';
+			}
+			function resetOtpInputs() {
+			    otpInputs.forEach(input => input.value = '');
+			    if (otpInputs.length > 0) otpInputs[0].focus();
+			    btnLogin.disabled = true;
+			}
+			function getOtpValue() {
+			    return Array.from(otpInputs).map(input => input.value).join('');
+			}
+			function setOtpToHiddenField() {
+			    document.getElementById('authorization').value = getOtpValue();
+			}
+
+			// ==== OTP 입력 UX ====
+			function checkOtpFilled() {
+			    const filled = Array.from(otpInputs)
+			        .every(input => input.value.trim().length === 1);
+
+			    btnLogin.disabled = !filled;
+			}
+
+			otpInputs[0].addEventListener('input', function (e) {
+			    const value = e.target.value;
+			    if (value.length > 1) {
+			        isPasting = true;
+			        const digits = value.replace(/\D/g, '').slice(0, otpInputs.length);
+			        otpInputs.forEach((input, i) => input.value = digits[i] || '');
+			        otpInputs[Math.min(digits.length - 1, otpInputs.length - 1)].focus();
+			        checkOtpFilled();
+			        setTimeout(() => { isPasting = false; }, 100);
+			    }
+			});
+
+			otpInputs.forEach((input, index) => {
+			    input.addEventListener('input', () => {
+			        if (isPasting) return;
+			        if (input.value.length === 1 && index < otpInputs.length - 1) {
+			            otpInputs[index + 1].focus();
+			        }
+			        checkOtpFilled();
+			    });
+			    input.addEventListener('keydown', (e) => {
+			        if (e.key === 'Backspace' && input.value === '' && index > 0) {
+			            otpInputs[index - 1].focus();
+			        }
+			    });
+			});
+
+			// ==== OTP 타이머 ====
+			function formatTime(totalSeconds) {
+			    if (isNaN(totalSeconds) || totalSeconds < 0) return "00:00";
+			    const minutes = Math.floor(totalSeconds / 60);
+			    const seconds = totalSeconds % 60;
+			    return String(minutes).padStart(2, '0') + ":" + String(seconds).padStart(2, '0');
+			}
+			function startOtpTimer(durationSeconds) {
+			    otpTotalSecondsClient = durationSeconds;
+			    otpTimerDisplay.textContent = formatTime(otpTotalSecondsClient);
+			    if (otpTimerInterval) clearInterval(otpTimerInterval);
+			    otpTimerInterval = setInterval(function () {
+			        otpTotalSecondsClient--;
+			        otpTimerDisplay.textContent = formatTime(otpTotalSecondsClient);
+					if (otpTotalSecondsClient <= 0) {
+					    clearInterval(otpTimerInterval);
+
+					    setErrorMessage("인증번호 유효 시간이 초과되었습니다. 다시 시도해주세요.");
+
+					    toggleOtpStep(false);
+					    resetOtpInputs();
+
+					    btnAuthor.disabled = false; // 다시 인증번호 받기 가능
+					}
+			    }, 1000);
+			}
+
+			// ==== 로그인 ====
+			function loginValid() {
+			    if (!$('#id').val().trim()) {
+			        setErrorMessage('아이디를 입력해 주세요.');
+			        return false;
+			    }
+			    if (!$('#pw').val().trim()) {
+			        setErrorMessage('비밀번호를 입력해 주세요.');
+			        return false;
+			    }
+			    if (otpWrap.style.display === 'flex' && !$('#authorization').val().trim()) {
+					console.log($('#authorization').val().trim());
+			        setErrorMessage('인증번호를 입력해 주세요.');
+			        otpInputs[0].focus();
+			        return false;
+			    }
+			    return true;
+			}
+
+			function onLogin() {
+				setOtpToHiddenField();
+			    if (!loginValid()) return;
+			    setErrorMessage('');
+			    btnLogin.disabled = true;
+				
+				handleRememberId();
+				
+			    $.ajax({
+			        url: '/publickeys', // RSA 공개키 요청
+			        cache: false,
+			        dataType: 'json',
+			        success: function (keyData) {
+			            const rsa = new RSAKey();
+			            rsa.setPublic(keyData.modulus, keyData.publicExponent);
+
+			            const loginData = {
+			                uid: rsa.encrypt($('#id').val()),
+			                upw: rsa.encrypt($('#pw').val()),
+			                authorization: $('#authorization').val(),
+			                returnUrl: $('#returnUrl').val()
+			            };
+
+			            $.ajax({
+			                type: "POST",
+			                url: "/login",
+			                data: loginData,
+			                dataType: "json",
+							success: function(response) {
+							    if (response.success) {
+							        window.location.href =
+							            response.redirectUrl || "/html/main/index.html";
+							    }
+							},
+							error: function(jqXHR) {
+								// OTP 필요
+								if (jqXHR.status === 401 &&
+								    jqXHR.responseJSON?.errorCode === "OTP_REQUIRED") {
+
+								    toggleOtpStep(true);
+								    startOtpTimer(jqXHR.responseJSON.otpValidityDurationSeconds || 180);
+								    setErrorMessage(jqXHR.responseJSON.errorMessage);
+								    resetOtpInputs();
+
+								    btnLogin.disabled = true;
+								    btnAuthor.disabled = true;
+								}
+
+								// ❗ OTP 불일치
+								else if (jqXHR.status === 401 &&
+								         jqXHR.responseJSON?.errorCode === "OTP_INVALID") {
+
+								    setErrorMessage(
+								        jqXHR.responseJSON.errorMessage || "인증번호가 올바르지 않습니다."
+								    );
+
+								    resetOtpInputs();
+
+								    btnLogin.disabled = false;
+								    otpInputs[0].focus();
+								}
+
+								// OTP 시도 횟수 초과
+								else if (jqXHR.status === 401 &&
+								         jqXHR.responseJSON?.errorCode === "OTP_ATTEMPTS_EXCEEDED") {
+
+								   if (otpTimerInterval) {
+								       clearInterval(otpTimerInterval);
+								       otpTimerInterval = null;
+								   }
+								   otpTimerDisplay.textContent = "";
+
+								   toggleOtpStep(false);
+
+								   resetOtpInputs();
+								   $('#authorization').val('');
+
+								   btnLogin.disabled = true;
+								   btnAuthor.disabled = false;
+
+								   setErrorMessage(
+								       jqXHR.responseJSON.errorMessage ||
+								       "인증번호 시도 횟수를 초과했습니다. 다시 로그인해주세요."
+								   );
+	
+								   $('#pw').focus();
+	
+								   return;
+								}
+
+								// 기타 로그인 실패
+								else {
+								    setErrorMessage(
+								        jqXHR.responseJSON?.errorMessage || "로그인 실패"
+								    );
+								    btnLogin.disabled = true;
+									btnAuthor.disabled = false;
+									$('#pw').focus();
+								}
+							}
+			            });
+			        },
+			        error: function () {
+			            btnLogin.disabled = false;
+						setErrorMessage('암호화 키 로딩 실패');
+			        }
+			    });
+			}
+
+			// OTP 초기화 후 발송
+			function sendOtpAndInit() {
+			    btnAuthor.disabled = true;
+			    loginErrorMsg.textContent = '';
+			    if (otpTimerInterval) clearInterval(otpTimerInterval);
+			    otpTimerDisplay.textContent = "--:--";
+			    resetOtpInputs();
+			    $('#authorization').val('');
+			    onLogin(); 
+			}			
+			
+			function retry(){				
+			    clearInterval(otpTimerInterval);
+			    otpTimerDisplay.textContent = "";
+			    setErrorMessage("");
+			    toggleOtpStep(false);
+			    resetOtpInputs();
+				onLogin();
+			}
+			// ==== Cookie Utility ====
+			function setCookie(name, value, days) {
+			    const expires = new Date();
+			    expires.setDate(expires.getDate() + days);
+			    document.cookie = name + '=' + encodeURIComponent(value) + '; expires=' + expires.toUTCString() + '; path=/';
+			}
+			function getCookie(name) {
+			    const value = '; ' + document.cookie;
+			    const parts = value.split('; ' + name + '=');
+			    if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
+			}
+			function deleteCookie(name) {
+			    document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+			}
+
+			// ==== 로그인 시 쿠키 처리 ====
+			function handleRememberId() {
+			    const remember = document.getElementById('rememberId').checked;
+			    const userId = $('#id').val().trim();
+			    if (remember && userId) {
+			        setCookie('rememberedId', userId, 7); // 7일간 저장
+			    } else {
+			        deleteCookie('rememberedId');
+			    }
+			}
+			btnLogin.addEventListener('click', onLogin);
+			btnAuthor.addEventListener('click', sendOtpAndInit);
+			btnRetry.addEventListener('click', retry);
+			// ==== 초기화 ====
+			$(document).ready(function () {
+				$('#btnLogin').prop('disabled', true);
+				// ✅ 저장된 ID 자동 채움
+				const savedId = getCookie('rememberedId');
+				if (savedId) {
+				    $('#id').val(savedId);
+				    $('#rememberId').prop('checked', true);
+				}
+
+			    $('#id, #pw, #authorization').keypress(function (evt) {
+			        if (evt.keyCode == 13) {
+			            evt.preventDefault();
+			            onLogin();
+			        }
+			    });
+			});
+			
+		</script>
+
+	</body>
+</html>

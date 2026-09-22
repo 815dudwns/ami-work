@@ -1,0 +1,757 @@
+<script type="text/javascript" src="/app-assets/js/api/ami/mob/mtl/MOBMTL1000.api.js"></script>
+<!-- 자재관리 입고등록 -->
+<div class="top_title_line">	
+	<ul class="breadcrumb">
+		<li>자재관리</li>
+		<li>입고등록</li>
+	</ul>
+</div>
+<section class="sub_cont_box" id="app">
+	<table class="table-type33">
+		<caption>자재의 입고 정보를 항목별 순서대로 안내하는 표입니다</caption>
+		<colgroup>
+			<col width="20%">
+			<col width="30%">
+			<col width="20%">
+			<col width="30%">
+		</colgroup>
+		<tbody>
+			<tr>
+				<th scope="row"><label for="form0101">인계자지역</label></th>
+				<td colspan="3">
+					<select id="form0101" class="size-m" v-model="selectedDept1">
+						<option v-for="item in setDept1" :key="item.DEPT1" :value="item.DEPT1">
+							{{ item.DEPT1_NM }}
+						</option>
+					</select>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="form0102">인계자소속</label></th>
+				<td colspan="3">
+					<div class="flex">
+						<select id="form0102" class="size-m" v-model="selectedBlon">
+							<option v-for="item in setBlon" :key="item.C_CODE" :value="item.C_CODE">
+								{{ item.C_CODE_NM }}
+							</option>
+						</select>
+						<select id="form010202" class="size-m" v-model="selectedDept2">
+							<option value="" v-if="!setDept2 || setDept2.length === 0" disabled>
+								회사 없음
+							</option>
+							<option v-for="item in setDept2" :key="item.DEPT2" :value="item.DEPT2">
+								{{ item.DEPT2_NM }}
+							</option>
+						</select>
+					</div>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="form0103">인계자이름</label></th>
+				<td colspan="3">
+					<select id="form0103" class="size-m" v-model="selectedUserNm">
+						<option value="" v-if="!setUserNm || setUserNm.length === 0" disabled>
+							인계자 없음
+						</option>
+						<option v-for="item in setUserNm" :key="item.USER_ID" :value="item.USER_ID" v-else>
+							{{ item.USER_NM }}
+						</option>
+					</select>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="form0104">입고장소</label></th>
+				<td colspan="3">
+					<select id="form0104" class="size-m" v-model="selectedPlce">
+						<option value="" v-if="!setPlaceCode || setPlaceCode.length === 0" disabled>
+							장소 없음
+						</option>
+						<option v-for="item in setPlaceCode" :key="item.MTRL_STRG_PLCE_NO" :value="item.MTRL_STRG_PLCE_NO">
+							{{ item.MTRL_STRG_PLCE_NM }}
+						</option>
+					</select>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="form0105">설비구분</label></th>
+				<td>
+					<select id="form0105" class="size-m" v-model="selectedFclClCode">
+						<option v-for="item in setFclClCode" :key="item.C_CODE" :value="item.C_CODE">
+							{{ item.C_CODE_NM }}
+						</option>
+					</select>
+				</td>
+				<th scope="row"><label for="form0106">자재상태</label></th>
+				<td>
+					<select id="form0106" class="size-m" v-model="selectedMtlCode">
+						<option v-for="item in setMtlStsCode" :key="item.C_CODE" :value="item.C_CODE">
+							{{ '('+item.C_CODE+')'+item.C_CODE_NM }}
+						</option>
+					</select>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="form0107">단위구분</label></th>
+				<td>
+					<select id="form0107" class="size-m" v-model="selectedUnitCode">
+						<option v-for="item in setMtlUnitCode" :key="item.C_CODE" :value="item.C_CODE">
+							{{ item.C_CODE_NM }}
+						</option>
+					</select>
+				</td>
+				<th scope="row"><label for="form0108">자재수량 (합계)</label></th>
+				<td>
+					<input type="text" id="form0108" class="size-m" :value="orgBarcdQrInfo.length.toLocaleString()" disabled>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="form0109">입고수량</label></th>
+				<td>
+					<input type="text" id="form0109" class="size-m" :value="greenList.length.toLocaleString()" disabled>
+				</td>
+				<th scope="row"><label for="form0110">입고불가 수량</label></th>
+				<td>
+					<input type="text" id="form0110" class="size-m" :value="redList.length.toLocaleString()" disabled>
+				</td>
+			</tr>					
+		</tbody>		
+	</table>
+	<div>
+		<select class="size-m" v-model="selectedWrhsgYn">
+			<option value="" >전체</option>
+			<option value="Y">입고가능</option>
+			<option value="N">입고불가</option>
+		</select>
+	</div>	
+	<div class="d-flex between">
+		<input type="text" class="size-m" :placeholder="getPlaceholder()" v-model="inputValue">
+		<div class="d-flex">
+			<button type="button" class="btn type02 size-m primary" @click="fnSearch()">검색</button>
+			<button type="button" class="btn type02 size-m camera width-full" @click="modalOpen">
+				<span class="icon-camera"></span>
+			</button>
+		</div>
+	</div>
+	
+	<table class="table-type33">
+		<caption>자재 입고 정보를 항목별 순서대로 안내하는 표입니다</caption>
+		<colgroup>
+			<col width="20%">
+			<col width="30%">
+			<col width="20%">
+			<col width="30%">
+		</colgroup>
+		<tbody v-if="barcdQrInfo.data.length > 0">
+			<tr v-for="(item, index) in barcdQrInfo.data">
+				<th scope="row" :class="classCheck(item)">
+					<label for="'form0201_'+index">{{ getPsblYn(item) }}</label>
+				</th>
+				<td colspan="3">
+					<div class="flex">
+						<input type="text" id="form0201" class="size-m" :value="item.FCTY_ID" disabled>
+						<button type="button" class="btn size-m bg-gray" style="width: 40px;" @click="deleteRow(index)"><span class="icon-close"></span></button>
+					</div>								
+				</td>
+			</tr>
+		</tbody>
+		<tbody v-else>
+		</tbody>
+	</table>
+	<paging :pagingset="barcdQrInfoPaging" :type="'normal'"></paging>
+	<div class="btn-line d-flex end">
+		<button type="button" class="btn type01 size-m c-primary" @click="confirmOpen" v-if="barcdQrInfo.data.length > 0">저장</button>
+	</div>
+	
+	<!-- modal layer popup -->
+	<div class="modal-layer-wrap">
+		<div id="flmnMode" class="modal-layer modal-small">
+			<div class="modal-container">
+				<div class="modal-header">
+					<p class="modal-title">촬영 선택</p>
+				</div>
+				<div class="modal-content">
+					<button type="button" class="btn type02 size-m camera width-full" @click="fnFlmn('barcode')" v-if="selectedBoxYn != 'Y' && selectedFclClCode != 'T'">
+						BARCODE
+					</button>
+					<button type="button" class="btn type02 size-m camera width-full" @click="fnFlmn('qr')" v-if="selectedBoxYn == 'Y' || selectedFclClCode != 'D'">
+						QRCODE
+					</button>
+					<button type="button" class="btn type02 size-m camera width-full" @click="fnFlmn('ocr')" v-if="selectedBoxYn != 'Y' && selectedFclClCode == 'T'">
+						OCR
+					</button>
+				</div>
+				<div class="modal-footer center">
+				    <a href="#!" class="bbtn type02 size-m layer_close">닫기</a>
+				</div>
+				<div class="btn-r">
+					<a href="#" class="cbtn" style="display: inline-block;" title="모달창 닫기"><span class="icon-exit"></span></a>
+				</div>
+			</div>
+		</div>
+	</div>
+	<!-- 바코드실행 -->
+	<barcode-reader ref="barcodeReader" id="barcode_reader" title="바코드 및 큐알" @callback="receiveBarcode"></barcode-reader>
+	<!--OCR-->
+	<ocr-reader-warebiz ref="ocrReaderWarebiz" id="ocr_reader" title="OCR" @callback="receiveOcr"></ocr-reader-warebiz>
+	<!-- 모달팝업 -->
+	<modal-message :modalset="messageModal" v-on:messagepoppupcallback="messagepoppupcallback"></modal-message>
+</section>
+<script type="text/javascript">
+/*******************************************************************************************************************************************************************
+ * vue start
+ ********************************************************************************************************************************************************************/
+var vm = new Vue({
+	el: '#app',
+	//사용할 데이터
+	data: {
+		//세션정보
+		loginUserID: "",
+		loginUserDept2: "",
+		loginUserInfo: [], //로그인 유저 정보
+		
+		deptOption: [], //인계자지역, 인계자세부소속 옵션
+		userOption: [], //인계자유저
+		plceOption: [], //입고장소
+		mtlCodeOption: [], //자재관련공통코드 리스트
+
+		selectedPlce: "", //입고장소 선택
+		selectedShpPurp: "", //입고목적 선택
+		selectedDept1: "", //인계자지역 선택
+		selectedBlon: "", //인계자소속 선택
+		selectedDept2: "", //인계자상세소속 선택
+		selectedUserNm: "", //인계자이름 선택
+		selectedFclClCode: "", //설비구분 선택
+		selectedMtlCode: "", //자재상태 선택
+		selectedUnitCode: "", //자재단위 선택(초기에는 개별로 세팅)
+		selectedBoxYn: "N", //박스여부(자재단위가 개별이면 Y, 그 외 N)
+		selectedWrhsgYn: "", //입고여부
+		inputValue: "", //입력값
+		placeClCd: "", //창고장소구분코드(장소세팅을 위한 코드)
+		placeRegCd: "",//창고장소등록코드(장소세팅을 위한 코드)
+		
+		flmnMode: false, //촬영구분팝업
+		vFlmnCl: "", //촬영구분
+
+		barcdQrInfo: new Dataset(), //바코드 큐알 정보
+		orgBarcdQrInfo: [], //바코드 큐알 정보 원본데이터
+		barcdQrInfoPaging: new PagingSet(10, 50), //페이징처리
+		totalCount: 0, //목록의 전체 개수
+		
+		messageModal: new ModalSet('modal-message'), //메시지 출력
+	},
+	//생성 될 때
+	beforeCreate: function () {
+	},
+	//계산된 속성 표현 시
+	computed: {
+		//인계자지역 세팅
+		setDept1(){
+			return this.deptOption.filter(item => item.RNUM === 1);
+		},
+		//인계자상세소속 세팅
+		setBlon(){
+			return this.mtlCodeOption.filter(item => item.P_CODE === 'MTL001');
+		},
+		//인계자소속 세팅
+		setDept2(){
+			if(this.selectedBlon == '10' || this.selectedBlon == '20'){
+				//한전, KDN한전
+				return this.deptOption.filter(item => item.DEPT1 === this.selectedDept1 && item.GUBUN === this.selectedBlon);	
+			}else if(this.selectedBlon == '30' || this.selectedBlon == '40'){
+				//내선업체(30), 하도급사(40)
+				//1. 본부와 선택한 인계자지역이 동일한 리스트 생성
+				const list = this.deptOption.filter(item => item.GUBUN === this.selectedBlon && item.DEPT1 === this.selectedDept1);
+				let ordList = [];
+				
+				//2-1. 선택한 인계자지역과 로그인한 계정의 본부와 일치하면 지사 체크
+				if(this.selectedDept1 === this.session.DEPT1){
+					//인계자지역과 본부가 일치한 리스트에서 지사가 로그인계정의 지사와 동일한 리스트 생성
+					ordList = list.filter(item => item.DEPT2 === this.loginUserDept2 /*한전:dept,한전kdn:kdn_dept,내선업체,하도급사:cocmp_bupe_id의 값*/
+					                           || item.GUBUN_DEPT2 === this.loginUserDept2 /*내선업체,하도급사 dept2 값*/
+											   || item.GUBUN_KDN_DEPT2 === this.loginUserDept2); /*내선업체,하도급사 kdn_dept2 값*/
+					//2-1-1. 리스트 존재 시 지사가 로그인계정의 지사와 동일한 리스트를 제외한 리스트 생성 
+					if(ordList.length > 0){
+						const otherList = list.filter(item => item.DEPT2 !== this.loginUserDept2 
+						                                   && item.GUBUN_DEPT2 !== this.loginUserDept2
+														   && item.GUBUN_KDN_DEPT2 !== this.loginUserDept2);
+						return [...ordList, ...otherList]; //지사와 동일한 리스트 + 동일하지 않은 리스트 합쳐서 생성
+					}
+				}
+				//2-2. 본부와 선택한 인계자지역이 동일한 리스트가 있으면 리스트 반환, 없으명 회사가 없다는 뜻
+				return list.length > 0 ? list : this.selectedDept2 = "";
+			}else{
+				//인계자소속이 없으면 DEPT1(본부)에 대한 DEPT2 출력(지사)
+				return this.deptOption.filter(item => item.DEPT1 === this.selectedDept1);
+			}
+		},
+		//인계자이름 세팅
+		setUserNm(){
+			let userList = null;
+			if(this.selectedBlon == '10'){
+				userList = this.userOption.filter(item => item.DEPT2 === this.selectedDept2 && item.USER_ID !== this.loginUserID); 
+			}else if(this.selectedBlon == '20'){
+				userList = this.userOption.filter(item => item.KDN_DEPT2 === this.selectedDept2 && item.USER_ID !== this.loginUserID); 
+			}else{ 
+				const deptField = this.selectedBlon === '30' ? 'INLN_BUPE_ID' : 'SBCN_BUPE_ID';
+				userList = this.userOption.filter(item => item.DEPT1 === this.selectedDept1 && item.BLON_CL_CD === this.selectedBlon && item[deptField] === this.selectedDept2 && item.USER_ID !== this.loginUserID);
+			}
+			
+			if(userList.length > 0){
+				this.selectedUserNm = userList[0].USER_ID;	
+			}else{
+				this.selectedUserNm = "";
+			}
+			return userList
+		},
+		//장소 세팅
+		setPlaceCode(){
+			const placeList = this.plceOption.filter(item => item.MTRL_STRG_PLCE_KND_CL_CD === this.placeClCd 
+			                                              && item.AMMS_MTRL_STRG_PLCE_REG_CL_CD === this.placeRegCd);
+			if(placeList.length > 0){
+				this.selectedPlce = placeList[0].MTRL_STRG_PLCE_NO;
+			}
+			return placeList;
+		},
+		//설비(=자재)구분 세팅
+		setFclClCode(){
+			const fclClList = this.mtlCodeOption.filter(item => item.P_CODE === 'OBS001');
+			if(fclClList.length > 0){
+				this.selectedFclClCode = fclClList[0].C_CODE; // 첫 번째 값을 자동 선택	
+			}
+			return fclClList;
+		},
+		//자재상태 세팅
+		setMtlStsCode(){
+			const mtlStsList = this.mtlCodeOption.filter(item => item.P_CODE === 'MTL002');
+			if(mtlStsList.length > 0){
+				this.selectedMtlCode = mtlStsList[0].C_CODE; 
+			}
+			return mtlStsList;
+		},
+		//자재단위구분 세팅
+		setMtlUnitCode(){
+			const mtlUnitList = this.mtlCodeOption.filter(item => item.P_CODE === 'MTL017');
+			if(mtlUnitList.length > 0){
+				this.selectedUnitCode = mtlUnitList[0].C_CODE;
+			}
+			return mtlUnitList;			
+		},
+		//입고가능수량 세팅
+		greenList(){
+			return 	this.orgBarcdQrInfo.filter(item => item.WRHSG_YN === 'Y' && (item.MTRL_USER_ID === this.selectedUserNm || item.MTRL_USER_ID === ''));
+		},
+		//입고불가수량 세팅
+		redList() {
+			return 	this.orgBarcdQrInfo.filter(item => item.WRHSG_YN === 'N' || item.MTRL_USER_ID !== this.selectedUserNm);
+		},
+		
+	},
+	//데이터 감시
+	watch: {
+		'barcdQrInfo.data': {
+			handler: function(val, oldVal) {
+				if(this.barcdQrInfo.enableevent) {
+					var vm = this;
+					val.filter(function(data, rowposition) {
+						return Object.keys(data).some(function(colNm) {
+							var diff = data[colNm] !== vm.barcdQrInfo.beforeData[rowposition][colNm];
+							if(diff) {
+								vm.barcdQrInfo.beforeData[rowposition][colNm] = data[colNm];
+							}
+						});
+					});
+				}
+			},
+			deep: true
+		},
+		'barcdQrInfoPaging.currentPage': {
+			handler: function (val, oldVal) {
+				this.barcdQrInfo.pageChange(val, this.barcdQrInfoPaging.getRowCnt());
+			}
+		},
+		//인계자지역 변경 시 인계자상세소속 세팅
+		'selectedDept1':{
+			handler: function (val, oldVal) {
+				if(oldVal != undefined && oldVal != "" || this.selectedDept2 == ""){
+					this.$nextTick(() => {
+					    const dept2List = this.setDept2;
+					    if (dept2List && dept2List.length > 0) {
+					    	this.selectedDept2 = dept2List[0].DEPT2;
+					    }else{
+					    	this.selectedDept2 = "";
+					    }
+					});
+				}
+			}
+		},
+		//인계자소속 변경 시 인계자상세소속 세팅
+		'selectedBlon':{
+			handler: function (val, oldVal) {
+				if(oldVal != undefined && oldVal != ""){
+					this.$nextTick(() => {
+					    const dept2List = this.setDept2;
+					    if (dept2List && dept2List.length > 0) {
+					    	this.selectedDept2 = dept2List[0].DEPT2;
+					    }else{
+					    	this.selectedDept2 = "";
+					    }
+					});
+				}
+			}
+		},
+		//인계자상세소속 변경 시 유저 재조회
+		'selectedDept2':{
+			handler: function (val, oldVal) {
+				if(oldVal != undefined && oldVal != ""){
+					this.setUserNm;
+				}
+			}
+		},
+		'selectedFclClCode': {
+			handler: function (val, oldVal) {
+				//목록 초기화
+				this.barcdQrInfo = new Dataset();
+				this.orgBarcdQrInfo = [];
+				this.barcdQrInfoPaging.currentPage = 1;
+				this.barcdQrInfoPaging.totalCnt = 0;
+				this.totalCount = 0;
+				this.inputValue = "";
+			}
+		},
+		//selectedUnitCode에 따라 박스여부 결정
+		'selectedUnitCode':{
+			handler: function (val, oldVal) {
+				this.barcdQrInfo = new Dataset();
+				this.orgBarcdQrInfo = [];
+				this.barcdQrInfoPaging.currentPage = 1;
+				this.barcdQrInfoPaging.totalCnt = 0;
+				this.totalCount = 0;
+				this.inputValue = "";
+				if(this.selectedUnitCode === "10"){
+					this.selectedBoxYn = 'N';
+				}else{
+					this.selectedBoxYn = 'Y';
+				}
+			}
+		},
+		'selectedWrhsgYn':{
+			handler: function (val, oldVal) {
+				this.barcdQrInfo = new Dataset();
+				if(this.selectedWrhsgYn == 'Y'){
+					const list = this.orgBarcdQrInfo.filter(item => {
+					  return this.classCheck(item) === 'green';
+					});
+					this.barcdQrInfo.setRawData(list, this.barcdQrInfoPaging.getRowCnt());
+		            this.barcdQrInfoPaging.setTotalCnt(list.length);
+		            this.totalCount = list.length;
+				}else if(this.selectedWrhsgYn == 'N'){
+					const list = this.orgBarcdQrInfo.filter(item => {
+					  return this.classCheck(item) === 'red';
+					});
+					this.barcdQrInfo.setRawData(list, this.barcdQrInfoPaging.getRowCnt());
+		            this.barcdQrInfoPaging.setTotalCnt(list.length);
+		            this.totalCount = list.length;
+				}else{
+					this.barcdQrInfo.setRawData(this.orgBarcdQrInfo, this.barcdQrInfoPaging.getRowCnt());
+					this.barcdQrInfoPaging.setTotalCnt(this.orgBarcdQrInfo.length);
+					this.totalCount = this.orgBarcdQrInfo.length;
+				}
+				this.barcdQrInfoPaging.currentPage = 1;
+			}
+		},
+	},
+	//마운트 된 시점수행
+	mounted: function () {
+		this.loginUserID = this.session.USER_ID;
+		this.getSearchOptions();
+	},
+	//함수
+	methods: {
+		//선택옵션 조회
+		getSearchOptions: function(){
+			var self = this;
+			var returnVal = mobMtl1000Api.getOptions();
+			returnVal.then(function(response) {
+				if(response.data){
+					self.deptOption = response.data.deptList; //인계자지역, 인계자세부소속
+					self.userOption = response.data.userList; //인계자유저정보
+					self.mtlCodeOption = response.data.mtlCodeList; //자재관련 공통코드(소속, 설비구분, 자재상태)
+					self.plceOption = response.data.plceList; //입고장소
+					
+					//로그인한 사용자 정보
+					const loginUser = self.userOption.find(user => user.USER_ID === self.loginUserID);
+					self.loginUserInfo = loginUser; //로그인유저 정보(저장 시 필요)
+					self.selectedDept1 = loginUser.DEPT1; //본부
+					self.selectedBlon = loginUser.BLON_CL_CD; //소속구분
+					self.loginUserDept2 = loginUser.GUBUN_DEPT; //내선업체, 하도급사 회사 세팅 시 필요(setDept2에서 사용)
+					//소속구분에 따른 상세소속세팅
+					if(loginUser.BLON_CL_CD == '10' || loginUser.BLON_CL_CD == '20'){
+						self.selectedDept2 = loginUser.BLON_CL_CD == '10' ? loginUser.DEPT2 : loginUser.KDN_DEPT2;
+						self.placeClCd = loginUser.BLON_CL_CD == '10' ? '2' : '4';
+						self.placeRegCd = loginUser.BLON_CL_CD == '10' ? loginUser.DEPT2 : loginUser.KDN_DEPT2;
+					}else{
+						self.selectedDept2 = loginUser.BLON_CL_CD == '30' ? loginUser.INLN_BUPE_ID : loginUser.SBCN_BUPE_ID;
+						self.placeClCd = loginUser.BLON_CL_CD == '30' ? '3' : '5';
+						self.placeRegCd = loginUser.BLON_CL_CD == '30' ? loginUser.INLN_BUPE_ID : loginUser.SBCN_BUPE_ID;
+					}
+				}
+			}).catch(function(error) {
+				console.error("옵션 데이터 가져오기 실패:", error);
+			});
+		},
+		
+		//항목삭제
+		deleteRow: function(index){
+			const startIdx = (this.barcdQrInfoPaging.currentPage - 1) * this.barcdQrInfoPaging.getRowCnt();
+			const realIndex = startIdx + index;
+			
+			this.barcdQrInfo.rawData.splice(realIndex, 1);
+			this.barcdQrInfoPaging.setTotalCnt(this.barcdQrInfo.rawData.length);
+			this.barcdQrInfo.pageChange(this.barcdQrInfoPaging.currentPage, this.barcdQrInfoPaging.getRowCnt());
+		},
+		
+		//메시지알림
+		confirmOpen: function(){
+			this.messageModal.openModal('confirm', '입고등록', '저장하시겠습니까?', 'small', 'save');
+		},
+		//modal collback
+		messagepoppupcallback : function(pGb, pId){
+			if(pGb!='confirm') return;
+			//if(pId == 'impsRsn') return; //불가팝업에 대한 콜백(적용x 추후 필요시 주석해제)
+			if(this.selectedPlce == ""){
+				notifySubmit('error', '입고장소', '입고장소를 선택해주세요.', 'icon-caution');
+				return;
+			}
+			if(this.selectedUserNm == ""){
+				notifySubmit('error', '인계자이름', '인계자이름을 선택해주세요.', 'icon-caution');
+				return;
+			}
+			this.saveRow();
+		},
+		//저장
+		saveRow: function(){
+			var self = this;
+			var vloginUserCoId = "";
+			var vPossClcd = "1"; //소유구분(1:한전(당사)소유, 2:고객소유) -JC015
+			
+			//로그인 유저의 사업자ID세팅(내선업체 및 하도급사일 경우)
+			if(self.loginUserInfo.BLON_CL_CD == '30' || self.loginUserInfo.BLON_CL_CD == '40'){
+				vPossClcd = "2";
+				vloginUserCoId = self.loginUserInfo.BLON_CL_CD == '30' ? self.loginUserInfo.INLN_BUPE_ID : self.loginUserInfo.SBCN_BUPE_ID;   
+			}
+			
+			//저장불가 리스트(저장 후 페이징 처리 시 필요)
+			const redList = self.barcdQrInfo.rawData.filter(item => {
+			  return self.classCheck(item) === 'red';
+			});
+
+			const saveList = self.barcdQrInfo.rawData.filter(item => item.WRHSG_YN === 'Y' && 
+																(item.MTRL_USER_ID === self.selectedUserNm || item.MTRL_USER_ID === ''))
+			.map(item => {
+			    return {
+				    ...item,
+					loginUserBlonCd: self.loginUserInfo.BLON_CL_CD,
+					loginUserDept1: self.loginUserInfo.DEPT1,
+					loginUserDept2: self.loginUserInfo.DEPT2,
+					loginUserKdnDept1: self.loginUserInfo.KDN_DEPT1,
+					loginUserKdnDept2: self.loginUserInfo.KDN_DEPT2,
+					loginUsercoId: vloginUserCoId,
+					vMtrlStrgPlceCd: self.selectedPlce,
+					loginUserId: self.loginUserInfo.USER_ID,
+					vMtrlStsCd: self.selectedMtlCode,
+					vWrhsgShpClCd: '10',
+					vPossClcd: vPossClcd,
+			    }
+			});
+			if(saveList.length <= 0){
+				notifySubmit('error', '입고등록', '저장할 내역이 없습니다.', 'icon-caution');
+				return;
+			}
+			var saveParams = {
+				saveList: saveList
+			}
+			var returnVal = mobMtl1000Api.insMtrl(saveParams);
+			returnVal.then(function(response){
+				if(response.data > 0){
+					//바코드 및 큐알 정보 초기화
+					self.barcdQrInfo = new Dataset();
+					self.orgBarcdQrInfo = [];
+					self.inputValue = "";
+					//페이징 정보 초기화
+					if(redList.length > 0){
+						self.barcdQrInfo.setRawData(redList, self.barcdQrInfoPaging.getRowCnt()); // red만 남김
+						self.orgBarcdQrInfo = redList;
+						self.barcdQrInfoPaging.setTotalCnt(redList.length);
+						self.totalCount = redList.length;
+					}else{
+						self.barcdQrInfoPaging.currentPage = 1;
+						self.barcdQrInfoPaging.totalCnt = 0;
+						self.totalCount = 0;
+					}
+					notifySubmit('success', '입고등록', '저장이 완료되었습니다.', 'icon-save');
+				}else{
+					console.error('error:', error);
+				}
+				
+			}).catch(function(error){
+				notifySubmit('error', '입고등록', '저장에 실패하였습니다.', 'icon-caution');
+				console.error('error:', error);
+			});
+		},
+		
+		//촬영선택 팝업창
+		modalOpen: function(){
+			if(['20','30'].includes(this.selectedUnitCode)){
+				this.$refs.barcodeReader.openBarcodeScanner("2d");
+			}else if(this.selectedFclClCode === 'D' && this.selectedUnitCode === '10'){
+				this.$refs.barcodeReader.openBarcodeScanner("1d");
+			}else{
+				this.flmnMode = true;
+				modal_open('flmnMode');
+			}
+		},
+		//촬영
+		fnFlmn: function(gubun){
+			this.vFlmnCl = gubun; 
+			if(gubun === 'barcode' || gubun === 'qr'){
+				const scanGubn = gubun === 'barcode' ? "1d" : "2d";
+				this.$refs.barcodeReader.openBarcodeScanner(scanGubn);
+			}else{
+				this.$refs.ocrReaderWarebiz.openOCRScanner();
+			}
+			
+			modal_close('flmnMode');
+		},
+		//바코드orQR callback
+		receiveBarcode: function(){
+			var vBarcdQr = this.$refs.barcodeReader.readValue; //코드값 가지고 fnValueInfo실행
+			this.fnValueInfo(vBarcdQr);
+		},
+		//ocr callback
+		receiveOcr: function() {
+		    var vOcr = this.$refs.ocrReaderWarebiz.meterNumber;
+			this.fnValueInfo(vOcr);
+		},
+		//바코드 및 QR OCR 정보조회(입고등록목록조회)
+		fnValueInfo: function(param){
+			var self = this;
+			var searchParams = mobMtl1000Api.getBarcdQrInfo( 
+				{	
+					'vFclCl': self.selectedFclClCode, //설비구분
+					'vUnitCode': self.selectedUnitCode, //단위구분
+					'vBarcdQr': param //바코드 및 큐알코드
+				},
+				false
+			);
+			self.inputValue = param;
+			self.barcdQrInfoPaging.currentPage = 1;
+			searchParams.then(function(response) {
+					if(response.data.length > 0){
+						let newData = response.data; //신규데이터
+						let mergedData = []; //합칠 데이터
+						if((self.totalCount === 0 && self.selectedBoxYn === 'N') || self.selectedBoxYn === 'Y'){
+							mergedData = response.data;
+						}else{
+							//addrow 리스트
+							let rowData = self.barcdQrInfo.rawData; //기존 데이터 가져오기
+							let rowDataKey = new Set(rowData.map(row => row.FCTY_ID)); //기존 데이터KEY(중복제거를 위함)
+							let filterRowData = newData.filter(row => !rowDataKey.has(row.FCTY_ID)); //중복제거 데이터
+							mergedData = filterRowData.concat(rowData); //기존 + 중복제거된 리스트 합치기
+						}
+						self.barcdQrInfo.setRawData(mergedData, self.barcdQrInfoPaging.getRowCnt());
+						self.barcdQrInfoPaging.setTotalCnt(mergedData.length);
+						self.totalCount = mergedData.length; //목록전체 개수를 저장
+						self.orgBarcdQrInfo = mergedData;
+						self.vFlmnCl = ""; //촬영구분 초기화
+						
+					}else {
+						notifySubmit('error', '바코드 정보', '조회된 정보가 없습니다.', 'icon-caution');
+						self.vFlmnCl = "";
+						//self.barcdQrInfo = new Dataset();
+					}
+				});
+		},
+		
+		//바코드 큐알 정보 class 색 체크
+		/*class가 green인 조건:(저장가능한 상태) 
+		1. 로그인한 정보(인수자)와 자재사용자ID가 같지 않는 경우(쿼리에서 decode처리) → WRHSG_YN=Y
+		2. 자재사용자ID와 인계자이름이 동일한 경우
+		에만 저장 가능!
+		*/
+		classCheck: function(index){
+			if(index.WRHSG_YN === 'Y' && (index.MTRL_USER_ID === this.selectedUserNm || index.MTRL_USER_ID === '')){
+				return 'green';
+			}else{
+				return 'red';
+			}
+		},
+		//목록에서 입고 가능한지에 대한 상태값 텍스트로 출력
+		getPsblYn: function(item){
+			let statText = "";
+			
+			if(item.WRHSG_SHP_CL_CD === '50'){
+				statText = "기 사용";
+			}else if(item.MTRL_USER_ID === this.session.USER_ID){
+				statText = "내 소유";
+			}else if(!isNull(item.WRHSG_SHP_CL_CD) && item.DEPT1 !== this.selectedDept1){
+				statText = "타지역 소유";
+			}else if(!isNull(item.WRHSG_SHP_CL_CD) && item.MTRL_BLON_CL_CD !== this.selectedBlon){
+				statText = "타소속 소유";
+			}else if(!isNull(item.WRHSG_SHP_CL_CD) && item.MTRL_DEPT2 !== this.selectedDept2){
+				statText = "타회사 소유";
+			}else if(item.MTRL_USER_ID !== this.selectedUserNm && item.MTRL_USER_ID !== ''){
+				statText = item.MTRL_USER_NM+" 소유";
+			}else{
+				if(['10','30'].includes(item.WRHSG_SHP_CL_CD)){
+					statText = item.MTRL_USER_NM + " " + this.getComNm('MTL004', item.WRHSG_SHP_CL_CD);
+				}else{
+					statText = "입고가능";	
+				}
+			}
+			return statText;
+		},
+		//조회
+		fnSearch: function (){
+			if(isNull(this.inputValue)){
+				notifySubmit('error', '검색어 입력', this.getPlaceholder()+'를 입력해주세요.', 'icon-caution');
+				return;
+			} 
+			this.fnValueInfo(this.inputValue);
+		},
+		//공통코드값 명칭
+		getComNm: function(pCode, cCd){
+			const comCdNm = this.mtlCodeOption.find(item => item.P_CODE === pCode && item.C_CODE === cCd);
+			return comCdNm ? comCdNm.C_CODE_NM : cCd;
+		},
+		//검색어에 표시할 placeholder 세팅
+		getPlaceholder: function(){
+			if(this.selectedUnitCode === '10'){
+				return "설비ID";
+			}else if(this.selectedUnitCode === '20'){
+				return "박스번호";
+			}else{
+				return "팔레트번호";
+			}
+		},
+		//불가 시 팝업알림(적용x 추후 필요시 주석해제)
+		/*
+		fnImpsRsn: function(item){
+			let title = "";
+			let msg = "";
+			let stat = ""
+			if(item.WRHSG_YN === 'Y' && (item.MTRL_USER_ID === this.selectedUserNm || item.MTRL_USER_ID === '')){
+				return;
+			}else{
+				title = "불가사유";
+				msg = "자재 소유자: "+item.MTRL_USER_NM;
+				stat = item.WRHSG_SHP_CL_CD === '50' ? "자재상태 : 현장설치" : "자재보관창고: "+item.MTRL_STRG_PLCE_NM;
+				this.messageModal.openModal('message', title, msg+'</br>'+stat, 'small', 'impsRsn');
+			}
+		}
+		*/
+	}
+});
+/*******************************************************************************************************************************************************************
+ * vue end
+ ********************************************************************************************************************************************************************/
+</script>

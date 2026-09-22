@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>전송탭 재디자인 시안 — 데이터검증관리자</title>
+<!-- clay.css 인라인 포함 (file:// 에서도 작동, 원본 /Users/woodelight/Projects/jongno-combined/css/clay.css) -->
+<style>
+/* ============================================================
+   clay.css — 클레이모피즘 디자인 시스템 (인라인 복사본)
+   ============================================================ */
+:root {
+  --bg:            #e9e6df;
+  --bg-deep:       #ddd9d0;
+  --surface:       #f6f4ef;
+  --surface-2:     #efece5;
+  --mint:          #a6dcc1;
+  --mint-l:        #bbe8d0;
+  --mint-ink:      #4e9b78;
+  --mint-strong:   #3f8e6b;
+  --mint-deep:     #2c5e44;
+  --mint-soft:     #d6ecdf;
+  --mint-glow: rgba(70,224,163,0.5);
+  --ink:           #2c2a27;
+  --ink-2:         #6f6b62;
+  --ink-3:         #a8a399;
+  --green:         #74c499;   --green-soft:  #c4e7d2;
+  --blue:          #6aa6dd;   --blue-soft:   #cfe2f5;
+  --amber:         #e0b85a;   --amber-soft:  #f3e3b0;
+  --rose:          #df8a8a;   --rose-soft:   #f3cdcd;
+  --violet:        #a896d0;   --violet-soft: #e0d6f0;
+  --gray:          #aaa499;   --gray-soft:   #d8d4cb;
+  --depth: 1;
+  --radius: 22px;
+  --radius-sm: 14px;
+  --radius-pill: 999px;
+  --clay:
+    calc(6px * var(--depth)) calc(7px * var(--depth)) calc(16px * var(--depth)) rgba(165,158,144,0.55),
+    calc(-6px * var(--depth)) calc(-6px * var(--depth)) calc(14px * var(--depth)) rgba(255,255,255,0.88),
+    inset 2px 2px 4px rgba(255,255,255,0.75),
+    inset -4px -4px 9px rgba(170,162,148,0.26);
+  --clay-sm:
+    calc(3px * var(--depth)) calc(4px * var(--depth)) calc(10px * var(--depth)) rgba(165,158,144,0.5),
+    calc(-3px * var(--depth)) calc(-3px * var(--depth)) calc(9px * var(--depth)) rgba(255,255,255,0.88),
+    inset 1px 1px 2px rgba(255,255,255,0.7),
+    inset -2px -2px 5px rgba(170,162,148,0.22);
+  --clay-inset:
+    inset 4px 5px 10px rgba(168,160,146,0.5),
+    inset -4px -4px 9px rgba(255,255,255,0.85);
+  --clay-inset-sm:
+    inset 3px 3px 6px rgba(168,160,146,0.46),
+    inset -3px -3px 6px rgba(255,255,255,0.8);
+  --clay-mint:
+    calc(5px * var(--depth)) calc(6px * var(--depth)) calc(14px * var(--depth)) rgba(95,160,125,0.45),
+    calc(-4px * var(--depth)) calc(-4px * var(--depth)) calc(11px * var(--depth)) rgba(255,255,255,0.8),
+    inset 2px 2px 5px rgba(225,247,234,0.85),
+    inset -4px -4px 9px rgba(80,150,115,0.4);
+  --focus-glow: 0 0 0 3px var(--mint-glow), 0 0 12px var(--mint-glow);
+  --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+}
+[data-theme="dark"], .theme-dark {
+  --bg:            #201e1b;
+  --bg-deep:       #191714;
+  --surface:       #2c2925;
+  --surface-2:     #262320;
+  --mint:          #7fcaa6;
+  --mint-l:        #93d6b3;
+  --mint-ink:      #8fd9b4;
+  --mint-strong:   #a7e4c6;
+  --mint-deep:     #13261d;
+  --mint-soft:     #29413a;
+  --mint-glow: rgba(70,224,163,0.5);
+  --ink:           #ece9e2;
+  --ink-2:         #a8a294;
+  --ink-3:         #746f64;
+  --green:  #74c499;  --green-soft:  #2b4639;
+  --blue:   #7fb0e0;  --blue-soft:   #2a3a4d;
+  --amber:  #e0b85a;  --amber-soft:  #4a3f24;
+  --rose:   #e09a9a;  --rose-soft:   #4a2e2e;
+  --violet: #b3a3da;  --violet-soft: #393050;
+  --gray:   #aaa499;  --gray-soft:   #38352f;
+  --clay:
+    calc(6px * var(--depth)) calc(7px * var(--depth)) calc(16px * var(--depth)) rgba(0,0,0,0.55),
+    calc(-5px * var(--depth)) calc(-5px * var(--depth)) calc(13px * var(--depth)) rgba(255,255,255,0.045),
+    inset 2px 2px 4px rgba(255,255,255,0.06),
+    inset -4px -4px 9px rgba(0,0,0,0.45);
+  --clay-sm:
+    calc(3px * var(--depth)) calc(4px * var(--depth)) calc(10px * var(--depth)) rgba(0,0,0,0.5),
+    calc(-3px * var(--depth)) calc(-3px * var(--depth)) calc(8px * var(--depth)) rgba(255,255,255,0.04),
+    inset 1px 1px 2px rgba(255,255,255,0.05),
+    inset -2px -2px 5px rgba(0,0,0,0.4);
+  --clay-inset:
+    inset 4px 5px 10px rgba(0,0,0,0.55),
+    inset -3px -3px 8px rgba(255,255,255,0.04);
+  --clay-inset-sm:
+    inset 3px 3px 6px rgba(0,0,0,0.5),
+    inset -2px -2px 5px rgba(255,255,255,0.035);
+  --clay-mint:
+    calc(5px * var(--depth)) calc(6px * var(--depth)) calc(14px * var(--depth)) rgba(0,0,0,0.5),
+    calc(-4px * var(--depth)) calc(-4px * var(--depth)) calc(11px * var(--depth)) rgba(120,210,170,0.12),
+    inset 2px 2px 5px rgba(190,240,215,0.25),
+    inset -4px -4px 9px rgba(0,0,0,0.4);
+  --focus-glow: 0 0 0 3px var(--mint-glow), 0 0 12px var(--mint-glow);
+}
+[data-theme="dark"] .cbtn-primary,
+[data-theme="dark"] .cseg button.active,
+.theme-dark .cbtn-primary,
+.theme-dark .cseg button.active {
+  background: linear-gradient(145deg, #6fc59c, #4ea27a);
+  color: #0f221a;
+}
+@font-face {
+  font-family: 'Pretendard';
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/woff2/PretendardVariable.woff2') format('woff2-variations');
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: var(--font); color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+.clay     { background: var(--surface); border-radius: var(--radius);    box-shadow: var(--clay); }
+.clay-sm  { background: var(--surface); border-radius: var(--radius-sm); box-shadow: var(--clay-sm); }
+.clay-inset { background: var(--bg-deep); border-radius: var(--radius-sm); box-shadow: var(--clay-inset); }
+.cbtn { font-family: var(--font); font-weight: 700; font-size: 15px; color: var(--ink); background: var(--surface); border: none; border-radius: var(--radius-pill); padding: 13px 22px; cursor: pointer; box-shadow: var(--clay-sm); transition: transform .12s ease, box-shadow .12s ease, background .15s ease; -webkit-tap-highlight-color: transparent; user-select: none; }
+.cbtn:active { transform: translateY(1px) scale(0.985); box-shadow: var(--clay-inset-sm); }
+.cbtn-primary { color: var(--mint-deep); background: linear-gradient(145deg, var(--mint-l), var(--mint)); box-shadow: var(--clay-mint); letter-spacing: -0.01em; }
+.cbtn-primary:hover { box-shadow: var(--clay-mint), var(--focus-glow); }
+.cbtn-primary:active { transform: translateY(1px) scale(0.985); box-shadow: inset 4px 5px 10px rgba(80,150,115,0.45), inset -4px -4px 10px rgba(225,247,234,0.6); }
+.cbtn-primary:disabled, .cbtn-disabled { color: var(--ink-3); background: var(--gray-soft); box-shadow: var(--clay-sm); cursor: not-allowed; }
+.cseg { display: inline-flex; gap: 4px; padding: 5px; border-radius: var(--radius-pill); background: var(--bg-deep); box-shadow: var(--clay-inset-sm); }
+.cseg button { font-family: var(--font); font-weight: 700; font-size: 13px; color: var(--ink-2); background: transparent; border: none; border-radius: var(--radius-pill); padding: 9px 16px; cursor: pointer; transition: all .15s ease; white-space: nowrap; }
+.cseg button.active { color: var(--mint-deep); background: linear-gradient(145deg, var(--mint-l), var(--mint)); box-shadow: 2px 3px 7px rgba(95,160,125,0.4), inset 1px 1px 3px rgba(225,247,234,0.7), inset -2px -2px 5px rgba(80,150,115,0.35); }
+.cinput { font-family: var(--font); font-size: 16px; color: var(--ink); width: 100%; padding: 15px 18px; border: none; border-radius: var(--radius-pill); background: var(--bg-deep); box-shadow: var(--clay-inset); outline: none; transition: box-shadow .18s ease; }
+.cinput::placeholder { color: var(--ink-3); }
+.cinput:focus { box-shadow: var(--clay-inset), var(--focus-glow); }
+.cchip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; padding: 7px 14px; border-radius: var(--radius-pill); background: var(--mint-soft); color: var(--mint-strong); box-shadow: var(--clay-sm); }
+.cchip.blue { background: var(--blue-soft); color: #2f6cad; }
+.cchip.amber { background: var(--amber-soft); color: #9a7220; }
+.cchip.rose { background: var(--rose-soft); color: #b13c3c; }
+.cchip.violet { background: var(--violet-soft); color: #6a55a0; }
+.cchip.gray { background: var(--gray-soft); color: var(--ink-2); }
+.cdot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; box-shadow: inset -1px -1px 2px rgba(0,0,0,0.18), inset 1px 1px 2px rgba(255,255,255,0.6); }
+.cdot.mint { background: var(--mint-ink); }
+.cdot.green { background: var(--green); }
+.cdot.blue { background: var(--blue); }
+.cdot.amber { background: var(--amber); }
+.cdot.rose { background: var(--rose); }
+.cdot.gray { background: var(--gray); }
+.calert { display: flex; align-items: center; gap: 12px; padding: 13px 18px; border-radius: var(--radius-pill); font-size: 14px; font-weight: 600; color: var(--ink); box-shadow: var(--clay-sm); }
+.calert.success { background: var(--green-soft); }
+.calert.warning { background: var(--amber-soft); }
+.calert.error   { background: var(--rose-soft); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(165,158,144,0.4); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-track { background: transparent; }
+</style>
+<style>
+/* ═══════════════════════════════════════════════════════════
+   데이터 팔레트 (기존 admin-validate.html 에서 이식)
+   ══════════════════════════════════════════════════════════= */
+:root {
+  --a-green:#2f7d54; --a-green-soft:#d2e9da;
+  --a-teal:#2a8a8a;  --a-teal-soft:#cfe8e6;
+  --a-blue:#3f74c0;  --a-blue-soft:#d3e2f4;
+  --a-violet:#7059b0;--a-violet-soft:#e0d8f1;
+  --a-amber:#9a6a1e; --a-amber-soft:#f3e1bf;
+  --a-rose:#b3433f;  --a-rose-soft:#f3d2d2;
+  --a-remain:#a89f8e;
+}
+[data-theme="dark"] {
+  --a-green:#7fd6a4; --a-green-soft:#244236;
+  --a-teal:#74cfcf;  --a-teal-soft:#1f4040;
+  --a-blue:#8fb8ec;  --a-blue-soft:#23344a;
+  --a-violet:#bba8e8;--a-violet-soft:#2f2950;
+  --a-amber:#e8c074; --a-amber-soft:#463922;
+  --a-rose:#ec9b98;  --a-rose-soft:#46282a;
+  --a-remain:#6f6a5e;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   기본 레이아웃
+   ══════════════════════════════════════════════════════════= */
+body {
+  min-height: 100vh;
+  padding: 24px;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.demo-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+  padding: 6px 14px;
+  background: var(--bg-deep);
+  border-radius: var(--radius-pill);
+  display: inline-block;
+}
+
+.tx-panel {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   섹션 카드
+   ══════════════════════════════════════════════════════════= */
+.tx-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--clay);
+  padding: 20px 24px;
+}
+.tx-card + .tx-card { }
+
+.tx-section-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 14px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   상단 상태바 (세션 + 스코프 + 봉인 카운터)
+   ══════════════════════════════════════════════════════════= */
+.tx-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tx-session-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-deep);
+  box-shadow: var(--clay-inset-sm);
+  font-size: 13px;
+  font-weight: 700;
+}
+.tx-session-pill .cdot { flex-shrink: 0; }
+.tx-session-pill .acct {
+  color: var(--ink-2);
+  font-weight: 600;
+  font-size: 12px;
+}
+.tx-session-pill .cons {
+  color: var(--ink-3);
+  font-weight: 600;
+  font-size: 11px;
+  padding-left: 4px;
+  border-left: 1px solid var(--gray-soft);
+  margin-left: 2px;
+}
+
+.tx-scope-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-deep);
+  box-shadow: var(--clay-inset-sm);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  flex: 1;
+  min-width: 0;
+}
+.tx-scope-pill .ds-name {
+  color: var(--mint-ink);
+  font-weight: 700;
+}
+.tx-scope-pill .sep {
+  color: var(--ink-3);
+}
+
+.tx-seal-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-deep);
+  box-shadow: var(--clay-inset-sm);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.tx-seal-counter .val {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--amber);
+  font-variant-numeric: tabular-nums;
+}
+
+.tx-statusbar-btns {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   세션 버튼 행
+   ══════════════════════════════════════════════════════════= */
+.tx-session-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--bg-deep);
+}
+.tx-session-hint {
+  font-size: 12px;
+  color: var(--ink-2);
+  padding: 8px 14px;
+  background: var(--blue-soft);
+  border-radius: var(--radius-sm);
+  line-height: 1.5;
+}
+.tx-session-hint.ok { background: var(--green-soft); color: var(--a-green); }
+.tx-session-hint.ng { background: var(--rose-soft);  color: var(--a-rose); }
+
+/* 계정 드롭다운을 오목 스타일로 */
+.cinput-sm {
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  padding: 9px 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--bg-deep);
+  box-shadow: var(--clay-inset-sm);
+  outline: none;
+  cursor: pointer;
+  min-width: 160px;
+}
+.cinput-sm:focus { box-shadow: var(--clay-inset-sm), var(--focus-glow); }
+
+/* ═══════════════════════════════════════════════════════════
+   미전송 / 전송완료 서브탭 + 카드 그리드
+   ══════════════════════════════════════════════════════════= */
+.tx-subtab-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.tx-summary-chips {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* 카드 그리드 — 미전송 */
+.tx-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tx-item {
+  display: grid;
+  grid-template-columns: 42px 1fr auto;
+  align-items: start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  box-shadow: var(--clay-sm);
+  transition: box-shadow 0.12s;
+}
+.tx-item:hover { box-shadow: var(--clay); }
+
+.tx-item-seq {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 800;
+  background: var(--bg-deep);
+  box-shadow: var(--clay-inset-sm);
+  color: var(--ink-2);
+  flex-shrink: 0;
+}
+
+.tx-item-body { min-width: 0; }
+
+.tx-item-flow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+.tx-item-flow .arrow {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.tx-item-flow .mid-old { color: var(--a-rose); font-size: 12px; }
+.tx-item-flow .mid-new { color: var(--mint-ink); }
+
+.tx-item-addr {
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 460px;
+}
+
+.tx-item-seals {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.tx-seal-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--amber-soft);
+  color: var(--amber);
+  box-shadow: var(--clay-sm);
+}
+.tx-seal-tag.placeholder {
+  background: var(--gray-soft);
+  color: var(--ink-3);
+}
+
+.tx-item-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* 상태 뱃지 */
+.tx-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+}
+.tx-badge.unsent {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+.tx-badge.sent {
+  background: var(--green-soft);
+  color: var(--a-green);
+}
+.tx-badge.failed {
+  background: var(--rose-soft);
+  color: var(--a-rose);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   전송 액션 바
+   ══════════════════════════════════════════════════════════= */
+.tx-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 0 4px;
+  flex-wrap: wrap;
+}
+
+.tx-verify-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-deep);
+  box-shadow: var(--clay-inset-sm);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-2);
+  cursor: pointer;
+  user-select: none;
+}
+.tx-verify-toggle input[type="checkbox"] { margin: 0; accent-color: var(--mint); }
+
+/* ═══════════════════════════════════════════════════════════
+   전송 진행 패널
+   ══════════════════════════════════════════════════════════= */
+.tx-progress-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--clay);
+  padding: 20px 24px;
+}
+
+.tx-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.tx-progress-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.tx-progress-subtitle {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 전체 진행바 */
+.tx-progress-track {
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-deep);
+  box-shadow: var(--clay-inset-sm);
+  overflow: hidden;
+  margin-bottom: 18px;
+}
+.tx-progress-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--mint-l), var(--mint));
+  box-shadow: 0 0 8px var(--mint-glow);
+  transition: width 0.4s ease;
+}
+
+/* 건별 단계 인디케이터 */
+.tx-step-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.tx-step-row {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.tx-step-mid {
+  font-weight: 700;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tx-steps {
+  display: flex;
+  gap: 4px;
+}
+.tx-step {
+  flex: 1;
+  text-align: center;
+  padding: 5px 4px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--bg-deep);
+  box-shadow: var(--clay-inset-sm);
+  color: var(--ink-3);
+  transition: background 0.15s, color 0.15s;
+}
+.tx-step.done {
+  background: var(--green-soft);
+  color: var(--a-green);
+  box-shadow: var(--clay-sm);
+}
+.tx-step.active {
+  background: linear-gradient(145deg, var(--mint-l), var(--mint));
+  color: var(--mint-deep);
+  box-shadow: var(--clay-mint);
+}
+.tx-step.fail {
+  background: var(--rose-soft);
+  color: var(--a-rose);
+  box-shadow: var(--clay-sm);
+}
+
+/* 실시간 로그 */
+.tx-log-panel {
+  background: var(--bg-deep);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--clay-inset);
+  padding: 12px 14px;
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.7;
+}
+.log-line { display: flex; gap: 10px; align-items: baseline; }
+.log-ts { color: var(--ink-3); flex-shrink: 0; font-size: 11px; }
+.log-ok  { color: var(--a-green); font-weight: 700; }
+.log-fail { color: var(--a-rose); font-weight: 700; }
+.log-sys { color: var(--ink-3); }
+
+/* 사후검증 결과 */
+.tx-verify-result {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  box-shadow: var(--clay-sm);
+}
+.tx-verify-result.pass { border-left: 4px solid var(--green); }
+.tx-verify-result.fail { border-left: 4px solid var(--rose); }
+.tx-verify-result-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tx-mismatch-list {
+  font-size: 12px;
+  color: var(--a-rose);
+  padding-left: 4px;
+  line-height: 1.8;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   전송 설정 (아코디언 형식)
+   ══════════════════════════════════════════════════════════= */
+.tx-config-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 680px) {
+  .tx-config-grid { grid-template-columns: 1fr; }
+}
+
+.tx-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tx-field-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-3);
+  letter-spacing: 0.05em;
+}
+
+.tx-account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.tx-account-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-deep);
+  box-shadow: var(--clay-inset-sm);
+  font-size: 13px;
+  font-weight: 700;
+}
+.tx-account-id { color: var(--ink); flex: 1; }
+.tx-account-seal {
+  font-size: 11px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.tx-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   수동 마킹 바
+   ══════════════════════════════════════════════════════════= */
+.tx-manual-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0 0;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--bg-deep);
+  margin-top: 8px;
+}
+.tx-manual-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   토스트 (성공/실패 — alert/confirm 대신)
+   ══════════════════════════════════════════════════════════= */
+.tx-toast-stack {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9999;
+}
+.tx-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 18px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: var(--clay);
+  animation: tx-toast-in 0.2s ease;
+  max-width: 360px;
+}
+.tx-toast.ok {
+  background: var(--green-soft);
+  color: var(--a-green);
+}
+.tx-toast.ng {
+  background: var(--rose-soft);
+  color: var(--a-rose);
+}
+.tx-toast.info {
+  background: var(--blue-soft);
+  color: var(--a-blue);
+}
+@keyframes tx-toast-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   확인 모달 (confirm 대신)
+   ══════════════════════════════════════════════════════════= */
+.tx-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+}
+.tx-modal-box {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--clay);
+  padding: 28px 28px 22px;
+  max-width: 400px;
+  width: 90%;
+}
+.tx-modal-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+.tx-modal-body {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+.tx-modal-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   스피너 (기존 관리자 스타일 차용)
+   ══════════════════════════════════════════════════════════= */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--mint-soft);
+  border-top-color: var(--mint-ink);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ═══════════════════════════════════════════════════════════
+   소형 버튼 보조
+   ══════════════════════════════════════════════════════════= */
+.cbtn-sm {
+  font-size: 12px;
+  padding: 8px 16px;
+}
+.cbtn-xs {
+  font-size: 11px;
+  padding: 5px 10px;
+}
+
+/* 아코디언 토글 */
+.tx-section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+.tx-section-toggle-arrow {
+  font-size: 12px;
+  color: var(--ink-3);
+  transition: transform 0.15s;
+}
+.tx-section-toggle-arrow.open { transform: rotate(180deg); }
+.tx-collapsible {
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.25s ease;
+}
+.tx-collapsible.open { max-height: 600px; }
+
+/* 구분선 */
+.tx-divider {
+  height: 1px;
+  background: var(--bg-deep);
+  margin: 14px 0;
+}
+</style>
+</head>
+<body>
+<!-- 토스트 컨테이너 -->
+<div class="tx-toast-stack" id="toastStack"></div>
+
+<!-- 확인 모달 -->
+<div class="tx-modal-overlay" id="confirmModal" style="display:none">
+  <div class="tx-modal-box">
+    <div class="tx-modal-title" id="confirmTitle">확인</div>
+    <div class="tx-modal-body" id="confirmBody"></div>
+    <div class="tx-modal-btns">
+      <button class="cbtn cbtn-sm" onclick="confirmCancel()">취소</button>
+      <button class="cbtn cbtn-sm cbtn-primary" id="confirmOkBtn" onclick="confirmOk()">확인</button>
+    </div>
+  </div>
+</div>
+
+<div style="margin-bottom:16px">
+  <span class="demo-label">전송탭 재디자인 시안 — 모의 데이터</span>
+  <span style="font-size:12px;color:var(--ink-3);margin-left:12px">실제 admin-validate.html 이식용. 백엔드 연결 없음.</span>
+</div>
+
+<div class="tx-panel">
+
+  <!-- ══════════════════════════════════
+       1. 상단 상태바 카드
+  ══════════════════════════════════ -->
+  <div class="tx-card">
+    <div class="tx-section-title">세션 · 스코프 · 봉인</div>
+
+    <div class="tx-statusbar">
+      <!-- 세션 상태 pill -->
+      <div class="tx-session-pill" id="sessionPill">
+        <span class="cdot green" id="sessionDot"></span>
+        <span id="sessionLabel">로그인됨</span>
+        <span class="acct" id="sessionAcct">mdp2504381</span>
+        <span class="cons" id="sessionCons">14차 공사 397820263153</span>
+      </div>
+
+      <!-- 날짜/데이터셋 스코프 -->
+      <div class="tx-scope-pill">
+        <span>데이터셋</span>
+        <span class="ds-name" id="scopeDs">jongno</span>
+        <span class="sep">/</span>
+        <span>날짜</span>
+        <span style="font-weight:700;color:var(--ink)" id="scopeDate">2026-07-17</span>
+        <span style="color:var(--ink-3);font-size:11px">의 검증완료 건</span>
+      </div>
+
+      <!-- 봉인 카운터 -->
+      <div class="tx-seal-counter">
+        <span>봉인 잔여</span>
+        <span class="val" id="sealCounter">124</span>
+        <span style="font-size:11px;color:var(--ink-3)">(단상+1 / 삼상+2)</span>
+      </div>
+
+      <!-- 세션 버튼 -->
+      <div class="tx-statusbar-btns">
+        <select class="cinput-sm" id="sessionAcctSel">
+          <option value="mdp2504381">mdp2504381</option>
+          <option value="mdp2504382">mdp2504382</option>
+        </select>
+        <button class="cbtn cbtn-sm cbtn-primary" onclick="mockLogin()">로그인 (폰 OTP)</button>
+        <button class="cbtn cbtn-sm" onclick="mockSessionCheck()">세션 확인</button>
+      </div>
+    </div>
+
+    <!-- 세션 힌트 (로그인 후 표시) -->
+    <div class="tx-session-hint ok" id="sessionHint" style="display:none;margin-top:12px">
+      폰(계기큐)에서 카톡 OTP를 입력하세요.
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════
+       2. 전송 설정 (아코디언)
+  ══════════════════════════════════ -->
+  <div class="tx-card">
+    <div class="tx-section-toggle" onclick="toggleConfig()">
+      <div class="tx-section-title" style="margin-bottom:0">전송 설정</div>
+      <span class="tx-section-toggle-arrow" id="configArrow">&#9660;</span>
+    </div>
+
+    <div class="tx-collapsible" id="configBody">
+      <div class="tx-divider"></div>
+      <div class="tx-config-grid">
+        <div class="tx-field-group">
+          <div class="tx-field-label">공사명 (차수)</div>
+          <select class="cinput" id="txConsNo" style="font-size:13px">
+            <option value="397820263153">14차 종로 397820263153</option>
+            <option value="397820263154">15차 종로 397820263154</option>
+          </select>
+        </div>
+        <div class="tx-field-group">
+          <div class="tx-field-label">데이터셋</div>
+          <div style="padding:11px 16px;background:var(--bg-deep);border-radius:var(--radius-pill);box-shadow:var(--clay-inset-sm);font-size:13px;font-weight:700;color:var(--ink-2)">
+            jongno (검증탭 연동)
+          </div>
+        </div>
+      </div>
+
+      <div class="tx-divider"></div>
+
+      <div class="tx-field-label" style="margin-bottom:8px">아이디 목록 (아이디별 시작 봉인번호)</div>
+      <div class="tx-account-list" id="txAccountList">
+        <div class="tx-account-row">
+          <span class="tx-account-id">mdp2504381</span>
+          <span class="tx-account-seal">시작 봉인: 00412A-2024-0001</span>
+          <button class="cbtn cbtn-xs" onclick="showToast('삭제되었습니다.','ok')">삭제</button>
+        </div>
+        <div class="tx-account-row">
+          <span class="tx-account-id">mdp2504382</span>
+          <span class="tx-account-seal">시작 봉인: 00412A-2024-0120</span>
+          <button class="cbtn cbtn-xs" onclick="showToast('삭제되었습니다.','ok')">삭제</button>
+        </div>
+      </div>
+      <div class="tx-add-row">
+        <input type="text" class="cinput" placeholder="awms 아이디" style="width:150px;font-size:13px;padding:9px 14px">
+        <input type="text" class="cinput" placeholder="시작 봉인번호" style="width:170px;font-size:13px;padding:9px 14px">
+        <button class="cbtn cbtn-sm" onclick="showToast('추가되었습니다.','ok')">추가</button>
+      </div>
+
+      <div class="tx-divider"></div>
+      <div style="display:flex;gap:8px">
+        <button class="cbtn cbtn-sm" onclick="showToast('설정을 불러왔습니다.','info')">설정 불러오기</button>
+        <button class="cbtn cbtn-sm cbtn-primary" onclick="showToast('설정이 저장되었습니다.','ok')">설정 저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════
+       3. 미전송 / 전송완료 서브탭 + 카드 리스트
+  ══════════════════════════════════ -->
+  <div class="tx-card">
+    <div class="tx-subtab-row">
+      <div class="cseg">
+        <button id="tabUnsent" class="active" onclick="switchTab('unsent')">미전송</button>
+        <button id="tabSent"                  onclick="switchTab('sent')">전송완료</button>
+      </div>
+      <div class="tx-summary-chips">
+        <span class="cchip amber">미전송 3</span>
+        <span class="cchip">전송완료 12</span>
+        <span class="cchip gray">검증완료 15</span>
+      </div>
+    </div>
+
+    <!-- 미전송 리스트 -->
+    <div class="tx-list" id="listUnsent">
+      <!-- 카드 1 -->
+      <div class="tx-item">
+        <div class="tx-item-seq">1</div>
+        <div class="tx-item-body">
+          <div class="tx-item-flow">
+            <span class="mid-old">17012345678</span>
+            <span class="arrow">&#8594;</span>
+            <span class="mid-new">17098765432</span>
+            <span class="cchip" style="font-size:10px;padding:3px 8px">단상</span>
+          </div>
+          <div class="tx-item-addr">서울시 종로구 통인동 5-1 1동 가나아파트 101호</div>
+          <div class="tx-item-seals">
+            <span class="tx-seal-tag">봉인 00412A-2024-0001</span>
+          </div>
+        </div>
+        <div class="tx-item-meta">
+          <span class="tx-badge unsent">미전송</span>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-3)">
+            <input type="checkbox" checked style="accent-color:var(--mint)"> 선택
+          </label>
+        </div>
+      </div>
+
+      <!-- 카드 2 (삼상) -->
+      <div class="tx-item">
+        <div class="tx-item-seq">2</div>
+        <div class="tx-item-body">
+          <div class="tx-item-flow">
+            <span class="mid-old">45011112222</span>
+            <span class="arrow">&#8594;</span>
+            <span class="mid-new">45099991111</span>
+            <span class="cchip blue" style="font-size:10px;padding:3px 8px">삼상</span>
+          </div>
+          <div class="tx-item-addr">서울시 종로구 명륜동 177-3</div>
+          <div class="tx-item-seals">
+            <span class="tx-seal-tag">봉인1 00412A-2024-0002</span>
+            <span class="tx-seal-tag">봉인2 00412A-2024-0003</span>
+          </div>
+        </div>
+        <div class="tx-item-meta">
+          <span class="tx-badge unsent">미전송</span>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-3)">
+            <input type="checkbox" checked style="accent-color:var(--mint)"> 선택
+          </label>
+        </div>
+      </div>
+
+      <!-- 카드 3 (봉인 미리보기 전) -->
+      <div class="tx-item">
+        <div class="tx-item-seq">3</div>
+        <div class="tx-item-body">
+          <div class="tx-item-flow">
+            <span class="mid-old">19033334444</span>
+            <span class="arrow">&#8594;</span>
+            <span class="mid-new">19077778888</span>
+            <span class="cchip" style="font-size:10px;padding:3px 8px">단상</span>
+          </div>
+          <div class="tx-item-addr">서울시 종로구 부암동 23-5</div>
+          <div class="tx-item-seals">
+            <span class="tx-seal-tag placeholder">봉인 — 미리보기 후 표시</span>
+          </div>
+        </div>
+        <div class="tx-item-meta">
+          <span class="tx-badge unsent">미전송</span>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-3)">
+            <input type="checkbox" checked style="accent-color:var(--mint)"> 선택
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 전송완료 리스트 (기본 숨김) -->
+    <div class="tx-list" id="listSent" style="display:none">
+      <div class="tx-item">
+        <div class="tx-item-seq" style="background:var(--green-soft);color:var(--a-green)">4</div>
+        <div class="tx-item-body">
+          <div class="tx-item-flow">
+            <span class="mid-old" style="color:var(--ink-2)">17055556666</span>
+            <span class="arrow">&#8594;</span>
+            <span class="mid-new">17011112222</span>
+          </div>
+          <div class="tx-item-addr">서울시 종로구 청운동 100-2</div>
+          <div class="tx-item-seals">
+            <span class="tx-seal-tag">봉인 00412A-2024-0005</span>
+          </div>
+        </div>
+        <div class="tx-item-meta">
+          <span class="tx-badge sent">전송완료</span>
+          <span style="font-size:11px;color:var(--ink-3)">mdp2504381</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 액션 바 -->
+    <div class="tx-action-bar" id="txActionBar">
+      <select class="cinput-sm" id="txAccountSel">
+        <option value="mdp2504381">mdp2504381</option>
+        <option value="mdp2504382">mdp2504382</option>
+      </select>
+      <button class="cbtn cbtn-sm" onclick="mockPlan()">봉인 미리보기</button>
+      <button class="cbtn cbtn-sm cbtn-primary" onclick="mockRun()">전송 시작</button>
+      <label class="tx-verify-toggle">
+        <input type="checkbox" id="verifyToggle" checked> 전송 후 awms 검증
+      </label>
+    </div>
+
+    <!-- 수동 마킹 바 -->
+    <div class="tx-manual-bar" id="txManualBar">
+      <span class="tx-manual-label">수동 전송완료</span>
+      <button class="cbtn cbtn-xs" onclick="showToast('전체 선택되었습니다.','info')">전체선택</button>
+      <button class="cbtn cbtn-xs" onclick="showToast('선택 해제되었습니다.','info')">선택해제</button>
+      <button class="cbtn cbtn-xs cbtn-primary" id="txMarkBtn"
+        onclick="showConfirm('수동 전송완료 처리','선택한 3건을 전송완료로 표시합니다.\n(awms 실전송 아님 — 이미 등록된 건 데이터관리 반영)\n계속할까요?', ()=>showToast('3건 처리 완료.','ok'))">
+        선택 전송완료 처리
+      </button>
+      <button class="cbtn cbtn-xs" id="txUnmarkBtn" style="display:none"
+        onclick="showConfirm('미전송으로 되돌리기','선택한 건을 미전송으로 되돌립니다.', ()=>showToast('되돌리기 완료.','ok'))">
+        선택 미전송으로 되돌리기
+      </button>
+      <span style="font-size:11px;color:var(--ink-3)">실패는 체크 해제 후 처리</span>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════
+       4. 전송 진행 패널 (전송 시작 후 표시)
+       — 시안에서는 기본 표시
+  ══════════════════════════════════ -->
+  <div class="tx-progress-card" id="progressCard">
+    <div class="tx-progress-header">
+      <span class="spinner"></span>
+      <span class="tx-progress-title">전송 중...</span>
+      <span style="font-size:12px;color:var(--ink-3)">계정 mdp2504381 · 14차 공사</span>
+      <span class="tx-progress-subtitle" id="progressLabel">1 / 3 (성공: 1, 실패: 0)</span>
+    </div>
+
+    <!-- 전체 진행바 -->
+    <div class="tx-progress-track">
+      <div class="tx-progress-fill" id="progressFill" style="width:33%"></div>
+    </div>
+
+    <!-- 건별 단계 인디케이터 -->
+    <div class="tx-step-grid">
+      <!-- 완료 건 -->
+      <div class="tx-step-row">
+        <span class="tx-step-mid">17012345678</span>
+        <div class="tx-steps">
+          <div class="tx-step done">철거</div>
+          <div class="tx-step done">신설</div>
+          <div class="tx-step done">완료28</div>
+          <div class="tx-step done">필드대조</div>
+        </div>
+      </div>
+      <!-- 진행 중 건 -->
+      <div class="tx-step-row">
+        <span class="tx-step-mid">45011112222</span>
+        <div class="tx-steps">
+          <div class="tx-step done">철거</div>
+          <div class="tx-step active">신설</div>
+          <div class="tx-step">완료28</div>
+          <div class="tx-step">필드대조</div>
+        </div>
+      </div>
+      <!-- 대기 건 -->
+      <div class="tx-step-row">
+        <span class="tx-step-mid">19033334444</span>
+        <div class="tx-steps">
+          <div class="tx-step">철거</div>
+          <div class="tx-step">신설</div>
+          <div class="tx-step">완료28</div>
+          <div class="tx-step">필드대조</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 실시간 로그 -->
+    <div class="tx-log-panel" id="jobLog">
+      <div class="log-line">
+        <span class="log-ts">14:35:22</span>
+        <span class="log-ok">순번1  17012345678->17098765432  봉인00412A-2024-0001  완료</span>
+      </div>
+      <div class="log-line">
+        <span class="log-ts">14:35:18</span>
+        <span class="log-ok">순번1  철거 saveRow(mobMtr5000) 성공</span>
+      </div>
+      <div class="log-line">
+        <span class="log-ts">14:35:15</span>
+        <span class="log-sys">전송 시작 — 미전송 3건, 계정 mdp2504381</span>
+      </div>
+    </div>
+
+    <!-- 사후검증 결과 -->
+    <div class="tx-verify-result pass" id="verifyResult" style="display:none">
+      <div class="tx-verify-result-title">
+        <span class="cdot green"></span>
+        전송완료 확정 — awms 필드대조 통과
+      </div>
+    </div>
+
+    <!-- 실패 케이스 예시 (숨겨진 상태 — 아코디언 열면 표시) -->
+    <div class="tx-verify-result fail" id="verifyResultFail">
+      <div class="tx-verify-result-title">
+        <span class="cdot rose"></span>
+        필드대조 불일치 — 45011112222
+        <button class="cbtn cbtn-xs" onclick="toggleMismatch()" style="margin-left:auto">세부 보기</button>
+      </div>
+      <div class="tx-mismatch-list" id="mismatchList" style="display:none">
+        <div>신설 계기번호: awms=45099991111 / DB=45099991112 (불일치)</div>
+        <div>봉인번호: awms=00412A-2024-0003 / DB=00412A-2024-0003 (일치)</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- .tx-panel -->
+
+<script>
+// ══════════════════════════════
+// 모의 인터랙션
+// ══════════════════════════════
+
+// 아코디언
+function toggleConfig() {
+  const body  = document.getElementById('configBody');
+  const arrow = document.getElementById('configArrow');
+  body.classList.toggle('open');
+  arrow.classList.toggle('open');
+}
+
+// 서브탭 전환
+function switchTab(tab) {
+  document.getElementById('tabUnsent').classList.toggle('active', tab === 'unsent');
+  document.getElementById('tabSent').classList.toggle('active', tab === 'sent');
+  document.getElementById('listUnsent').style.display = tab === 'unsent' ? '' : 'none';
+  document.getElementById('listSent').style.display   = tab === 'sent'   ? '' : 'none';
+
+  const actionBar  = document.getElementById('txActionBar');
+  const manualBar  = document.getElementById('txManualBar');
+  const markBtn    = document.getElementById('txMarkBtn');
+  const unmarkBtn  = document.getElementById('txUnmarkBtn');
+  if (actionBar) actionBar.style.display  = tab === 'unsent' ? '' : 'none';
+  if (markBtn)   markBtn.style.display    = tab === 'unsent' ? '' : 'none';
+  if (unmarkBtn) unmarkBtn.style.display  = tab === 'sent'   ? '' : 'none';
+}
+
+// 봉인 미리보기 모의
+function mockPlan() {
+  showToast('봉인 미리보기 완료 — 3건에 봉인번호가 할당되었습니다.', 'ok');
+  // 3번 카드의 봉인 tag 업데이트 모의
+  const tags = document.querySelectorAll('.tx-seal-tag.placeholder');
+  tags.forEach(t => {
+    t.classList.remove('placeholder');
+    t.textContent = '봉인 00412A-2024-0004';
+  });
+}
+
+// 전송 시작 모의
+function mockRun() {
+  showConfirm(
+    '전송 시작',
+    '검증완료 미전송 3건을 awms에 등록합니다.\n계정: mdp2504381 / 공사: 14차 397820263153\n계속할까요?',
+    function() {
+      document.getElementById('progressCard').scrollIntoView({ behavior: 'smooth' });
+      showToast('전송이 시작되었습니다.', 'info');
+    }
+  );
+}
+
+// 세션 버튼 모의
+function mockLogin() {
+  showToast('로그인 요청이 전송되었습니다. 폰(계기큐)에서 카톡 OTP를 입력하세요.', 'info');
+  const hint = document.getElementById('sessionHint');
+  hint.textContent = '폰(계기큐)에서 카톡 OTP를 입력하세요.';
+  hint.style.display = '';
+}
+function mockSessionCheck() {
+  const dot   = document.getElementById('sessionDot');
+  const label = document.getElementById('sessionLabel');
+  // 모의: 토글
+  const isOk = dot.classList.contains('green');
+  if (isOk) {
+    dot.className = 'cdot rose';
+    label.textContent = '세션 만료';
+    showToast('세션이 만료되었습니다. 재로그인이 필요합니다.', 'ng');
+  } else {
+    dot.className = 'cdot green';
+    label.textContent = '로그인됨';
+    showToast('세션 확인 완료 — 로그인 상태입니다.', 'ok');
+  }
+}
+
+// 필드대조 불일치 펼침
+function toggleMismatch() {
+  const el = document.getElementById('mismatchList');
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+// ── 토스트 ────────────────────────────────────────────
+function showToast(msg, type) {
+  const stack = document.getElementById('toastStack');
+  const t = document.createElement('div');
+  t.className = 'tx-toast ' + (type || 'info');
+  const dot = document.createElement('span');
+  dot.className = 'cdot ' + (type === 'ok' ? 'green' : type === 'ng' ? 'rose' : 'blue');
+  t.appendChild(dot);
+  const span = document.createElement('span');
+  span.textContent = msg;
+  t.appendChild(span);
+  stack.appendChild(t);
+  setTimeout(() => {
+    t.style.opacity = '0';
+    t.style.transform = 'translateX(20px)';
+    t.style.transition = 'opacity 0.2s, transform 0.2s';
+    setTimeout(() => t.remove(), 220);
+  }, 3500);
+}
+
+// ── 확인 모달 ─────────────────────────────────────────
+let _confirmCb = null;
+function showConfirm(title, body, onOk) {
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmBody').textContent  = body;
+  _confirmCb = onOk;
+  document.getElementById('confirmModal').style.display = 'flex';
+}
+function confirmOk() {
+  document.getElementById('confirmModal').style.display = 'none';
+  if (_confirmCb) { _confirmCb(); _confirmCb = null; }
+}
+function confirmCancel() {
+  document.getElementById('confirmModal').style.display = 'none';
+  _confirmCb = null;
+}
+
+// 아코디언 기본 열기
+document.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('configBody').classList.add('open');
+  document.getElementById('configArrow').classList.add('open');
+});
+</script>
+</body>
+</html>

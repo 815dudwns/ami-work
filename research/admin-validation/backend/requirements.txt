@@ -1,0 +1,10 @@
+# Phase 1 백엔드 — 이 파일을 venv_parseq에 설치한다:
+#   research/ocr_poc/venv_parseq/bin/pip install -r requirements.txt
+#
+# daily_cycle.py 의존성(torch, ultralytics, firebase_admin 등)은
+# venv_parseq에 이미 설치되어 있으므로 중복 명시하지 않는다.
+
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+anthropic>=0.26.0      # /suggest 엔드포인트 (ANTHROPIC_API_KEY 없으면 available:false 폴백)
+httpx>=0.27.0          # anthropic SDK 내부 사용 + 사진 URL 다운로드

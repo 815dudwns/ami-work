@@ -391,6 +391,35 @@ def main():
         recs = [x for x in recs if nm(x['계기번호']) not in _mset]
         keep = [v for v in keep if v['_m'] not in _mset]
 
+    # ── 제외축 C6·C7 (영준님 2026-09-22) — 미청구와 **같은 함수**를 쓴다 ──────────
+    #   C8(MAC 함체)은 걸지 않는다: 이 리스트는 모뎀 MAC 을 싣지 않는다(MAC 칸에 계기번호가
+    #   들어가 있어 11,009/11,015 가 자기 번호다). 없는 축을 흉내 내면 엉뚱한 걸 뺀다.
+    for _code, _hits, _msg, _why, _ev, _out in [
+        ('C6', D.bulga26_hits(recs), '26년 불가 겹침',
+         lambda ev: f"26년에 현장이 가서 불가를 쳤다 — {ev['작업일']} 사유"
+                    f" '{ev['불가사유']}" + (f" / {ev['불가상세']}'" if ev['불가상세'] else "'"),
+         lambda ev: f"26불가 {ev['작업일']} · {ev['불가사유']}",
+         'research/불가_26불가겹침_20260922.json'),
+        ('C7', D.swapped_billed_hits(recs), '계기교체 후속청구',
+         lambda ev: f"같은 고객번호({ev['고객번호']})로 계기 {' · '.join(ev['새계기'])} 가"
+                    f" {ev['새계기시공']} 에 시공돼 **청구까지 끝났다**"
+                    f"({' / '.join(ev['비고'])}). 옛 번호만 남은 유령이다.",
+         lambda ev: f"새계기 {' · '.join(ev['새계기'])} · {ev['새계기시공']} · 청구",
+         'research/불가_계기교체후속청구_20260922.json'),
+    ]:
+        if not _hits:
+            log(f'{_msg} — 0건')
+            continue
+        _s = {nm(r['계기번호']) for r, _ in _hits}
+        log(f'{_msg} — {len(_hits)}건 **제외**')
+        (ROOT / _out).write_text(json.dumps(
+            [dict({k: r.get(k) for k in ('계기번호', '지사', '주소', '고객번호')}, **ev)
+             for r, ev in _hits], ensure_ascii=False, indent=1))
+        EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, _code, r, _why(ev), _ev(ev))
+                              for r, ev in _hits])
+        recs = [x for x in recs if nm(x['계기번호']) not in _s]
+        keep = [v for v in keep if v['_m'] not in _s]
+
     # ── 좌표 ────────────────────────────────────────────────────────────────
     has = [x for x in recs if x['주소']]
     pend = [x for x in recs if not x['주소']]

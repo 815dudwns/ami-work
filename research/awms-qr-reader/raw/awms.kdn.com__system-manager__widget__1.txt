@@ -1,0 +1,1 @@
+{"APP_ID":"ami","WIDGET_NM":"AMI 현장관리 통계","WIDGET_ENM":"Stats-ami","WIDGET_DESC":"현장관리 통계 위젯입니다.","WIDGET_SEQ":1,"WIDTH":"1","HEIGHT":"6","FILE_PATH":"","URL":"stats-ami","USE_YN":"Y","DEFAULT_WIDGET_YN":"","DEFAULT_IMAGE_PATH":"/widget/images/widget_thumbnail/amiwidget/stats-ami.png","PARAMETER":""}
