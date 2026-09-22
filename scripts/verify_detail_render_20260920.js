@@ -21,7 +21,11 @@ function grab(name) {
     throw new Error(`끝 못 찾음: ${name}`);
 }
 const helpers = ['poleNoOf', 'poleIdOf', 'isPoleCommon', 'poleDisplay',
-                 'dcuLedgerLine', 'poleMeterForDisplay', 'michungguLp',
+                 'dcuLedgerLine', 'poleMeterForDisplay',
+                 // LP 7일치는 2026-09-22 부터 subParts 가 아니라 **표**로 나간다.
+                 //   표는 subDetails 뒤에 붙으므로 아래 렌더 구간(b 까지)에 안 들어온다 —
+                 //   return 에서 따로 불러 sub 에 합쳐야 'LP 화면에 없음' 오탐이 안 난다.
+                 'michungguLpCells', 'michungguLpTable',
                  'lpSummary'].map(grab).join('\n');
 
 // 2) 계기 한 줄의 렌더 구간 — detailParts 선언부터 subDetails 직전까지
@@ -38,7 +42,8 @@ const strip = (h) => String(h).replace(/<[^>]+>/g, '');
 const render = new Function('meter', 'currentAddress', 'commonDcuShown', `
 ${helpers}
 ${body}
-return { detail: detailParts.join(', '), sub: subParts.join(' · ') };
+return { detail: detailParts.join(', '),
+         sub: subParts.join(' · ') + ' · ' + michungguLpTable(meter) };
 `);
 
 // 3) PM 이 디테일에 넣으라고 한 필드 전체
@@ -114,8 +119,11 @@ function check(file, listName, intended) {
             if (f === 'LP') needle = null;                     // 값이 변환되므로 라벨로 본다
             else if (f === '최종시공일') needle = null;         // 표시할 때 끊어 준다
             else needle = String(r[f]).trim();
+            // LP 는 2026-09-22 부터 표다 — 태그를 턴 뒤에는 'LP' 코너 라벨 바로 뒤에
+            //   첫 회차 날짜(6/10 꼴)가 붙는다. 옛 한 줄 형식('· LP ')으로 보면 표를 통째로
+            //   놓쳐 8,181건이 '안 나옴'으로 찍힌다(실측 2026-09-22).
             const ok = needle ? html.includes(needle)
-                : (f === 'LP' ? /(^|·)\s*LP\s/.test(html) : html.includes('최종시공일'));
+                : (f === 'LP' ? /LP\s*\d{1,2}\/\d{1,2}/.test(html) : html.includes('최종시공일'));
             if (ok) shown++;
         }
         const note = shown === have.length ? ''

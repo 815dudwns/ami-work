@@ -144,7 +144,7 @@ function poleDisplay(m, iconSvg, btnStyle) {
 //   하나만 보면 오판한다. ★'9/24'·'36/96' 은 정상이다(24개 중 9개라 미달로 보이지만
 //   한전이 정상으로 판정한 실증이 있다). 실패는 '0/24' 뿐이다.
 //   -> { text, bad } 를 돌려준다. bad(0수신)일 때만 빨강으로 그린다.
-/** 미청구 LP 7일치 — **표시할 때만** 줄여 보여준다(영준님 2026-09-20).
+/** 미청구 LP 7일치 — **표시할 때만** 바꿔 보여준다(영준님 2026-09-20).
  *
  * ★저장값은 건드리지 않는다. 1·0·소수·'#N/A' 를 그대로 들고 있어야 나중에 재판정이 된다.
  *   화면에서만 1 -> 100% · 0 -> 0% · 0.9583333 -> 95.8% · '#N/A' -> n/a.
@@ -153,14 +153,8 @@ function poleDisplay(m, iconSvg, btnStyle) {
  * ★뭉개지 마라 — 추이가 정보다. 6월 0 인데 9월 100% 면 그사이 해결된 것이고,
  *   9월 중 100% -> 0% 로 꺾이면 최근에 끊긴 것이다.
  * 날짜는 앞 0 을 떼고 '/' 로 통일한다: 'LP 06/10' -> '6/10' · 'LP 09-05' -> '9/5'.
- * 같은 값이 이어지면 묶는다: '9/5 100% · 9/6 100% · 9/7 100%' -> '9/5~9/7 100%'.
- *   ★묶음 판정은 **저장값**으로 한다(표시값이 아니라). 표시값은 소수점 한 자리로
- *     반올림되므로 0.958 과 0.9583 이 둘 다 '95.8%' 가 되어 **다른 값이 묶인다** —
- *     실제로 그렇게 짜서 걸렸다(2026-09-20). 95.8% 와 95.83% 는 같은 값이 아니다.
- *   ★값이 빈 회차는 줄에서 빠지는데, 그 자리에서 묶음도 끊는다.
- *     건너뛰고 이으면 "그 사이 내내 같았다"는 없는 말을 하게 된다.
  */
-function michungguLp(meter) {
+function michungguLpCells(meter) {
     const lp = meter && meter.LP;
     if (!lp || typeof lp !== 'object') return null;
     const keys = Object.keys(lp);
@@ -181,18 +175,34 @@ function michungguLp(meter) {
         const mm = s.match(/^(\d{1,2})[/\-.](\d{1,2})$/);
         return mm ? `${Number(mm[1])}/${Number(mm[2])}` : s;
     };
-    const runs = [];
-    keys.forEach(k => {
-        const raw = String(lp[k] == null ? '' : lp[k]).trim();
-        const v = pct(raw);
-        if (!v) { runs.push(null); return; }         // 빈 회차 = 묶음이 여기서 끊긴다
-        const last = runs[runs.length - 1];
-        if (last && last.raw === raw) last.to = day(k);   // ★저장값이 같을 때만 묶는다
-        else runs.push({ from: day(k), to: day(k), v, raw });
-    });
-    const parts = runs.filter(Boolean)
-        .map(r => `${r.from === r.to ? r.from : `${r.from}~${r.to}`} ${r.v}`);
-    return parts.length ? parts.join(' · ') : null;
+    const cells = keys.map(k => ({ day: day(k), val: pct(String(lp[k] == null ? '' : lp[k]).trim()) }));
+    // 전 회차가 빈칸이면 표 자체를 그리지 않는다 — 빈 표는 자리만 먹는다.
+    return cells.some(c => c.val) ? cells : null;
+}
+
+/** 미청구 LP 표 (영준님 2026-09-22 "디테일에 엘피를 표로 만들어줘").
+ *
+ * 전에는 한 줄 문장이었다 — `LP 6/10~9/7 n/a · 9/8 39.6% · 9/9~9/13 100%`.
+ *   같은 값을 묶어 줄을 줄였는데, 회차가 7 개로 늘자 다른 필드와 뒤섞여 어느 날 값인지
+ *   읽기 어려웠다. 표는 칸이 날짜에 1:1 로 대응하므로 **묶지 않고 전부 편다** —
+ *   묶으면 표에서는 오히려 날짜 대응이 깨진다.
+ * ★판단 유도 금지(영준님 2026-09-20) — 0% 를 빨강으로 칠하거나 경고를 붙이지 않는다.
+ *   값만 보여주면 작업자가 읽는다. 회색은 'n/a(조회 실패)' 와 값의 구분일 뿐이다.
+ * ★값이 빈 회차도 날짜 칸은 남긴다 — 자리를 비워 둬야 추이가 끊긴 지점이 보인다.
+ * ★가로 스크롤은 표 안에서만 일어난다(.lp-table-wrap). 폰에서 패널 전체가 밀리면 안 된다.
+ */
+function michungguLpTable(meter) {
+    const cells = michungguLpCells(meter);
+    if (!cells) return '';
+    const head = cells.map(c => `<th>${c.day}</th>`).join('');
+    const body = cells.map(c => {
+        const na = c.val === 'n/a';
+        return `<td${na ? ' class="lp-na"' : ''}>${c.val || ''}</td>`;
+    }).join('');
+    return `<div class="lp-table-wrap"><table class="lp-table">` +
+        `<tr><th class="lp-corner">LP</th>${head}</tr>` +
+        `<tr><td class="lp-corner"></td>${body}</tr>` +
+        `</table></div>`;
 }
 
 
@@ -949,12 +959,10 @@ function renderMetersList() {
             });
         }
 
-        // 6.5) 25미청구 전용 — W(25대상)과 LP 7일치.
-        //   ★LP 는 **표시만** %로 바꾼다(michungguLp). 데이터는 원본 값 그대로다.
+        // 6.5) 25미청구 전용 — W(25대상). LP 7일치는 **줄이 아니라 표**로 따로 그린다
+        //   (영준님 2026-09-22). 표는 subParts 밑에 붙는다 — michungguLpTable 참고.
         //   ★판단 유도는 하지 않는다(영준님 2026-09-20) — 값만 보여주고 배지·경고는 붙이지 않는다.
         if (meter.W_25대상) subParts.push(`25대상 ${meter.W_25대상}`);
-        const mlp = michungguLp(meter);
-        if (mlp) subParts.push(`LP ${mlp}`);
 
         // 6.6) 불가사유 — 25년 미청구불가가 쓰는 값. 현장에서 '왜 못 했는지'가 곧 정보다.
         //   ★카테고리가 아니라 **필드 유무로 건다**(michungguLp·lp_이력과 같은 방식) —
@@ -1068,6 +1076,8 @@ function renderMetersList() {
             if (meter.공사번호) subParts.push(`공사 ${meter.공사번호}`);
         }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
+        // LP 7일치 표 — 값이 하나도 없으면 빈 문자열이라 아무것도 안 그린다.
+        const lpTable = michungguLpTable(meter);
         const details = detailParts.join(', ');
 
         // 계기번호 4구간 색상 분리
@@ -1126,6 +1136,7 @@ function renderMetersList() {
                     <button class="${failBtnClass}" data-meter="${meter.계기번호}">${failBtnLabel}</button>
                     ${details ? `<div class="meter-details">${details}</div>` : ''}
                     ${subDetails}
+                    ${lpTable}
                     ${addedInfo}
                     ${failInputHtml}
                 </div>
