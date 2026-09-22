@@ -240,6 +240,36 @@ function lpSummary(meter) {
     };
 }
 
+/** 계기 카드를 모뎀 MAC 단위로 묶어 그린다 (영준님 2026-09-22).
+ *
+ * 한 주소에 함체가 둘 이상일 때만 불린다(macGrouped) — 부르는 쪽에서 이미 걸렀다.
+ * ★MAC 이 없는 계기는 **맨 뒤 한 묶음**으로 몬다. 빈 키를 중간에 두면 색 있는 묶음 사이에
+ *   회색 묶음이 끼어 순서가 흐려진다. 불가 리스트처럼 MAC 을 안 싣는 데이터가 여기 온다.
+ * ★묶음 순서는 **처음 나온 순서**다(정렬하지 않는다) — 계기 정렬은 이미 위에서 끝났고
+ *   여기서 다시 정렬하면 작업자가 익힌 순서가 뒤집힌다.
+ * ★색은 묶음을 **구분**하려고 돌려 쓴다. 값의 좋고 나쁨을 뜻하지 않는다(판단 유도 금지).
+ */
+function macGroupsHtml(meters, cards, macKeyOf) {
+    const order = [];
+    const byMac = new Map();
+    meters.forEach((m, i) => {
+        const k = macKeyOf(m);
+        if (!byMac.has(k)) { byMac.set(k, []); order.push(k); }
+        byMac.get(k).push(cards[i]);
+    });
+    const keys = order.filter(Boolean).concat(order.includes('') ? [''] : []);
+    const COPY = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+    return keys.map((k, gi) => {
+        const items = byMac.get(k);
+        const n = `<span class="mac-group-count">계기 ${items.length}</span>`;
+        const head = k
+            ? `<div class="mac-group-head">MAC <span class="mac-hl mac-g${gi % 6}">${k}</span>` +
+              `<button class="copy-btn" data-copy="${k}" title="모뎀MAC 복사">${COPY}</button>${n}</div>`
+            : `<div class="mac-group-head mac-group-none">모뎀 MAC 없음${n}</div>`;
+        return `<div class="mac-group ${k ? `mac-b${gi % 6}` : 'mac-b-none'}">${head}${items.join('')}</div>`;
+    }).join('');
+}
+
 // 주소 클릭 시 상세 패널 표시
 function showDetail(address, meters, addresses, statusKeys) {
     currentAddress = address;
@@ -760,8 +790,22 @@ function renderMetersList() {
         ? sortedMeters.filter(m => String(m.계기번호 || '').includes(searchVal))
         : sortedMeters;
 
+    // ── 모뎀 MAC 묶음 (영준님 2026-09-22 "맥 색 강조하고 맥끼리 묶어 놔") ──────────
+    //   왜: 한 주소에 **함체가 둘 이상**인 개소가 있다. 성산동 200-205 는 청구가 끝난 함체
+    //   (MAC 01254069886)와 미청구 함체(01254426174)가 같이 있어서, 지도만 보고 간 작업자가
+    //   어느 모뎀이 대상인지 화면에서 가릴 수 없었다(2026-09-22 실측).
+    //   ★MAC 이 한 종류뿐이면 묶지 않는다 — 묶을 것이 없는데 헤더만 붙으면 화면만 길어진다.
+    //   ★장애 데이터셋은 한 레코드가 이미 MAC 그룹이고 자기 트리를 따로 그린다(jangaeTreeHtml).
+    //     그 위에 또 묶으면 트리가 이중으로 감싸지므로 섞여 있으면 묶지 않는다.
+    //   ★키는 화면에 그리는 값과 **같은 식으로** 만든다(모뎀MAC_awms 우선 + 영숫자만).
+    //     다르게 만들면 헤더의 MAC 과 카드의 MAC 이 어긋난다.
+    const macKeyOf = (m) => String(m.모뎀MAC_awms || m.모뎀MAC || '').replace(/[^0-9A-Za-z]/g, '');
+    const hasJangae = filtered.some(m => m.category === '장애');
+    const macKinds = new Set(filtered.map(macKeyOf).filter(Boolean));
+    const macGrouped = !hasJangae && macKinds.size >= 2;
+
     const metersList = document.getElementById('meters-list');
-    metersList.innerHTML = filtered.map(meter => {
+    const meterCards = filtered.map(meter => {
         // 장애 데이터셋은 단위가 다르다 — 한 레코드가 **모뎀 MAC 그룹**이라 계기 한 줄이 아니라
         //   MAC 헤더 + 그 밑 계기 트리를 그린다. 같은 주소에 MAC 이 둘이면 트리가 둘 생긴다
         //   (영준님 지시 2026-08-31 "맥이 여러개면 모달 안에 트리가 두개").
@@ -885,9 +929,11 @@ function renderMetersList() {
             //   화이트리스트가 이스케이프보다 확실하다.
             const macShow = String(meter.모뎀MAC_awms || meter.모뎀MAC || '')
                 .replace(/[^0-9A-Za-z]/g, '');
-            if (macShow) {
+            //   ★묶여 있으면 여기선 안 그린다 — 바로 위 그룹 헤더에 같은 MAC 이 이미 있다.
+            //     둘 다 그리면 계기마다 같은 값이 두 번 나와 줄만 길어진다.
+            if (macShow && !macGrouped) {
                 const macBtn = `<button class="copy-btn" data-copy="${macShow}" title="모뎀MAC 복사" style="margin-left:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
-                subParts.push(`MAC ${macShow}${macBtn}`);
+                subParts.push(`MAC <span class="mac-hl">${macShow}</span>${macBtn}`);
             }
         }
         // 철거계기(교체 전) — 큰 글씨의 계기번호는 **신설계기**(지금 달려 있는 것)라,
@@ -1142,7 +1188,10 @@ function renderMetersList() {
                 </div>
             </div>
         `;
-    }).join('');
+    });
+    metersList.innerHTML = macGrouped
+        ? macGroupsHtml(filtered, meterCards, macKeyOf)
+        : meterCards.join('');
 
     // 체크박스, 복사 버튼, 개별 불가 버튼/입력창 이벤트 바인딩
     setTimeout(() => {

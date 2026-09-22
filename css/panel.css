@@ -79,6 +79,24 @@
 .lp-table .lp-corner { border: none; background: none; color: #9ca3af; text-align: left; padding: 2px 6px 2px 0; }
 .lp-table .lp-na { color: #c4c8ce; }
 
+/* 모뎀 MAC 묶음 (영준님 2026-09-22 "맥 색 강조하고 맥끼리 묶어 놔").
+   한 주소에 함체가 둘 이상일 때만 그려진다 — 어느 모뎀이 대상인지 가리라고 있는 것이다.
+   ★색은 묶음을 구분하려고 돌려 쓴다. 값의 좋고 나쁨을 뜻하지 않는다(판단 유도 금지). */
+.mac-group { border-left: 3px solid #cbd5e1; padding-left: 9px; margin-bottom: 14px; }
+.mac-group-head { display: flex; align-items: center; gap: 5px; margin-bottom: 6px;
+                  font-size: 11px; font-weight: 700; color: #6b7280; }
+.mac-group-head .copy-btn { margin-left: 0; }
+.mac-group-count { font-size: 10px; font-weight: 500; color: #9ca3af; margin-left: 2px; }
+.mac-group-none { color: #9ca3af; font-weight: 600; }
+.mac-hl { color: #2563eb; font-weight: 700; letter-spacing: 0.02em; }
+/* 묶음별 색 — .mac-hl 뒤에 둬야 이긴다(둘 다 클래스 하나라 나중 규칙이 이긴다) */
+.mac-g0 { color: #2563eb; } .mac-g1 { color: #c2410c; } .mac-g2 { color: #15803d; }
+.mac-g3 { color: #7c3aed; } .mac-g4 { color: #b45309; } .mac-g5 { color: #0e7490; }
+.mac-b0 { border-left-color: #2563eb; } .mac-b1 { border-left-color: #c2410c; }
+.mac-b2 { border-left-color: #15803d; } .mac-b3 { border-left-color: #7c3aed; }
+.mac-b4 { border-left-color: #b45309; } .mac-b5 { border-left-color: #0e7490; }
+.mac-b-none { border-left-color: #e5e7eb; }
+
 /* 재작업 알림 */
 .rework-notice { padding: 8px 16px; background: #fef2f2; border-bottom: 1px solid #fecaca; font-size: 12px; color: #dc2626; font-weight: 600; flex-shrink: 0; display: none; }
 

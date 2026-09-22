@@ -39,7 +39,11 @@ const body = src.slice(a, b);
 //   화면엔 0329H75144 로 보이는데 문자열 검사는 실패했다(2026-09-20 실측, 5,844건 오탐).
 const strip = (h) => String(h).replace(/<[^>]+>/g, '');
 
-const render = new Function('meter', 'currentAddress', 'commonDcuShown', `
+// ★macGrouped 는 렌더 구간 **바깥**(계기목록 전체 스코프)에서 정해진다 — 한 주소에 모뎀 MAC 이
+//   둘 이상일 때만 true 다. 여기서는 항상 false 로 둔다: 묶였을 때 MAC 은 그룹 헤더가 그리므로
+//   카드 한 장만 떼어 보는 이 검사로는 볼 수 없고, false 경로(카드가 직접 그리는 쪽)를 봐야
+//   '데이터에 있는 MAC 이 화면에 나오는가' 를 셀 수 있다.
+const render = new Function('meter', 'currentAddress', 'commonDcuShown', 'macGrouped', `
 ${helpers}
 ${body}
 return { detail: detailParts.join(', '),
@@ -92,7 +96,7 @@ function check(file, listName, intended) {
         //   그랬다 — 상단 DCU 통신방식 값과 겹친 것이지 이 줄이 그려진 게 아니다).
         if (intended && intended[f] && intended[f].label) {
             const { note, label } = intended[f];
-            const drawn = have.filter(r => strip(render(r, r.주소, false).sub).includes(label)).length;
+            const drawn = have.filter(r => strip(render(r, r.주소, false, false).sub).includes(label)).length;
             out.push([f, have.length, drawn, drawn === 0 ? note : `★${drawn}건 그려졌다 — 의도 위반`]);
             continue;
         }
@@ -102,7 +106,7 @@ function check(file, listName, intended) {
             const hv = HIDE_DEFAULT[f];
             const vis = have.filter(r => String(r[f]).trim() !== hv);
             const shown = vis.filter(r => {
-                const o = render(r, r.주소, false);
+                const o = render(r, r.주소, false, false);
                 return strip(o.detail + ' · ' + o.sub).includes(String(r[f]).trim());
             }).length;
             out.push([f, have.length, shown,
@@ -113,7 +117,7 @@ function check(file, listName, intended) {
         // 값이 있는 레코드 전부를 렌더해 화면 문자열에 값이 들어갔는지 센다
         let shown = 0;
         for (const r of have) {
-            const { detail, sub } = render(r, r.주소, false);
+            const { detail, sub } = render(r, r.주소, false, false);
             const html = strip(detail + ' · ' + sub);
             let needle;
             if (f === 'LP') needle = null;                     // 값이 변환되므로 라벨로 본다
