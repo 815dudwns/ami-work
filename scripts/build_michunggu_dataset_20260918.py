@@ -1016,8 +1016,20 @@ def mac_box_26_hits(rows):
       우이동 47-7 MAC 01249849705 — awms 8건 시공(2026-09-08) 중 3건이 앞 2자리가 어긋나
       미청구에 남았고, 우희근 반장이 2026-09-22 에 같은 개소로 다시 가 불가를 쳤다.
     ★같은 지사일 때만 본다 — MAC 은 재사용되므로 지사가 다르면 남의 함체다.
-    ★그 MAC 의 awms 기록이 **전부 '기설'이면 빼지 않는다.** 기설은 25년 모뎀에 계기를
-      추가로 물린 것이라 그 모뎀은 여전히 우리가 갈아야 한다([[awms_gisul_billing_rule]]).
+    ★그 MAC 의 26년 모뎀워크 기록이 **전부 '기설'이면 빼지 않는다.**
+
+    ★★2026-09-23 축을 **크게 좁혔다**(영준님). MAC 이 같다는 것만으로는 뺄 수 없다:
+      ① 슬레이브는 모뎀을 갈지 않는다. LP 가 붙어 있으면 물리 작업 없이 앱만 쓰는데,
+         그때 **마스터를 '기설'로 잡고 슬레이브를 '신설'로 붙인다**(영준님). 그래서 한 함체에
+         기설·신설이 같이 찍힌다. 우리 미청구 슬레이브가 그 '신설' 목록에 **없다면 아직
+         앱 작성이 안 된 것**이고, 그게 바로 우리가 할 일이다 — 빼면 안 된다.
+      ② 실측 2026-09-23: 이 축에 걸린 121건 중 116건이 슬레이브였고, 함체 마스터 41개는
+         **전부 기설**(신설 마스터 0개)이었다. 모뎀은 그대로 있다는 뜻이다.
+      ③ MAC 은 재사용된다. 주소를 맞춰 보니 17건이 다른 개소였다
+         (자양동 841-5 ↔ 뚝섬로28길 27 · 혜화로6길 20-3 ↔ 필운대로10길 18-8).
+      그래서 **계기번호 오타가 확정된 건에만** 건다 — 같은 함체의 26년 모뎀워크 계기 중
+      **뒤 9자리가 우리 계기와 같은 것**이 있을 때. 앞 2자리만 어긋난 것은 앱 입력 오타다
+      (우이동 47-7 우희근 반장 3건 · 신당동 안병삼 1건, 실제로 9/22 헛걸음이 났다).
     """
     import sqlite3
     from collections import defaultdict
@@ -1039,11 +1051,17 @@ def mac_box_26_hits(rows):
         cand = [t for t in box.get(mac, ()) if t[0] == str(x.get('지사') or '')]
         if not cand:
             continue
-        ev = {'MAC': mac, 'awms건수': len(cand),
-              'awms계기': sorted({t[3] for t in cand})[:4],
+        # ★뒤 9자리가 같은 모뎀워크 계기가 있을 때만 = 앞 2자리 오타가 확정된 건
+        tail = me[-9:] if len(me) >= 9 else ''
+        same9 = sorted({t[3] for t in cand if tail and t[3][-9:] == tail and t[3] != me})
+        ev = {'MAC': mac, '모뎀워크건수': len(cand),
+              '오타대응계기': same9,
               '작업일': min(t[2] for t in cand)[:10],
               '작업구분': sorted({t[1] for t in cand})}
-        (keep if all(t[1] == '기설' for t in cand) else drop).append((x, ev))
+        if same9 and not all(t[1] == '기설' for t in cand):
+            drop.append((x, ev))
+        else:
+            keep.append((x, ev))
     return drop, keep
 
 
@@ -1500,11 +1518,12 @@ def main():
     #   (6월 0 인데 9월 1 이면 그사이 해결 · 9월 중 1->0 이면 최근에 끊긴 것).
     #   ★단 LP 는 대상 판정에 쓰지 않는다 — LP 무관 전 개소 방문이 방침이다. 참고 정보다.
     LPC = ['LP 06/10', 'LP 09-05', 'LP 09-06', 'LP 09-07', 'LP 09-08', 'LP 09-09', 'LP 09-13']
-    _q = ('SELECT 고객번호,고객번호_2,MAC,주소,기존변대주,변경변대주,"25대상",'
+    kep_me = {}
+    _q = ('SELECT 고객번호,고객번호_2,MAC,주소,기존변대주,변경변대주,"25대상",계기번호,'
           + ','.join(f'"{x}"' for x in LPC) + ' FROM "25년미청구분_v2__sheet1"')
     for _row in _cur.execute(_q):
-        _cu, _cu2, _mac, _ad, _b1, _b2, _w = _row[:7]
-        _lp = dict(zip(LPC, _row[7:]))
+        _cu, _cu2, _mac, _ad, _b1, _b2, _w, _me = _row[:8]
+        _lp = dict(zip(LPC, _row[8:]))
         _rec = {'지번주소': blank(_ad),
                 '변대주명': (blank(_b1) or blank(_b2))}
         _rec = {k: v for k, v in _rec.items() if v and v != '0'}
@@ -1514,6 +1533,14 @@ def main():
         if not any(k for k in _rec if not k.startswith('_')) and not _rec['_W'] \
                 and not any(_rec['_LP'].values()):
             continue
+        # ★계기번호 색인을 1순위로 둔다(2026-09-23). 회신 10,333행은 **전건 계기번호**가
+        #   있는데 고객번호는 4,931행뿐이라, 고객번호로만 맞추면 LP·W 가 1,542건 빠진다
+        #   (실측: LP 8,001 -> 6,459). 같은 파일 안의 같은 계기를 찾는 것이라
+        #   '계기번호 재사용' 위험이 없다 — 재사용이 문제되는 것은 **다른 자료·다른 시점**과
+        #   맞출 때다(그래서 26년 모뎀워크 대조에는 여전히 주의가 필요하다).
+        _m2 = nm(_me)
+        if _m2 and _m2 not in kep_me:
+            kep_me[_m2] = _rec
         _c2 = B.norm_cust(_cu) or B.norm_cust(_cu2)
         if _c2 and _c2 not in kep_c:
             kep_c[_c2] = _rec
@@ -1521,7 +1548,7 @@ def main():
         if _mm and _mm not in kep_m:
             kep_m[_mm] = _rec
     _con.close()
-    log(f'한전 회신 색인 — 고객번호 {len(kep_c):,} · MAC {len(kep_m):,}')
+    log(f'한전 회신 색인 — 계기번호 {len(kep_me):,} · 고객번호 {len(kep_c):,} · MAC {len(kep_m):,}')
 
     kep_fill = Counter()
     for r in tgt:
@@ -1534,14 +1561,17 @@ def main():
         #   ★회신 주소에는 동호수가 없다(9,992건 전수 확인 — '정릉3동' 같은 행정동뿐).
         #     호수가 붙는 것은 boranggi 의 공동주택명이고, 그쪽은 고객번호로만 붙인다.
         hit, how = None, ''
-        if r['고객번호'] and r['고객번호'] in kep_c:
+        if nm(r['계기번호']) in kep_me:
+            hit, how = kep_me[nm(r['계기번호'])], '계기번호'
+        elif r['고객번호'] and r['고객번호'] in kep_c:
             hit, how = kep_c[r['고객번호']], '고객번호'
         elif r['MAC'] and r['MAC'] in kep_m:
             hit, how = kep_m[r['MAC']], 'MAC'
         if not hit:
             continue
-        # W(25대상)·LP 7열 — 디테일 표시용. ★고객번호로 맞았을 때만 얹는다
-        if how == '고객번호':
+        # W(25대상)·LP 7열 — 디테일 표시용. ★계기번호·고객번호로 맞았을 때만 얹는다
+        #   (MAC 으로만 맞은 건은 같은 함체의 남의 계기일 수 있다 — LP 는 계기별 수신율이다)
+        if how in ('계기번호', '고객번호'):
             if hit.get('_W'):
                 r['W_25대상'] = hit['_W']
             if hit.get('_LP'):
@@ -1861,12 +1891,15 @@ def main():
 
     _mdrop, _mkeep = mac_box_26_hits(map_rows + pend_rows)
     if _mkeep:
-        log(f'  MAC 함체 — 전부 기설이라 **유지** {len(_mkeep)}건(25년 모뎀에 계기 추가)')
-    _apply('C8', _mdrop, 'MAC 동일함체 26년시공',
-           lambda ev: f"모뎀 MAC {ev['MAC']} 함체가 26년에 시공됐다 —"
-                      f" 같은 지사 awms 기록 {ev['awms건수']}건({' · '.join(ev['작업구분'])}),"
-                      f" 첫 작업일 {ev['작업일']}. 계기번호가 어긋나 직접 매칭에서 새어나온 건이다.",
-           lambda ev: f"MAC {ev['MAC']} · {ev['작업일']} · awms {ev['awms건수']}건",
+        log(f'  MAC 함체 — **유지** {len(_mkeep)}건'
+            f'(번호오타 근거 없음 또는 전부 기설 — 모뎀이 살아 있어 우리가 갈 대상이다)')
+    _apply('C8', _mdrop, 'MAC 동일함체 26년시공(번호오타 확정분)',
+           lambda ev: f"같은 함체(MAC {ev['MAC']})의 26년 모뎀워크에"
+                      f" 계기 {' · '.join(ev['오타대응계기'])} 가 있는데, 우리 계기와"
+                      f" **뒤 9자리가 같고 앞 2자리만 다르다** — 26년 앱 작성 때 계기번호를"
+                      f" 잘못 넣은 것이다. 작업일 {ev['작업일']}"
+                      f"({' · '.join(ev['작업구분'])}). 이미 시공된 개소다.",
+           lambda ev: f"MAC {ev['MAC']} · 오타대응 {' · '.join(ev['오타대응계기'])} · {ev['작업일']}",
            'research/미청구_MAC함체26년_20260922.json')
 
     acc = Counter(x['좌표정확도'] for x in map_rows)
