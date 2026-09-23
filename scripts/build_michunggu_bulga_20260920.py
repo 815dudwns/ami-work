@@ -374,22 +374,9 @@ def main():
         recs = [x for x in recs if nm(x['계기번호']) not in _dset]
         keep = [v for v in keep if v['_m'] not in _dset]     # 게이트 기대치도 같이 줄인다
 
-    # ── 제외축: 마스터만 미청구 · 함체 슬레이브 전부 청구 (영준님 2026-09-22) ────
-    #   미청구 빌더와 **같은 함수**를 쓴다. 두 리스트에 다른 잣대를 대지 않는다.
-    _mo = D.master_only_unbilled(recs)
-    if _mo:
-        _mset = {nm(r['계기번호']) for r, _ in _mo}
-        log(f"마스터단독 미청구 — {len(_mo)}건 **제외**(함체 슬레이브가 전부 청구)")
-        (ROOT / 'research/마스터만미청구_제외_불가_20260922.json').write_text(json.dumps(
-            [dict({k: r.get(k) for k in ('계기번호', '지사', '주소', '고객번호')}, **ev)
-             for r, ev in _mo], ensure_ascii=False, indent=1))
-        EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, 'C5', r,
-            f"이 계기가 마스터인 함체({' · '.join(ev['함체'])})의 슬레이브가 **전부 청구**다."
-            " 청구는 모뎀 단위로 움직이므로, 남은 마스터 한 건은 모뎀을 새로 시설해도"
-            " 청구에 올라오지 않는다 — 청구 불가로 마무리한 건이다.",
-            f"함체 {' · '.join(ev['함체'])}") for r, ev in _mo])
-        recs = [x for x in recs if nm(x['계기번호']) not in _mset]
-        keep = [v for v in keep if v['_m'] not in _mset]
+    # ── 제외축: 마스터만 미청구 — **2026-09-23 폐기**(미청구 빌더와 동일) ────────
+    #   같은 날·같은 시공자·같은 구분으로 작업된 건이고, 26년에 모뎀을 갈았는데도
+    #   미청구인 사례가 나와 '모뎀 단위로 청구가 끝났다'는 근거가 성립하지 않았다.
 
     # ── 제외축 C6·C7 (영준님 2026-09-22) — 미청구와 **같은 함수**를 쓴다 ──────────
     #   C8(MAC 함체)은 걸지 않는다: 이 리스트는 모뎀 MAC 을 싣지 않는다(MAC 칸에 계기번호가
