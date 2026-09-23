@@ -1209,13 +1209,18 @@ def resweep(rows, idx, dcu_no, dcu_id):
     """전수 재보강. 반환 = (채운 건수 Counter, 대안 건수 Counter)"""
     filled, alt = Counter(), Counter()
     for x in rows:
-        cu, mac = B.norm_cust(x.get('고객번호')), B.norm_mac(x.get('모뎀MAC'))
-        for src, by_cust, by_mac in idx:
+        # ★보강 키는 **고객번호 하나뿐이다**(영준님 2026-09-23 "고객번호로만").
+        #   MAC 폴백은 폐지했다 — 한 모뎀(함체)에 여러 계약의 계기가 물리므로 MAC 으로 맞추면
+        #   **남의 계약 값을 물려받는다.** 실측 2026-09-23: MAC 01248584738 함체에서
+        #   Amigo 계기(45530076578)의 고객번호가 3상 계기(26450248477·74450004520)로 옮겨붙었고,
+        #   그 틀린 고객번호를 키로 상호·공동주택명·인입주·검침방법까지 2차 오염됐다.
+        #   전체 135개 고객번호 / 374계기가 이렇게 겹쳤다(한 고객번호에 최대 11계기).
+        #   고객번호는 계약에 붙는 값이고 상호·공동주택명도 개소 단위다 — 함체를 타고 넘지 않는다.
+        cu = B.norm_cust(x.get('고객번호'))
+        for src, by_cust, _by_mac_unused in idx:
             rec, how = None, ''
             if cu and cu in by_cust:
                 rec, how = by_cust[cu], '고객번호'
-            elif mac and mac in by_mac:
-                rec, how = by_mac[mac], 'MAC'
             if not rec:
                 continue
             for f in RESWEEP_FIELDS:
@@ -1520,6 +1525,14 @@ def main():
 
     kep_fill = Counter()
     for r in tgt:
+        # ★한전 회신 — **필드마다 허용 키가 다르다**(영준님 2026-09-23
+        #   "동호수 고객번호는 계기마다 있는 거잖아").
+        #   · 고객번호로 맞으면 전 필드를 쓴다(같은 계약이니 계기 단위 값도 그 계기 것이다)
+        #   · MAC 으로만 맞으면 **지번주소·변대주명만** 쓴다. 같은 모뎀이면 물리적으로 같은
+        #     자리라 지번·전주는 공유해도 되지만, **W(25대상)·LP 는 계기 단위**다.
+        #     LP 는 그 계기의 수신율이라 남의 값을 받으면 판단 근거가 통째로 거짓이 된다.
+        #   ★회신 주소에는 동호수가 없다(9,992건 전수 확인 — '정릉3동' 같은 행정동뿐).
+        #     호수가 붙는 것은 boranggi 의 공동주택명이고, 그쪽은 고객번호로만 붙인다.
         hit, how = None, ''
         if r['고객번호'] and r['고객번호'] in kep_c:
             hit, how = kep_c[r['고객번호']], '고객번호'
@@ -1527,11 +1540,12 @@ def main():
             hit, how = kep_m[r['MAC']], 'MAC'
         if not hit:
             continue
-        # W(25대상)·LP 7열 — 디테일 표시용. 덮어쓰기 개념이 아니라 그대로 얹는다
-        if hit.get('_W'):
-            r['W_25대상'] = hit['_W']
-        if hit.get('_LP'):
-            r['LP'] = hit['_LP']
+        # W(25대상)·LP 7열 — 디테일 표시용. ★고객번호로 맞았을 때만 얹는다
+        if how == '고객번호':
+            if hit.get('_W'):
+                r['W_25대상'] = hit['_W']
+            if hit.get('_LP'):
+                r['LP'] = hit['_LP']
         for f in ('지번주소', '변대주명'):
             if not r.get(f) and hit.get(f):
                 r[f] = hit[f]
@@ -1664,12 +1678,16 @@ def main():
         for f in LEDGER_FIELDS:
             out.setdefault(f, '')
 
-        # ② boranggi — 고객번호 우선, 없으면 MAC. ★계기번호로는 붙이지 않는다
+        # ② boranggi — **고객번호로만** 붙인다(영준님 2026-09-23 "고객번호로만").
+        #   ★MAC 폴백을 폐지했다. 상호·공동주택명·인입주·계약종별·검침방법은 전부
+        #     **계약/개소 단위**인데 한 모뎀(함체)에는 여러 계약의 계기가 물린다.
+        #     MAC 으로 맞추면 남의 상호·남의 주택명을 물려받는다 — 실측 2026-09-23:
+        #     MAC 01248584738 함체에서 3상 계기 두 건이 아미고 계기의 값을 받아
+        #     공동주택명이 '한양플러스704호' 로 같이 찍혔다(호수까지 남의 것이다).
+        #   ★계기번호로도 붙이지 않는다(재사용 오염).
         hit, src = None, ''
         if r['고객번호'] and r['고객번호'] in bo_cust:
             hit, src = bo_cust[r['고객번호']][0], bo_cust[r['고객번호']][1] + '/고객번호'
-        elif r['MAC'] and r['MAC'] in bo_mac:
-            hit, src = bo_mac[r['MAC']][0], bo_mac[r['MAC']][1] + '/MAC'
         for f in BORANGGI_FIELDS:
             v = (hit or {}).get(f, '')
             out[f] = v
