@@ -11,6 +11,9 @@
 /* LP무기록(확인용) — 진보라. 전용색이 없어 실효와 같은 초록으로 떠서 구분이 안 됐다(영준님 2026-09-15).
    ★SKT 라벤더(#a78bfa)와 헷갈리면 안 되므로 채도·명도를 확실히 내린 #7c3aed 를 쓴다. */
 .custom-marker.lpnoapp .pin-body { fill: #7c3aed; }   /* LP무기록 — 진보라 */
+/* 25년 미청구불가 — SKT 와 같은 라벤더를 쓴다(영준님 2026-09-20). 리스트가 달라 겹쳐 뜰 일이
+   거의 없고(계기 겹침 0), 미완 리스트라 **가운데 흰 원은 유지**한다 — 그 점이 SKT 와 구분된다. */
+.custom-marker.bulga  .pin-body { fill: #a78bfa; }   /* 25년 미청구불가 — 라벤더 */
 
 /* 리스트1(미완·폴백): 흰 원 표시 / 리스트2(완료·보류·불가): 꽉찬 핀 */
 .pin-circle { display: none; }
@@ -19,13 +22,15 @@
    skt/tou 는 전용 리스트라 원이 없는 것이고, 그 규칙을 따라가면 안 됐다. */
 .custom-marker.green .pin-circle,
 .custom-marker.yellow .pin-circle,
-.custom-marker.lpnoapp .pin-circle { display: block; }
+.custom-marker.lpnoapp .pin-circle,
+.custom-marker.bulga .pin-circle { display: block; }
 
 .marker-number { position: absolute; top: 3px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: bold; color: white; line-height: 1; pointer-events: none; }
 /* 흰 원 위에 숫자가 얹히므로 어두운 글자여야 읽힌다 — green/yellow 와 같은 규칙. */
 .custom-marker.green .marker-number,
 .custom-marker.yellow .marker-number,
-.custom-marker.lpnoapp .marker-number { color: #1f2937; }
+.custom-marker.lpnoapp .marker-number,
+.custom-marker.bulga .marker-number { color: #1f2937; }
 .custom-marker.skt .marker-number { color: #ffffff; font-size: 9px; top: 4px; font-weight: 800; }
 .custom-marker.tou .marker-number { color: #ffffff; font-size: 9px; top: 4px; font-weight: 800; }
 /* 고압철거 — 숫자 대신 한글 한 글자('교'=철거+재설치 / '철'=철거). 숫자보다 굵게 */

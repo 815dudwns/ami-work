@@ -1,0 +1,14 @@
+PROGRESS 10/123 last=25450079307 pwr=10 fields=1 http=200
+PROGRESS 20/123 last=25450076807 pwr=5 fields=1 http=200
+PROGRESS 30/123 last=48451059147 pwr=10 fields=1 http=200
+PROGRESS 40/123 last=69450062655 pwr=3 fields=1 http=200
+PROGRESS 50/123 last=06450096735 pwr=4 fields=1 http=200
+PROGRESS 60/123 last=37450092805 pwr=10 fields=1 http=200
+PROGRESS 70/123 last=25450080451 pwr=15 fields=1 http=200
+PROGRESS 80/123 last=25450080871 pwr=8 fields=1 http=200
+PROGRESS 90/123 last=06450088883 pwr=15 fields=1 http=200
+PROGRESS 100/123 last=06450095176 pwr=5 fields=1 http=200
+PROGRESS 110/123 last=48171588770 pwr=3 fields=1 http=200
+PROGRESS 120/123 last=29171234184 pwr=3 fields=1 http=200
+PROGRESS 123/123 last=56170818911 pwr=5 fields=1 http=200
+DONE total=123 ok=123 fail=0

@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title></title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0 ,maximum-scale=1.0, minimum-scale=1.0,user-scalable=no, viewport-fit=contain">
+    <meta http-equiv="Expires" content="-1">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Cache-control" content="no-cache">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <!-- ############################################ main적용 Start ############################################## -->
+    <link rel="stylesheet" type="text/css" href="/assets/css/common.css"/>
+    <link rel="stylesheet" type="text/css" href="/assets/css/main.css"/>
+    <link rel="stylesheet" type="text/css" href="/assets/css/talk.css"/>
+    <link rel="stylesheet" type="text/css" href="/assets/css/xeicon.css"/>
+    <link rel="stylesheet" type="text/css" href="/widget/assets/css/widget.css"/>
+    <!-- ############################################ main적용 End ################################################ -->
+    <link rel="stylesheet" type="text/css" href="/assets/css/reset.css"/>
+    <link rel="stylesheet" type="text/css" href="/assets/css/iframe_layout.css"/>
+    <link rel="stylesheet" type="text/css" href="/assets/css/feather.css"/>
+    <link rel="stylesheet" type="text/css" href="/assets/css/xcloud-icon.css"/>
+    <link rel="stylesheet" type="text/css" href="/assets/css/codemirror.css"/>
+    <link rel="stylesheet" type="text/css" href="/assets/css/slick.css"/>
+    <link rel="stylesheet" type="text/css" href="/assets/css/jquery-clockpicker.min.css"/>
+    <link rel="stylesheet" type="text/css" href="/assets/css/simplebar.css"/>
+    <link rel="stylesheet" type="text/css" href="/assets/css/jui/jui-grid.classic.css"/>
+    <link rel="stylesheet" type="text/css" href="/assets/css/jui/jui-ui.classic.css"/>
+    <!--	<link rel="stylesheet" type="text/css" href="/assets/css/tui/tui-chart.min.css"/>-->
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/assets/css/tui/toastui-chart.min.css"/>
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/assets/css/tui/tui-grid.min.css"/>
+    <!--	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />-->
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/assets/css/swiper-bundle.min.css"/>
+
+    <!-- ############################################ sub적용 Start ############################################## -->
+    <!--	<link rel="stylesheet" type="text/css" href="/assets/css/sms.css"/>-->
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/assets/css/tui/toastui-editor-viewer.min.css"></link>
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/assets/css/tui/toastui-editor.min.css"></link>
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/assets/css/tui/toastui-editor-plugin-table-merged-cell.min.css"></link>
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/assets/css/tui/codemirror.css"></link>
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/assets/css/tui/github.min.css"></link>
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/assets/css/tui/tui-color-picker.css"></link>
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/assets/css/tui/tui-date-picker.css">
+    <!-- ############################################ sub적용 End ################################################ -->
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/assets/css/vue/axios.loading.css"/>
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/assets/css/vue/vue.transition.css"/>
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/assets/css/vue/v-calendar.min.css">
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/assets/css/vue/vue2-perfect-scrollbar.min.css"/>
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/assets/css/vue/vue-toast-notification.css"/>
+
+    <!--	<script type="text/javascript" src="https://ssl.daumcdn.net/dmaps/map_js_init/postcode.v2.js"></script>-->
+    <script defer type="text/javascript" src="/assets/js/vendor/postcode.v2.js?v=20251111"></script>
+
+    <!-- 기본 -->
+    <!--	<script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>-->
+    <script defer type="text/javascript" src="/assets/js/vendor/swiper-bundle.min.js?v=20251111"></script>
+
+    <script type="text/javascript" src="/assets/js/vendor/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/jquery.easing.1.3.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/es6-promise.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/es6-promise.auto.min.js"></script>
+    <script type="text/javascript" src="/assets/js/vendor/lodash.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/xlsx.full.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/moment.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/codemirror.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/javascript.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/slick.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/jquery-clockpicker.min.js"></script>
+    <!--	<script type="text/javascript" src="/assets/js/vendor/simplebar.js"></script>-->
+    <script type="text/javascript" src="/assets/js/vendor/array_find.js"></script>
+    <script type="text/javascript" src="/assets/js/vendor/loadingoverlay.min.js"></script>
+    <script type="text/javascript" src="/assets/js/vendor/jszip.min.js"></script>
+    <script type="text/javascript" src="/assets/js/vendor/FileSaver.js"></script>
+    <!-- ############################################ sub적용 Start ############################################## -->
+    <script defer type="text/javascript" src="/assets/js/vendor/html2canvas.min.js"></script>
+    <!--	<script type="text/javascript" src="/assets/js/vendor/jspdf.min.js"></script>-->
+    <script defer type="text/javascript" src="/assets/js/vendor/sha256.js"></script>
+    <!--	<script type="text/javascript" src="/assets/js/vendor/sha1.js"></script>-->
+    <script type="text/javascript" src="/assets/js/vendor/aes.js"></script>
+    <script type="text/javascript" src="/assets/js/vendor/download.min.js"></script>
+    <!--	<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/3.1.2/rollups/hmac-sha256.js"></script>-->
+    <script type="text/javascript" src="/assets/js/vendor/hmac-sha256.js?v=20251111"></script>
+    <!--	<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/3.1.2/components/enc-base64-min.js"></script>-->
+    <script type="text/javascript" src="/assets/js/vendor/enc-base64-min.js?v=20251111"></script>
+    <!-- ############################################ sub적용 End ################################################ -->
+
+    <!-- jui -->
+    <script defer type="text/javascript" src="/assets/js/vendor/jui/jui-core.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/jui/jui-ui.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/jui/jui-grid.min.js"></script>
+
+    <!-- tui(toast) -->
+    <script defer type="text/javascript" src="/assets/js/vendor/tui/tui-code-snippet.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/tui/toastui-chart.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/tui/tui-color-picker.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/tui/tui-date-picker.min.js"></script>
+    <!-- ############################################ sub적용 Start ############################################## -->
+    <!-- <script type="text/javascript" src="/assets/js/vendor/tui/highlight.pack.js"></script> -->
+    <script defer type="text/javascript" src="/assets/js/vendor/tui/markdown-it.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/tui/toastui-editor-viewer.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/tui/toastui-editor-all.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/tui/toastui-editor-plugin-color-syntax.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/tui/toastui-editor-plugin-table-merged-cell.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/tui/tui-grid.min.js"></script>
+
+    <script defer type="text/javascript" src="/assets/js/vendor/tui/plantuml-encoder.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/tui/toastui-editor-plugin-uml.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/tui/raphael.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/tui/toastui-editor-plugin-chart.min.js"></script>
+    <!-- ############################################ sub적용 End ################################################ -->
+
+
+    <!-- 어플리케이션 개별 -->
+    <!-- ############################################ main적용 Start ############################################## -->
+    <script type="text/javascript" src="/assets/js/index.js"></script>
+    <script type="text/javascript" src="/assets/js/vendor/masonry.js"></script>
+    <!-- ############################################ main적용 End ################################################ -->
+
+    <!-- vue 관련 -->
+    <script type="text/javascript" src="/assets/js/vendor/vue/vue.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/es6-promise.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/es6-promise.auto.min.js"></script>
+    <script type="text/javascript" src="/assets/js/vendor/vue/axios.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/vue/vee-validate.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/vue/vue-validate-locale-ko.js"></script>
+    <!--	<script type="text/javascript" src="/assets/js/vendor/vue/Sortable.min.js"></script>-->
+    <script defer type="text/javascript" src="/assets/js/vendor/vue/vuedraggable.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/vue/v-calendar.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/vue/v-mask.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/vue/vue2-perfect-scrollbar.umd.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/vue/vue-grid-layout.umd.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/vue/vue-toast-notification.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/vue/vue-carousel.min.js"></script>
+    <script defer type="text/javascript" src="/assets/js/vendor/vue/vue-clipboard.min.js"></script>
+
+    <!-- CF-COMPONENT -->
+    <script type="text/javascript" src="/assets/js/cf_component/Dataset.js"></script>
+    <script type="text/javascript" src="/assets/js/cf_component/FileSet.js"></script>
+    <script type="text/javascript" src="/assets/js/cf_component/SingleFileSet.js"></script>
+    <script type="text/javascript" src="/assets/js/cf_component/PagingSet.js"></script>
+    <script type="text/javascript" src="/assets/js/cf_component/ModalSet.js"></script>
+    <script type="text/javascript" src="/assets/js/cf_component/Tagset.js"></script>
+    <script type="text/javascript" src="/assets/js/cf_component/CommcodeSet.js"></script>
+    <script type="text/javascript" src="/assets/js/cf_component/CustomcodeSet.js"></script>
+    <!-- CF-COMPONENT(Template) -->
+    <script type="text/javascript" src="/assets/js/cf_component/template/MultiFileTemplate.js"></script>
+	<script type="text/javascript" src="/assets/js/cf_component/template/MultiFileSmallTemplate.js"></script>
+    <!-- <script type="text/javascript" src="/assets/js/cf_component/template/MultiFileTemplate.js"></script> -->
+    <script defer type="text/javascript" src="/assets/js/cf_component/template/SingleFileTemplate.js"></script>
+    <script defer type="text/javascript" src="/assets/js/cf_component/template/PagingTemplate.js"></script>
+    <script defer type="text/javascript" src="/assets/js/cf_component/template/MessageModalTemplate.js"></script>
+    <script defer type="text/javascript" src="/assets/js/cf_component/template/InputTagTemplate.js"></script>
+    <script defer type="text/javascript" src="/assets/js/cf_component/template/TreeTemplate.js"></script>
+    <script defer type="text/javascript" src="/assets/js/cf_component/template/MenuTemplate.js"></script>
+    <script defer type="text/javascript" src="/assets/js/cf_component/template/InvalidTemplate.js"></script>
+    <script defer type="text/javascript" src="/assets/js/cf_component/template/MonthPickerTemplate.js"></script>
+    <script defer type="text/javascript" src="/assets/js/cf_component/template/TimePickerTemplate.js"></script>
+    <script defer type="text/javascript" src="/assets/js/cf_component/template/DatePickerTemplate.js"></script>
+    <script defer type="text/javascript" src="/assets/js/cf_component/template/ExcelExportTemplate.js"></script>
+    <script defer type="text/javascript" src="/assets/js/cf_component/template/NaverMapUrlSchemeTempalte.js"></script>
+    <script defer type="text/javascript" src="/assets/js/cf_component/template/KaKaoMapTemplate.js"></script>
+
+
+    <!-- CF-COMPONENT(Popup) -->
+    <!-- 	<script type="text/javascript" src="/assets/js/cf_component/popup/systemmanager/user/userpopupTemplate.js"></script> -->
+    <script defer type="text/javascript" src="/assets/js/cf_component/popup/systemmanager/user/userpopupTemplate.js"></script>
+    <!--	<script type="text/javascript" src="/assets/js/cf_component/popup/systemmanager/user/orgpopupTemplate.js"></script>-->
+    <!--	<script type="text/javascript" src="/assets/js/cf_component/popup/systemmanager/user/userauthpopupTemplate.js"></script>-->
+    <!--	<script type="text/javascript" src="/assets/js/cf_component/popup/systemmanager/user/usermultipopupTemplate.js"></script>-->
+    <!--	<script type="text/javascript" src="/assets/js/cf_component/popup/survey/survey/surveypopupTemplate.js"></script>-->
+    <!--	<script type="text/javascript" src="/assets/js/cf_component/popup/commons/emailpopupTemplate.js"></script>-->
+    <!--	<script type="text/javascript" src="/assets/js/cf_component/popup/commons/kakaopopupTemplate.js"></script>-->
+    <!--	<script type="text/javascript" src="/assets/js/cf_component/popup/commons/smspopupTemplate.js"></script>-->
+
+    <!-- Innorix -->
+    <link media="print" onload="this.media='all'" rel="stylesheet" type="text/css" href="/innorix/innorix.css"/>
+    <script type="text/javascript" src="/innorix/innorix.js"></script>
+    <script type="text/javascript" src="/assets/js/cf_component/template/InnorixFileTemplate.js"></script>
+
+    <!-- OCR
+    <script async type="text/javascript" src="/assets/js/vendor/opencv.js" onload="onOpenCvReady();"></script>
+    <script>
+        function onOpenCvReady() {
+            console.log("OpenCV ready", cv);
+        }
+    </script>
+    -->
+    <!--	<script type="text/javascript" src="/assets/js/vendor/tesseract/tesseract.js/tesseract.min.js"></script>-->
+    <!--	<script type="text/javascript" src="/assets/js/cf_component/popup/commons/ocrReaderPopupTemplate.js"></script>
+        <script type="text/javascript" src="/assets/js/cf_component/popup/commons/ocrReaderManualPopupTemplate.js"></script>
+        <script type="text/javascript" src="/assets/js/cf_component/popup/commons/ocrReaderTesterPopupTemplate.js"></script>-->
+    <script defer type="text/javascript" src="/assets/js/vendor/zxing/umd/index.min.js"></script>
+    <script type="text/javascript" src="/assets/js/cf_component/popup/commons/barcodeReaderPopupTemplate.js"></script>
+    <!--	<script type="text/javascript" src="/assets/js/cf_component/popup/commons/ocrReaderNaverPopupTemplate.js"></script>-->
+    <!--	<script type="text/javascript" src="/assets/js/cf_component/popup/commons/ocrReaderAmiPopupTemplate.js"></script>-->
+    <script type="text/javascript" src="/assets/js/cf_component/popup/commons/ocrReaderWarebizPopupTemplate.js"></script>
+    <!--	<script type="text/javascript" src="/assets/js/cf_component/popup/commons/ocrReaderGooglePopupTemplate.js"></script>
+        <script type="text/javascript" src="/assets/js/cf_component/popup/commons/nfcReaderPopupTemplate.js"></script>-->
+    <script type="text/javascript" src="/assets/js/cf_component/template/InnorixFileUploadSingleTemplate.js"></script>
+    <script type="text/javascript" src="/assets/js/cf_component/template/InnorixFileUploadImgSizeTemplate.js"></script>
+
+    <!-- websocket -->
+    <!--	<script type="text/javascript" src="/assets/js/vendor/socket/sockjs.min.js"></script>-->
+    <!--	<script type="text/javascript" src="/assets/js/vendor/socket/stomp.min.js"></script>-->
+
+    <!-- 프로젝트 공통 -->
+    <script type="text/javascript" src="/assets/js/cdf_library.js"></script>
+    <script type="text/javascript" src="/assets/js/common.js"></script>
+    <script type="text/javascript" src="/assets/js/error_message.js"></script>
+    <script type="text/javascript" src="/assets/js/axios.common.js"></script>
+    <script type="text/javascript" src="/assets/js/vendor/progresscircle.js"></script>
+
+    <!-- 어플리케이션 공통 -->
+    <!-- ############################################ sub적용 Start ############################################## -->
+    <script type="text/javascript" src="/app-assets/js/snb.js"></script>
+    <script type="text/javascript" src="/app-assets/js/common.js"></script>
+    <!-- ############################################ sub적용 End ################################################ -->
+
+    <!-- api -->
+    <!-- systemmanager -->
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/common.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/etc.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/defaultinfo.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/representative.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/service.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/user.api.js"></script>
+    <!--	<script type="text/javascript" src="/app-assets/js/api/systemmanager/send.api.js"></script>-->
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/restapi.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/auth.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/alert.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/app.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/widget.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/layout.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/menu.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/program.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/linkplus.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/system.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/loglist.api.js"></script>
+    <!--	<script type="text/javascript" src="/app-assets/js/api/systemmanager/datagokr.api.js"></script>-->
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/datamanager.api.js"></script>
+    <!-- systemmanager 외부사용자용-->
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/defaultinfoApi.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/userApi.api.js"></script>
+    <!--	<script type="text/javascript" src="/app-assets/js/api/systemmanager/orgApi.api.js"></script>-->
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/appApi.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/alertApi.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/authApi.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/systemmanager/menuApi.api.js"></script>
+    <!-- additional -->
+    <script defer type="text/javascript" src="/app-assets/js/api/additional/banner.api.js"></script>
+    <!--	<script type="text/javascript" src="/app-assets/js/api/additional/survey.api.js"></script>-->
+    <script defer type="text/javascript" src="/app-assets/js/api/additional/calendar.api.js"></script>
+    <!--	<script type="text/javascript" src="/app-assets/js/api/additional/farmboard.api.js"></script>-->
+    <!-- additional 외부사용자용-->
+    <!--	<script type="text/javascript" src="/app-assets/js/api/additional/surveyApi.api.js"></script>-->
+    <!--	<script type="text/javascript" src="/app-assets/js/api/additional/farmboardApi.api.js"></script>-->
+    <script defer type="text/javascript" src="/app-assets/js/api/additional/bannerApi.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/additional/calendarApi.api.js"></script>
+    <script defer type="text/javascript" src="/app-assets/js/api/additional/boardApi.api.js"></script>
+    <!-- board -->
+    <script defer type="text/javascript" src="/app-assets/js/api/additional/board.api.js"></script>
+
+    <!-- commons -->
+    <!--	<script type="text/javascript" src="/app-assets/js/api/commons/email.api.js"></script>-->
+
+    <!-- Widget -->
+    <!--	<script type="text/javascript" src="/widget/template/banner/banner-widget.js"></script>-->
+    <!--	<script type="text/javascript" src="/widget/template/calendar/calendar.js"></script>-->
+    <!--	<script type="text/javascript" src="/widget/template/community/fourcut-img-list.js"></script>-->
+    <!--	<script type="text/javascript" src="/widget/template/community/normal-img-list.js"></script>-->
+    <!--	<script type="text/javascript" src="/widget/template/community/normal-list.js"></script>-->
+    <!--	<script type="text/javascript" src="/widget/template/community/normal-tap-list.js"></script>-->
+    <!--	<script type="text/javascript" src="/widget/template/linkplus/linkplus-01.js"></script>-->
+
+    <!-- AMI - Widget -->
+    <script type="text/javascript" src="/widget/template/amiwidget/notice-ami.js"></script>
+    <script type="text/javascript" src="/widget/template/amiwidget/manage-ami.js"></script>
+    <script type="text/javascript" src="/widget/template/amiwidget/stats-ami.js"></script>
+    <script type="text/javascript" src="/app-assets/js/api/additional/amiwidget.api.js"></script>
+    <script type="text/javascript">
+        /*******************************************************************************************************************************************************************
+         * javascript start
+         ********************************************************************************************************************************************************************/
+        window.onpopstate = function(e) {
+            if(e.state && e.state.url) {
+                var appName = getParameterByName('app', e.state.url);
+                var app = getParameterByName('app', e.state.url);
+                var menu = getParameterByName('menu', e.state.url);
+
+                appOpen(app, menu, {'isPush': true});
+            }
+        };
+
+        $(document).ready(function() {
+
+        });
+
+        function notifySubmit(color, title, message, icon, duration) {
+            //color: success, info, warning, danger
+            //type: success, error, warning, info, default
+            var type = 'default';
+            var durationVal = 3000;
+
+            if(!isNull(duration)) durationVal = duration;
+
+            if(color == 'success') type = 'success'; else if(color == 'info') type = 'info'; else if(color == 'warning') type = 'warning'; else if(color == 'danger' || color == 'error') type = 'error';
+
+            Vue.$toast.open({
+                                message: message,
+                                type: type,
+                                position: isPc() ? 'bottom-right' : 'top',
+                                duration: durationVal // all other options
+                            });
+        }
+
+        function notifyData(data, title, icon = "icon-caution", duration = 3000) {
+            try {
+                if (!data || !data.CODE) {
+                    if(data === 1){
+                        notifySubmit('success', '성공', title+' 되었습니다.', 'icon-save');
+                    }else{
+                        notifySubmit('error', title, "알 수 없는 오류가 발생했습니다.", icon, duration);
+                    }
+                    return;
+                }
+
+                const code = String(data.CODE);
+                const message = String(data.ERR_MSG);
+                if(message.length <= 0){
+                    notifySubmit('error', title, title+" 도중 알 수 없는 오류가 발생했습니다.", icon, duration);
+                    return;
+                }
+                notifySubmit('error', title, "ERROR ["+code+": "+message+"]", icon, duration);
+            }catch(e){
+                console.error("notifyData 처리 중 오류:", e);
+                notifySubmit('error', title, "에러 메시지 처리 중 문제가 발생했습니다.", icon, duration);
+            }
+        }
+		
+		function showNoticeModal(title, content) {
+			document.getElementById("noticeTitle").textContent = '[공지사항] '+title;
+			//document.getElementById("noticeContent").textContent = content;
+			
+			//content를 span태그 내의 p태그를 추가, 줄바꿈을 <br>로 수정하여 줄바꿈 적용
+			const noticeContent = document.getElementById("noticeContent");
+			noticeContent.innerHTML = ''; // 초기화
+			const paragraph = document.createElement('p');
+			paragraph.innerHTML = content.replace(/\n/g, '<br>');
+			noticeContent.appendChild(paragraph);
+			
+			modal_open('noticeModal');
+		}
+		
+		function closeToday(){
+			const today = new Date().toISOString().slice(0, 10);
+			localStorage.setItem("noticeCloseDate", today);
+		}
+		
+        /*******************************************************************************************************************************************************************
+         * javascript end
+         ********************************************************************************************************************************************************************/
+    </script>
+</head>
+<body class="jui feather">
+    <div id="skip_navi">
+        <p><a href="#content_wrap">본문 바로가기</a></p>
+        <p><a href="#gnb">메인메뉴 바로가기</a></p>
+    </div>
+    <div id="wrap">
+        <header id="header"></header>
+        <div class="overlay"></div>
+        <main id="content_wrap">
+            <article id="portal_article" class="contents">
+
+            </article>
+            <article id="app_article" class="contents" style="display:none;">
+                <!-- <iframe id="content_cf_app" src="/app-html/index.html" name="content_cf_app" width="100%" height="100%" frameborder="0" scrolling="yes" allowfullscreen></iframe> -->
+            </article>
+			<div class="modal-layer-wrap">
+				<div id="noticeModal" class="modal-layer type02">
+					<div class="modal-container">
+						<div class="modal-header">
+							<p class="modal-title" id="noticeTitle"></p>
+						</div>
+						<div class="modal-content">
+							<span class="textContent" id="noticeContent"></span>
+						</div>
+						<div class="modal-footer center">
+						    <a href="#!" class="btn type02 size-m layer_close">닫기</a>
+							<a href="#!" class="btn type02 size-m layer_close" onclick="closeToday()">오늘하루그만보기</a>
+						</div>
+						<div class="btn-r">
+						    <a href="#" class="cbtn" style="display: inline-block;" title="모달창 닫기"><span class="icon-exit"></span></a>
+						</div>
+					</div>
+				</div>
+			</div>
+        </main>
+        <footer id="footer">
+        </footer>
+    </div>
+</body>
+
+</html>

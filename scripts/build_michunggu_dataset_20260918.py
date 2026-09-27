@@ -921,6 +921,217 @@ def via_cust_26_hits(rows, bridge=None, aw=None):
     return drop, keep
 
 
+def master_only_index():
+    """(계기 -> 마스터로 있는 MAC 집합, 슬레이브가 전부 '청구' 인 MAC, 슬레이브가 있는 MAC)
+
+    ★상태(청구/미청구)는 원장에만 있다 — DB 원장 테이블의 col_15 다(엑셀 O열인데 헤더가 비어
+      그 이름으로 적재됐다. LEDGER_STATE_COL 과 같은 열이다).
+    ★snapshot 은 미청구2 판으로 고정한다 — 두 판이 한 테이블에 같이 들어 있어(575,720행)
+      안 거르면 같은 행을 두 번 센다. 집합 연산이라 결론은 같지만 로그 수치가 두 배로 보인다.
+    ★MAC 이 빈 행은 함체를 특정할 수 없으므로 건너뛴다.
+    """
+    import sqlite3
+    from collections import defaultdict
+    con = sqlite3.connect(ROOT / 'data/ami.db')
+    master_of = defaultdict(set)
+    sl_all_billed, sl_any = defaultdict(lambda: True), set()
+    for m, mac, ms, st in con.execute(
+            f'SELECT 계기번호,mac_norm,"M/S",{LEDGER_STATE_COL} FROM "{LEDGER_TABLE}"'
+            " WHERE snapshot='20260917-미청구2'"):
+        mk = str(mac or '').strip().upper()
+        if not mk or mk in ('NAN', 'NONE'):
+            continue
+        role, state, v = str(ms or '').strip(), str(st or '').strip(), nm(m)
+        if role.startswith('마스터'):
+            if v:
+                master_of[v].add(mk)
+        elif role.startswith('슬레이브'):
+            sl_any.add(mk)
+            if state != '청구':
+                sl_all_billed[mk] = False
+    con.close()
+    ok = {k for k in sl_any if sl_all_billed[k]}
+    log(f'마스터단독 색인 — 마스터 계기 {len(master_of):,} ·'
+        f' 슬레이브 있는 함체 {len(sl_any):,} (그중 전건 청구 {len(ok):,})')
+    return master_of, ok, sl_any
+
+
+def master_only_unbilled(rows, idx=None):
+    """마스터만 미청구로 남고 같은 함체 슬레이브가 전부 청구인 건 (영준님 2026-09-22).
+
+    반환 [(row, 근거dict)].
+
+    왜 빼나 — **청구는 모뎀(함체) 단위로 움직인다.** 슬레이브가 전부 청구된 함체라면 그
+      함체는 이미 청구가 끝난 것이고, 남은 마스터 한 건은 모뎀을 새로 시설해도 청구에
+      올라오지 않는다(영준님 2026-09-22 "얘는 청구 못하는 것으로 마무리해야 해").
+      실측 표본 01254428954 — 마스터 1건 미청구 · 슬레이브 8건 전부 청구, 9건 모두
+      2026-01-13 16:40~16:42 에 연달아 시공된 한 함체였다.
+    ★한 계기가 여러 함체에 마스터로 걸릴 수 있다(PLC MAC 으로 시공 -> 신호미약 -> LTE MAC
+      으로 재시공하면 원장에 두 MAC 이 다 남는다). 그때는 **모든 함체에서 조건이 맞을 때만**
+      뺀다 — 한 함체만 보고 빼면 근거가 갈린 건까지 쓸려 나간다
+      (실측 2026-09-22: 엇갈리는 건이 미청구 767 · 불가 1).
+    ★슬레이브가 없는 함체(마스터 단독)는 판정에서 뺀다 — 비교할 짝이 없다.
+    """
+    master_of, ok, sl_any = idx if idx is not None else master_only_index()
+    out = []
+    for x in rows:
+        v = nm(x.get('계기번호'))
+        rel = [k for k in master_of.get(v, ()) if k in sl_any]
+        if not rel or not all(k in ok for k in rel):
+            continue
+        out.append((x, {'함체': sorted(rel)}))
+    return out
+
+
+def bulga26_hits(rows):
+    """26년 불가(bulga_work_all)에 계기번호가 직접 있는 건 (영준님 2026-09-22).
+
+    26년에 현장이 가서 불가를 친 곳이다 — 25년 리스트로 또 보내면 같은 헛걸음을 반복한다.
+    ★계기번호 직접 매칭만 쓴다. 뒤 9자리 매칭은 **쓰지 않는다** — 앞 2자리는 제조·연도
+      코드라 뒤 9자리가 우연히 같은 별개 계기가 흔하다(2026-09-22 실측: 266건 중 212건이
+      지사까지 달랐다. 그대로 썼으면 212건을 잘못 뺐다).
+    """
+    import sqlite3
+    con = sqlite3.connect(ROOT / 'data/ami.db')
+    bw = {}
+    for m, s1, s2, d in con.execute(
+            'SELECT 계기번호_norm,`불가,철거사유`,`불가,철거상세사유`,작업일자 FROM bulga_work_all'):
+        if m:
+            bw.setdefault(nm(m), (str(s1 or ''), str(s2 or ''), str(d or '')))
+    con.close()
+    out = []
+    for x in rows:
+        got = bw.get(nm(x.get('계기번호')))
+        if got:
+            out.append((x, {'불가사유': got[0], '불가상세': got[1], '작업일': got[2][:10]}))
+    return out
+
+
+def mac_box_26_hits(rows):
+    """모뎀 MAC 이 같은 함체가 26년에 시공된 건 (영준님 2026-09-22 "워크에 있는 것들").
+
+    반환 (제외 [(row, ev)], 유지 [(row, ev)]).
+
+    계기번호가 어긋나 M3(직접 매칭)를 빠져나가는 건을 **함체 단위로** 잡는다. 실측 표본:
+      우이동 47-7 MAC 01249849705 — awms 8건 시공(2026-09-08) 중 3건이 앞 2자리가 어긋나
+      미청구에 남았고, 우희근 반장이 2026-09-22 에 같은 개소로 다시 가 불가를 쳤다.
+    ★같은 지사일 때만 본다 — MAC 은 재사용되므로 지사가 다르면 남의 함체다.
+    ★그 MAC 의 26년 모뎀워크 기록이 **전부 '기설'이면 빼지 않는다.**
+
+    ★★2026-09-23 축을 **크게 좁혔다**(영준님). MAC 이 같다는 것만으로는 뺄 수 없다:
+      ① 슬레이브는 모뎀을 갈지 않는다. LP 가 붙어 있으면 물리 작업 없이 앱만 쓰는데,
+         그때 **마스터를 '기설'로 잡고 슬레이브를 '신설'로 붙인다**(영준님). 그래서 한 함체에
+         기설·신설이 같이 찍힌다. 우리 미청구 슬레이브가 그 '신설' 목록에 **없다면 아직
+         앱 작성이 안 된 것**이고, 그게 바로 우리가 할 일이다 — 빼면 안 된다.
+      ② 실측 2026-09-23: 이 축에 걸린 121건 중 116건이 슬레이브였고, 함체 마스터 41개는
+         **전부 기설**(신설 마스터 0개)이었다. 모뎀은 그대로 있다는 뜻이다.
+      ③ MAC 은 재사용된다. 주소를 맞춰 보니 17건이 다른 개소였다
+         (자양동 841-5 ↔ 뚝섬로28길 27 · 혜화로6길 20-3 ↔ 필운대로10길 18-8).
+      그래서 **계기번호 오타가 확정된 건에만** 건다 — 같은 함체의 26년 모뎀워크 계기 중
+      **뒤 9자리가 우리 계기와 같은 것**이 있을 때. 앞 2자리만 어긋난 것은 앱 입력 오타다
+      (우이동 47-7 우희근 반장 3건 · 신당동 안병삼 1건, 실제로 9/22 헛걸음이 났다).
+    """
+    import sqlite3
+    from collections import defaultdict
+    con = sqlite3.connect(ROOT / 'data/ami.db')
+    direct, box = set(), defaultdict(list)
+    for m, mac, ji, gu, day in con.execute(
+            'SELECT 계기번호_norm,mac_norm,지사,작업구분,작업일자 FROM modem_work_all'):
+        if m:
+            direct.add(nm(m))
+        if mac:
+            box[str(mac).strip().upper()].append((str(ji or ''), str(gu or ''), str(day or ''), nm(m)))
+    con.close()
+    drop, keep = [], []
+    for x in rows:
+        me = nm(x.get('계기번호'))
+        if me in direct:            # 계기번호로 직접 걸리는 건 M3 가 이미 가져갔다
+            continue
+        mac = str(x.get('모뎀MAC') or '').strip().upper().replace('-', '')
+        cand = [t for t in box.get(mac, ()) if t[0] == str(x.get('지사') or '')]
+        if not cand:
+            continue
+        # ★뒤 9자리가 같은 모뎀워크 계기가 있을 때만 = 앞 2자리 오타가 확정된 건
+        tail = me[-9:] if len(me) >= 9 else ''
+        same9 = sorted({t[3] for t in cand if tail and t[3][-9:] == tail and t[3] != me})
+        ev = {'MAC': mac, '모뎀워크건수': len(cand),
+              '오타대응계기': same9,
+              '작업일': min(t[2] for t in cand)[:10],
+              '작업구분': sorted({t[1] for t in cand})}
+        if same9 and not all(t[1] == '기설' for t in cand):
+            drop.append((x, ev))
+        else:
+            keep.append((x, ev))
+    return drop, keep
+
+
+def swapped_billed_hits(rows):
+    """계기가 교체되고 **새 계기가 청구까지 끝난** 건 (영준님 2026-09-22).
+
+    같은 고객번호로 나중에 시공된 다른 계기가 원장에서 '청구' 이고, 원장 비고에
+    '계기교체' 표기가 있을 때만 뺀다.
+
+    ★시간 순서만으로는 판정하지 않는다 — 그 축(M6/B9)은 2026-09-21 에 폐기됐다.
+      원장 시공일은 **앱 작성 시각**이라 선후를 뜻하지 않기 때문이다. 여기서 쓰는 근거는
+      순서가 아니라 원장이 스스로 적은 '계기교체' 라는 **표기**다.
+    ★계기↔고객번호 다리는 원장·작업중·boranggi 를 **합쳐서** 만든다. 원장 테이블은
+      고객번호가 32% 비어 있어 한쪽만 쓰면 매칭이 절반으로 깎인다
+      (2026-09-22 실측: 다리 183,855 -> 396,428, 잡히는 건 52 -> 95).
+    """
+    import sqlite3
+    from collections import defaultdict
+    con = sqlite3.connect(ROOT / 'data/ami.db')
+    cur, SNAP = con.cursor(), '20260917-미청구2'
+
+    def z10(v):
+        s = ''.join(ch for ch in str(v or '') if ch.isdigit())
+        return s.zfill(10) if s else ''
+
+    cust = {}
+    for q in (f'SELECT 계기번호_norm,고객번호 FROM "{LEDGER_TABLE}" WHERE snapshot=?',
+              'SELECT 계기번호_norm,고객번호 FROM "작업중" WHERE snapshot=?'):
+        for m, cu in cur.execute(q, (SNAP,)):
+            cu = z10(cu)
+            if m and cu:
+                cust.setdefault(nm(m), cu)
+    for m, cu in cur.execute('SELECT 계기번호_norm,고객번호 FROM boranggi'):
+        cu = z10(cu)
+        if m and cu:
+            cust.setdefault(nm(m), cu)
+
+    by = defaultdict(list)
+    for m, d, st, b1, b2 in cur.execute(
+            f'SELECT 계기번호_norm,시공일,{LEDGER_STATE_COL},비고1,비고2 FROM "{LEDGER_TABLE}"'
+            ' WHERE snapshot=?', (SNAP,)):
+        v = nm(m)
+        cu = cust.get(v)
+        if cu:
+            by[cu].append((str(d or ''), v, str(st or ''), str(b1 or ''), str(b2 or '')))
+    con.close()
+
+    out = []
+    for x in rows:
+        me = nm(x.get('계기번호'))
+        cu = z10(x.get('고객번호')) or cust.get(me, '')
+        if not cu:
+            continue
+        g = by.get(cu, [])
+        mine = [t for t in g if t[1] == me]
+        if not mine:
+            continue
+        last = max(t[0] for t in mine)
+        others = [t for t in g if t[1] != me and t[2] == '청구' and t[0] > last]
+        if not others:
+            continue
+        memo = [f'{t[3]}/{t[4]}' for t in others + mine if t[3] or t[4]]
+        if not any('계기교체' in s.replace(' ', '') for s in memo):
+            continue
+        out.append((x, {'새계기': sorted({t[1] for t in others})[:3],
+                        '새계기시공': min(t[0] for t in others)[:8],
+                        '고객번호': cu, '비고': memo[:2]}))
+    return out
+
+
 def build_resweep_index():
     """[(출처명, by_cust, by_mac)] — 우선순위 순(먼저 온 것이 이긴다)."""
     import sqlite3
@@ -1016,13 +1227,18 @@ def resweep(rows, idx, dcu_no, dcu_id):
     """전수 재보강. 반환 = (채운 건수 Counter, 대안 건수 Counter)"""
     filled, alt = Counter(), Counter()
     for x in rows:
-        cu, mac = B.norm_cust(x.get('고객번호')), B.norm_mac(x.get('모뎀MAC'))
-        for src, by_cust, by_mac in idx:
+        # ★보강 키는 **고객번호 하나뿐이다**(영준님 2026-09-23 "고객번호로만").
+        #   MAC 폴백은 폐지했다 — 한 모뎀(함체)에 여러 계약의 계기가 물리므로 MAC 으로 맞추면
+        #   **남의 계약 값을 물려받는다.** 실측 2026-09-23: MAC 01248584738 함체에서
+        #   Amigo 계기(45530076578)의 고객번호가 3상 계기(26450248477·74450004520)로 옮겨붙었고,
+        #   그 틀린 고객번호를 키로 상호·공동주택명·인입주·검침방법까지 2차 오염됐다.
+        #   전체 135개 고객번호 / 374계기가 이렇게 겹쳤다(한 고객번호에 최대 11계기).
+        #   고객번호는 계약에 붙는 값이고 상호·공동주택명도 개소 단위다 — 함체를 타고 넘지 않는다.
+        cu = B.norm_cust(x.get('고객번호'))
+        for src, by_cust, _by_mac_unused in idx:
             rec, how = None, ''
             if cu and cu in by_cust:
                 rec, how = by_cust[cu], '고객번호'
-            elif mac and mac in by_mac:
-                rec, how = by_mac[mac], 'MAC'
             if not rec:
                 continue
             for f in RESWEEP_FIELDS:
@@ -1302,11 +1518,12 @@ def main():
     #   (6월 0 인데 9월 1 이면 그사이 해결 · 9월 중 1->0 이면 최근에 끊긴 것).
     #   ★단 LP 는 대상 판정에 쓰지 않는다 — LP 무관 전 개소 방문이 방침이다. 참고 정보다.
     LPC = ['LP 06/10', 'LP 09-05', 'LP 09-06', 'LP 09-07', 'LP 09-08', 'LP 09-09', 'LP 09-13']
-    _q = ('SELECT 고객번호,고객번호_2,MAC,주소,기존변대주,변경변대주,"25대상",'
+    kep_me = {}
+    _q = ('SELECT 고객번호,고객번호_2,MAC,주소,기존변대주,변경변대주,"25대상",계기번호,'
           + ','.join(f'"{x}"' for x in LPC) + ' FROM "25년미청구분_v2__sheet1"')
     for _row in _cur.execute(_q):
-        _cu, _cu2, _mac, _ad, _b1, _b2, _w = _row[:7]
-        _lp = dict(zip(LPC, _row[7:]))
+        _cu, _cu2, _mac, _ad, _b1, _b2, _w, _me = _row[:8]
+        _lp = dict(zip(LPC, _row[8:]))
         _rec = {'지번주소': blank(_ad),
                 '변대주명': (blank(_b1) or blank(_b2))}
         _rec = {k: v for k, v in _rec.items() if v and v != '0'}
@@ -1316,6 +1533,14 @@ def main():
         if not any(k for k in _rec if not k.startswith('_')) and not _rec['_W'] \
                 and not any(_rec['_LP'].values()):
             continue
+        # ★계기번호 색인을 1순위로 둔다(2026-09-23). 회신 10,333행은 **전건 계기번호**가
+        #   있는데 고객번호는 4,931행뿐이라, 고객번호로만 맞추면 LP·W 가 1,542건 빠진다
+        #   (실측: LP 8,001 -> 6,459). 같은 파일 안의 같은 계기를 찾는 것이라
+        #   '계기번호 재사용' 위험이 없다 — 재사용이 문제되는 것은 **다른 자료·다른 시점**과
+        #   맞출 때다(그래서 26년 모뎀워크 대조에는 여전히 주의가 필요하다).
+        _m2 = nm(_me)
+        if _m2 and _m2 not in kep_me:
+            kep_me[_m2] = _rec
         _c2 = B.norm_cust(_cu) or B.norm_cust(_cu2)
         if _c2 and _c2 not in kep_c:
             kep_c[_c2] = _rec
@@ -1323,22 +1548,34 @@ def main():
         if _mm and _mm not in kep_m:
             kep_m[_mm] = _rec
     _con.close()
-    log(f'한전 회신 색인 — 고객번호 {len(kep_c):,} · MAC {len(kep_m):,}')
+    log(f'한전 회신 색인 — 계기번호 {len(kep_me):,} · 고객번호 {len(kep_c):,} · MAC {len(kep_m):,}')
 
     kep_fill = Counter()
     for r in tgt:
+        # ★한전 회신 — **필드마다 허용 키가 다르다**(영준님 2026-09-23
+        #   "동호수 고객번호는 계기마다 있는 거잖아").
+        #   · 고객번호로 맞으면 전 필드를 쓴다(같은 계약이니 계기 단위 값도 그 계기 것이다)
+        #   · MAC 으로만 맞으면 **지번주소·변대주명만** 쓴다. 같은 모뎀이면 물리적으로 같은
+        #     자리라 지번·전주는 공유해도 되지만, **W(25대상)·LP 는 계기 단위**다.
+        #     LP 는 그 계기의 수신율이라 남의 값을 받으면 판단 근거가 통째로 거짓이 된다.
+        #   ★회신 주소에는 동호수가 없다(9,992건 전수 확인 — '정릉3동' 같은 행정동뿐).
+        #     호수가 붙는 것은 boranggi 의 공동주택명이고, 그쪽은 고객번호로만 붙인다.
         hit, how = None, ''
-        if r['고객번호'] and r['고객번호'] in kep_c:
+        if nm(r['계기번호']) in kep_me:
+            hit, how = kep_me[nm(r['계기번호'])], '계기번호'
+        elif r['고객번호'] and r['고객번호'] in kep_c:
             hit, how = kep_c[r['고객번호']], '고객번호'
         elif r['MAC'] and r['MAC'] in kep_m:
             hit, how = kep_m[r['MAC']], 'MAC'
         if not hit:
             continue
-        # W(25대상)·LP 7열 — 디테일 표시용. 덮어쓰기 개념이 아니라 그대로 얹는다
-        if hit.get('_W'):
-            r['W_25대상'] = hit['_W']
-        if hit.get('_LP'):
-            r['LP'] = hit['_LP']
+        # W(25대상)·LP 7열 — 디테일 표시용. ★계기번호·고객번호로 맞았을 때만 얹는다
+        #   (MAC 으로만 맞은 건은 같은 함체의 남의 계기일 수 있다 — LP 는 계기별 수신율이다)
+        if how in ('계기번호', '고객번호'):
+            if hit.get('_W'):
+                r['W_25대상'] = hit['_W']
+            if hit.get('_LP'):
+                r['LP'] = hit['_LP']
         for f in ('지번주소', '변대주명'):
             if not r.get(f) and hit.get(f):
                 r[f] = hit[f]
@@ -1471,12 +1708,16 @@ def main():
         for f in LEDGER_FIELDS:
             out.setdefault(f, '')
 
-        # ② boranggi — 고객번호 우선, 없으면 MAC. ★계기번호로는 붙이지 않는다
+        # ② boranggi — **고객번호로만** 붙인다(영준님 2026-09-23 "고객번호로만").
+        #   ★MAC 폴백을 폐지했다. 상호·공동주택명·인입주·계약종별·검침방법은 전부
+        #     **계약/개소 단위**인데 한 모뎀(함체)에는 여러 계약의 계기가 물린다.
+        #     MAC 으로 맞추면 남의 상호·남의 주택명을 물려받는다 — 실측 2026-09-23:
+        #     MAC 01248584738 함체에서 3상 계기 두 건이 아미고 계기의 값을 받아
+        #     공동주택명이 '한양플러스704호' 로 같이 찍혔다(호수까지 남의 것이다).
+        #   ★계기번호로도 붙이지 않는다(재사용 오염).
         hit, src = None, ''
         if r['고객번호'] and r['고객번호'] in bo_cust:
             hit, src = bo_cust[r['고객번호']][0], bo_cust[r['고객번호']][1] + '/고객번호'
-        elif r['MAC'] and r['MAC'] in bo_mac:
-            hit, src = bo_mac[r['MAC']][0], bo_mac[r['MAC']][1] + '/MAC'
         for f in BORANGGI_FIELDS:
             v = (hit or {}).get(f, '')
             out[f] = v
@@ -1593,6 +1834,66 @@ def main():
         map_rows = [x for x in map_rows if nm(x['계기번호']) not in _dset]
         pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _dset]
         pm = [m for m in pm if m not in _dset]          # 게이트 기대치도 같이 줄인다
+
+    # ── 제외축: 마스터만 미청구 — **2026-09-23 폐기** ─────────────────────────
+    #   근거가 추정이었고, 확인해 보니 성립하지 않았다(영준님 "이것들은 그냥 우리가
+    #   작업하면 되는 건들 아님?").
+    #   ① 마스터와 슬레이브는 **같은 날·같은 시공자·같은 구분**으로 작업됐다
+    #      (같은 날 103/106 · 같은 시공자 104/106). 현장에서 갈릴 이유가 없다.
+    #   ② 봉인도 차이가 없다 — 함체봉인은 마스터·슬레이브 똑같이 미입력(72/76),
+    #      계기봉인은 오히려 마스터가 더 채워져 있다.
+    #   ③ 17건은 26년 1~3월에 신호미약으로 PLC/HPGP -> LTE **모뎀을 갈았는데도**
+    #      여전히 미청구다. '모뎀 단위로 청구가 끝났다'는 설명이 여기서 깨진다.
+    #      그 17건은 새 MAC 으로 LP 를 긁어도 n/a 7 · 0% 3 으로 통신이 안 잡힌다.
+    #   ④ LP 로 보면 106건 중 전회차 0% 18 · n/a 53 — 통신이 안 되는 곳이 많다.
+    #      25년 모뎀이 그대로 달려 있으니 26년 모뎀으로 갈아야 할 우리 일이다.
+    #   -> 123건 전부 되살렸다. 되살림 목록 research/C5_106건_LP별_20260923.json ·
+    #      research/C5_모뎀교체이력_20260923.json
+    #   ★되살리려면(다시 제외하려면) 이 블록을 복원하면 된다 — master_only_unbilled()
+    #      함수는 남겨 두었다.
+
+    # ── 제외축 C6~C8 (영준님 2026-09-22 "나중에 교체된 것·청구된 것 + 26불가나 워크에 있는 것") ──
+    #   ★적용 순서가 곧 축의 우선권이다. 한 건이 여러 축에 걸리면 **먼저 도는 축이 가져간다**
+    #     (총합은 변하지 않는다). 근거가 강한 순으로 둔다 — 26불가(현장이 직접 불가) ->
+    #     계기교체 후속청구(원장 표기) -> MAC 함체(간접).
+    def _apply(code, hits, msg, why, ev_txt, outfile=None):
+        nonlocal map_rows, pend_rows, pm
+        if not hits:
+            log(f'{msg} — 0건')
+            return
+        s = {nm(r['계기번호']) for r, _ in hits}
+        log(f'{msg} — {len(hits)}건 **제외**')
+        if outfile:
+            (ROOT / outfile).write_text(json.dumps(
+                [dict({k: r.get(k) for k in ('계기번호', '지사', '주소', '고객번호', '모뎀MAC')},
+                      **ev) for r, ev in hits], ensure_ascii=False, indent=1))
+        EX.stage(EX.L_MICH, [EX.row(EX.L_MICH, code, r, why(ev), ev_txt(ev)) for r, ev in hits])
+        map_rows = [x for x in map_rows if nm(x['계기번호']) not in s]
+        pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in s]
+        pm = [m for m in pm if m not in s]
+
+    _apply('C6', bulga26_hits(map_rows + pend_rows), '26년 불가 겹침',
+           lambda ev: f"26년에 현장이 가서 불가를 쳤다 — {ev['작업일']}"
+                      f" 사유 '{ev['불가사유']}"
+                      + (f" / {ev['불가상세']}'" if ev['불가상세'] else "'")
+                      + ". 25년 리스트로 또 보내면 같은 헛걸음을 반복한다.",
+           lambda ev: f"26불가 {ev['작업일']} · {ev['불가사유']}",
+           'research/미청구_26불가겹침_20260922.json')
+
+    _apply('C7', swapped_billed_hits(map_rows + pend_rows), '계기교체 후속청구',
+           lambda ev: f"같은 고객번호({ev['고객번호']})로 계기 {' · '.join(ev['새계기'])} 가"
+                      f" {ev['새계기시공']} 에 시공돼 **청구까지 끝났다**. 원장 비고에"
+                      f" 계기교체 표기가 있다({' / '.join(ev['비고'])}). 옛 번호만 남은 유령이다.",
+           lambda ev: f"새계기 {' · '.join(ev['새계기'])} · {ev['새계기시공']} · 청구",
+           'research/미청구_계기교체후속청구_20260922.json')
+
+    # ── 제외축 C8(MAC 동일함체) — **2026-09-23 폐기** ──────────────────────────
+    #   영준님: "우희근 반장이 헛걸음한 게 아니야. 우희근 반장의 실수니까 당연히 가야 하는 것이야."
+    #   26년 앱 작성 때 계기번호를 잘못 넣으면 **그 계기는 청구가 안 된다.** 시공은 됐어도
+    #   장부상 우리 몫이 비어 있으니 가서 제대로 처리해야 할 일이 남는다.
+    #   (우이동 47-7 3건 · 신당동 1건 — 26년 앱 계기번호 오입력분)
+    #   -> 4건 되살림. 정정 요청 목록은 research/awms계기번호오입력_정정요청_20260923.json
+    #   ★함수 mac_box_26_hits() 는 남겨 두었다(되돌릴 때 이 블록만 복원하면 된다).
 
     acc = Counter(x['좌표정확도'] for x in map_rows)
     log(f'좌표: {dict(acc)}')

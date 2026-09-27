@@ -144,7 +144,7 @@ function poleDisplay(m, iconSvg, btnStyle) {
 //   하나만 보면 오판한다. ★'9/24'·'36/96' 은 정상이다(24개 중 9개라 미달로 보이지만
 //   한전이 정상으로 판정한 실증이 있다). 실패는 '0/24' 뿐이다.
 //   -> { text, bad } 를 돌려준다. bad(0수신)일 때만 빨강으로 그린다.
-/** 미청구 LP 7일치 — **표시할 때만** 줄여 보여준다(영준님 2026-09-20).
+/** 미청구 LP 7일치 — **표시할 때만** 바꿔 보여준다(영준님 2026-09-20).
  *
  * ★저장값은 건드리지 않는다. 1·0·소수·'#N/A' 를 그대로 들고 있어야 나중에 재판정이 된다.
  *   화면에서만 1 -> 100% · 0 -> 0% · 0.9583333 -> 95.8% · '#N/A' -> n/a.
@@ -153,14 +153,8 @@ function poleDisplay(m, iconSvg, btnStyle) {
  * ★뭉개지 마라 — 추이가 정보다. 6월 0 인데 9월 100% 면 그사이 해결된 것이고,
  *   9월 중 100% -> 0% 로 꺾이면 최근에 끊긴 것이다.
  * 날짜는 앞 0 을 떼고 '/' 로 통일한다: 'LP 06/10' -> '6/10' · 'LP 09-05' -> '9/5'.
- * 같은 값이 이어지면 묶는다: '9/5 100% · 9/6 100% · 9/7 100%' -> '9/5~9/7 100%'.
- *   ★묶음 판정은 **저장값**으로 한다(표시값이 아니라). 표시값은 소수점 한 자리로
- *     반올림되므로 0.958 과 0.9583 이 둘 다 '95.8%' 가 되어 **다른 값이 묶인다** —
- *     실제로 그렇게 짜서 걸렸다(2026-09-20). 95.8% 와 95.83% 는 같은 값이 아니다.
- *   ★값이 빈 회차는 줄에서 빠지는데, 그 자리에서 묶음도 끊는다.
- *     건너뛰고 이으면 "그 사이 내내 같았다"는 없는 말을 하게 된다.
  */
-function michungguLp(meter) {
+function michungguLpCells(meter) {
     const lp = meter && meter.LP;
     if (!lp || typeof lp !== 'object') return null;
     const keys = Object.keys(lp);
@@ -181,18 +175,34 @@ function michungguLp(meter) {
         const mm = s.match(/^(\d{1,2})[/\-.](\d{1,2})$/);
         return mm ? `${Number(mm[1])}/${Number(mm[2])}` : s;
     };
-    const runs = [];
-    keys.forEach(k => {
-        const raw = String(lp[k] == null ? '' : lp[k]).trim();
-        const v = pct(raw);
-        if (!v) { runs.push(null); return; }         // 빈 회차 = 묶음이 여기서 끊긴다
-        const last = runs[runs.length - 1];
-        if (last && last.raw === raw) last.to = day(k);   // ★저장값이 같을 때만 묶는다
-        else runs.push({ from: day(k), to: day(k), v, raw });
-    });
-    const parts = runs.filter(Boolean)
-        .map(r => `${r.from === r.to ? r.from : `${r.from}~${r.to}`} ${r.v}`);
-    return parts.length ? parts.join(' · ') : null;
+    const cells = keys.map(k => ({ day: day(k), val: pct(String(lp[k] == null ? '' : lp[k]).trim()) }));
+    // 전 회차가 빈칸이면 표 자체를 그리지 않는다 — 빈 표는 자리만 먹는다.
+    return cells.some(c => c.val) ? cells : null;
+}
+
+/** 미청구 LP 표 (영준님 2026-09-22 "디테일에 엘피를 표로 만들어줘").
+ *
+ * 전에는 한 줄 문장이었다 — `LP 6/10~9/7 n/a · 9/8 39.6% · 9/9~9/13 100%`.
+ *   같은 값을 묶어 줄을 줄였는데, 회차가 7 개로 늘자 다른 필드와 뒤섞여 어느 날 값인지
+ *   읽기 어려웠다. 표는 칸이 날짜에 1:1 로 대응하므로 **묶지 않고 전부 편다** —
+ *   묶으면 표에서는 오히려 날짜 대응이 깨진다.
+ * ★판단 유도 금지(영준님 2026-09-20) — 0% 를 빨강으로 칠하거나 경고를 붙이지 않는다.
+ *   값만 보여주면 작업자가 읽는다. 회색은 'n/a(조회 실패)' 와 값의 구분일 뿐이다.
+ * ★값이 빈 회차도 날짜 칸은 남긴다 — 자리를 비워 둬야 추이가 끊긴 지점이 보인다.
+ * ★가로 스크롤은 표 안에서만 일어난다(.lp-table-wrap). 폰에서 패널 전체가 밀리면 안 된다.
+ */
+function michungguLpTable(meter) {
+    const cells = michungguLpCells(meter);
+    if (!cells) return '';
+    const head = cells.map(c => `<th>${c.day}</th>`).join('');
+    const body = cells.map(c => {
+        const na = c.val === 'n/a';
+        return `<td${na ? ' class="lp-na"' : ''}>${c.val || ''}</td>`;
+    }).join('');
+    return `<div class="lp-table-wrap"><table class="lp-table">` +
+        `<tr><th class="lp-corner">LP</th>${head}</tr>` +
+        `<tr><td class="lp-corner"></td>${body}</tr>` +
+        `</table></div>`;
 }
 
 
@@ -228,6 +238,36 @@ function lpSummary(meter) {
         text: `LP ${last.state} — ${label(rows[i].회차)}부터 ${verdict.length - i}회 연속`,
         bad: last.state === '0수신',
     };
+}
+
+/** 계기 카드를 모뎀 MAC 단위로 묶어 그린다 (영준님 2026-09-22).
+ *
+ * 한 주소에 함체가 둘 이상일 때만 불린다(macGrouped) — 부르는 쪽에서 이미 걸렀다.
+ * ★MAC 이 없는 계기는 **맨 뒤 한 묶음**으로 몬다. 빈 키를 중간에 두면 색 있는 묶음 사이에
+ *   회색 묶음이 끼어 순서가 흐려진다. 불가 리스트처럼 MAC 을 안 싣는 데이터가 여기 온다.
+ * ★묶음 순서는 **처음 나온 순서**다(정렬하지 않는다) — 계기 정렬은 이미 위에서 끝났고
+ *   여기서 다시 정렬하면 작업자가 익힌 순서가 뒤집힌다.
+ * ★색은 묶음을 **구분**하려고 돌려 쓴다. 값의 좋고 나쁨을 뜻하지 않는다(판단 유도 금지).
+ */
+function macGroupsHtml(meters, cards, macKeyOf) {
+    const order = [];
+    const byMac = new Map();
+    meters.forEach((m, i) => {
+        const k = macKeyOf(m);
+        if (!byMac.has(k)) { byMac.set(k, []); order.push(k); }
+        byMac.get(k).push(cards[i]);
+    });
+    const keys = order.filter(Boolean).concat(order.includes('') ? [''] : []);
+    const COPY = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+    return keys.map((k, gi) => {
+        const items = byMac.get(k);
+        const n = `<span class="mac-group-count">계기 ${items.length}</span>`;
+        const head = k
+            ? `<div class="mac-group-head">MAC <span class="mac-hl mac-g${gi % 6}">${k}</span>` +
+              `<button class="copy-btn" data-copy="${k}" title="모뎀MAC 복사">${COPY}</button>${n}</div>`
+            : `<div class="mac-group-head mac-group-none">모뎀 MAC 없음${n}</div>`;
+        return `<div class="mac-group ${k ? `mac-b${gi % 6}` : 'mac-b-none'}">${head}${items.join('')}</div>`;
+    }).join('');
 }
 
 // 주소 클릭 시 상세 패널 표시
@@ -750,8 +790,22 @@ function renderMetersList() {
         ? sortedMeters.filter(m => String(m.계기번호 || '').includes(searchVal))
         : sortedMeters;
 
+    // ── 모뎀 MAC 묶음 (영준님 2026-09-22 "맥 색 강조하고 맥끼리 묶어 놔") ──────────
+    //   왜: 한 주소에 **함체가 둘 이상**인 개소가 있다. 성산동 200-205 는 청구가 끝난 함체
+    //   (MAC 01254069886)와 미청구 함체(01254426174)가 같이 있어서, 지도만 보고 간 작업자가
+    //   어느 모뎀이 대상인지 화면에서 가릴 수 없었다(2026-09-22 실측).
+    //   ★MAC 이 한 종류뿐이면 묶지 않는다 — 묶을 것이 없는데 헤더만 붙으면 화면만 길어진다.
+    //   ★장애 데이터셋은 한 레코드가 이미 MAC 그룹이고 자기 트리를 따로 그린다(jangaeTreeHtml).
+    //     그 위에 또 묶으면 트리가 이중으로 감싸지므로 섞여 있으면 묶지 않는다.
+    //   ★키는 화면에 그리는 값과 **같은 식으로** 만든다(모뎀MAC_awms 우선 + 영숫자만).
+    //     다르게 만들면 헤더의 MAC 과 카드의 MAC 이 어긋난다.
+    const macKeyOf = (m) => String(m.모뎀MAC_awms || m.모뎀MAC || '').replace(/[^0-9A-Za-z]/g, '');
+    const hasJangae = filtered.some(m => m.category === '장애');
+    const macKinds = new Set(filtered.map(macKeyOf).filter(Boolean));
+    const macGrouped = !hasJangae && macKinds.size >= 2;
+
     const metersList = document.getElementById('meters-list');
-    metersList.innerHTML = filtered.map(meter => {
+    const meterCards = filtered.map(meter => {
         // 장애 데이터셋은 단위가 다르다 — 한 레코드가 **모뎀 MAC 그룹**이라 계기 한 줄이 아니라
         //   MAC 헤더 + 그 밑 계기 트리를 그린다. 같은 주소에 MAC 이 둘이면 트리가 둘 생긴다
         //   (영준님 지시 2026-08-31 "맥이 여러개면 모달 안에 트리가 두개").
@@ -875,9 +929,11 @@ function renderMetersList() {
             //   화이트리스트가 이스케이프보다 확실하다.
             const macShow = String(meter.모뎀MAC_awms || meter.모뎀MAC || '')
                 .replace(/[^0-9A-Za-z]/g, '');
-            if (macShow) {
+            //   ★묶여 있으면 여기선 안 그린다 — 바로 위 그룹 헤더에 같은 MAC 이 이미 있다.
+            //     둘 다 그리면 계기마다 같은 값이 두 번 나와 줄만 길어진다.
+            if (macShow && !macGrouped) {
                 const macBtn = `<button class="copy-btn" data-copy="${macShow}" title="모뎀MAC 복사" style="margin-left:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
-                subParts.push(`MAC ${macShow}${macBtn}`);
+                subParts.push(`MAC <span class="mac-hl">${macShow}</span>${macBtn}`);
             }
         }
         // 철거계기(교체 전) — 큰 글씨의 계기번호는 **신설계기**(지금 달려 있는 것)라,
@@ -920,16 +976,24 @@ function renderMetersList() {
             const stTxt = /^\d{14}$/.test(st)
                 ? `${st.slice(0, 4)}-${st.slice(4, 6)}-${st.slice(6, 8)} ${st.slice(8, 10)}:${st.slice(10, 12)}`
                 : (/^\d{8}$/.test(st) ? `${st.slice(0, 4)}-${st.slice(4, 6)}-${st.slice(6, 8)}` : st);
-            if (meter.지사) subParts.push(`지사 ${meter.지사}`);
+            // ★지사는 그리지 않는다(영준님 2026-09-20) — 지도가 어차피 지사로 필터되니
+            //   디테일에서 다시 볼 이유가 없다. 데이터에는 남긴다(필터·통계가 쓴다).
+            //   ※고압철거 블록의 지사는 그대로 둔다 — 거기는 소재지 구와 어긋나는 개소
+            //     (지하철 등) 때문에 주소와 함께 읽히라고 넣은 것이다(2026-08-18).
             if (stTxt) subParts.push(`최종시공일 ${stTxt}`);
             [
-                '구분', '공종', 'M/S', '집단', '485타입', '케이블', '커넥터',
+                // ★'공종'·'순번' 도 뺐다(영준님 2026-09-20). 공종은 전 건 '25년 보강' 아니면
+                //   빈값이라 볼 이유가 없고, 순번은 앱넘버와 같이 원장 안에서만 뜻이 있는 숫자다.
+                '구분', 'M/S', '집단', '485타입', '케이블', '커넥터',
                 '시설형태', '신호레벨', '추가계기', '비고1', '비고2', '앱변대주',
                 '계약종별', '검침방법',
                 // 불가 원장에만 있는 것들(영준님 2026-09-20 "불가에 들어갈 디테일도 다 넣어").
                 //   ★봉인은 빌더에서 미입력 표기(9999999·0000000)와 구분자를 이미 턴다.
                 //   ★0건인 칸(지도구분·철거구분·철거날짜 등)은 값이 없어 자연히 안 나온다.
-                '앱넘버', '순번', '우선일자', '지도구분', '철거구분', '철거날짜',
+                // ★'앱넘버' 는 뺐다(영준님 2026-09-20 "뭘 뜻하는지 모르겠어") — 불가 원장에만
+                //   전건 있는 숫자(951·7820 등)인데 원장 안에서만 뜻이 있어 현장에 쓸모가 없다.
+                //   데이터에는 남긴다(원장 대조용).
+                '우선일자', '지도구분', '철거구분', '철거날짜',
                 '함체봉인1', '함체봉인2', '계기봉인1', '계기봉인2', '외부봉인1', '외부봉인2',
                 // ★원장이 적어 보낸 변대주 값 — 대장 값과 다를 때만 남는다(영준님 2026-09-20).
                 //   **상단에는 절대 올리지 않는다.** 상단은 대장, 여기는 원장 — 자리를 갈라 둬야
@@ -941,12 +1005,10 @@ function renderMetersList() {
             });
         }
 
-        // 6.5) 25미청구 전용 — W(25대상)과 LP 7일치.
-        //   ★LP 는 **표시만** %로 바꾼다(michungguLp). 데이터는 원본 값 그대로다.
+        // 6.5) 25미청구 전용 — W(25대상). LP 7일치는 **줄이 아니라 표**로 따로 그린다
+        //   (영준님 2026-09-22). 표는 subParts 밑에 붙는다 — michungguLpTable 참고.
         //   ★판단 유도는 하지 않는다(영준님 2026-09-20) — 값만 보여주고 배지·경고는 붙이지 않는다.
         if (meter.W_25대상) subParts.push(`25대상 ${meter.W_25대상}`);
-        const mlp = michungguLp(meter);
-        if (mlp) subParts.push(`LP ${mlp}`);
 
         // 6.6) 불가사유 — 25년 미청구불가가 쓰는 값. 현장에서 '왜 못 했는지'가 곧 정보다.
         //   ★카테고리가 아니라 **필드 유무로 건다**(michungguLp·lp_이력과 같은 방식) —
@@ -1060,6 +1122,8 @@ function renderMetersList() {
             if (meter.공사번호) subParts.push(`공사 ${meter.공사번호}`);
         }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
+        // LP 7일치 표 — 값이 하나도 없으면 빈 문자열이라 아무것도 안 그린다.
+        const lpTable = michungguLpTable(meter);
         const details = detailParts.join(', ');
 
         // 계기번호 4구간 색상 분리
@@ -1118,12 +1182,16 @@ function renderMetersList() {
                     <button class="${failBtnClass}" data-meter="${meter.계기번호}">${failBtnLabel}</button>
                     ${details ? `<div class="meter-details">${details}</div>` : ''}
                     ${subDetails}
+                    ${lpTable}
                     ${addedInfo}
                     ${failInputHtml}
                 </div>
             </div>
         `;
-    }).join('');
+    });
+    metersList.innerHTML = macGrouped
+        ? macGroupsHtml(filtered, meterCards, macKeyOf)
+        : meterCards.join('');
 
     // 체크박스, 복사 버튼, 개별 불가 버튼/입력창 이벤트 바인딩
     setTimeout(() => {

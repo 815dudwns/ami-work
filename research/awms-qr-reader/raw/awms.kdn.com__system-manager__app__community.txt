@@ -1,0 +1,1 @@
+{"APP_ID":"community","WIDGET_APP_YN":"N","APP_NM":"커뮤니티","APP_VER":"1.0.0","APP_ENM":"Community","APP_TYPE_GB":"","APP_JAKSEONGJA_ID":"admin","DEFAULT_APP_YN":"N","DAEPYO_IMG_FILE_NO":"","APP_DESC":"커뮤니티","USE_YN":"Y","USE_DEVICE_GB":"","COLOR":"","ENDPOINT":"/app-html/index.html","OPEN_TYPE_GB":"","MENUAL_YN":"Y","TAG":"커뮤니티,자유게시판,게시판,공지사항","ICON":"icon-xcloud203"}

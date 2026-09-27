@@ -559,6 +559,17 @@ function aggregateRework(addresses) {
 
 // 같은 좌표에 겹친 마커 그룹을 좌표 중심으로 소용돌이(Sunflower spiral) 분산
 // 첫 마커는 정중앙, 이후 황금각(137.5°)으로 빡빡하게 나선형 확장
+// 마커 우선순위 — 겹칠 때 **중심에 남고 위에 그려지는** 순서(영준님 2026-09-20).
+//   합동 > 실효 > SKT > 25미청구 > 25년 미청구불가. 목록에 없는 카테고리는 뒤로 밀린다.
+//   ★두 군데서 쓴다: spreadOverlappingMarkers(중심 선점) · createMarker(zIndex).
+//     나선으로 밀어도 겹치는 부분이 남아 **나중에 그려진 마커가 가린다** — zIndex 가 있어야
+//     우선순위가 실제로 보인다(불가가 마지막에 그려져 미청구를 가리던 문제, 2026-09-20).
+const MARKER_PRIORITY = ['합동', '실효', 'skt', '미청구', '미청구불가'];
+function markerPriority(category) {
+    const i = MARKER_PRIORITY.indexOf(category);
+    return i === -1 ? MARKER_PRIORITY.length : i;
+}
+
 function spreadOverlappingMarkers(grouped) {
     const SPIRAL_EXACT  = 0.000025; // ≈ 2.8m 기본 간격 (exact)
     const SPIRAL_APPROX = 0.00008;  // ≈ 9m (approximate)
@@ -569,9 +580,12 @@ function spreadOverlappingMarkers(grouped) {
         if (!coordToKeys[k]) coordToKeys[k] = [];
         coordToKeys[k].push(key);
     });
+    const prioOf = key => markerPriority(grouped[key].category);
     Object.values(coordToKeys).forEach(keys => {
         const n = keys.length;
         if (n <= 1) return;
+        // i=0 이 중심이므로 우선순위가 높은 것부터 앞에 둔다(동순위는 원래 순서 유지 — 안정 정렬).
+        keys.sort((a, b) => prioOf(a) - prioOf(b));
         const hasApprox = keys.some(k => grouped[k].meters.some(m => m.좌표정확도 === 'approximate'));
         const c = hasApprox ? SPIRAL_APPROX : SPIRAL_EXACT;
         // Sunflower seed pattern: r = c·√i, θ = i·golden_angle
@@ -654,12 +668,18 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const isHapdong = category === '합동';
     const isJangae = category === '장애';
     const isLpNoApp = category === 'LP무기록';
+    const isBulga = category === '미청구불가';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
     if (isTou) color = 'tou';
     if (isLpNoApp) color = 'lpnoapp';   // 확인용 리스트 — 진보라(영준님 2026-09-15)
+    // 25년 미청구불가 — SKT 와 같은 라벤더. 가운데 흰 원은 유지한다(영준님 2026-09-20).
+    //   ★색만 빌려 쓰는 것이고 미완 리스트라 흰 원 규칙은 green 을 따른다.
+    //   ★approximate(주소 부정확)는 노란색이 이긴다 — 리스트 색보다 '주소를 못 믿는다' 가
+    //     먼저 보여야 한다(영준님 2026-09-20). 안 그러면 불가 56건이 라벤더에 묻힌다.
+    if (isBulga && !isApproximate) color = 'bulga';
     // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
     if (state === 'complete') color = 'gray';
     else if (state === 'hold') color = 'blue';
@@ -707,7 +727,10 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const customOverlay = new kakao.maps.CustomOverlay({
         position: position,
         content: markerEl,  // DOM 엘리먼트로 전달
-        yAnchor: 1
+        yAnchor: 1,
+        // 우선순위가 높을수록 위에 그려진다. 안 주면 나중에 만든 마커가 이기므로
+        //   레지스트리 등록 순서(불가가 마지막)가 그대로 화면 우선순위가 돼 버린다.
+        zIndex: 100 - markerPriority(category)
     });
 
     customOverlay.setMap(map);
@@ -736,11 +759,17 @@ function repaintMarker(marker) {
     const isHapdong = marker.category === '합동';
     const isJangae = marker.category === '장애';
     const isLpNoApp = marker.category === 'LP무기록';
+    const isBulga = marker.category === '미청구불가';
 
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
     if (isTou) color = 'tou';
     if (isLpNoApp) color = 'lpnoapp';   // 확인용 리스트 — 진보라(영준님 2026-09-15)
+    // 25년 미청구불가 — SKT 와 같은 라벤더. 가운데 흰 원은 유지한다(영준님 2026-09-20).
+    //   ★색만 빌려 쓰는 것이고 미완 리스트라 흰 원 규칙은 green 을 따른다.
+    //   ★approximate(주소 부정확)는 노란색이 이긴다 — 리스트 색보다 '주소를 못 믿는다' 가
+    //     먼저 보여야 한다(영준님 2026-09-20). 안 그러면 불가 56건이 라벤더에 묻힌다.
+    if (isBulga && !isApproximate) color = 'bulga';
     // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
     if (state === 'complete') color = 'gray';
     else if (state === 'hold') color = 'blue';

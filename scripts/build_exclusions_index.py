@@ -70,7 +70,7 @@ def michunggu_outside(c):
     # ★원장 행을 **통째로** 담는다(영준님 2026-09-21 "필드 선별 금지").
     #   이 축들은 리스트에 올라간 적이 없어 데이터셋 레코드가 없다 — 원장 행이 곧 원본이다.
     names = cols(c, LEDGER)
-    per, hv_all = {}, set()
+    per, hv_all, hv_keep = {}, set(), set()
     for raw in c.execute(f'SELECT * FROM "{LEDGER}"'):
         r = dict(zip(names, raw))
         r['상태'] = r.get(LEDGER_STATE)
@@ -78,18 +78,26 @@ def michunggu_outside(c):
         m = nm(r.get('계기번호'))
         if not m:
             continue
-        # ★고압 판정은 **계기 단위**다 — 그 계기의 **어느 행에든** 공종=고압이 있으면 고압이다.
-        #   미청구 행만 보면 놓친다: 한 계기가 고압(불가) 행 + 미청구 행을 함께 갖는 경우가 있다
-        #   (실측 2건 — 29450242649 봉익동 · 74450062896 중곡동. 원장에 4행씩 있다).
-        #   이 2건 때문에 재현이 635 로 나와 PM 표 637 과 어긋났다.
-        if str(r.get('공종') or '').strip() == '고압':
+        # ★고압 판정은 계기 단위로 모으되, **고압이 아닌 '미청구' 행이 따로 있으면 빼지 않는다**
+        #   (영준님 2026-09-23). 고압은 옛 이력이고 그 뒤에 일반 보강으로 시공된 개소가 있다 —
+        #   '고압 행이 하나라도 있으면 제외' 하면 그 미청구 행까지 같이 쓸려 나간다.
+        #   실측 4건: 74450062896(25/07 불가 고압 -> 26/06 미청구 신설) · 29450242649 ·
+        #   91190148046 · 98190283096. 빌더(build_michunggu_target_20260918.py)와 같은 규칙이다.
+        _g = str(r.get('공종') or '').strip()
+        if _g == '고압':
             hv_all.add(m)
+        elif str(r.get('상태') or '').strip() == '미청구':
+            hv_keep.add(m)
         if str(r.get('상태') or '').strip() != '미청구':
             continue
         if m in per:
             continue
         r['고객번호'] = B.norm_cust(r.get('고객번호')) or (r.get('고객번호') or '')
         per[m] = r
+    if hv_all & hv_keep:
+        log(f'  고압 — 비고압 미청구 행이 따로 있어 **유지** {len(hv_all & hv_keep)}건'
+            f' {sorted(hv_all & hv_keep)}')
+    hv_all -= hv_keep
     log(f'모집단 — 원장 상태=미청구 고유계기 {len(per):,} (원본 {len(names)}필드 통째)')
 
     out = []

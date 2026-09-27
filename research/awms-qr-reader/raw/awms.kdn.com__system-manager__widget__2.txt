@@ -1,0 +1,1 @@
+{"APP_ID":"banner","WIDGET_NM":"AMI 종합 관리","WIDGET_ENM":"Manage-ami","WIDGET_DESC":"ami 종합 위젯 배너 입니다.","WIDGET_SEQ":2,"WIDTH":"1","HEIGHT":"6","FILE_PATH":"","URL":"manage-ami","USE_YN":"Y","DEFAULT_WIDGET_YN":"","DEFAULT_IMAGE_PATH":"/widget/images/widget_thumbnail/amiwidget/manage-ami.png","PARAMETER":""}

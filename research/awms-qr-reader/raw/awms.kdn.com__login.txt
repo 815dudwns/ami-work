@@ -1,0 +1,1 @@
+{"otpValidityDurationSeconds":180,"maxOtpAttempts":3,"success":false,"errorMessage":"인증번호가 발송되었습니다.","errorCode":"OTP_REQUIRED"}

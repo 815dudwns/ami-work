@@ -1,0 +1,1364 @@
+<meta charset="utf-8" />
+<div id="appListArea">
+	<div class="menu_bar">
+	    <a href="javascript:void(0);" class="btn_user">열기<img :src="modiImgAddr(session.USER_PIC)" alt="사용자이미지" /></a>
+	    <button href="javascript:void(0);" class="btn_manual" onclick="modal_open('modal-manual');return false;" @click="manualOpen"><span class="icon-help" title="manual"></span></button>
+	    <a href="javascript:void(0);" class="btn_home"><span class="icon-home" title="홈으로"></span></a>
+	    <a href="javascript:void(0);" class="btn_app">열기</a>
+	    <a href="javascript:void(0);" class="btn_etc">열기<span class="icon-monitor" title="기타메뉴"></span></a>
+	    <!-- <span class="btn_talk"><img src="../../images/common/talk.svg" alt=""></span> -->
+<!--	    <a href="javascript:void(0);" class="btn_setting">열기<span class="icon-more-horizontal" title="설정"></span></a>-->
+	</div>
+	<!-- app 리스트 -->
+	<div class="app_layer">
+	    <div class="app_inner">
+<!--	    	<div class="search-app">-->
+<!--	    		<input type="text" class="size-s" @keyup="searchStrChange($event.target.value)" v-model="appSearch" placeholder="앱 명을 검색하세요" >-->
+<!--	    	</div>-->
+<!--	    	<div class="array-app">-->
+<!--	    		<a href="javascript:void(0);" @click="updateAppListType('01')"><span class="icon-st icon-list1" :class="{'on':listStyle == '01'}"></span></a>-->
+<!--	    		<a href="javascript:void(0);" @click="updateAppListType('02')"><span class="list-st icon-profile" :class="{'on':listStyle == '02'}"></span></a>-->
+<!--	    	</div>-->
+<!--	        <h2>My Apps</h2>-->
+<!--	        &lt;!&ndash; 아이콘스타일 &ndash;&gt;-->
+<!--	        <ul v-if="listStyle == '01'">-->
+<!--	        	<div class="empty-text" v-show="myApps.data.length == 0">자주 사용하는 앱을<br/>드래그 앤 드롭으로<br/>등록해주세요</div>-->
+<!--	        	<draggable class="draggable" :list="myApps.data" :options="{group:'appArea', handle:'.handle'}" @add="updateMyApp()" @end="updateMyApp()">-->
+<!--	       			<li v-for="(item, index) in myApps.data"><a href="javascript:void(0);" class="handle" :appId="[item.APP_ID]" @click="appOpen(item)"><span class="icon" :class="item.ICON"></span><span class="txt">{{item.APP_NM}}</span></a></li>-->
+<!--	       		</draggable>-->
+<!--	        </ul>-->
+<!--	        &lt;!&ndash; 리스트 스타일 &ndash;&gt;-->
+<!--	        <ul class="list-st" v-if="listStyle == '02'">-->
+<!--	        	<draggable class="draggable" :list="myApps.data" :options="{group:'appArea', handle:'.handle'}" @add="updateMyApp()" @end="updateMyApp()">-->
+<!--	        		<li v-for="(item, index) in myApps.data"><a href="javascript:void(0);" class="handle" :appId="[item.APP_ID]" @click="appOpen(item)"><span class="icon" :class="item.ICON"></span>{{item.APP_NM}}</a></li>-->
+<!--	       		</draggable>-->
+<!--	        </ul>-->
+<!--	        <p class="divider"></p>-->
+	        <h2>All Apps</h2>
+	        <ul>
+<!--	        	<draggable class="draggable" :list="subscribeApps.data" :options="{group:'appArea', handle:'.handle', sort:false}">-->
+	        		<li v-for="(item, index) in subscribeApps.data"><a href="javascript:void(0);" class="handle" :appId="[item.APP_ID]" @click="appOpen(item)"><span class="icon" :class="item.ICON"></span><span class="txt">{{item.APP_NM}}</span></a></li>
+<!--	        	</draggable>-->
+	        </ul>
+	        <!-- 리스트 스타일 -->
+<!--	        <ul class="list-st" v-if="listStyle == '02'">-->
+<!--	        	<draggable class="draggable" :list="subscribeApps.data" :options="{group:'appArea', handle:'.handle', sort:false}">-->
+<!--	        		<li v-for="(item, index) in subscribeApps.data"><a href="javascript:void(0);" class="handle" :appId="[item.APP_ID]" @click="appOpen(item)"><span class="icon" :class="item.ICON"></span>{{item.APP_NM}}</a></li>-->
+<!--	       		</draggable>-->
+<!--	        </ul>-->
+	        <!-- <p class="app_btn"><a href="javascript:void(0);" class="btn_type02">앱 더보기</a></p> -->
+	    </div>
+	</div>
+	<!--// app 리스트 -->
+	<!-- 사용자 정보 및 알림 -->
+	<div class="user_layer">
+	    <div class="user_inner">
+		        <p class="user_name">{{session.USER_NM}}<span class="eng">&nbsp;</span></p>
+		        <p class="user_id">{{session.USER_ID}}</p>
+		        <p class="user_photo"><span><img :src="modiImgAddr(session.USER_PIC)" alt="사용자사진" /></span></p>
+		        <p class="user_info"><span class="major">{{session.DEPT_NM}}</span><span class="grade">{{session.USER_GB == '4' ? session.USER_TYPE_GBNM : session.DEFAULT_AUTH_NM}}</span></p>
+		        <div class="user_btn">
+		        	<a href="javascript:void(0);" class="btn_type01" onclick="appOpen('mypage', '', '')">정보수정</a>
+		        	<a href="javascript:void(0);" class="btn_type01" @click="logout">Logout</a>
+			        <a href="javascript:void(0);" class="btn_type01" v-if="session.BEFORE_USER_ID != null && session.BEFORE_USER_ID != ''" @click="reloginBefore(session.BEFORE_USER_ID)">이전사용자</a>
+		        </div>
+		        <ul class="user_list" id="userOtherSessionLoading" v-if="userOtherSessionList.data.length > 0">
+		        	<li v-for="(item, index) in userOtherSessionList.data">
+		        		<a href="javascript:void(0);" @click="sessionChange(item.USER_ID, item.USER_NM)">
+			        		<span class="photo" :class="'color_'+item.SYS_GB"></span>
+			        		<p class="first">
+			        			<span class="name">{{item.USER_NM}}</span>
+			        			<span class="class">{{item.USER_ID}}</span>
+		        			</p>
+			        		<p class="second">
+			        			<span class="menu">{{item.SYS_GBNM}}</span>
+			        			<span class="major">{{item.DEPT_NM}}</span>
+			        		</p>
+			        	</a>
+		        	</li>
+		        </ul>
+		        <!-- <p class="user_list_btn">
+		        	<a href="javascript:void(0);" class="btn_type03">동기화</a>
+		        </p> -->
+	        
+	        <ul class="tab_box">
+<!--	            <li class="on">-->
+	                <!-- 새로운 알림이 있을때 .new 클래스 -->
+	                <!-- <p id="icon-email-circle-new" class="new"><a href="javascript:void(0);"><span class="icon-mail"></span></a></p>
+	                <div class="tab_content" style="display:block;">
+	                    <ul class="list_type01">
+	                        <li v-for="(item, index) in pushEmailList">
+	                        	<a href="javascript:void(0);" class="title" @click="groupWareEmailLink">{{ item.TITLE }}</a>
+	                            <span class="writer">{{ item.USER_NM }}</span>
+	                            <span class="date">{{ item.DATE }}</span>
+	                        </li>
+	                    </ul>
+	                    <p class="tab_btn"><a href="javascript:void(0);" class="btn_type02" @click="groupWareEmailLink">메일 더보기</a></p>
+	                </div> -->
+	                
+	                <!-- 새로운 알림이 있을때 .new 클래스 -->
+<!--	                <p id="icon-email-circle-new" class="new"><a href="javascript:void(0);"><span class="icon-calendar"></span></a></p>-->
+<!--	                <div class="tab_content" style="display:block;">-->
+<!--	                    <div class="calendar-list-box">-->
+<!--	                    	<p class="date-line">-->
+<!--	                    		<span class="year">{{yyyy}}.</span><span class="month">{{mm}}</span>-->
+<!--	                    	</p>-->
+<!--	                    	<div class="calendar-list">-->
+<!--	                    		<div class="list today">-->
+<!--	                    			<span class="day-month"><span class="day">{{ getDayForm(yyyymmdd1) }}</span><span class="month">{{ day1 }}</span></span>-->
+<!--	                    			<ul>-->
+<!--	                    				<li v-for="(item, index) in data1List.data" v-if="data1List.getRowCount() > 0">{{ item.ILJEONG_NM }}</li>-->
+<!--	                    				<li v-if="data1List.getRowCount() == 0">등록된 일정이 없습니다.</li>-->
+<!--	                    			</ul>-->
+<!--	                    		</div>-->
+<!--	                    		<div :class="data2List.getRowCount() == 0 ? 'list none' : 'list'">-->
+<!--	                    			<span class="day-month"><span class="day">{{ getDayForm(yyyymmdd2) }}</span><span class="month">{{ day2 }}</span></span>-->
+<!--	                    			<ul>-->
+<!--	                    				<li v-for="(item, index) in data2List.data" v-if="data2List.getRowCount() > 0">{{ item.ILJEONG_NM }}</li>-->
+<!--	                    				<li v-if="data2List.getRowCount() == 0">등록된 일정이 없습니다.</li>-->
+<!--	                    			</ul>-->
+<!--	                    		</div>-->
+<!--	                    		<div :class="data3List.getRowCount() == 0 ? 'list none' : 'list'">-->
+<!--	                    			<span class="day-month"><span class="day">{{ getDayForm(yyyymmdd3) }}</span><span class="month">{{ day3 }}</span></span>-->
+<!--	                    			<ul>-->
+<!--	                    				<li v-for="(item, index) in data3List.data" v-if="data3List.getRowCount() > 0">{{ item.ILJEONG_NM }}</li>-->
+<!--	                    				<li v-if="data3List.getRowCount() == 0">등록된 일정이 없습니다.</li>-->
+<!--	                    			</ul>-->
+<!--	                    		</div>-->
+<!--	                    		<div :class="data4List.getRowCount() == 0 ? 'list none' : 'list'">-->
+<!--	                    			<span class="day-month"><span class="day">{{ getDayForm(yyyymmdd4) }}</span><span class="month">{{ day4 }}</span></span>-->
+<!--	                    			<ul>-->
+<!--	                    				<li v-for="(item, index) in data4List.data" v-if="data4List.getRowCount() > 0">{{ item.ILJEONG_NM }}</li>-->
+<!--	                    				<li v-if="data4List.getRowCount() == 0">등록된 일정이 없습니다.</li>-->
+<!--	                    			</ul>-->
+<!--	                    		</div>-->
+<!--	                    		<div :class="data5List.getRowCount() == 0 ? 'list none' : 'list'">-->
+<!--	                    			<span class="day-month"><span class="day">{{ getDayForm(yyyymmdd5) }}</span><span class="month">{{ day5 }}</span></span>-->
+<!--	                    			<ul>-->
+<!--	                    				<li v-for="(item, index) in data5List.data" v-if="data5List.getRowCount() > 0">{{ item.ILJEONG_NM }}</li>-->
+<!--	                    				<li v-if="data5List.getRowCount() == 0">등록된 일정이 없습니다.</li>-->
+<!--	                    			</ul>-->
+<!--	                    		</div>-->
+<!--&lt;!&ndash; 	                    		<div class="list"> &ndash;&gt;-->
+<!--&lt;!&ndash; 	                    			<span class="day-month"><span class="day">{{ getDayForm(yyyymmdd6) }}</span><span class="month">{{ day6 }}</span></span> &ndash;&gt;-->
+<!--&lt;!&ndash; 	                    			<ul> &ndash;&gt;-->
+<!--&lt;!&ndash; 	                    				<li v-for="(item, index) in data6List.data" v-if="data6List.getRowCount() > 0">{{ item.ILJEONG_NM }}</li> &ndash;&gt;-->
+<!--&lt;!&ndash; 	                    				<li v-if="data6List.getRowCount() == 0">등록된 일정이 없습니다.</li> &ndash;&gt;-->
+<!--&lt;!&ndash; 	                    			</ul> &ndash;&gt;-->
+<!--&lt;!&ndash; 	                    		</div> &ndash;&gt;-->
+<!--&lt;!&ndash; 	                    		<div class="list"> &ndash;&gt;-->
+<!--&lt;!&ndash; 	                    			<span class="day-month"><span class="day">{{ getDayForm(yyyymmdd7) }}</span><span class="month">{{ day7 }}</span></span> &ndash;&gt;-->
+<!--&lt;!&ndash; 	                    			<ul> &ndash;&gt;-->
+<!--&lt;!&ndash; 	                    				<li v-for="(item, index) in data7List.data" v-if="data7List.getRowCount() > 0">{{ item.ILJEONG_NM }}</li> &ndash;&gt;-->
+<!--&lt;!&ndash; 	                    				<li v-if="data7List.getRowCount() == 0">등록된 일정이 없습니다.</li> &ndash;&gt;-->
+<!--&lt;!&ndash; 	                    			</ul> &ndash;&gt;-->
+<!--&lt;!&ndash; 	                    		</div> &ndash;&gt;-->
+<!--	                    	</div>-->
+<!--	                    </div>-->
+<!--	                    <p class="tab_btn"><a href="javascript:void(0);" class="btn_type02" onclick="appOpen('calendar', '02000000')">일정 더보기</a></p>-->
+<!--	                </div>-->
+<!--	            </li>-->
+	            <li class="on">
+	                <!--새로운 알림이 있을때 .new 클래스 -->
+	                <p id="icon-noti-circle-new" :class="{ 'new' : pushNotiList.length > 0 }"><a href="javascript:void(0);"><span class="icon-bell"></span></a></p>
+	                <div class="tab_content" style="display:block;">
+	                    <ul class="list_type01">
+	                        <li v-for="(item, index) in pushNotiList" :key="index+pushRefresh">
+	                        	<a href="javascript:void(0);" class="title">{{item.TEXT}}</a>
+	                            <span class="writer">{{item.ALARM_TITLE}}</span>
+	                            <span class="date">{{getAlarmTime(item.ALARM_DTTM)}}</span>
+	                        </li>
+	                    </ul>
+	                    <p class="tab_btn"><a href="javascript:void(0);" class="btn_type02" onclick="appOpen('mypage','04010000')">알림 더보기</a></p>
+                        <div class="row">
+                            <div class="col s6 m4 l4 col-label">
+                                <label for="useYn" class="label-type01 size-m">OCR 시간 측정</label>
+                            </div>
+                            <div class="col s6 m4 l4">
+                            <div class="col s6 m4 l4">
+                                <label class="toggle-switch size-m">
+                                    <input class="size-m" type="checkbox" id="useYn" name="useYn" data-vv-as="사용여부" v-model="session.OCR_HISTORY_RECODE_YN" true-value="Y" false-value="N" />
+                                    <span class="slider round"></span>
+                                </label>
+                            </div>
+                            </div>
+                        </div>
+	                </div>
+	            </li>
+<!-- 	            <li> -->
+<!-- 	                새로운 알림이 있을때 .new 클래스 -->
+<!-- 	                <p id="icon-message-circle-new" class="new"><a href="javascript:void(0);"><span class="icon-message-circle"></span></a></p> -->
+<!-- 	                <div class="tab_content"> -->
+<!-- 	                    <ul class="list_type02"> -->
+<!-- 	                    	<li v-for="(item, index) in pushMsgList" :key="index+pushRefresh"> -->
+<!-- 	                            <p class="photo_box"><img :src="modiImgAddr(item.MSG_USER_PIC)" alt="" /></p> -->
+<!-- 	                            <a href="javascript:void(0);" class="title">{{item.MSG_CONTS}}</a> -->
+<!-- 	                            <span class="writer">{{item.MSG_USER_NM}}</span> -->
+<!-- 	                            <span class="date">{{item.MSG_DATE}}</span> -->
+<!-- 	                        </li> -->
+<!-- 	                    </ul> -->
+<!-- 	                    <p class="tab_btn"><a href="javascript:void(0);" class="btn_type02" @click="talkOpen">메시지 더보기</a></p> -->
+<!-- 	                </div> -->
+<!-- 	            </li> -->
+	        </ul>
+	    </div>
+	</div>
+	<!--// 사용자 정보 및 알림-->
+	<!-- setting -->
+	<div class="setting_layer">
+	    <div class="setting_inner">
+	        <h2>Setting</h2>
+	        <div class="setting_cont">
+	        	<p class="tit"><span class="icon-was"></span>메인 설정</p>
+	        	<p class="txt">나만의 메인 화면을 만들 수 있습니다.<br/>
+				화면을 추가생성하고 위젯으로 화면을 구성해 보세요.</p>
+				<p class="set-link"><a href="javascript:void(0);" class="btn type01 size-m right-icon icon-arrow-right" onclick="appOpen('layout', null)">메인설정하기</a></p>
+	        </div>
+	        <div class="setting_cont">
+	        	<p class="tit"><span class="icon-realtime"></span>알림 설정</p>
+	        	<p class="txt">포탈에서 제공되는 공지, 뉴스, 정보 등 모든 알림을 설정할 수 있습니다.</p>
+				<p class="set-link"><a href="javascript:void(0);" class="btn type01 size-m right-icon icon-arrow-right" onclick="appOpen('mypage','04020000')">알림설정하기</a></p>
+	        </div>
+	        
+	    </div>
+	</div>
+	<!--// setting -->
+	<!-- etc -->
+	<div class="etc_layer">
+	    <div class="etc_inner">
+	        <h2>Link Plus</h2>
+	        <ul class="link_list">
+	        	<li v-for="(item, index) in _.filter(linkplusList.data, function(o) { return o.USE_YN=='Y'; })">
+	        		<a :href="item.LINK_URL" target="_blank" v-if="item.USE_YN == 'Y'">
+	        			<span class="txt">{{item.LINK_NM}}</span><span class="link-i icon-arrow-right-circle"></span>
+	        		</a>
+	        	</li>
+	        </ul>
+	    </div>
+	</div>
+	<!--// etc -->
+	<!-- talk -->
+	<div id="talk">
+		
+    </div>
+    <!--// talk -->
+    
+    
+    <!-- modal layer popup 메뉴얼 -->
+	<div class="modal-layer-wrap">
+	    <div id="modal-manual" class="modal-layer modal-large manual">
+	        <div class="modal-container">
+	            <div class="modal-header">
+                    <h1 class="modal-title">User Guide</h1>
+                    <div class="btn-input">
+						<a href="javascript:void(0);" class="btn type01 size-m center-icon" @click="searchMenu"><span class="icon-search"></span></a>
+                        <input type="text" id="exampleFormControlInput1" placeholder="입력하세요" class="size-m" v-model="pSearchArgv" @keyup.enter="searchMenu">
+                    </div>
+                    <!-- 모바일용 메뉴 버튼 -->
+                    <a href="javascript:void(0);" class="m-menu"><span class="icon-menu"></span></a>
+                </div>
+	                <div class="modal-content">
+	                    <div class="left-content" id="manualLoading">
+	                    	<perfect-scrollbar class="inner">
+	                    		<div class="cont-header">
+		                    		<p class="category">{{pManualData.APP_NM}} &gt; {{pManualData.UP_MENU_NM}}</p>
+		                    		<h2 class="m-h2">{{pManualData.MENU_NM}}</h2>
+		                    		<p class="h2-bottext">{{pManualData.REMARK}}</p>
+		                    	</div>
+		                    	<div class="cont-mid">
+									<div class="form-inner-box" id="manualViewerSection"></div> 
+<!-- 		                    		<span class="photo"><img src="../../images/common/manual_photo.jpg" alt="" /></span> -->
+		                    		<h3 class="m-h3">사용방법</h3>
+		                    		<ul class="cont-list">
+		                    			<li>1. 앱을 선택하여 메뉴의 매뉴얼을 조회할 수 있습니다.</li>
+		                    			<li>2. 메뉴명을 검색하여 해당 메뉴의 매뉴얼을 조회할 수 있습니다.<li>
+<!-- 		                    				<ul> -->
+<!-- 		                    					<li>① 상세정보 우측의 신규 버튼을 눌러 조직목록에 행을 생성합니다.</li> -->
+<!-- 		                    					<li>② 행이 생성되면 부서코드 팝업(3-1)을 통해 조직코드관리에 등록된 부서목록을 조회하여 넣고 정렬(필수x) 및 사용여부를 넣으신후 저장버튼을 누릅니다.</li> -->
+<!-- 		                    					<li>③ 업무별조직에 변동이 생겨 수정을 할 경우 상세정보를 수정후 저장버튼을 누릅니다. -->
+<!-- 		                    						<ul> -->
+<!-- 		                    							<li>*업무별조직관리에서의 수정은 정렬순서, 사용여부만 가능합니다.</li> -->
+<!-- 		                    						</ul> -->
+<!-- 		                    					</li> -->
+<!-- 		                    					<li>④ 업무별부서목록을 삭제할 경우 삭제하고자하는 목록 클릭 후 삭저버튼을 누르고 저장버튼을 누르면 삭제가 완료됩니다. -->
+<!-- 		                    						<ul> -->
+<!-- 		                    							<li>*모든 저장 로직은 저장버튼을 눌러야 반영됩니다.</li> -->
+<!-- 		                    						</ul> -->
+<!-- 		                    					</li> -->
+<!-- 		                    				</ul> -->
+<!-- 		                    			</li> -->
+		                    		</ul>
+		                    	</div>
+	                    	</perfect-scrollbar>
+	                    </div>
+	                    <div class="right-menu">
+	                    	<div class="menu-wrap" id="menuLoading" v-show="!searchMode">
+	                    		<p class="tit">App > Menu</p>
+	                    		<select class="size-m" @change="setAppMenu($event.target.value)" v-model="currentAppId">
+	                    			<option value="">- 선택 -</option>
+						            <option :value="item.APP_ID" v-for="(item, index) in manualAppList.data">{{item.APP_NM}}</option>
+						        </select>
+						        <perfect-scrollbar class="menu-list-wrap">
+							        <ul class="menu-list-box">
+							        	<li :id="'up_'+item.APP_ID+'_'+item.MENU_CD" v-for="(item, index) in _.filter(manualAppUpMenuList.data, function(e){return e.LV == 0;})">
+							        		<a href="javascript:void(0);" @click="setAppMenuManual(item.APP_ID, item.MENU_CD);setUpMenuClass($event.target);">{{item.MENU_NM}}</a>
+							        		<ul>
+							        			<li v-for="(item2, index2) in _.sortBy(_.filter(manualAppDownMenuList.data, function(e){return e.LV == 1 && item.MENU_CD == e.UP_MENU_CD;}), ['ORD'])">
+							        				<a href="javascript:void(0);" :id="item2.APP_ID+'_'+item2.MENU_CD" @click="setAppMenuManual(item2.APP_ID, item2.MENU_CD);setDownMenuClass($event.target);">{{item2.MENU_NM}}</a>
+							        			</li>
+<!-- 							        			<li><a href="javascript:void(0);">심리검사</a></li> -->
+<!-- 							        			<li><a href="javascript:void(0);">심리검사결과</a></li> -->
+<!-- 							        			<li><a href="javascript:void(0);">역량진단</a></li> -->
+<!-- 							        			<li><a href="javascript:void(0);">역량진단결과</a></li> -->
+<!-- 							        			<li><a href="javascript:void(0);">MBTI결과</a></li> -->
+<!-- 							        			<li><a href="javascript:void(0);">홀랜드결과</a></li> -->
+							        		</ul>
+							        	</li>
+<!-- 							        	<li> -->
+<!-- 							        		<a href="javascript:void(0);">진로결정</a> -->
+<!-- 							        		<ul> -->
+<!-- 							        			<li><a href="javascript:void(0);">목표직업 관리</a></li> -->
+<!-- 							        			<li><a href="javascript:void(0);">묙표기업 관리</a></li> -->
+<!-- 							        			<li><a href="javascript:void(0);">목표설정</a></li> -->
+<!-- 							        		</ul> -->
+<!-- 							        	</li> -->
+<!-- 							        	<li><a href="javascript:void(0);">비교과 프로그램</a> -->
+<!-- 							        	</li> -->
+<!-- 							        	<li><a href="javascript:void(0);">역량강화</a> -->
+<!-- 							        	</li> -->
+<!-- 							        	<li><a href="javascript:void(0);">나의 역량</a> -->
+<!-- 							        	</li> -->
+							        </ul>
+								</perfect-scrollbar>
+	                    	</div>
+	                    	<!-- 검색결과 -->
+	                    	<div class="search-wrap" id="menuLoading" v-show="searchMode">
+	                    		<div class="tit"><span class="f-left">검색결과</span>
+	                    			<a href="javascript:void(0);" class="btn type02 size-s f-right" @click="searchMode = !searchMode; pSearchArgv = null">목록으로</a>
+	                    		</div>
+	                    		<div class="sch-result-box">
+	                    			<span class="result">'{{pSearchArgv}}'</span>에 대한 검색결과입니다.
+	                    		</div>
+	                    		<perfect-scrollbar class="sch-result-wrap">
+		                    		<ul class="sch-result-list">
+		                    			<li v-for="(item, index) in manualAppMenuSearchList.data">
+		                    				<a href="javascript:void(0);" v-if="!item.UP_MENU_NM" @click="setAppMenuManual(item.APP_ID, item.MENU_CD)" v-html="$options.filters.highlightA(item, pSearchArgv)"></a>
+		                    				<a href="javascript:void(0);" v-else @click="setAppMenuManual(item.APP_ID, item.MENU_CD)" v-html="$options.filters.highlightB(item, pSearchArgv)"></a>
+		                    			</li>
+<!-- 		                    			<li><a href="javascript:void(0);">역량진단 <span>결과</span></a></li> -->
+<!-- 		                    			<li><a href="javascript:void(0);">MBTI <span>결과</span></a></li> -->
+<!-- 		                    			<li><a href="javascript:void(0);">홀랜드 <span>결과</span></a></li> -->
+<!-- 		                    			<li><a href="javascript:void(0);">장학금 신청<span>결과</span> 안내</a></li> -->
+		                    		</ul>
+		                    	</perfect-scrollbar>
+	                    	</div>
+	                    	<a href="javascript:void(0);" class="m-menu-close"><span class="icon-arrow-right"></span></a>
+	                    </div>
+	                </div>	                
+	                <div class="btn-r">
+	                    <a href="#" class="cbtn" style="display: inline-block;" title="모달창 닫기" @click="closeManual"><span class="icon-exit"></span></a>
+	                </div>
+	            </div>
+	        </div>
+	    </div>
+	</div>
+
+<script type="text/javascript">
+/*******************************************************************************************************************************************************************
+ * vue start 
+ ********************************************************************************************************************************************************************/
+var columnInfo = ['APP_ID','APP_NM','APP_VER','APP_JAKSEONGJA_ID','APP_ENM','ENDPOINT','TAG','APP_DESC','ICON','COLOR','USE_DEVICE_GB','DAEPYO_IMG_FILE_NO','USE_YN','DEFAULT_APP_YN','ORD','APP_TYPE_GB','OPEN_TYPE_GB']
+var vmHeader = new Vue({
+	el: '#appListArea',
+	//사용할 데이터
+	data: {
+		myApps: new Dataset(),
+		subscribeApps: new Dataset(),
+		linkplusList: new Dataset(),
+		userOtherSessionList: new Dataset(),
+		listStyle: '01',
+		myAppsLoad: false,
+		SubscribeAppsLoad: false,
+		firstUpdate: true,
+		linkplusListPaging: new PagingSet(5, 100),
+		
+		pushMsgList: new Array(),
+		pushNotiList: new Array(),
+		pushDataList: null,
+		pushRefresh: 0,
+		
+		//일정 관련 변수
+		yyyy: '',
+		mm: '',
+		yyyymmdd1: '',
+		day1:'',
+		yyyymmdd2: '',
+		day2:'',
+		yyyymmdd3: '',
+		day3:'',
+		yyyymmdd4: '',
+		day4:'',
+		yyyymmdd5: '',
+		day5:'',
+		yyyymmdd6: '',
+		day6:'',
+		yyyymmdd7: '',
+		day7:'',
+		
+		//전체 일정을 담는 데이터셋
+		iljeongList: new Dataset(),
+		//각 요일의 데이터셋
+		data1List: new Dataset(),
+		data2List: new Dataset(),
+		data3List: new Dataset(),
+		data4List: new Dataset(),
+		data5List: new Dataset(),
+// 		data6List: new Dataset(),
+// 		data7List: new Dataset(),
+		manualAppList: new Dataset(),					// 매뉴얼용 앱 목록
+		manualAppUpMenuList: new Dataset(),				// 매뉴얼용 앱 메뉴 상위 목록
+		manualAppDownMenuList: new Dataset(),			// 매뉴얼용 앱 메뉴 하위 목록
+		manualAppMenuSearchList: new Dataset(),			// 매뉴얼용 앱 메뉴 검색 목록
+		pManualData: {},								// 매뉴얼 데이터
+		webViewer: null, 								// 매뉴얼 뷰어
+        menuLoading: {id:'menuLoading', val:false},		// 로딩 표시 - 앱 메뉴 검색
+        manualLoading: {id:'manualLoading', val:false},	// 로딩 표시 - 메뉴 매뉴얼 검색
+        userOtherSessionLoading: {id:'userOtherSessionLoading', val:false},	// 사용자 다른 세션 로딩
+        pSearchArgv: '', 								// 매뉴얼 메뉴 검색어
+        currentAppId: '',								// 현재 앱 아이디
+        currentMenuCd: '',								// 현재 메뉴 코드
+        searchMode: false,								// 매뉴얼 메뉴, 검색 화면 전환
+        appSearch: '',
+	},
+    filters: { 
+    	highlightA: function(words, query){
+	   		var check = new RegExp(query, "ig");
+				return words.APP_NM + ' > '+ words.MENU_NM.toString().replace(check, function(matchedText,a,b){
+					return ('<span>' + matchedText + '</span>');
+				});
+			},
+    	highlightB: function(words, query){
+	   		var check = new RegExp(query, "ig");
+				return words.APP_NM + ' > '+ words.UP_MENU_NM + ' > '+ words.MENU_NM.toString().replace(check, function(matchedText,a,b){
+					return ('<span>' + matchedText + '</span>');
+				});
+			}
+    },
+	//데이터 감시
+	watch: {
+	    'menuLoading.val': {
+	    	handler: function (val, oldVal) {
+				this.LoadingOverlay($('#'+this.menuLoading.id), val);
+			}
+	    },
+	    'manualLoading.val': {
+	    	handler: function (val, oldVal) {
+				this.LoadingOverlay($('#'+this.manualLoading.id), val);
+			}
+	    },
+	    'userOtherSessionLoading.val': {
+	    	handler: function (val, oldVal) {
+				this.LoadingOverlay($('#'+this.userOtherSessionLoading.id), val);
+			}
+	    },
+		'myAppsLoad': {
+	    	handler: function (val, oldVal) {
+				if(this.myAppsLoad && this.SubscribeAppsLoad && this.firstUpdate){
+					this.firstUpdate = false;
+					this.refreshMyApps();
+				}
+			}
+	    },
+		'SubscribeAppsLoad': {
+	    	handler: function (val, oldVal) {
+	    		if(this.myAppsLoad && this.SubscribeAppsLoad && this.firstUpdate){
+	    			this.firstUpdate = false;
+	    			this.refreshMyApps();
+	    		}
+			}
+	    },
+	    'pushDataList': {
+	    	handler: function (val, oldVal) {	    			
+	    		var recvData = (val.slice(-1))[0];
+	    		if(isNull(recvData)) return;
+	    		
+	    		
+	    		switch(recvData.alarmGb) {
+	    			case '01': //email
+	    			
+	    				break;
+	    			case '02': //alarm
+	    				this.addPushNotiList(recvData);
+	    				break;
+	    			case '03':	//msg
+	    				if(recvData.sendId != this.session.USER_ID){
+	    					this.addPushMsgList(recvData);
+	    				}
+	    				break;
+	    		}
+			}
+	    },
+	    'linkplusListPaging.currentPage': {
+			handler: function (val, oldVal) {
+				this.linkplusList.pageChange(val, this.linkplusListPaging.getRowCnt());
+			}
+	    },
+	},
+	//마운트 된 시점수행
+	mounted: function(){
+		this.setAppListType();
+		this.setSubscribeApps();
+		this.setMyApps();
+
+		//현재 미사용 wjjoo 2022.01.05
+		//this.getTalkApp();		
+// 		this.setPushInitMsgList();
+		this.setPushInitNotiList();
+		this.getUnidentifiedAlarmDataCnt();
+// 		this.getNotReadTalkCnt();
+		
+		//일정 관련 변수 세팅
+		this.yyyy = moment().format('YYYY');
+		this.mm = moment().month() + 1;
+		if(this.mm<=9)this.mm = '0' + this.mm;
+
+		var week = new Array('Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat');
+		
+		//일자, 요일 세팅
+		this.yyyymmdd1 = moment().format('YYYYMMDD');
+		this.day1 = week[moment().day()];
+		
+		this.yyyymmdd2 = moment().add(1,"days").format('YYYYMMDD');
+		this.day2 = week[moment().add(1,"days").day()];
+		
+		this.yyyymmdd3 = moment().add(2,"days").format('YYYYMMDD');
+		this.day3 = week[moment().add(2,"days").day()];
+		
+		this.yyyymmdd4 = moment().add(3,"days").format('YYYYMMDD');
+		this.day4 = week[moment().add(3,"days").day()];
+		
+		this.yyyymmdd5 = moment().add(4,"days").format('YYYYMMDD');
+		this.day5 = week[moment().add(4,"days").day()];
+		
+// 		this.yyyymmdd6 = moment().add(5,"days").format('YYYYMMDD');
+// 		this.day6 = week[moment().add(5,"days").day()];
+		
+// 		this.yyyymmdd7 = moment().add(6,"days").format('YYYYMMDD');
+// 		this.day7 = week[moment().add(6,"days").day()];
+
+		//일정 세팅
+		this.setIljeongList();
+
+		this.getUnidentifiedEmailDataCnt();
+		this.setLinkplusList();
+		
+		// 매뉴얼 세팅
+		this.setApps();
+		this.setManualMenuClassMobile();
+		this.initManualData();
+
+		//staticVue.webSockConn();
+		this.textFadeLoop();
+		this.setUserOtherSession();
+	},
+	//함수
+	methods: {
+		// 매뉴얼 - 기본값 설정
+		initManualData: function(){
+			this.pManualData = {};
+			this.pManualData.APP_NM		 = '앱 명';
+			this.pManualData.UP_MENU_NM	 = '상위 메뉴 명';
+			this.pManualData.MENU_NM	 = '메뉴 명';
+			this.pManualData.REMARK		 = '메뉴 설명';
+			this.pManualData.MANUAL_TEXT = '매뉴얼 설명';
+		},
+		initHeaderPushData: function() {	
+			vmHeader.pushDataList = vmHeader.pushEvents;
+		},
+		addPushMsgList: function(pRecvData) {
+			if(this.pushMsgList.length > 4) {	//수신 배열->Queue 크기 5개 제한
+				this.pushMsgList.splice(4,1);
+    		}
+			
+			var msgObj = {
+				'MSG_USER_PIC': pRecvData.data04,
+				'MSG_CONTS': pRecvData.contents,
+				'MSG_USER_NM': pRecvData.data05,
+				'MSG_DATE': (pRecvData.sendDttm.split(' '))[0]		
+			};
+			
+			this.pushMsgList.unshift(msgObj);
+			this.pushRefresh++;
+		},
+		addPushNotiList: function(pRecvData) {
+			if(this.pushNotiList.length > 4) {	//수신 배열->Queue 크기 5개 제한
+				this.pushNotiList.splice(4,1);
+    		}
+			
+			var msgObj = {
+				'TEXT': pRecvData.contents,
+				'ALARM_TITLE': pRecvData.title,
+				'ALARM_DTTM': pRecvData.sendDttm,
+			};
+			
+			this.getUnidentifiedAlarmDataCnt();
+			this.pushNotiList.unshift(msgObj);
+			this.pushRefresh++;
+		},
+		/* 내 app 리스트 조회 */
+		setMyApps: function(){
+			var returnVal = userApi.getUserSort('01', false);
+			var self = this;
+			
+			returnVal.then(function(response) {
+				if(response.data){
+					self.myApps.setData(JSON.parse(response.data.SORT_TEXT));
+					self.myAppsLoad = true;
+				}
+			}).catch(function(error) {
+				console.error('error:', error);
+			});
+		},
+		/* 구독중인 app 리스트 조회 */
+		setSubscribeApps: function(){
+			var returnVal = appApiApi.subscribeApps();
+			var self = this;
+			
+			returnVal.then(function(response) {
+				self.subscribeApps.setData(_.filter(response.data, {"WIDGET_APP_YN" : 'N'}));
+				self.SubscribeAppsLoad = true; 
+			}).catch(function(error) {
+				console.error('error:', error);
+			});
+		},
+		/* 내 app 리스트 스타일 조회 */
+		setAppListType: function(){
+			var returnVal = userApi.getUserSort('00', false);
+			var self = this;
+			
+			returnVal.then(function(response) {
+				if(response.data){
+					self.listStyle = response.data.SORT_TEXT;
+				}
+			}).catch(function(error) {
+				console.error('error:', error);
+			});
+		},
+		/* 링크 플러스 리스트 조회 */
+		setLinkplusList: function(){
+			var self = this;
+			var returnVal = linkplusApi.linkpluss({'ord':'Y'}, false);
+			
+			returnVal.then(function(response) {
+				self.linkplusList.setRawData(response.data, self.linkplusListPaging.getRowCnt());
+				
+				if(response.data.length > 0){
+					self.linkplusListPaging.setTotalCnt(response.data.length);
+				}else{
+					self.linkplusListPaging.setTotalCnt(0);
+				}
+			}).catch(function(error) {
+				console.error('error:', error);
+			}).finally(function(){
+			});
+		},
+		//현재 화면의 myApp을 저장한다.
+		updateMyApp: function(){
+			var returnVal = null;
+			var self = this;
+			var returnArray = null;
+			
+			returnArray = _.map(this.myApps.getData(), function(i){
+				return _.pick(i, 'APP_ID', 'APP_NM', 'ICON', 'COLOR', 'ENDPOINT', 'APP_TYPE_GB', 'OPEN_TYPE_GB', 'MENUAL_YN');
+			});
+			returnVal = userApi.insertUserSort(self.session.USER_ID, '01', {'SORT_TEXT' : JSON.stringify(returnArray)}, false);
+			returnVal.then(function(response) {
+				self.myApps.setData(_.cloneDeep(_.uniqBy(returnArray, 'APP_ID')));
+				self.removeSubscribeApp();
+			}).catch(function(error) {
+				console.error('error:', error);
+			});
+		},
+		//현재 화면의 myApp을 저장한다.
+		updateAppListType: function(pVal){
+			var returnVal = null;
+			var self = this;
+			
+			self.listStyle = pVal;
+			returnVal = userApi.insertUserSort(self.session.USER_ID, '00', {'SORT_TEXT' : pVal}, false);
+			returnVal.then(function(response) {
+				
+			}).catch(function(error) {
+				console.error('error:', error);
+			});
+		},
+		//구독중인 리스트에서 my app리스트에 있는 앱정보를 갱신한다.
+		refreshMyApps: function(){
+			var self = this;
+			
+			// _.forEach(self.myApps.getData(), function(obj, index){
+			// 	if(!isNull(obj)){
+			// 		var appId = obj['APP_ID'];
+			// 		var tempObj = {};
+			//
+			// 		var findIndex = _.findIndex(self.subscribeApps.getData(), function(o){
+			// 			if(o['APP_ID'] == appId){
+			// 				tempObj = o;
+			// 			}
+			// 			return o.APP_ID == appId;
+			// 		});
+			// 		if(findIndex > -1){
+			// 			obj['ICON'] = _.cloneDeep(tempObj['ICON']);
+			// 			obj['APP_NM'] = _.cloneDeep(tempObj['APP_NM']);
+			// 		}else{
+			// 			self.myApps.data.splice(index, 1);
+			// 		}
+			// 	}else{
+			// 		self.myApps.data.splice(index, 1);
+			// 	}
+			// });
+			//
+			// self.updateMyApp();
+		},
+		//구독중인 리스트에서 my app리스트에 있는 앱을 제거한다.
+		removeSubscribeApp: function(){
+			var self = this;
+			var appIdList = _.map(self.myApps.getData(), 'APP_ID');
+			
+			// self.subscribeApps.setData(_.remove(self.subscribeApps.getData(), function(obj){
+			// 	var findIndex = _.findIndex(appIdList, function(o){
+			// 		return o == obj.APP_ID;
+			// 	});
+			// 	return findIndex == -1;
+			// }));
+		},
+		appOpen: function(pItem){
+			this.appSearch = '';
+			this.searchStrChange('');
+			
+			//내부
+			if(pItem.APP_TYPE_GB == '1'){
+				//현재창
+				if(pItem.OPEN_TYPE_GB == '1'){
+					appOpen(pItem.APP_ID);
+				}
+				//새창
+				else if(pItem.OPEN_TYPE_GB == '2'){
+					appOpen(pItem.APP_ID, '', '', '_blank');
+				}else{
+					appOpen(pItem.APP_ID);
+				}
+			}
+			//외부
+			else if(pItem.APP_TYPE_GB == '2'){
+				//현재창 (포털 네비게이션 바 포함)
+				if(pItem.OPEN_TYPE_GB == '11'){
+					appOpen(pItem.APP_ID);
+				}
+				//새창 (포털 네비게이션 바 포함)
+				else if(pItem.OPEN_TYPE_GB == '12'){
+					appOpen(pItem.APP_ID, '', '', '_blank');
+				}
+				//현재창 (포털 네비게이션 바 미포함)
+				else if(pItem.OPEN_TYPE_GB == '13'){
+					linkOpen(pItem.ENDPOINT);
+				}
+				//새창  (포털 네비게이션 바 미포함)
+				else if(pItem.OPEN_TYPE_GB == '14'){
+					linkOpen(pItem.ENDPOINT, '_blank');
+				}else{
+					appOpen(pItem.APP_ID);
+				}
+			}else{
+				appOpen(pItem.APP_ID);
+			}
+		},
+		talkOpen: function(){
+        	$('#appListArea > div.menu_bar > span').click();
+        },
+        getTalkApp: function(pPageName){
+        	var pageName = '/html/sub/talk/talk.html';
+        	
+        	if(!isNull(pPageName)) pageName = pPageName;
+        	$.ajax({
+    		    url: pageName,
+    		    type: 'HEAD',
+    		    async: false,
+    		    success: function () {
+    		    	$.get(pageName, function(response){
+    	    			$('div#talk').html(response);
+    				});
+    		    }
+    		});
+        },
+        getAlarmTime: function(pAlarmDttm) {
+			var getTime = moment(pAlarmDttm, 'YYYY-MM-DD hh:mm:ss').format('MM. DD');
+			return getTime;
+		},
+        setPushInitMsgList: function() {
+        	var returnVal = talkApi.talkPushList(this.session.USER_ID);
+			var self = this;
+			
+			returnVal.then(function(response) {
+				if(response.data){
+					response.data.forEach(function(data) {
+						var obj = {
+								'MSG_USER_PIC': data.MSG_USER_PIC,
+								'MSG_CONTS': data.MSG_CONTS,
+								'MSG_USER_NM': data.MSG_USER_NM,
+								'MSG_DATE': data.MSG_DATE
+							};
+						
+						self.pushMsgList.push(obj);
+					});
+				}
+			}).catch(function(error) {
+				console.error('error:', error);
+			});
+        },
+        setPushInitNotiList: function() {
+        	var self = this;
+            var returnVal = alertApiApi.getUserUnidentifiedAlarmDataList(false);
+            
+            returnVal.then(function(response) {
+            	var returnArray = _.sortBy(response.data, ['ALARM_DTTM']).reverse();
+            	returnArray = _.map(returnArray, function(i){
+        			return _.pick(i, 'TEXT', 'ALARM_TITLE', 'ALARM_DTTM');
+        		});
+            	
+            	self.pushNotiList = returnArray;
+            }).catch(function(error) {
+                console.error('error:', error);
+            }).finally(function(){
+            	
+			});
+        },
+        getNotReadTalkCnt: function() {
+        	var self = this;
+        	
+        	var param = {
+        		'USER_ID' : self.session.USER_ID	
+        	};
+        	
+            var returnVal = talkApi.totNotReadTalkCnt(param, false);
+            
+            returnVal.then(function(response) {
+            	self.pushAlarmCount.msgCnt = isNull(response.data) ? 0 : response.data;
+            	if(typeof vmPortalMain == 'object'){
+            		vmPortalMain.setPushCount(self.pushAlarmCount);	
+            	}
+            }).catch(function(error) {
+                console.error('error:', error);
+            }).finally(function(){
+            		
+    		});
+        },
+        getUnidentifiedAlarmDataCnt: function() {
+        	var self = this;
+            var returnVal = alertApiApi.getUnidentifiedAlarmDataCnt(false);
+            
+            returnVal.then(function(response) {
+            	self.pushAlarmCount.notyCnt = isNull(response.data) ? 0 : response.data;
+            	if(typeof vmPortalMain == 'object'){
+            		vmPortalMain.setPushCount(self.pushAlarmCount);	
+            	}
+            }).catch(function(error) {
+                console.error('error:', error);
+            }).finally(function(){
+            		
+    		});
+        },
+        setIljeongList: function(){
+			try{
+				var self = this;
+				var returnVal = calendarApiApi.selectCalendar(false);
+				
+				returnVal.then(function(response) {
+					self.iljeongList.setData(response.data);
+					
+					for(var i = 0; i < self.iljeongList.getRowCount(); i++){
+						var date = new Date(parseInt(self.iljeongList.getColumn(i, "FR_DTTM")));
+						
+						var year = date.getFullYear(); 
+						var month = date.getMonth()+1; 
+						var day = date.getDate(); 
+						
+						if(month<=9)month = '0' + month;
+						if(day<=9)day = '0' + day;
+						
+						var frDttm = year + "" + month + "" + day;
+						
+						date = new Date(parseInt(self.iljeongList.getColumn(i, "TO_DTTM")));
+						
+						year = date.getFullYear(); 
+						month = date.getMonth()+1; 
+						day = date.getDate(); 
+						
+						if(month<=9)month = '0' + month;
+						if(day<=9)day = '0' + day;
+						
+						var toDttm = year + "" + month + "" + day;
+
+						self.iljeongList.setColumn(i, 'FR_DTTM', frDttm);
+						self.iljeongList.setColumn(i, 'TO_DTTM', toDttm);
+					}
+					
+					var yyyymm = self.yyyy + '' + self.mm;
+					
+					for(var i = 0; i < self.iljeongList.getRowCount(); i++){
+						if(self.iljeongList.getColumn(i, "FR_DTTM") <= self.yyyymmdd1 && self.iljeongList.getColumn(i, "TO_DTTM") >= self.yyyymmdd1){
+							self.iljeongList.selectRow(i);
+							self.data1List.addRow(self.iljeongList.currentRow);
+						}
+						
+						if(self.iljeongList.getColumn(i, "FR_DTTM") <= self.yyyymmdd2 && self.iljeongList.getColumn(i, "TO_DTTM") >= self.yyyymmdd2){
+							self.iljeongList.selectRow(i);
+							self.data2List.addRow(self.iljeongList.currentRow);
+						}
+						
+						if(self.iljeongList.getColumn(i, "FR_DTTM") <= self.yyyymmdd3 && self.iljeongList.getColumn(i, "TO_DTTM") >= self.yyyymmdd3){
+							self.iljeongList.selectRow(i);
+							self.data3List.addRow(self.iljeongList.currentRow);
+						}
+						
+						if(self.iljeongList.getColumn(i, "FR_DTTM") <= self.yyyymmdd4 && self.iljeongList.getColumn(i, "TO_DTTM") >= self.yyyymmdd4){
+							self.iljeongList.selectRow(i);
+							self.data4List.addRow(self.iljeongList.currentRow);
+						}
+						
+						if(self.iljeongList.getColumn(i, "FR_DTTM") <= self.yyyymmdd5 && self.iljeongList.getColumn(i, "TO_DTTM") >= self.yyyymmdd5){
+							self.iljeongList.selectRow(i);
+							self.data5List.addRow(self.iljeongList.currentRow);
+						}
+						
+// 						if(self.iljeongList.getColumn(i, "FR_DTTM") <= self.yyyymmdd6 && self.iljeongList.getColumn(i, "TO_DTTM") >= self.yyyymmdd6){
+// 							self.iljeongList.selectRow(i);
+// 							self.data6List.addRow(self.iljeongList.currentRow);
+// 						}
+						
+// 						if(self.iljeongList.getColumn(i, "FR_DTTM") <= self.yyyymmdd7 && self.iljeongList.getColumn(i, "TO_DTTM") >= self.yyyymmdd7){
+// 							self.iljeongList.selectRow(i);
+// 							self.data7List.addRow(self.iljeongList.currentRow);
+// 						}
+					}
+					
+					self.pushAlarmCount.iljeongCnt = self.data1List.getRowCount();
+	            	
+	            	if(typeof vmPortalMain == 'object'){
+	            		vmPortalMain.setPushCount(self.pushAlarmCount);	
+	            	}	
+					
+				}).catch(function(error) {
+					console.error('error:', error);
+				}).finally(function(){
+				});
+			} catch(err){
+				console.log('calendar : widgetRefresh() Error : '+err.message);
+			};
+		},
+		getUnidentifiedEmailDataCnt: function() {
+        	var self = this;
+        	var groupWareEmailCntUrl = self.defaultInfo.GROUPWARE_EMAIL_CNT_URL;
+        	var returnVal = '';
+        	
+        	try{
+        		if(!isNull(groupWareEmailCntUrl)){
+            		returnVal = systemApi.corsXml({'CALL_URL':groupWareEmailCntUrl, 'DATA_PARAM_LIST':[{'USER_ID' : self.session.USER_ID}]},false);
+            		
+    	            returnVal.then(function(response) {
+    	            	if(response.status == '200'){
+    	            		if(!isNull(response.data.body) && isNull(!response.data.body.record.count)){
+    	            			vmPortalMain.emailUseYn = true;
+    	            		}
+    	            		
+    	            		self.pushAlarmCount.mailCnt = isNull(response.data.body) || isNull(response.data.body.record.count) ? 0 : response.data.body.record.count;	
+    	            		
+	            			if(typeof vmPortalMain == 'object'){
+        	            		vmPortalMain.setPushCount(self.pushAlarmCount);	
+        	            	}
+    	            	}
+    	            }).catch(function(error) {
+    	                console.error('error:', error);
+    	            }).finally(function(){
+    	            		
+    	    		});
+            	}	
+        	}catch(err){
+        		console.log('new Dataset() Error : '+err.message);
+        		return false;
+        	}
+        },
+        groupWareEmailLink: function(){
+        	var self = this;
+        	var groupWareEmailLinkUrl = self.defaultInfo.GROUPWARE_EMAIL_LINK_URL;
+        	
+        	if(!isNull(groupWareEmailLinkUrl)){
+        		linkOpen(groupWareEmailLinkUrl);
+        	}else {
+        		notifySubmit('warning', '이메일 링크', '등록된 이메일 링크 정보가 없습니다.', 'icon-caution');
+        	}
+        },
+        getDateForm: function(pDate){
+			var date = '';
+			if(!isNull(pDate)){
+				date = pDate.substring(0,4) + '-' + pDate.substring(4,6) + '-' + pDate.substring(6,8);
+			}
+			return date;
+		},
+		getDayForm: function(pDate){
+			var date = '';
+			if(!isNull(pDate)){
+				date = moment(pDate).format('DD');
+			}
+			return date;
+		},
+		modiImgAddr: function(pAddr){
+			var modiAddr = '';
+			
+			if(!isNull(pAddr)){
+				modiAddr = pAddr.replace(/\\/g, '/'); 
+				
+				if(modiAddr.substring(1,4) == 'SMN'){
+					modiAddr = '/upload' + modiAddr;
+				}
+			}else{
+				modiAddr = '/service/design/images/mypage/noimage.png';
+			}
+			
+			return modiAddr;
+		},
+		// 매뉴얼 - 매뉴얼 팝업이 열릴때, 현재 앱과 메뉴로 설정. 
+		manualOpen: function(){
+			var appId = getParameterByName('app');
+			var menu = getParameterByName('menu');
+			
+			this.currentAppId = isNull(appId) ? 'portal' : appId;
+			this.currentMenuCd = isNull(menu) ? '01000000' : menu;
+
+			if(this.currentAppId && this.currentMenuCd){
+				this.setAppMenu(this.currentAppId, this.currentMenuCd, "modal_open");
+			}else{
+				this.manualAppUpMenuList.setData(null);
+				this.manualAppDownMenuList.setData(null);
+				this.initManualData();
+			}
+		},
+		// 매뉴얼 - 사용자 권한에 따른 앱 목록 조회
+		setApps: function(){
+			var returnVal = menuApiApi.userAuthApps({}, false);
+			var self = this;
+			
+			returnVal.then(function(response) {
+				self.manualAppList.setData(response.data);
+			}).catch(function(error) {
+				console.error('error:', error);
+			});
+		},
+		// 매뉴얼 - 앱 메뉴 가져오기
+		setAppMenu: function(pAppId, pMenuCd, pType){
+			var self = this;
+			self.menuLoading.val = true;
+            var manualCnt = null;	// 매뉴얼 표시 여부
+            var returnVal = menuApiApi.userAuthMenus({'APP_ID':pAppId}, false);
+            returnVal.then(function(response) {
+            	manualCnt = response.data.length;
+            	self.manualAppUpMenuList.setData(response.data);
+            	self.manualAppDownMenuList.setData(response.data);
+            }).catch(function(error) {
+                console.error('error:', error);
+            }).finally(function(){
+            	self.setManualMenuRemoveClass();
+            	
+            	if(pType == "modal_open"){
+            		if(manualCnt < 1){
+    					notifySubmit('info', '매뉴얼 보기', '매뉴얼을 사용하지 않는 앱입니다.', 'icon-message');
+    					self.currentAppId = "";
+    					self.initManualData();
+            		}else{
+	            		self.$nextTick(function(){
+	            			self.setAppMenuManual(pAppId, pMenuCd, pType);
+	            		});
+            		}
+            	}
+    			self.menuLoading.val = false;
+    		});
+		},
+		// 매뉴얼 - 앱 메뉴 매뉴얼 가져오기
+		setAppMenuManual: function(pAppId, pMenuCd, pType){
+			var self = this;
+			self.manualLoading.val = true;
+            var returnVal = menuApiApi.appMenuManual(pAppId, pMenuCd, false);
+            
+            returnVal.then(function(response) {
+				if(response.data.length > 0){
+					self.pManualData = response.data[0];
+					self.pManualData.UP_MENU_NM = isNull(self.pManualData.UP_MENU_CDNM) ? self.pManualData.MENU_NM : self.pManualData.UP_MENU_CDNM;
+					self.pManualData.REMARK 	  = isNull(self.pManualData.REMARK) ? '메뉴 설명이 존재하지 않습니다.' : self.pManualData.REMARK;
+				}
+	    		$('#manualViewerSection > div').remove();
+   				self.setWebViewer(self.pManualData.MANUAL_TEXT, self.pManualData.APP_ID, self.pManualData.MENU_CD);
+            }).catch(function(error) {
+                console.error('error:', error);
+            }).finally(function(){
+            	if(pType == "modal_open"){
+            		var menuLv = self.pManualData.MENU_LV;
+            		if(menuLv == 0){
+            			$("#up_"+pAppId+"_"+pMenuCd).addClass("on");
+            		}else{
+	            		$("#up_"+pAppId+"_"+self.pManualData.UP_MENU_CD).addClass("on");
+	            		$("#"+pAppId+"_"+pMenuCd).addClass("on");
+            		}
+            	}
+       			self.manualLoading.val = false;	
+    		});
+		},
+		// 매뉴얼 - 매뉴얼 메뉴 클래스 적용
+		setManualMenuRemoveClass: function(){
+			var manual_a = $('.modal-layer.modal-large.manual .modal-content .right-menu .menu-wrap .menu-list-box > li > a');
+			manual_a.parent().removeClass('on');
+
+			var manual_a_a = $('.modal-layer.modal-large.manual .modal-content .right-menu .menu-wrap .menu-list-box > li > ul > li > a');
+			manual_a_a.removeClass('on');
+		},
+		// 매뉴얼 - 모바일용 클래스 설정
+		setManualMenuClassMobile: function(){
+			// 메뉴얼 오른쪽 메뉴 반응형
+			var rMenu_btn = $('.modal-layer.modal-large.manual .modal-header .m-menu');
+			var rMenu = $('.modal-layer.modal-large.manual .modal-content .right-menu');
+			var rMenu_close = $('.modal-layer.modal-large.manual .modal-content .right-menu .m-menu-close');
+			rMenu_btn.on('click', function(){
+				rMenu.addClass('on');
+			});
+			rMenu_close.on('click', function(){
+				rMenu.removeClass('on');
+			});
+		},
+		// 매뉴얼 - 상위 메뉴 클래스 설정
+        setUpMenuClass: function(pTarget){
+        	$('.modal-layer.modal-large.manual .modal-content .right-menu .menu-wrap .menu-list-box > li > ul > li > a').removeClass('on');
+        	if($(pTarget).parent().hasClass('on')){
+	        	$(pTarget).parent().removeClass('on');
+        	}else{
+        		$(pTarget).parent().addClass('on');
+        	}
+        },
+        // 매뉴얼 - 하위 메뉴 클래스 설정
+        setDownMenuClass: function(pTarget){
+        	$('.modal-layer.modal-large.manual .modal-content .right-menu .menu-wrap .menu-list-box > li > ul > li > a').removeClass('on');
+        	$(pTarget).addClass('on');
+        },
+        // 에디터 설정
+        setWebViewer: function(pContent, pAppId, pMenuCd){
+        	var self = this;
+
+    		if(isNull(pContent)) pContent = '매뉴얼이 존재하지 않습니다.';
+    		
+        	this.webViewer = new toastui.Editor.factory({
+        	    el: document.querySelector('#manualViewerSection'),
+        	    viewer: true,
+        	    height: 'auto',
+        	    initialValue: pContent
+            });		
+        },
+        // 매뉴얼 - 메뉴 검색
+        searchMenu: function(){
+        	if(isNull(this.pSearchArgv)){
+	        	notifySubmit('warning', '메뉴 검색', '검색할 메뉴를 입력하세요.', 'icon-caution');
+        		return;
+        	}
+        	var self = this;
+        	self.searchMode = true;
+			self.menuLoading.val = true;
+            var returnVal = menuApiApi.userAuthMenus({'pSearchArgv':this.pSearchArgv}, false);
+            
+            returnVal.then(function(response) {
+            	self.manualAppMenuSearchList.setData(response.data);
+            }).catch(function(error) {
+                console.error('error:', error);
+            }).finally(function(){
+    			self.menuLoading.val = false;
+    		});
+        },
+        // 매뉴얼 - 매뉴얼 창 닫기
+        closeManual: function(){
+        	this.pSearchArgv = "";	
+        	this.searchMode  = false;
+        },
+        searchStrChange: function(pStr){
+        	this.myApps.data = _.filter(this.myApps.defaultData, function(obj) {
+        	    return obj.APP_NM.toLowerCase().indexOf(pStr.toLowerCase()) !== -1;
+        	});
+        	
+        	this.subscribeApps.data = _.filter(this.subscribeApps.defaultData, function(obj) {
+        	    return obj.APP_NM.toLowerCase().indexOf(pStr.toLowerCase()) !== -1;
+        	});
+        },
+        textFadeLoop: function(){
+       		var baloon = $('.empty-text');
+            baloon.animate({opacity:'1'}, 1000);
+            baloon.animate({opacity:'0.5'}, 1000, this.textFadeLoop);	
+        },
+        setUserOtherSession: function() {
+			var self = this;
+            self.userOtherSessionLoading.val = true;
+			var returnVal = userApiApi.setUserOtherSession();
+			
+			returnVal.then(function(response) {
+				self.userOtherSessionList.setData(response.data);
+			}).catch(function(error) {
+				console.error('error:', error);
+			}).finally(function(){
+				self.userOtherSessionLoading.val = false;
+			});
+        },
+		/* 사용자 리스트 조회 */
+		reloginBefore: function(pUserId, pUserNm){
+			var self = this;
+			var params = {
+				"pUserId" : pUserId
+			};
+			var globalProtocol = window.location.protocol;
+			var globalHost = window.location.host;
+			var url = globalProtocol + "//" + globalHost;
+
+			var returnVal = userApi.reloginBefore(params, false);
+			returnVal.then(function(response) {
+				if(response.status == '200'){
+				}else if(response.status == '403'){
+					self.messageModal.openModal('message', '사용자 변경', '사용자 변경 권한이 존재하지 않습니다.', 'middle', 'alert', '');
+				}else{
+					self.messageModal.openModal('message', '사용자 변경', '알수없는 오류가 발생하였습니다. 관리자에게 문의해주시기 바랍니다.', 'middle', 'alert', '');
+				}
+			}).catch(function(error) {
+				console.error('error:', error);
+			}).finally(function(){
+				// self.mainListLoading.val = false;
+				// setPushSate('parent', {'url':url}, null, url);
+				location.reload();
+			});
+		},
+		/* 사용자 리스트 조회 */
+		sessionChange: function(pUserId, pUserNm){
+			var self = this;
+            self.userOtherSessionLoading.val = true;
+			var params = {
+				"pUserNm" : pUserNm,
+				"pUserId" : pUserId,
+			};
+			var globalProtocol = window.location.protocol;
+			var globalHost = window.location.host;
+			var url = globalProtocol + "//" + globalHost;
+			
+			var returnVal = userApi.sessionChange(params, false);
+			returnVal.then(function(response) {
+				if(response.status == '200'){
+				}else if(response.status == '403'){
+					self.messageModal.openModal('message', '사용자 변경', '사용자 변경 권한이 존재하지 않습니다.', 'middle', 'alert', '');
+				}else{
+					self.messageModal.openModal('message', '사용자 변경', '알수없는 오류가 발생하였습니다. 관리자에게 문의해주시기 바랍니다.', 'middle', 'alert', '');
+				}
+			}).catch(function(error) {
+				console.error('error:', error);
+			}).finally(function(){
+				self.userOtherSessionLoading.val = false;
+				// setPushSate('parent', {'url':url}, null, url);
+				location.reload();
+			});
+		},
+	}
+});
+/*******************************************************************************************************************************************************************
+ * vue end 
+ ********************************************************************************************************************************************************************/
+
+
+/*******************************************************************************************************************************************************************
+ * jui script start 
+ ********************************************************************************************************************************************************************/
+
+ 
+/*******************************************************************************************************************************************************************
+ * jui script end 
+ ********************************************************************************************************************************************************************/
+
+ 
+ 
+/*******************************************************************************************************************************************************************
+ * javascript start 
+ ********************************************************************************************************************************************************************/
+$(document).ready(function(){
+	//talk layer
+	var wwidth = $(window).width();
+	if (wwidth > 480) {
+		$('.btn_talk').on('click', function(){
+			if ($(this).hasClass('active')) {
+				$('#talk').stop().animate({right:-450, opacity:0});
+				$(this).removeClass('active');					
+			} else {
+				$('#talk').stop().animate({right:100, opacity:1});
+				$(this).addClass('active');					
+			}
+		});
+		// 2019.05.03 박해수 : 톡 내의 특정 공간이나, 로딩 오버레이 클릭 및 여러 상황에서 채팅창이 의도치않게 사라짐으로 인한 주석처리
+		/* $(document).mouseup(function(e){
+			var container = $(".talk_layer, .btn_talk");					
+			if(container.has(e.target).length === 0){
+				$('#talk').stop().animate({right:-450, opacity:0});
+				$('.btn_talk').removeClass('active');	
+			}
+		}); */
+	}
+	if (wwidth <= 481) {
+		$('.btn_talk').on('click', function(){
+			if ($(this).hasClass('active')) {
+				$('#talk').stop().animate({right:'-100%', opacity:0});
+				$(this).removeClass('active');
+			} else {
+				$('#talk').stop().animate({right:0, opacity:1});
+				$(this).addClass('active');
+			}
+		});
+		/* $(document).mouseup(function(e){
+			var container = $(".talk_layer, .btn_talk");					
+			if(container.has(e.target).length === 0){
+				$('#talk').stop().animate({right:-450, opacity:0});
+				$('.btn_talk').removeClass('active');	
+			}
+		}); */
+	}
+	$('.btn_user img').on('error', function() {$(this).attr('src', '/service/design/images/mypage/noimage.png');});
+// 	// 메뉴얼
+// 	var manual_a = $('.modal-layer.modal-large.manual .modal-content .right-menu .menu-wrap .menu-list-box > li > a');
+// 	var manual_a_a = $('.modal-layer.modal-large.manual .modal-content .right-menu .menu-wrap .menu-list-box > li > ul > li > a');
+// 	manual_a.on('click', function(){
+// 		if($(this).parent().hasClass('on')){
+// 			$(this).parent().removeClass('on');
+// 		} 
+// 		else {
+// 			$(this).parent().addClass('on');
+// 		}
+// 	});
+// 	manual_a_a.on('click', function(){	
+// 		manual_a_a.removeClass('on');
+// 		$(this).addClass('on');		
+// 	});
+	
+// 	// 메뉴얼 오른쪽 메뉴 반응형
+// 	var rMenu_btn = $('.modal-layer.modal-large.manual .modal-header .m-menu');
+// 	var rMenu = $('.modal-layer.modal-large.manual .modal-content .right-menu');
+// 	var rMenu_close = $('.modal-layer.modal-large.manual .modal-content .right-menu .m-menu-close');
+// 	rMenu_btn.on('click', function(){
+// 		rMenu.addClass('on');
+// 	})
+// 	rMenu_close.on('click', function(){
+// 		rMenu.removeClass('on');
+// 	})
+});
+
+
+/*******************************************************************************************************************************************************************
+ * javascript end 
+ ********************************************************************************************************************************************************************/
+</script>
+
+<script type="text/javascript" src="../../assets/js/header.js"></script>

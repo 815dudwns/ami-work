@@ -90,8 +90,10 @@ const DATASET_REGISTRY = [
     //   ★모뎀 MAC 을 싣지 않는다 — 불가 건은 MAC 칸에 계기번호가 들어가 있다(11,009/11,015).
     //   디테일에 불가사유(비고1)·불가상세(비고2)가 들어간다.
     //   생성 scripts/build_michunggu_bulga_20260920.py
+    //   ★화면 라벨은 '25년불가'(영준님 2026-09-20). category 는 workStatus 키라 그대로 둔다 —
+    //   바꾸면 이미 쌓인 완료 기록이 끊긴다([[jongno_workstatus_address_key_partial]]).
     { code: 'u', file: './data/michunggu-bulga-data.json', category: '미청구불가', label: null,
-      uiLabel: '25년 미청구불가', statsLabel: '25년 미청구불가' },
+      uiLabel: '25년불가', statsLabel: '25년불가' },
     // 완료 아카이브 — 실효에서 완료돼 빠진 건들. 지도에는 안 올라가고 통계 분모에만 들어간다.
     //   파일이 날짜별로 늘어나므로 glob 으로 잡는다(archivesGlob).
     { code: 'a', category: '완료아카이브', onMap: false, statsLabel: '완료 아카이브',

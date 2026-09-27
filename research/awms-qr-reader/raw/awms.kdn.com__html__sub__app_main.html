@@ -1,0 +1,234 @@
+<div id="app_wrap">
+    <!-- header 배경색은 학생일때.stu, 교수일때.pro, 직원일때.mng  -->
+    <!-- //4(학생), 1,2(교수), 3(직원), 5(학사외부사용자), 9(포탈 사용자) -->
+    <header id="sub_header" :class="{'mng':session.USER_GB == '7' || session.USER_GB == '8' || session.USER_GB == '9','pro':session.USER_GB == '1' || session.USER_GB == '2' || session.USER_GB == '3','stu':session.USER_GB == '4' || session.USER_GB == '5'}">
+				<a href="#" class="logo" @click="goMain()"><img src="/images/common/KDN_CI_05.png" alt="AMI 현장관리 시스템"></a>
+        <a href="javascript:void(0);" class="btn_menu"><span class="icon-menu"></span></a>
+				<h1 class="project-name">AMI 현장관리 시스템</h1>
+		<!-- <div class="sub_title">
+			<span class="icon"></span>
+			<h1 class="txt"></h1>
+		</div> -->
+    </header>
+    <nav id="snb">
+        
+    </nav>
+		<div class="nav-bg"></div>
+    <article class="sub_content">
+        <div class="sub_cont_wrap"></div>
+    </article>
+    <a href="javascript:void(0);" class="btn_top">
+        <span>TOP</span>
+    </a>
+    <script id="notify" type="text/template">
+		<div class="notify <!= color !>">
+			<div class="image"><i class="<!=icon!>" style="font-size: 18px;"></i></div>
+    		<div class="title"><!= title !></div>
+    		<div class="message"><!= message !></div>
+			<a href="#" class="close"><i class="icon-exit"></i></a>
+		</div>
+	</script>
+</div>
+	
+<script type="text/javascript">
+/**********************************************************	*********************************************************************************************************
+ * vue start 
+ ********************************************************************************************************************************************************************/
+var appIndexVm = new Vue({
+	el: '#app_wrap',
+	data: {
+		sessionInfo : '',
+	},
+	watch: {
+		
+	},
+	mounted: function(){
+		this.getUserSession();
+	},
+	methods: {
+		getUserSession: function(){
+			var self = this;
+			var returnVal = getSession();
+			
+			returnVal.then(function(response) {
+				self.sessionInfo = response.data;
+				self.$forceUpdate();
+			}).catch(function(error) {
+				console.error('session info set ERROR:', error);
+				return null;
+			});
+		},
+		goMain(){
+			document.location.href = '/html/main/index.html?portalPage=portal_main';
+		}
+	},
+});
+/**********************************************************	*********************************************************************************************************
+ * vue end
+ ********************************************************************************************************************************************************************/
+
+/*******************************************************************************************************************************************************************
+ * javascript start 
+ ********************************************************************************************************************************************************************/
+var globalParam = {};
+
+// iOS 18 대응 뷰포트 및 Safe Area 처리
+(function() {
+    var viewportTimer;
+    var isIOS18Plus = false;
+    
+    // iOS 버전 감지
+    function detectIOSVersion() {
+        var ua = navigator.userAgent;
+        var iOS = /iPad|iPhone|iPod/.test(ua);
+        if (iOS) {
+            var version = ua.match(/OS (\d+)_/);
+            if (version && parseInt(version[1]) >= 18) {
+                isIOS18Plus = true;
+                document.documentElement.classList.add('ios18-plus');
+            }
+        }
+        return isIOS18Plus;
+    }
+    
+    function setViewportHeight() {
+        const vh = window.innerHeight * 0.01;
+        const vw = window.innerWidth * 0.01;
+        
+        // 기본 뷰포트 변수 설정
+        document.documentElement.style.setProperty('--vh', `${vh}px`);
+        document.documentElement.style.setProperty('--vw', `${vw}px`);
+        
+        // iOS 18+ 대응 추가 뷰포트 단위
+        if (window.CSS) {
+            if (CSS.supports('height', '100dvh')) {
+                document.documentElement.style.setProperty('--dvh', '1dvh');
+            } else {
+                document.documentElement.style.setProperty('--dvh', `${vh}px`);
+            }
+            
+            if (CSS.supports('height', '100svh')) {
+                document.documentElement.style.setProperty('--svh', '1svh');
+            } else {
+                document.documentElement.style.setProperty('--svh', `${vh}px`);
+            }
+            
+            if (CSS.supports('height', '100lvh')) {
+                document.documentElement.style.setProperty('--lvh', '1lvh');
+            } else {
+                document.documentElement.style.setProperty('--lvh', `${vh}px`);
+            }
+        }
+        
+        // iOS 18에서 Safe Area 재계산
+        if (isIOS18Plus) {
+            const safeBottom = getComputedStyle(document.documentElement).getPropertyValue('--safe-area-inset-bottom');
+            if (safeBottom && safeBottom !== '0px') {
+                document.documentElement.style.setProperty('--calculated-safe-bottom', safeBottom);
+            }
+        }
+    }
+    
+    // iOS 버전 감지 실행
+    detectIOSVersion();
+    
+    // 초기 설정
+    setViewportHeight();
+    
+    // 이벤트 리스너 등록
+    window.addEventListener('resize', function() {
+        clearTimeout(viewportTimer);
+        viewportTimer = setTimeout(setViewportHeight, 100);
+    });
+    
+    window.addEventListener('orientationchange', function() {
+        setTimeout(setViewportHeight, 150);
+    });
+    
+    // iOS 18 전용 추가 이벤트
+    if (isIOS18Plus) {
+        window.addEventListener('scroll', function() {
+            clearTimeout(viewportTimer);
+            viewportTimer = setTimeout(setViewportHeight, 50);
+        }, { passive: true });
+        
+        // Visual Viewport API 지원 시 사용
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', setViewportHeight);
+        }
+    }
+})();
+
+$(document).ready(function(){
+	try{
+		var urlInfo = window.location;
+		var appId = getParameterByName('app', urlInfo);
+		
+		changeAppInfo();
+		if(!isNull(appId)){
+			$('body').LoadingOverlay("show", true);
+		}
+	}catch(err){
+		console.log('app index.html $(document).ready() Error : '+err.message);
+		return false;
+	}
+});
+
+function changeAppInfo(){
+	try{
+		/* if(self != top){ */
+			var className = 'icon '+parent.globalAppIcon+' '+parent.globalAppColor;
+		
+			$('#sub_header .sub_title h1.txt').text(parent.globalAppNm);
+			$('#sub_header .sub_title span').attr('class',className);
+			
+		/* } */
+	}catch(err){
+		console.log('app index.html changeAppInfo() Error : '+err.message);
+		return false;
+	}
+}
+
+$(document).ready(function() {
+    // 상단으로 이동 버튼
+    $(window).scroll(function() {
+        var bot = $(document).height() - $(window).height();
+        var height = $(document).scrollTop();
+        if (height == bot) {
+            $('.btn_top').fadeIn();
+            $('.btn_top').on('click', function() {
+                $('html').stop().animate({ scrollTop: 0 }, 100);
+            });
+        } else {
+            $('.btn_top').fadeOut();
+        }
+    });
+});
+
+// 외부 영역 클릭 시 id="snb" 닫기
+if ($(window).width() < 1650) {
+	$(document).click(function (event) {
+		if (!$(event.target).closest('#snb, .btn_menu').length) {
+			$('#snb').removeClass('on').css('transition', '.4s');
+			$('html').css('overflow', 'auto');
+		}
+	});
+}
+
+// #snb on일때 html overflow:hidden
+if ($(window).width() < 1650) {
+	$(document).on('click', '.btn_menu', function () {
+		if ($('#snb').hasClass('on')) {
+			$('html').css('overflow', 'hidden');
+		} else {
+			$('html').css('overflow', 'auto');
+		}
+	});
+}
+
+
+
+/*******************************************************************************************************************************************************************
+ * javascript end 
+ ********************************************************************************************************************************************************************/
+</script>

@@ -1,0 +1,35 @@
+[
+    {
+        "BUSI_NUM": "C11G250023",
+        "EXT_FCTY_ID": "-",
+        "GAETONG_YN": "개통",
+        "CNT": 79,
+        "MB_REG_CNT": 2,
+        "DATA_NUM": "",
+        "WORK_DIV": "M1030",
+        "FCLTY_DIV": "20",
+        "WORK_DATE": "20260515",
+        "DEPT1": "3970",
+        "DEPT2": "7793",
+        "MTR_WITH_YN": "N",
+        "INST_M": "HW4050",
+        "INST_S": "HW405092",
+        "MODEM_DIV": "10",
+        "WORK_STEP": "29",
+        "METER_ID": "",
+        "DCU_ID": "",
+        "REG_DATE": 1778800810000,
+        "CUST_NO": "",
+        "MB_METER_ID": "02530016421",
+        "MB_CNT": 2.0,
+        "TGT_DIV_CD": "",
+        "BONBU_CD": "",
+        "RNUM": 1,
+        "INSTR_NUM": "02530016421",
+        "MAC_MODEM": "01248232297",
+        "GUBUN": "01"
+    },
+    {
+        "_note": "총 79건. 위는 샘플 1건. 전체 데이터는 세션 중 영준님이 콘솔에서 받은 응답이며 동일 패턴 79건임."
+    }
+]

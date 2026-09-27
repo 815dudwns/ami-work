@@ -1,0 +1,2 @@
+- [Gradle build hangs after daemon starts — fix --no-watch-fs](gradle_hang_no_watch_fs.md) — VFS file-watching deadlocks in this sandbox, always add --no-watch-fs --no-daemon </dev/null
+- [Stale Gradle lock files from killed daemons block retries](android_build_stale_lock_cleanup.md) — kill daemons + rtk proxy find ...-delete on *.lock before any retry, one attempt at a time

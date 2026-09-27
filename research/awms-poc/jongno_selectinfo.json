@@ -1,0 +1,242 @@
+{
+  "_조사결론": {
+    "selectCustomerInfo_필드": [
+      "SD_ETC_BIZ_CD",
+      "CNTR_CLAS_CD",
+      "CUST_GEN_INST_CLCD",
+      "GUM_DAY",
+      "PACH_CLCD",
+      "WRK_PLCE_ADDR_CTT",
+      "CUST_NO",
+      "PRDC_YM",
+      "CNTR_PWR"
+    ],
+    "selectCustomerInfo_칸수판별가능": "직접필드로는 불가, 그러나 반환필드(계약종별+계약전력+모자구분+특례+계기번호)+VOLT_CD로 앱 동일룰 적용시 산출 가능",
+    "비고": "9개 필드 고정. 계기종류/지침구조/1종2종 필드 없음. 단상~삼상,3~146kW,주택~산업 전 케이스 동일 key set",
+    "칸수결정_실제로직_출처": "MOBMTR5000.js fieldGroups + rules (앱 화면이 selectCustomerInfo 응답으로 클라단 판별)",
+    "결정필드": [
+      "VOLT_CD(저압=1, 작업화면 prop)",
+      "CNTR_CLAS_CD",
+      "CNTR_PWR",
+      "PACH_CLCD(모자구분)",
+      "SD_ETC_BIZ_CD(특례)",
+      "WHM_NO(앞2자리 알파벳/3~4자리)"
+    ],
+    "저압_G코드_칸수": {
+      "G011": 1,
+      "G021": 1,
+      "G031": 4,
+      "G041": 2,
+      "G051": 2,
+      "G061": 7,
+      "G071": 12
+    },
+    "저압_판별식_요약": [
+      "계약종별 없음 -> 0칸(G00)",
+      "WHM_NO 앞2자리 영문(SC 등) -> 1칸(G011)",
+      "모자구분=2 & WHM_NO 3~4자리 in[14,15,01,17,18] -> 1칸; 그외 모자구분=2 -> 7칸(G061)",
+      "특례=72 -> 7칸(G061)",
+      "PWR<20: 일반계열[100,108,211,213,218,311,410,430,610]=1칸 / 심야계열[905,910,915]=1칸(야간G021)",
+      "PWR>=20 & 100=1칸 / 213·610=2칸(G041) / [211,218,311,410,430]=4칸(G031) / 905=1칸 / [910,915]=2칸(G051)",
+      "기타 종별(222 등)=7칸(G061)"
+    ],
+    "핵심결론_칸수4_조건": "VOLT_CD=1 AND CNTR_PWR>=20 AND CNTR_CLAS_CD in [211,218,311,410,430]  (단상/삼상 무관, 모자구분2·특례72·심야 예외 먼저 적용)",
+    "종로저압_칸수분포": {
+      "1칸": 9208,
+      "2칸": 10,
+      "4칸": 433
+    },
+    "단상20kW이상_33건_검증": {
+      "4칸": 23,
+      "1칸": 9,
+      "2칸": 1,
+      "설명": "단상이어도 211이면 4칸. 905(심야)는 PWR무관 1칸이라 단상20+여도 1칸"
+    },
+    "교육용213_검증": "PWR<20=1칸, PWR>=20=2칸(G041, 주간유효+주간최대). 1종아님(영준님 가설=일부맞음:고kW여도 4칸은 아님)",
+    "spotcheck_특례모자_80건": {
+      "SD_ETC_BIZ_CD": {
+        "(blank)": 80
+      },
+      "PACH_CLCD": {
+        "(blank)": 80
+      },
+      "빈응답": 0,
+      "결론": "종로 저압 80건(4칸후보 40+랜덤40) 전부 특례·모자구분 blank → 특례72/모자2 분기 미발생 → Excel값만으로 칸수 정확 산출 가능. 빈응답 0건 = 전부 철거전 정상조회"
+    },
+    "교육용213_정정": "PWR>=20 교육용=2칸(G041: 주간유효+주간최대, 야간·무효 없음). 1칸도 4칸도 아닌 별도 처리. 영준님 가설(고kW여도 1종) = 4칸 아니란 점은 맞으나 정확히는 2칸",
+    "심야905_정정": "905=1칸이지만 주간 아니라 야간(MNGT, DGD_WHME_NDL_MNGT_QTT). 일반 1칸(G011)은 주간(DAY)"
+  },
+  "selectCustomerInfo_응답_원본_9케이스": [
+    {
+      "role": "단상저3kW",
+      "mtr": "56170829659",
+      "excel_pwr": 3.0,
+      "excel_clas": "100 주택용",
+      "resp": [
+        {
+          "SD_ETC_BIZ_CD": " ",
+          "CNTR_CLAS_CD": "100",
+          "CUST_GEN_INST_CLCD": " ",
+          "GUM_DAY": "02",
+          "PACH_CLCD": "",
+          "WRK_PLCE_ADDR_CTT": "서울특별시 종로구 가회동  31-11   \r",
+          "CUST_NO": "0108612699",
+          "PRDC_YM": "201608",
+          "CNTR_PWR": 3
+        }
+      ]
+    },
+    {
+      "role": "단상20kW+",
+      "mtr": "48150021354",
+      "excel_pwr": 23.0,
+      "excel_clas": "211 일반용(갑)저압",
+      "resp": [
+        {
+          "SD_ETC_BIZ_CD": " ",
+          "CNTR_CLAS_CD": "211",
+          "CUST_GEN_INST_CLCD": " ",
+          "GUM_DAY": "15",
+          "PACH_CLCD": "",
+          "WRK_PLCE_ADDR_CTT": "서울특별시 종로구 경운동  96-18   \r",
+          "CUST_NO": "0118764667",
+          "PRDC_YM": "201303",
+          "CNTR_PWR": 23
+        }
+      ]
+    },
+    {
+      "role": "삼상저3kW",
+      "mtr": "06450086378",
+      "excel_pwr": 3.0,
+      "excel_clas": "100 주택용",
+      "resp": [
+        {
+          "SD_ETC_BIZ_CD": " ",
+          "CNTR_CLAS_CD": "100",
+          "CUST_GEN_INST_CLCD": " ",
+          "GUM_DAY": "02",
+          "PACH_CLCD": "",
+          "WRK_PLCE_ADDR_CTT": "서울특별시 종로구 가회동  12번지 지층  \r",
+          "CUST_NO": "0108611627",
+          "PRDC_YM": "201602",
+          "CNTR_PWR": 3
+        }
+      ]
+    },
+    {
+      "role": "삼상50kW",
+      "mtr": "08350226645",
+      "excel_pwr": 70.0,
+      "excel_clas": "213 교육용(갑)저압",
+      "resp": [
+        {
+          "SD_ETC_BIZ_CD": " ",
+          "CNTR_CLAS_CD": "213",
+          "CUST_GEN_INST_CLCD": " ",
+          "GUM_DAY": "08",
+          "PACH_CLCD": "",
+          "WRK_PLCE_ADDR_CTT": "서울특별시 종로구 가회동  93-1 백인제가옥  \r",
+          "CUST_NO": "0110260850",
+          "PRDC_YM": "201304",
+          "CNTR_PWR": 70
+        }
+      ]
+    },
+    {
+      "role": "삼상고150",
+      "mtr": "05460048855",
+      "excel_pwr": 146.0,
+      "excel_clas": "211 일반용(갑)저압",
+      "resp": [
+        {
+          "SD_ETC_BIZ_CD": " ",
+          "CNTR_CLAS_CD": "211",
+          "CUST_GEN_INST_CLCD": " ",
+          "GUM_DAY": "15",
+          "PACH_CLCD": "",
+          "WRK_PLCE_ADDR_CTT": "서울특별시 종로구 관훈동  117-2 2층경리계  \r",
+          "CUST_NO": "0118750306",
+          "PRDC_YM": "201611",
+          "CNTR_PWR": 146
+        }
+      ]
+    },
+    {
+      "role": "교육213",
+      "mtr": "08350226645",
+      "excel_pwr": 70.0,
+      "excel_clas": "213 교육용(갑)저압",
+      "resp": [
+        {
+          "SD_ETC_BIZ_CD": " ",
+          "CNTR_CLAS_CD": "213",
+          "CUST_GEN_INST_CLCD": " ",
+          "GUM_DAY": "08",
+          "PACH_CLCD": "",
+          "WRK_PLCE_ADDR_CTT": "서울특별시 종로구 가회동  93-1 백인제가옥  \r",
+          "CUST_NO": "0110260850",
+          "PRDC_YM": "201304",
+          "CNTR_PWR": 70
+        }
+      ]
+    },
+    {
+      "role": "심야905",
+      "mtr": "35170184461",
+      "excel_pwr": 3.0,
+      "excel_clas": "905 심야전력(갑)",
+      "resp": [
+        {
+          "SD_ETC_BIZ_CD": " ",
+          "CNTR_CLAS_CD": "905",
+          "CUST_GEN_INST_CLCD": " ",
+          "GUM_DAY": "02",
+          "PACH_CLCD": "",
+          "WRK_PLCE_ADDR_CTT": "서울특별시 종로구 가회동  16-8   \r",
+          "CUST_NO": "0161767799",
+          "PRDC_YM": "201604",
+          "CNTR_PWR": 3
+        }
+      ]
+    },
+    {
+      "role": "산업311고",
+      "mtr": "06450094430",
+      "excel_pwr": 50.0,
+      "excel_clas": "311 산업용(갑)저압",
+      "resp": [
+        {
+          "SD_ETC_BIZ_CD": " ",
+          "CNTR_CLAS_CD": "311",
+          "CUST_GEN_INST_CLCD": " ",
+          "GUM_DAY": "09",
+          "PACH_CLCD": "",
+          "WRK_PLCE_ADDR_CTT": "서울특별시 종로구 묘동  39-1 효산빌딩 지하1층  \r",
+          "CUST_NO": "0117162827",
+          "PRDC_YM": "201604",
+          "CNTR_PWR": 50
+        }
+      ]
+    },
+    {
+      "role": "가로등610",
+      "mtr": "01170546300",
+      "excel_pwr": 3.0,
+      "excel_clas": "610 가로등(을)",
+      "resp": [
+        {
+          "SD_ETC_BIZ_CD": " ",
+          "CNTR_CLAS_CD": "610",
+          "CUST_GEN_INST_CLCD": " ",
+          "GUM_DAY": "02",
+          "PACH_CLCD": "",
+          "WRK_PLCE_ADDR_CTT": "서울특별시 종로구 공평동  147-1   \r",
+          "CUST_NO": "0150411408",
+          "PRDC_YM": "201301",
+          "CNTR_PWR": 3
+        }
+      ]
+    }
+  ]
+}
