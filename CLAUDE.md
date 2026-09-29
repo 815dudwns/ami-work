@@ -70,7 +70,7 @@
 | 앱(호칭) | 버전 위치 | 현재 버전 | 갱신일 |
 |---|---|---|---|
 | **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` / APK | `v0626b-아이디선택` / APK 오버레이fetch | 2026-06-26 |
-| **아미큐**(통신큐·통신팀) | `cst-input/cst-version.json` `versionName`(자동업뎃) / `cst-app` `versionName`(네이티브) · **UI=`cst-input/www/` · saveAct빌더=`cst-input/backend/app.py`** | `2.2.17` (설치구분에 **교체(M1020)** 추가 — 기존 모뎀맥 EXT_FCTY_ID + 구분상세 REMV_MEMO, 슬레이브도 전건 교체) | 2026-09-02 |
+| **아미큐**(통신큐·통신팀) | `cst-input/cst-version.json` `versionName`(인앱 자동업뎃) + `cst-app/android/app/build.gradle` `versionCode`·`versionName` · **★UI=네이티브 `cst-app/`(Compose) · saveAct빌더=`cst-input/backend/app.py`** | `2.2.19` (25미청구 리스트 계기면 비고 `25` 자동 — 계기 단위, 같은 맥이라도 리스트 밖은 빈칸 / 아미고 슬레이브만 분기 직접선택 `0.5`·`무선`) | 2026-09-29 |
 | **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260813.3` / `v20260813.3` (계기팀 디테일에 DCU ID + 통신방식 표시. detail.js ?v=20260813c) | 2026-08-13 |
 | **종로 보조앱**(jongno-snap) | `snap.html` `APP_VER` + 라벨 / snap-version.json / APK | `v20260707.7` (사진 재촬영 덮어쓰기 / 실시간QR / 카메라선택. ★범프 시 3곳 APP_VER+라벨2 갱신) | 2026-07-07 |
 | **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260624a` | 2026-06-24 |
@@ -79,7 +79,13 @@
 | **awms-bridge-inject**(리모컨 공용) | `awms-bridge-inject.js` `VER` | `v80` | 2026-06-20 |
 | **명륜 팀배분**(myungroon) | `jongno-combined/myungroon.html` `myungroon_app_version` / 메뉴라벨 | `20260624.1` | 2026-06-24 |
 
-★**`ami-queue-www/`는 죽은 옛 웹뷰다 — 아미큐 아님, 고쳐도 폰 반영 0**(2026-08-11 실증). 아미큐 실체는 `cst-input/`.
+★**`ami-queue-www/`는 죽은 옛 웹뷰다 — 아미큐 아님, 고쳐도 폰 반영 0**(2026-08-11 실증).
+★**`cst-input/www/`(collect.js·index.html)도 폰 반영 0 이다** — 백엔드가 static 으로 서비스하지만
+작업자 앱이 쓰지 않는다. 실사용 화면은 **네이티브 `cst-app/android/.../ui/CollectScreen.kt`**(Compose)다.
+판별법: 폰이 보내는 saveAct body 에 `ham`·`bdju`·`extMac`·`replaceReason` 이 들어 있는데
+`cst-input/www/collect.js` 는 그 넷을 보내지 않는다(실측 2026-09-29, `~/.ami-cst-archive/<날짜>/*/job.json` 대조).
+★**`cst-app/` 은 `.gitignore` 라 레포에 없다** — 맥 로컬에만 있고 배포는 `assembleDebug` 로 만든
+APK(debug 키 서명, 배포본과 서명 동일)를 `cst-input/amiqueue.apk` 로 덮어쓰는 방식이다.
 
 규칙: 계기큐·아미큐 JS는 github 원격로드라 `APP_VER`+push만으로 반영(APK는 네이티브 변경 시만). 종로맵은 `APP_VERSION`+`?v=`+메뉴라벨 함께([[jongno_app_version_deploy]]). 아미맵 `FORCE_LOGOUT_VERSION`은 긴급 시만([[ami_work_init_logout_fix]]).
 

@@ -386,6 +386,80 @@ _TYPE_MAP = {'17': 'E', '19': 'EA', '25': 'G', '26': 'G', '27': 'G',
 _TYPE_TO_INSTM = {'E': 'HW4020', 'EA': 'HW4040', 'G': 'HW4030', 'Amigo': 'HW4050'}
 
 
+# ── 25년 미청구 리스트 (비고 '25') ────────────────────────────────────────────
+# 영준님 지시 2026-09-29: "25리스트에서 같은번호 계기가 있을경우 비고란에 25를 적는다.
+#   ★같은 맥이라도 지도에 25리스트에 업된것만 비고란에 25를 적는다"
+#
+# ★계기 단위다. 함체(MAC)로 퍼뜨리지 마라 — 한 함체에 리스트 안/밖 계기가 섞여 있으면
+#   리스트에 있는 계기에만 붙고 나머지는 빈칸이다. 2026-09-23 에 계기 단위 값이 MAC 으로
+#   퍼지던 오염을 걷어낸 전례가 있다(커밋 5ad83fa).
+# ★정본은 지도에 올라간 것만 — `data/michunggu-data.json`.
+#   주소대기분 `michunggu-pending.json` 은 넣지 않는다(지도에 안 올라갔다).
+MICHUNGGU_FILE = ROOT / "data" / "michunggu-data.json"
+MICHUNGGU_MEMO = "25"
+_mich = {"mtime": None, "set": set()}
+
+
+def norm_meter(v) -> str:
+    """계기번호 정규화 — 공백·하이픈 제거 + 대문자. 순수 숫자일 때만 zfill(11).
+
+    ★영문 접두를 지우지 마라(`A0530188699`·`LA530151258`). 숫자만 남기면 신설계기가
+      전부 어긋난다(2026-09-10 에 그렇게 167건을 뭉갠 전례). 아미큐 네이티브 normMeter·
+      통신팀 합동 빌더(scripts/build_hapdong_data.py)와 같은 규칙이다.
+    """
+    t = str(v if v is not None else "").strip().replace(" ", "").replace("-", "").upper()
+    if not t:
+        return ""
+    return t.zfill(11) if t.isdigit() else t
+
+
+def michunggu_set() -> set:
+    """25리스트 계기번호 집합. 파일 mtime 이 바뀌면 다시 읽는다(재기동 없이 반영)."""
+    try:
+        mt = MICHUNGGU_FILE.stat().st_mtime
+    except OSError:
+        return set()
+    if _mich["mtime"] != mt:
+        try:
+            rows = json.loads(MICHUNGGU_FILE.read_text(encoding="utf-8"))
+            _mich["set"] = {n for n in (norm_meter(x.get("계기번호")) for x in rows) if n}
+            _mich["mtime"] = mt
+            print(f"[25리스트] {MICHUNGGU_FILE.name} {len(rows):,}행 -> 계기 {len(_mich['set']):,}개", flush=True)
+        except Exception as e:
+            print(f"[25리스트] 읽기 실패(비고 생략): {e}", flush=True)
+            return _mich["set"]
+    return _mich["set"]
+
+
+def is_michunggu(meter_no) -> bool:
+    n = norm_meter(meter_no)
+    return bool(n) and n in michunggu_set()
+
+
+def apply_michunggu_memo(fields: dict, meter_no, role: str) -> str:
+    """25리스트 계기면 REMV_MEMO 에 '25'. 이미 값이 있으면 덮지 않는다.
+
+    ★REMV_MEMO 는 교체(M1020)의 '구분상세'(M102010 등)와 같은 칸이고 그때는 **필수**다.
+      덮으면 필수값이 날아가므로 구분상세가 있으면 그대로 두고 건너뛴다. 어느 쪽을
+      남길지는 영준님 판단 사항 — 지금은 '필수값을 지키는' 쪽으로 둔다.
+    반환: 'set'(넣었다) / 'skip-occupied'(구분상세가 있어 건너뜀) / ''(리스트 밖)
+    """
+    if not is_michunggu(meter_no):
+        return ""
+    cur = str(fields.get("REMV_MEMO") or "").strip()
+    if cur:
+        print(f"[25리스트] {role} {meter_no} 는 25리스트지만 REMV_MEMO 에 이미 "
+              f"{cur!r}(구분상세)가 있어 비고를 넣지 않았다", flush=True)
+        return "skip-occupied"
+    fields["REMV_MEMO"] = MICHUNGGU_MEMO
+    return "set"
+
+
+# 슬레이브 분기(BUNGI) 허용값 — 영준님 2026-09-29 "강제로 0.5를 넣을지 무선으로 할지만".
+#   원장 28만행 실측: 0.5 82% / 없음 12% / 무선 3% / 1 2%. '없음'·'1' 은 선택지에 넣지 않는다.
+BUNGI_CHOICES = ("0.5", "무선")
+
+
 def infer_inst_m(meter_no: str) -> str:
     """계기번호 → INST_M. mid[2:4](3~4번째)가 타입코드. 표준/미상=HW4010(표준)."""
     code = str(meter_no or '').zfill(11)[2:4]
@@ -1102,6 +1176,7 @@ def _archive_begin(body):
             "master": {"meterNo": m.get("meterNo", ""), "mac": m.get("mac", ""),
                        "photoSlots": sorted((m.get("photos") or {}).keys())},
             "slaves": [{"meterNo": s.get("meterNo", ""),
+                        "bungi": s.get("bungi", ""),        # 폰에서 강제 선택한 분기(빈값=자동)
                         "photoSlots": sorted((s.get("photos") or {}).keys())}
                        for s in body.get("slaves", [])],
             "sent": [], "status": "sending",
@@ -1267,6 +1342,8 @@ def _saveact_core(body):
     if dcu_id:
         mf["DATA_NUM"] = dcu_id     # ★변대주 전산화번호 = awms 화면 '변대주' 칸(필드명 DATA_NUM)
         mf["DCU_ID"] = dcu_full     # 변대주+접미. awms 자동생성이 2026-07-27 개편으로 사라져 직접 채운다
+    # 25리스트 계기면 비고 '25' (계기 단위 — 같은 함체라도 리스트 밖은 안 붙인다)
+    m_25 = apply_michunggu_memo(mf, mb, "master")
     mp = _photos_to_files(m.get("photos", {}), tmpd)
     m_saved = _archive_photos(arch, "master", mp)   # 전송 전 보관(전송 실패해도 사진 남김)
     res_m = saveact_post(mf, mp)
@@ -1274,6 +1351,7 @@ def _saveact_core(body):
     print(f"[saveact] master {mb} workDiv={work_div} ham={ham or '집합'} addl={addl} fclty={fclty} "
           f"instM={m_instM} extConn={ext_conn}"
           f"{f' extMac={ext_mac} reason={replace_reason or None}' if is_replace else ''}"
+          f"{f' 비고25={m_25}' if m_25 else ''}"
           f" → {res_m}{_stale_note()}", flush=True)
     _archive_write(arch, sent={"role": "master", "meterNo": mb, "fields": mf,
                                "photos": m_saved, "resp": res_m,
@@ -1292,7 +1370,19 @@ def _saveact_core(body):
     for i, s in enumerate(slaves):
         s_instM = infer_inst_m(s["meterNo"])
         s_inst_s = s_instM + master_suffix
+        # 분기(BUNGI) — 자동판정이 기본이고, **아미고 슬레이브만** 작업자가 강제로 고칠 수 있다.
+        #   자동: 마스터 SMGW-C(92) & 슬레이브 아미고(HW4050) → 무선, 그 외 0.5
+        #   ★아미고가 아니면 폰이 무엇을 보내든 자동값을 쓴다(영준님 "아미고 계기에만 해당한다").
+        #     화면에 리스트박스가 안 떠야 정상이고, 그래도 서버에서 한 번 더 막는다 —
+        #     옛 버전 폰이나 잘못된 요청이 자동판정을 흔들면 안 된다.
         s_bungi = "무선" if (master_suffix == "92" and s_instM == "HW4050") else "0.5"
+        s_bungi_auto = s_bungi
+        s_bungi_pick = str(s.get("bungi") or "").strip()
+        if s_bungi_pick and s_instM == "HW4050" and s_bungi_pick in BUNGI_CHOICES:
+            s_bungi = s_bungi_pick
+        elif s_bungi_pick and s_bungi_pick != s_bungi_auto:
+            print(f"[saveact] slave {s['meterNo']} 분기 직접선택 {s_bungi_pick!r} 무시 "
+                  f"(아미고 아님 또는 허용값 아님) → 자동 {s_bungi_auto}", flush=True)
         sf = _common(s["meterNo"], mac, s_instM, mb, n, s_inst_s, bungi=s_bungi)
         # 슬레이브 작업구분: 기설(M1030)은 마스터만 — 슬레이브는 신설로 둔다(종전 동작 유지).
         #   교체(M1020)는 다르다. 모뎀을 갈면 그 함체 계기가 통째로 새 모뎀에 붙으므로 슬레이브도 교체다
@@ -1311,6 +1401,8 @@ def _saveact_core(body):
         if dcu_id:
             sf["DATA_NUM"] = dcu_id                         # 변대주 = 마스터와 동일(그룹 공유)
             sf["DCU_ID"] = dcu_full                         # 접미도 마스터 통신방식으로 확정(같은 PLC선)
+        # 25리스트 계기면 비고 '25'. ★마스터가 25여도 슬레이브에 퍼뜨리지 않는다 — 계기 단위다
+        s_25 = apply_michunggu_memo(sf, s["meterNo"], f"slave{i + 1}")
         photos = {"ATCH_FILE_ID_3": fid3, "ATCH_FILE_ID_4": fid4}
         sp = _photos_to_files(s.get("photos", {}), tmpd)
         s_saved = _archive_photos(arch, f"slave{i + 1}", sp)   # 전송 전 보관
@@ -1318,7 +1410,9 @@ def _saveact_core(body):
             photos["ATCH_FILE_ID_5_SRC"] = sp["ATCH_FILE_ID_5_SRC"]
         res_s = saveact_post(sf, photos)
         print(f"[saveact] slave {s['meterNo']} workDiv={sf['WORK_DIV']} fclty={fclty}"
-              f"{f' extMac={ext_mac}' if is_replace else ''} → {res_s}", flush=True)  # 진단 로그
+              f" bungi={s_bungi}{'(직접)' if s_bungi != s_bungi_auto else ''}"
+              f"{f' extMac={ext_mac}' if is_replace else ''}"
+              f"{f' 비고25={s_25}' if s_25 else ''} → {res_s}", flush=True)  # 진단 로그
         _archive_write(arch, sent={"role": "slave", "meterNo": s["meterNo"], "fields": sf,
                                    "photos": s_saved, "resp": res_s,
                                    "sharedFileIds": {"ATCH_FILE_ID_3": fid3, "ATCH_FILE_ID_4": fid4},
@@ -1369,6 +1463,25 @@ def api_saveact_stream(body: dict = Body(...)):
     from fastapi.responses import StreamingResponse
     return StreamingResponse(_gen(), media_type="application/x-ndjson",
                              headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"})
+
+
+# ── 25년 미청구 리스트 조회 (폰이 비고 '25' 를 미리 보여주기 위해) ──
+#   ★판정 정본은 saveAct 쪽(apply_michunggu_memo)이다. 이건 화면 표시용이고, 폰이 옛 버전이라
+#     이 조회를 안 해도 전송 때 서버가 알아서 붙인다.
+@app.get("/api/michunggu")
+def api_michunggu(meterNo: str = ""):
+    """계기 하나가 25리스트에 있나. {"meterNo","norm","in25","total"}"""
+    return {"meterNo": meterNo, "norm": norm_meter(meterNo),
+            "in25": is_michunggu(meterNo), "total": len(michunggu_set())}
+
+
+@app.post("/api/michunggu/check")
+def api_michunggu_check(body: dict = Body(...)):
+    """여러 계기를 한 번에. body {"meters":[...]} → {"in25":{계기:bool}, "hits":[...], "total":N}"""
+    meters = [str(x or "").strip() for x in (body.get("meters") or [])]
+    res = {m: is_michunggu(m) for m in meters if m}
+    return {"in25": res, "hits": sorted(k for k, v in res.items() if v),
+            "total": len(michunggu_set())}
 
 
 @app.get("/api/commtype")
