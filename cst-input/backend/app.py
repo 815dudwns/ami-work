@@ -467,8 +467,10 @@ def apply_michunggu_memo(fields: dict, meter_no, role: str) -> str:
 
 
 # 슬레이브 분기(BUNGI) 허용값 — 영준님 2026-09-29 "강제로 0.5를 넣을지 무선으로 할지만".
-#   원장 28만행 실측: 0.5 82% / 없음 12% / 무선 3% / 1 2%. '없음'·'1' 은 선택지에 넣지 않는다.
-BUNGI_CHOICES = ("0.5", "무선")
+#   ★`무선` 이 자동값이라 앞에 둔다(화면 cst-app BUNGI_CHOICES 와 같은 순서).
+#     검증은 포함 여부만 보므로 순서는 동작에 영향이 없으나, 양쪽을 대조할 때 헷갈리지 않게 맞춘다.
+#   원장 실측: '없음'·'1' 도 존재하지만 **선택지로 주지 않는다**(현장이 쓰는 두 값만).
+BUNGI_CHOICES = ("무선", "0.5")
 
 
 def infer_inst_m(meter_no: str) -> str:
@@ -1380,16 +1382,29 @@ def _saveact_core(body):
     results = [{"role": "master", "meterNo": mb, "resp": res_m}]
     yield {"type": "item", "role": "master", "meterNo": mb, "idx": 1, "total": n,
            "ok": bool(res_m.get("result") == 1)}
-    # 슬레이브 (헬퍼 조건: INST_S=슬레이브계기타입+마스터suffix 상속, BUNGI=마스터92&아미고?무선:0.5)
+    # 슬레이브 (INST_S=슬레이브계기타입+마스터suffix 상속, BUNGI=아미고?무선:0.5 — 아래 주석 참조)
     for i, s in enumerate(slaves):
         s_instM = infer_inst_m(s["meterNo"])
         s_inst_s = s_instM + master_suffix
-        # 분기(BUNGI) — 자동판정이 기본이고, **아미고 슬레이브만** 작업자가 강제로 고칠 수 있다.
-        #   자동: 마스터 SMGW-C(92) & 슬레이브 아미고(HW4050) → 무선, 그 외 0.5
-        #   ★아미고가 아니면 폰이 무엇을 보내든 자동값을 쓴다(영준님 "아미고 계기에만 해당한다").
-        #     화면에 리스트박스가 안 떠야 정상이고, 그래도 서버에서 한 번 더 막는다 —
-        #     옛 버전 폰이나 잘못된 요청이 자동판정을 흔들면 안 된다.
-        s_bungi = "무선" if (master_suffix == "92" and s_instM == "HW4050") else "0.5"
+        # 분기(BUNGI) — 자동판정이 기본이고, **아미고 슬레이브만** 작업자가 고쳐 쓸 수 있다.
+        #
+        # ★자동 = 아미고(HW4050)면 **무선**, 아니면 0.5.
+        #   영준님 2026-09-29(두 번 확인) "자동은 무선이라니까? 0.5를 볼 수 있는 옵션을 추가하는 거야".
+        #   즉 **무선이 자동이고 0.5 가 사람이 고르는 옵션**이다. 마스터 통신방식은 보지 않는다.
+        #
+        # ★왜 이 시점에 자동판단이 되는가 — 영준님 설명의 위치가 이것이다.
+        #   맥을 먼저 수집하는 단계에서는 어떤 모뎀인지 몰라 SMGW-C 인지 알 수 없다. 그러나
+        #   마스터·슬레이브까지 받고 나면 드러나므로, **그 시점에는 자동으로 무선을 낼 수 있다.**
+        #   saveAct 를 조립하는 여기가 바로 그 시점이다.
+        #   (종전에는 `master_suffix == "92"` 조건이 붙어 있었다. 그 조건을 뺀 것이 이번 변경이다.)
+        #
+        # ★아미고가 아니면 폰이 무엇을 보내든 자동값(0.5)을 쓴다(영준님 "아미고 계기에만 해당한다").
+        #   화면에 칩이 안 떠야 정상이고, 그래도 서버에서 한 번 더 막는다 —
+        #   옛 버전 폰이나 잘못된 요청이 자동판정을 흔들면 안 된다.
+        #
+        # ★화면(cst-app `autoBungi`)·여기·아래 검증 **세 곳이 같은 식이어야 한다.**
+        #   한 곳만 고치면 화면에 보이는 값과 전송값이 갈린다.
+        s_bungi = "무선" if s_instM == "HW4050" else "0.5"
         s_bungi_auto = s_bungi
         s_bungi_pick = str(s.get("bungi") or "").strip()
         if s_bungi_pick and s_instM == "HW4050" and s_bungi_pick in BUNGI_CHOICES:
