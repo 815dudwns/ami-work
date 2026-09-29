@@ -359,13 +359,43 @@ th{{background:#f4f4f4;font-weight:600;text-align:center}}
 td.num{{text-align:right;font-variant-numeric:tabular-nums}}
 td.no{{font-family:ui-monospace,Menlo,monospace}} .dim{{color:#bbb}} .strong{{font-weight:700}}
 tbody tr:nth-child(even){{background:#fafafa}}
-@media print{{body{{padding:0}} section{{page-break-inside:avoid}}}}
+tbody tr{{cursor:pointer}} tbody tr:hover{{background:#eef6ff}}
+/* ── 한 건씩 보기 (영준님 2026-09-29) ───────────────────────────── */
+.one-btn{{display:inline-block;margin:0 0 16px;padding:9px 16px;font-size:14px;font-weight:700;
+  color:#fff;background:#0C9266;border:0;border-radius:8px;cursor:pointer}}
+.one-btn.sm{{float:right;margin:0;padding:3px 10px;font-size:12px;font-weight:600}}
+#ov{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99;
+  align-items:center;justify-content:center;padding:16px}}
+#ov.on{{display:flex}}
+#card{{background:#fff;border-radius:14px;width:100%;max-width:520px;overflow:hidden;
+  box-shadow:0 12px 40px rgba(0,0,0,.3)}}
+#hd{{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid #e5e5e5}}
+#hd select{{font-size:14px;padding:4px 6px;border:1px solid #ccc;border-radius:6px;background:#fff}}
+#pos{{margin-left:auto;font-size:13px;color:#666;font-variant-numeric:tabular-nums}}
+#x{{border:0;background:#f1f1f1;border-radius:50%;width:28px;height:28px;font-size:17px;cursor:pointer}}
+#bd{{padding:16px 18px}}
+.big{{font:700 25px/1.25 ui-monospace,Menlo,monospace;letter-spacing:.5px;word-break:break-all}}
+.tm{{font-size:13px;color:#666;margin-top:2px}}
+.wx{{display:flex;gap:8px;margin:14px 0}}
+.wx div{{flex:1;background:#f7f7f7;border-radius:10px;padding:9px 6px;text-align:center}}
+.wx b{{display:block;font-size:22px;font-variant-numeric:tabular-nums;line-height:1.2}}
+.wx span{{font-size:11px;color:#777}}
+.wx .hot b{{color:#c2410c}}
+.kv{{display:grid;grid-template-columns:62px 1fr;gap:5px 10px;font-size:13.5px}}
+.kv dt{{color:#888}} .kv dd{{margin:0}}
+#ft{{display:flex;gap:8px;padding:12px 14px;border-top:1px solid #e5e5e5}}
+#ft button{{flex:1;padding:12px;font-size:15px;font-weight:700;border:1px solid #ddd;
+  border-radius:9px;background:#fafafa;cursor:pointer}}
+#ft button:disabled{{opacity:.35;cursor:default}}
+@media print{{body{{padding:0}} section{{page-break-inside:avoid}}
+  .one-btn,#ov{{display:none !important}}}}
 </style></head><body>
 <h1>{y}년 {m}월 작업일지 — 현장 기상</h1>
 <div class=meta>총 {len(rows)}건 · {len(days)}일 · awms 등록 마스터 기준(개소 중복 시 최초 1건)<br>
 제2작업자: {w2txt}
 &nbsp;|&nbsp; 기상은 <b>15분 단위</b> 실측({slot_txt}) · 체감온도는 기상청 여름철 공식(그늘 기준)
 &nbsp;|&nbsp; 주소 미확인 {len(rows) - n_addr}건은 지사 대표좌표{note}</div>
+<button class=one-btn onclick="openOne(0,0)">한 건씩 보기</button>
 """]
     for day in days:
         drs = [r for r in rows if r["day"] == day]
@@ -378,8 +408,11 @@ tbody tr:nth-child(even){{background:#fafafa}}
         d2 = Counter(r["w2"] for r in drs if r["w2"])
         if d2:
             sm += "\n        &nbsp;|&nbsp; 제2작업자 " + " ".join(f"{k} {v}" for k, v in d2.most_common())
+        di = days.index(day)
         h.append(f"""    <section>
-      <h2>{day} <span class=wd>({wd})</span> <span class=cnt>{len(drs)}건</span></h2>
+      <h2>{day} <span class=wd>({wd})</span>
+        <button class="one-btn sm" onclick="openOne({di},0)">한 건씩</button>
+        <span class=cnt>{len(drs)}건</span></h2>
       <div class=sum>{sm}</div>
       <table><thead><tr><th>#</th><th>시각</th><th>계기번호</th>
         <th>기온(℃)</th><th>체감온도(℃)</th><th>습도(%)</th>
@@ -392,11 +425,90 @@ tbody tr:nth-child(even){{background:#fafafa}}
             F = f"{r['F']:.1f}" if r["F"] is not None else "—"
             RH = f"{r['RH']:.0f}" if r["RH"] is not None else "—"
             # 열 순서 = 계기번호 -> 온도·습도 -> 주소 (영준님 2026-09-29)
-            h.append(f"<tr><td class=num>{i}</td><td>{r['time']}</td><td class=no>{r['meter']}</td>"
+            h.append(f"<tr onclick=\"openOne({di},{i-1})\">"
+                     f"<td class=num>{i}</td><td>{r['time']}</td><td class=no>{r['meter']}</td>"
                      f"<td class=num>{T}</td><td class='num strong'>{F}</td><td class=num>{RH}</td>"
                      f"<td class=addr>{a}</td><td>{r['dept']}</td>"
                      f"<td>{r['w1']}</td><td>{r['w2']}</td></tr>")
         h.append("</tbody></table>\n    </section>\n")
+
+    # ── 한 건씩 보기 모달 (영준님 2026-09-29 "일별 모달 한행씩") ──────────────
+    #   날짜 안에서 ←/→ 로 넘기고, 날짜 끝에서는 이웃 날짜로 이어진다(경계에서 막지 않는다).
+    #   날짜 드롭다운으로 바로 점프할 수 있고, 표의 아무 행을 눌러도 그 행이 열린다.
+    by_day = {d: [r for r in rows if r["day"] == d] for d in days}
+    payload = {
+        "days": [{"day": d,
+                  "wd": WD[datetime.strptime(d, "%Y-%m-%d").weekday()],
+                  "rows": [{"n": i, "time": r["time"], "meter": r["meter"],
+                            "T": r["T"], "F": r["F"], "RH": r["RH"],
+                            "addr": r["addr"] or "", "dept": r["dept"],
+                            "w1": r["w1"], "w2": r["w2"]}
+                           for i, r in enumerate(by_day[d], 1)]}
+                 for d in days],
+    }
+    h.append("<div id=ov onclick=\"if(event.target===this)closeOne()\"><div id=card>"
+             "<div id=hd><select id=dsel onchange=\"jumpDay(this.value)\"></select>"
+             "<span id=pos></span>"
+             "<button id=x onclick=closeOne()>&times;</button></div>"
+             "<div id=bd></div>"
+             "<div id=ft><button id=prev onclick=\"step(-1)\">&larr; 이전</button>"
+             "<button id=next onclick=\"step(1)\">다음 &rarr;</button></div>"
+             "</div></div>\n<script>\nconst D=")
+    h.append(json.dumps(payload["days"], ensure_ascii=False))
+    h.append(""";
+let di=0, ri=0;
+function fmt(v,d){ return (v===null||v===undefined)?'—':Number(v).toFixed(d); }
+function openOne(d,r){
+  di=d; ri=r;
+  const s=document.getElementById('dsel');
+  if(!s.options.length) D.forEach((x,i)=>{
+    const o=document.createElement('option');
+    o.value=i; o.textContent=x.day+' ('+x.wd+') '+x.rows.length+'건';
+    s.appendChild(o);
+  });
+  document.getElementById('ov').classList.add('on');
+  draw();
+}
+function closeOne(){ document.getElementById('ov').classList.remove('on'); }
+function jumpDay(v){ di=+v; ri=0; draw(); }
+function step(k){
+  ri+=k;
+  while(ri<0){ if(di===0){ri=0;break;} di--; ri+=D[di].rows.length; }
+  while(ri>=D[di].rows.length){
+    if(di===D.length-1){ ri=D[di].rows.length-1; break; }
+    ri-=D[di].rows.length; di++;
+  }
+  draw();
+}
+function draw(){
+  const day=D[di], r=day.rows[ri];
+  document.getElementById('dsel').value=di;
+  document.getElementById('pos').textContent=r.n+' / '+day.rows.length;
+  const hot = (r.F!==null && r.F>=31) ? ' hot' : '';
+  document.getElementById('bd').innerHTML =
+    '<div class=big>'+r.meter+'</div>'+
+    '<div class=tm>'+day.day+' ('+day.wd+') '+r.time+'</div>'+
+    '<div class=wx>'+
+      '<div><b>'+fmt(r.T,1)+'</b><span>기온 ℃</span></div>'+
+      '<div class="'+hot.trim()+'"><b>'+fmt(r.F,1)+'</b><span>체감온도 ℃</span></div>'+
+      '<div><b>'+fmt(r.RH,0)+'</b><span>습도 %</span></div>'+
+    '</div>'+
+    '<dl class=kv>'+
+      '<dt>주소</dt><dd>'+(r.addr||'<span class=dim>미확인 — 지사 대표좌표</span>')+'</dd>'+
+      '<dt>지사</dt><dd>'+r.dept+'</dd>'+
+      '<dt>작업자</dt><dd>'+r.w1+(r.w2?' · '+r.w2:'')+'</dd>'+
+    '</dl>';
+  document.getElementById('prev').disabled=(di===0&&ri===0);
+  document.getElementById('next').disabled=(di===D.length-1&&ri===D[di].rows.length-1);
+}
+document.addEventListener('keydown',e=>{
+  if(!document.getElementById('ov').classList.contains('on')) return;
+  if(e.key==='ArrowLeft') step(-1);
+  else if(e.key==='ArrowRight') step(1);
+  else if(e.key==='Escape') closeOne();
+});
+</script>
+""")
     h.append("</body></html>\n")
     return "".join(h)
 
