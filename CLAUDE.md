@@ -70,7 +70,7 @@
 | 앱(호칭) | 버전 위치 | 현재 버전 | 갱신일 |
 |---|---|---|---|
 | **계기큐**(계기교체·계기팀) | `awms-queue-www/app.js` `APP_VER` / APK | `v0626b-아이디선택` / APK 오버레이fetch | 2026-06-26 |
-| **아미큐**(통신큐·통신팀) | `cst-input/cst-version.json` `versionName`(인앱 자동업뎃) + `cst-app/android/app/build.gradle` `versionCode`·`versionName` · **★UI=네이티브 `cst-app/`(Compose) · saveAct빌더=`cst-input/backend/app.py`** | `2.2.20` (아미고 슬레이브 분기 **자동=무선**·0.5는 칩 선택 / 25미청구 계기면 비고 `25` — 칸은 **`ETC1`**, `REMV_MEMO`는 구분상세) | 2026-09-29 |
+| **아미큐**(통신큐·통신팀) | `cst-input/cst-version.json` `versionName`(인앱 자동업뎃) + `cst-app/android/app/build.gradle` `versionCode`·`versionName` · **★UI=네이티브 `cst-app/`(Compose) · saveAct빌더=`cst-input/backend/app.py`** | `2.2.21` (분기 칩 = **마스터 suffix 92(아미고 모뎀) AND 슬레이브 아미고**일 때만 · 그 외 강제 `0.5` / 업로드 전 확인화면에 25리스트 배지 **[25]·[25불가·비고X]** · 비고 **`ETC1`**에 기록되는 건 **미청구뿐**) | 2026-09-29 |
 | **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260813.3` / `v20260813.3` (계기팀 디테일에 DCU ID + 통신방식 표시. detail.js ?v=20260813c) | 2026-08-13 |
 | **종로 보조앱**(jongno-snap) | `snap.html` `APP_VER` + 라벨 / snap-version.json / APK | `v20260707.7` (사진 재촬영 덮어쓰기 / 실시간QR / 카메라선택. ★범프 시 3곳 APP_VER+라벨2 갱신) | 2026-07-07 |
 | **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` | `20260624a` | 2026-06-24 |

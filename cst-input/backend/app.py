@@ -408,7 +408,15 @@ MICHUNGGU_MEMO = "25"
 #     ★`EXT_FCTY_ID` 는 getMainList 가 준 값을 **그대로**(신설이면 문자 '-') 넘겨야 한다.
 #       빈 문자열로 넘기면 본문 0바이트가 돌아온다 — 이것 때문에 "getDetail 은 빈 응답"으로 오래 오해했다.
 MICHUNGGU_FIELD = "ETC1"
+# ★25년 **불가** 리스트는 따로다 — 화면에만 보여주고 awms 비고에는 **넣지 않는다**(영준님 결정 대기).
+#   두 리스트는 성격이 다르다: 미청구=시공했는데 청구만 안 된 것 / 불가=25년에 불가 처리된 것 중
+#   가서 다시 해볼 수 있는 사유만 추린 것. 실측 교집합 0건이라 한 계기가 둘에 동시에 들지 않는다.
+#   ★왜 화면에 보여야 하나(영준님 2026-09-29 "업로드 전 확인시에 25리스트인지 확인시켜줘"):
+#     9/29 작업분 07530158604·07530158064·02250033415·07530158657 가 전부 불가였고 미청구는 0건이라
+#     비고에 25 가 안 붙었는데, 작업자는 그것을 고장으로 오해했다. 배지가 그 오해를 막는 장치다.
+MICHUNGGU_BULGA_FILE = ROOT / "data" / "michunggu-bulga-data.json"
 _mich = {"mtime": None, "set": set()}
+_bulga = {"mtime": None, "set": set()}
 
 
 def norm_meter(v) -> str:
@@ -425,26 +433,39 @@ def norm_meter(v) -> str:
 
 
 def michunggu_set() -> set:
-    """25리스트 계기번호 집합. 파일 mtime 이 바뀌면 다시 읽는다(재기동 없이 반영)."""
+    """25 미청구 계기번호 집합 (비고 ETC1 에 나가는 쪽)."""
+    return _load_meter_set(_mich, MICHUNGGU_FILE, "25리스트")
+
+
+def _load_meter_set(state: dict, path: Path, tag: str) -> set:
+    """계기번호 집합을 파일에서 읽는다. mtime 이 바뀌면 다시 읽는다(재기동 없이 반영)."""
     try:
-        mt = MICHUNGGU_FILE.stat().st_mtime
+        mt = path.stat().st_mtime
     except OSError:
-        return set()
-    if _mich["mtime"] != mt:
+        return state["set"]
+    if state["mtime"] != mt:
         try:
-            rows = json.loads(MICHUNGGU_FILE.read_text(encoding="utf-8"))
-            _mich["set"] = {n for n in (norm_meter(x.get("계기번호")) for x in rows) if n}
-            _mich["mtime"] = mt
-            print(f"[25리스트] {MICHUNGGU_FILE.name} {len(rows):,}행 -> 계기 {len(_mich['set']):,}개", flush=True)
+            rows = json.loads(path.read_text(encoding="utf-8"))
+            state["set"] = {n for n in (norm_meter(x.get("계기번호")) for x in rows) if n}
+            state["mtime"] = mt
+            print(f"[{tag}] {path.name} {len(rows):,}행 -> 계기 {len(state['set']):,}개", flush=True)
         except Exception as e:
-            print(f"[25리스트] 읽기 실패(비고 생략): {e}", flush=True)
-            return _mich["set"]
-    return _mich["set"]
+            print(f"[{tag}] 읽기 실패(판정 생략): {e}", flush=True)
+    return state["set"]
+
+
+def michunggu_bulga_set() -> set:
+    return _load_meter_set(_bulga, MICHUNGGU_BULGA_FILE, "25불가리스트")
 
 
 def is_michunggu(meter_no) -> bool:
     n = norm_meter(meter_no)
     return bool(n) and n in michunggu_set()
+
+
+def is_michunggu_bulga(meter_no) -> bool:
+    n = norm_meter(meter_no)
+    return bool(n) and n in michunggu_bulga_set()
 
 
 def apply_michunggu_memo(fields: dict, meter_no, role: str) -> str:
@@ -1386,32 +1407,40 @@ def _saveact_core(body):
     for i, s in enumerate(slaves):
         s_instM = infer_inst_m(s["meterNo"])
         s_inst_s = s_instM + master_suffix
-        # 분기(BUNGI) — 자동판정이 기본이고, **아미고 슬레이브만** 작업자가 고쳐 쓸 수 있다.
+        # 분기(BUNGI) — 자동판정이 기본이고, **아미고 모뎀 함체의 아미고 슬레이브만** 고쳐 쓸 수 있다.
         #
-        # ★자동 = 아미고(HW4050)면 **무선**, 아니면 0.5.
-        #   영준님 2026-09-29(두 번 확인) "자동은 무선이라니까? 0.5를 볼 수 있는 옵션을 추가하는 거야".
-        #   즉 **무선이 자동이고 0.5 가 사람이 고르는 옵션**이다. 마스터 통신방식은 보지 않는다.
+        # ★자동 = 마스터 suffix **92(아미고 모뎀 = SMGW-C)** & 슬레이브 아미고(HW4050) → 무선,
+        #   그 외 → **0.5 강제**.
         #
-        # ★왜 이 시점에 자동판단이 되는가 — 영준님 설명의 위치가 이것이다.
-        #   맥을 먼저 수집하는 단계에서는 어떤 모뎀인지 몰라 SMGW-C 인지 알 수 없다. 그러나
-        #   마스터·슬레이브까지 받고 나면 드러나므로, **그 시점에는 자동으로 무선을 낼 수 있다.**
-        #   saveAct 를 조립하는 여기가 바로 그 시점이다.
-        #   (종전에는 `master_suffix == "92"` 조건이 붙어 있었다. 그 조건을 뺀 것이 이번 변경이다.)
+        # ★이 `master_suffix == "92"` 조건이 곧 '강제 0.5' 법칙이다 — 빼면 법칙이 깨진다.
+        #   영준님 2026-09-29: "아미고 모뎀일때만 선택하게 하려고. lte류 모뎀에서 ae나 g 마스터
+        #   번호 입력하면은 강제로 0.5로 바뀌어야지 법칙 까먹었냐"
+        #   LTE 모뎀을 스캔하면 마스터 계기유형이 suffix 를 갈라놓는다(infer_inst_s):
+        #     마스터 아미고 → 92 (SMGW-C, 무선 계열)  /  마스터 AE·G → 70 (LTE_IV, 유선)
+        #   그래서 "마스터가 92 냐" = "아미고 모뎀이냐" 이고, 아니면 무선을 줄 수 없다.
+        #   ★2026-09-29 에 이 조건을 뺐다가(2.2.20) AE·G 마스터 함체까지 무선으로 나갔다 → 되돌렸다.
         #
-        # ★아미고가 아니면 폰이 무엇을 보내든 자동값(0.5)을 쓴다(영준님 "아미고 계기에만 해당한다").
-        #   화면에 칩이 안 떠야 정상이고, 그래도 서버에서 한 번 더 막는다 —
-        #   옛 버전 폰이나 잘못된 요청이 자동판정을 흔들면 안 된다.
+        # ★영준님 SMGW 설명의 위치 — 맥 수집 단계에서는 어떤 모뎀인지 몰라 SMGW-C 인지 알 수 없지만
+        #   마스터·슬레이브까지 받으면 드러난다. saveAct 를 조립하는 여기가 그 시점이라 자동판단이 된다.
         #
-        # ★화면(cst-app `autoBungi`)·여기·아래 검증 **세 곳이 같은 식이어야 한다.**
+        # ★선택값은 **칩이 뜰 조건과 같은 조건에서만** 받는다(마스터 92 + 슬레이브 아미고).
+        #   화면에 칩이 안 떠야 정상이지만 서버에서 한 번 더 막는다 — 옛 버전 폰이나 잘못된
+        #   요청이 강제 0.5 를 흔들면 안 된다.
+        #
+        # ★화면(cst-app `autoBungi`·칩 조건)·여기·아래 검증 **세 곳이 같은 식이어야 한다.**
         #   한 곳만 고치면 화면에 보이는 값과 전송값이 갈린다.
-        s_bungi = "무선" if s_instM == "HW4050" else "0.5"
+        s_amigo_modem = (master_suffix == "92")
+        s_can_pick = s_amigo_modem and s_instM == "HW4050"
+        s_bungi = "무선" if s_can_pick else "0.5"
         s_bungi_auto = s_bungi
         s_bungi_pick = str(s.get("bungi") or "").strip()
-        if s_bungi_pick and s_instM == "HW4050" and s_bungi_pick in BUNGI_CHOICES:
+        if s_bungi_pick and s_can_pick and s_bungi_pick in BUNGI_CHOICES:
             s_bungi = s_bungi_pick
         elif s_bungi_pick and s_bungi_pick != s_bungi_auto:
+            why = ("아미고 모뎀 아님(마스터 suffix %s)" % (master_suffix or "미확정")) if not s_amigo_modem \
+                else ("슬레이브가 아미고 아님" if s_instM != "HW4050" else "허용값 아님")
             print(f"[saveact] slave {s['meterNo']} 분기 직접선택 {s_bungi_pick!r} 무시 "
-                  f"(아미고 아님 또는 허용값 아님) → 자동 {s_bungi_auto}", flush=True)
+                  f"({why}) → 강제 {s_bungi_auto}", flush=True)
         sf = _common(s["meterNo"], mac, s_instM, mb, n, s_inst_s, bungi=s_bungi)
         # 슬레이브 작업구분: 기설(M1030)은 마스터만 — 슬레이브는 신설로 둔다(종전 동작 유지).
         #   교체(M1020)는 다르다. 모뎀을 갈면 그 함체 계기가 통째로 새 모뎀에 붙으므로 슬레이브도 교체다
@@ -1499,18 +1528,31 @@ def api_saveact_stream(body: dict = Body(...)):
 #     이 조회를 안 해도 전송 때 서버가 알아서 붙인다.
 @app.get("/api/michunggu")
 def api_michunggu(meterNo: str = ""):
-    """계기 하나가 25리스트에 있나. {"meterNo","norm","in25","total"}"""
+    """계기 하나가 25 미청구/불가 리스트에 있나 — **한 번에 둘 다** 돌려준다(폰이 두 번 부르지 않게).
+
+    ★`in25` 만 awms 비고(ETC1)로 나간다. `in25bulga` 는 **화면 표시용**이다(영준님 결정 대기).
+    """
     return {"meterNo": meterNo, "norm": norm_meter(meterNo),
-            "in25": is_michunggu(meterNo), "total": len(michunggu_set())}
+            "in25": is_michunggu(meterNo), "in25bulga": is_michunggu_bulga(meterNo),
+            "total": len(michunggu_set()), "totalBulga": len(michunggu_bulga_set()),
+            "memoField": MICHUNGGU_FIELD, "memoOnlyFor": "in25"}
 
 
 @app.post("/api/michunggu/check")
 def api_michunggu_check(body: dict = Body(...)):
-    """여러 계기를 한 번에. body {"meters":[...]} → {"in25":{계기:bool}, "hits":[...], "total":N}"""
+    """여러 계기를 한 번에. body {"meters":[...]}
+
+    → {"in25":{계기:bool}, "in25bulga":{계기:bool}, "hits":[...], "hitsBulga":[...], ...}
+    ★전송 직전 확인화면이 마스터+슬레이브를 한 번에 묻는 경로다.
+    """
     meters = [str(x or "").strip() for x in (body.get("meters") or [])]
     res = {m: is_michunggu(m) for m in meters if m}
-    return {"in25": res, "hits": sorted(k for k, v in res.items() if v),
-            "total": len(michunggu_set())}
+    resb = {m: is_michunggu_bulga(m) for m in meters if m}
+    return {"in25": res, "in25bulga": resb,
+            "hits": sorted(k for k, v in res.items() if v),
+            "hitsBulga": sorted(k for k, v in resb.items() if v),
+            "total": len(michunggu_set()), "totalBulga": len(michunggu_bulga_set()),
+            "memoField": MICHUNGGU_FIELD, "memoOnlyFor": "in25"}
 
 
 @app.get("/api/commtype")

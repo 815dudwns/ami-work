@@ -50,20 +50,27 @@ verify_url() {   # 0 = 살아있다
     curl -s --max-time 12 "$1/api/health" 2>/dev/null | grep -q '"ok":true'
 }
 
+# ★후보는 **매번 로그를 다시 읽는다.** 터널이 늦게 뜨거나 재등록해서 새 URL 이 나중에 찍히는
+#   일이 있다(실측 2026-09-29 16:47: 첫 후보가 죽어 있었고 살아 있는 URL 은 우리가 포기한 뒤
+#   로그에 나타났다). 한 번 읽고 끝내면 그 URL 을 못 본다.
+# ★왜 URL 이 둘 이상 나오나 — 터널 주인이 둘이다:
+#   launchd `com.ami.cst-tunnel`(KeepAlive, scripts/tunnel-run.sh, 같은 로그·같은 발행 스크립트)
+#   + 이 스크립트의 nohup cloudflared. 이 스크립트가 pkill 하면 launchd 가 곧 되살려 새 URL 을 받는다.
+#   ★근본 해결은 '터널 주인을 하나로' 다 — PM 보고 후 정리할 사항이라 여기서는 검증으로만 막는다.
 if [ -n "$URL" ]; then
-    CANDS=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$TLOG" | awk '!seen[$0]++' | tail -r 2>/dev/null \
-            || grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$TLOG" | awk '!seen[$0]++')
     GOOD=""
-    for c in $URL $CANDS; do
-        for t in 1 2 3; do
+    for round in 1 2 3 4 5 6 7 8; do          # 최대 ~2분, 후보를 매 라운드 다시 수집
+        CANDS=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$TLOG" | awk '!seen[$0]++' | tail -r 2>/dev/null \
+                || grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$TLOG" | awk '!seen[$0]++')
+        for c in $CANDS; do
             if verify_url "$c"; then GOOD="$c"; break; fi
-            sleep 3
         done
         [ -n "$GOOD" ] && break
-        echo "[cst-input] 터널 URL 응답 없음: $c — 다음 후보로"
+        echo "[cst-input] 터널 URL 아직 응답 없음(라운드 $round) — 후보: $(echo $CANDS | tr '\n' ' ')"
+        sleep 8
     done
     if [ -n "$GOOD" ]; then
-        [ "$GOOD" != "$URL" ] && echo "[cst-input] ★발행 예정 URL 이 죽어 있어 갈아탔다: $URL -> $GOOD"
+        [ "$GOOD" != "$URL" ] && echo "[cst-input] ★처음 뽑힌 URL($URL)이 죽어 있어 갈아탔다 -> $GOOD"
         "$PYTHON" "$SCRIPT_DIR/publish_backend_url.py" "$GOOD" || echo "[cst-input] 경고: URL 발행 실패(앱 수동입력 필요)"
         echo "[cst-input] 백엔드 URL: $GOOD  (앱이 자동 발견 · 외부 응답 확인됨)"
     else
