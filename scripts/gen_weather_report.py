@@ -381,17 +381,20 @@ tbody tr:nth-child(even){{background:#fafafa}}
         h.append(f"""    <section>
       <h2>{day} <span class=wd>({wd})</span> <span class=cnt>{len(drs)}건</span></h2>
       <div class=sum>{sm}</div>
-      <table><thead><tr><th>시각</th><th>계기번호</th><th>지사</th><th>주소</th>
-        <th>작업자1</th><th>제2작업자</th><th>기온(℃)</th><th>체감온도(℃)</th><th>습도(%)</th></tr></thead>
+      <table><thead><tr><th>시각</th><th>계기번호</th>
+        <th>기온(℃)</th><th>체감온도(℃)</th><th>습도(%)</th>
+        <th>주소</th><th>지사</th><th>작업자1</th><th>제2작업자</th></tr></thead>
         <tbody>""")
         for r in drs:
             a = r["addr"] or "<span class=dim>—</span>"
             T = f"{r['T']:.1f}" if r["T"] is not None else "—"
             F = f"{r['F']:.1f}" if r["F"] is not None else "—"
             RH = f"{r['RH']:.0f}" if r["RH"] is not None else "—"
-            h.append(f"<tr><td>{r['time']}</td><td class=no>{r['meter']}</td><td>{r['dept']}</td>"
-                     f"<td class=addr>{a}</td><td>{r['w1']}</td><td>{r['w2']}</td>"
-                     f"<td class=num>{T}</td><td class='num strong'>{F}</td><td class=num>{RH}</td></tr>")
+            # 열 순서 = 계기번호 -> 온도·습도 -> 주소 (영준님 2026-09-29)
+            h.append(f"<tr><td>{r['time']}</td><td class=no>{r['meter']}</td>"
+                     f"<td class=num>{T}</td><td class='num strong'>{F}</td><td class=num>{RH}</td>"
+                     f"<td class=addr>{a}</td><td>{r['dept']}</td>"
+                     f"<td>{r['w1']}</td><td>{r['w2']}</td></tr>")
         h.append("</tbody></table>\n    </section>\n")
     h.append("</body></html>\n")
     return "".join(h)
