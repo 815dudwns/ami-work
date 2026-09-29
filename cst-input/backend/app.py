@@ -397,6 +397,17 @@ _TYPE_TO_INSTM = {'E': 'HW4020', 'EA': 'HW4040', 'G': 'HW4030', 'Amigo': 'HW4050
 #   주소대기분 `michunggu-pending.json` 은 넣지 않는다(지도에 안 올라갔다).
 MICHUNGGU_FILE = ROOT / "data" / "michunggu-data.json"
 MICHUNGGU_MEMO = "25"
+# ★비고란의 실제 필드 = `ETC1` (2026-09-29 규명). awms 화면 MOBCST1000 의
+#   <label>비고</label> -> v-model="mainList.currentRow.ETC1" (maxlength 100).
+#   ★`REMV_MEMO` 는 **구분상세**다(교체 M1020 의 M102010 등). 화면 비고란이 아니다 —
+#     처음에 그쪽에 넣었더니 영준님 화면에 안 보였다(실측: 전송은 result:1 로 통과하는데 화면은 빈칸).
+#   같은 표의 다른 칸: `ETC`=비고(33자, 다른 구역) · `ETC2`=신호측정 · `ETC3`=비고2.
+#   ★되읽어 확인하는 법 — getDetail 이 ETC1 을 준다(getMainList 에는 이 필드가 없다):
+#     GET /ami/mob/cst/mobCst1000/getDetail
+#         ?FLAG=M10&DEPT1=..&BUSI_NUM=..&DATA_NUM=..&EXT_DCU_ID=&INSTR_NUM=..&MAC_MODEM=..&EXT_FCTY_ID=..
+#     ★`EXT_FCTY_ID` 는 getMainList 가 준 값을 **그대로**(신설이면 문자 '-') 넘겨야 한다.
+#       빈 문자열로 넘기면 본문 0바이트가 돌아온다 — 이것 때문에 "getDetail 은 빈 응답"으로 오래 오해했다.
+MICHUNGGU_FIELD = "ETC1"
 _mich = {"mtime": None, "set": set()}
 
 
@@ -437,21 +448,21 @@ def is_michunggu(meter_no) -> bool:
 
 
 def apply_michunggu_memo(fields: dict, meter_no, role: str) -> str:
-    """25리스트 계기면 REMV_MEMO 에 '25'. 이미 값이 있으면 덮지 않는다.
+    """25리스트 계기면 비고(`ETC1`)에 '25'. 이미 값이 있으면 덮지 않는다.
 
-    ★REMV_MEMO 는 교체(M1020)의 '구분상세'(M102010 등)와 같은 칸이고 그때는 **필수**다.
-      덮으면 필수값이 날아가므로 구분상세가 있으면 그대로 두고 건너뛴다. 어느 쪽을
-      남길지는 영준님 판단 사항 — 지금은 '필수값을 지키는' 쪽으로 둔다.
-    반환: 'set'(넣었다) / 'skip-occupied'(구분상세가 있어 건너뜀) / ''(리스트 밖)
+    ★`REMV_MEMO`(구분상세)에는 **넣지 않는다.** 화면 비고란이 아니다(§MICHUNGGU_FIELD).
+      교체(M1020)의 구분상세와 칸이 갈리므로 이제 둘이 부딪히지 않는다.
+    ★사람이 손으로 적어 둔 비고가 있으면 덮지 않는다 — 현장 메모를 지우면 안 된다.
+    반환: 'set'(넣었다) / 'skip-occupied'(이미 값이 있어 건너뜀) / ''(리스트 밖)
     """
     if not is_michunggu(meter_no):
         return ""
-    cur = str(fields.get("REMV_MEMO") or "").strip()
+    cur = str(fields.get(MICHUNGGU_FIELD) or "").strip()
     if cur:
-        print(f"[25리스트] {role} {meter_no} 는 25리스트지만 REMV_MEMO 에 이미 "
-              f"{cur!r}(구분상세)가 있어 비고를 넣지 않았다", flush=True)
+        print(f"[25리스트] {role} {meter_no} 는 25리스트지만 {MICHUNGGU_FIELD} 에 이미 "
+              f"{cur!r} 가 있어 비고를 넣지 않았다", flush=True)
         return "skip-occupied"
-    fields["REMV_MEMO"] = MICHUNGGU_MEMO
+    fields[MICHUNGGU_FIELD] = MICHUNGGU_MEMO
     return "set"
 
 
@@ -486,7 +497,10 @@ _EMPTY_FIELDS = ["REMV_MEMO", "IND_CBD_DIV_CD", "FAC1", "LINE_FAIR", "USE_CT", "
     "BIZ_DGR", "EXT_MLN_MAC_MODEM", "CUR_MLN_MAC_MODEM", "EXT_MAC_MODEM", "CUR_MAC_MODEM",
     "EXT_INSTR_NUM", "EXT_MTRL_NO", "EXT_MANU_CD", "EXT_MNFCT_YM", "CUR_INSTR_NUM",
     "CUR_MTRL_NO", "CUR_MANU_CD", "CUR_MNFCT_YM", "MB_REG_CNT", "DCU_ID",
-    "SEAL_BOX", "SEAL_METER", "SEAL_OUTER"]
+    "SEAL_BOX", "SEAL_METER", "SEAL_OUTER",
+    # ★비고(ETC1) — awms 화면이 currentRow 전체를 FormData 로 보내므로 saveAct 가 받는 칸이다.
+    #   캡처한 정본에는 비어 있어서 목록에 없었다. 기본은 빈값이고 25리스트일 때만 채운다.
+    "ETC1"]
 
 
 def _common(meter_no, mac, inst_m, mb_meter_id, mb_cnt, inst_s, bungi=""):
