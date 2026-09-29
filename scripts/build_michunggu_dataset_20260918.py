@@ -1132,6 +1132,140 @@ def swapped_billed_hits(rows):
     return out
 
 
+def fill_cust_by_meter(rows):
+    """고객번호가 빈 건을 **계기번호로** 채운다 (영준님 2026-09-23 "채워").
+
+    ★같은 계기의 다른 기록을 읽는 것이다 — MAC 으로 함체의 남의 계기 값을 가져오는 것과
+      다르다(그건 2026-09-23 오전에 걷어낸 오염이다). 고객번호는 계약 단위라 함체를
+      타고 넘으면 안 되지만, **같은 계기번호의 다른 레코드**는 같은 계약이다.
+    ★값이 **하나로 확정될 때만** 채운다. 계기번호가 재사용돼 고객번호가 둘 이상이면
+      비워 둔다(실측 2026-09-23: 1,415건 중 충돌 1건 — 79190675146 우이동 123-12).
+    ★무효 고객번호(0000000000 처럼 한 글자 반복)는 값으로 치지 않는다.
+    출처는 `고객번호출처` 에 남긴다.
+    """
+    import sqlite3
+    from collections import defaultdict
+    con = sqlite3.connect(ROOT / 'data/ami.db')
+    cur, SNAP = con.cursor(), '20260917-미청구2'
+
+    def z10(v):
+        s = ''.join(ch for ch in str(v or '') if ch.isdigit())
+        return s.zfill(10) if s else ''
+
+    def ok(cu):
+        return bool(cu) and len(set(cu)) > 1
+
+    cand = defaultdict(lambda: defaultdict(set))
+    for src, q in (('원장', f'SELECT 계기번호_norm,고객번호 FROM "{LEDGER_TABLE}" WHERE snapshot=?'),
+                   ('작업중', 'SELECT 계기번호_norm,고객번호 FROM "작업중" WHERE snapshot=?')):
+        for m, cu in cur.execute(q, (SNAP,)):
+            cu = z10(cu)
+            if m and ok(cu):
+                cand[nm(m)][src].add(cu)
+    for m, cu in cur.execute('SELECT 계기번호_norm,고객번호 FROM boranggi'):
+        cu = z10(cu)
+        if m and ok(cu):
+            cand[nm(m)]['보강현황'].add(cu)
+    con.close()
+
+    filled, conflict, miss = 0, [], 0
+    for x in rows:
+        if ok(z10(x.get('고객번호'))):
+            continue
+        d = cand.get(nm(x.get('계기번호')))
+        if not d:
+            miss += 1
+            continue
+        vals = set().union(*d.values())
+        if len(vals) != 1:
+            conflict.append((x.get('계기번호'), {k: sorted(v) for k, v in d.items()}))
+            continue
+        x['고객번호'] = next(iter(vals))
+        x['고객번호출처'] = '계기번호/' + '+'.join(sorted(d))
+        filled += 1
+    log(f'고객번호 채움 — {filled:,}건 · 충돌(비워 둠) {len(conflict)} · 소스 없음 {miss:,}')
+    if conflict:
+        (ROOT / 'research/고객번호_충돌_20260923.json').write_text(
+            json.dumps([{'계기번호': m, '후보': d} for m, d in conflict], ensure_ascii=False, indent=1))
+    return filled
+
+
+def via_cust_done_hits(rows):
+    """고객번호로 같은 계약을 찾아, 그 계약의 **다른 계기**가 이미 끝났으면 뺀다.
+
+    영준님 2026-09-23 "고객번호로 찾으면 되잖아 / 고객번호 > 26 과 청구됨" (OR 조건).
+    끝난 근거는 둘 중 하나:
+      (A) 그 계기가 26공사 모뎀시공리스트에 있다 (★기설은 제외 — 기존 모뎀에 계기만
+          추가한 것이라 우리가 갈아야 할 모뎀이 남는다)
+      (B) 그 계기가 원장에서 '청구' 상태다
+
+    왜 고객번호인가 — 계기는 교체되면 번호가 바뀌지만 **고객번호는 계약에 붙어 변하지
+    않는다**([[ledger_match_key_rule]]). 계기교체로 번호만 달라진 건을 잡는 유일한 키다.
+    실측 표본 02450083809(답십리동 487-18) — 같은 고객번호 0117298307 의 67450087095 가
+    2025-11-28 에 청구됐고 MAC 까지 같다. 원장 비고에 '계기교체' 표기가 없어 C7 은 놓쳤다.
+
+    ★시간 순서는 보지 않는다(2026-09-21 에 M6/B9 를 그 이유로 폐기했다). 근거는 순서가
+      아니라 '같은 계약에 끝난 계기가 있다' 는 사실이다.
+    ★무효 고객번호(0000000000 처럼 한 글자 반복)는 키로 쓰지 않는다 — 그걸로 묶으면
+      남의 계약이 통째로 붙는다.
+    ★계기↔고객 다리는 원장·작업중·boranggi 를 합쳐 만든다(원장만 쓰면 32% 가 빈다).
+    """
+    import sqlite3
+    from collections import defaultdict
+    con = sqlite3.connect(ROOT / 'data/ami.db')
+    cur, SNAP = con.cursor(), '20260917-미청구2'
+
+    def z10(v):
+        s = ''.join(ch for ch in str(v or '') if ch.isdigit())
+        return s.zfill(10) if s else ''
+
+    def ok(cu):
+        return bool(cu) and len(set(cu)) > 1          # 0000000000 같은 것 배제
+
+    cust = {}
+    for q in (f'SELECT 계기번호_norm,고객번호 FROM "{LEDGER_TABLE}" WHERE snapshot=?',
+              'SELECT 계기번호_norm,고객번호 FROM "작업중" WHERE snapshot=?'):
+        for m, cu in cur.execute(q, (SNAP,)):
+            cu = z10(cu)
+            if m and ok(cu):
+                cust.setdefault(nm(m), cu)
+    for m, cu in cur.execute('SELECT 계기번호_norm,고객번호 FROM boranggi'):
+        cu = z10(cu)
+        if m and ok(cu):
+            cust.setdefault(nm(m), cu)
+
+    mw = {}
+    for m, gu, d in cur.execute('SELECT 계기번호_norm,작업구분,작업일자 FROM modem_work_all'):
+        if m:
+            mw.setdefault(nm(m), (str(gu or ''), str(d or '')[:10]))
+    st = {}
+    for m, s in cur.execute(f'SELECT 계기번호_norm,{LEDGER_STATE_COL} FROM "{LEDGER_TABLE}"'
+                            ' WHERE snapshot=?', (SNAP,)):
+        if m:
+            st.setdefault(nm(m), str(s or ''))
+    con.close()
+
+    fam = defaultdict(set)
+    for m, cu in cust.items():
+        fam[cu].add(m)
+
+    out = []
+    for x in rows:
+        me = nm(x.get('계기번호'))
+        cu = z10(x.get('고객번호')) or cust.get(me, '')
+        if not ok(cu):
+            continue
+        others = [o for o in fam.get(cu, ()) if o != me]
+        a = [o for o in others if o in mw and mw[o][0] != '기설']
+        b = [o for o in others if st.get(o) == '청구']
+        if not a and not b:
+            continue
+        out.append((x, {'고객번호': cu,
+                        '26공사계기': [f'{o}({mw[o][0]} {mw[o][1]})' for o in sorted(a)[:3]],
+                        '청구계기': sorted(b)[:3]}))
+    return out
+
+
 def build_resweep_index():
     """[(출처명, by_cust, by_mac)] — 우선순위 순(먼저 온 것이 이긴다)."""
     import sqlite3
@@ -1817,23 +1951,11 @@ def main():
     if _hint:
         log(f'  현장계기번호_추정 담은 건 {_hint}(리스트에 남는 건 기준)')
 
-    # ── 제외축: 고객번호 경유 26년 신설 (영준님 2026-09-20) ──────────────────
-    #   ★신설만 뺀다. 기설은 우리가 갈아야 할 25년 모뎀에 계기가 추가된 것이라 남긴다.
-    _drop, _keep = via_cust_26_hits(map_rows + pend_rows)
-    if _drop or _keep:
-        _dset = {nm(r['계기번호']) for r, _ in _drop}
-        log(f'고객번호경유 26년시공 — 신설 {len(_drop)}건 **제외**'
-            f' · 기설 {len(_keep)}건 **유지**(25년 모뎀에 계기 추가 — 빼지 않는다)')
-        via_cust_write('25미청구', _drop, _keep)
-        EX.stage(EX.L_MICH, [EX.row(EX.L_MICH, 'C4', r,
-            f"고객번호 {r.get('고객번호')} 로 보강현황을 거쳐 같은 개소의 계기"
-            f" {ev['awms계기']} 를 찾았고, 그 계기가 awms 에 '{ev['작업구분']}' 으로"
-            f" {str(ev['작업일'])[:10]} 에 시공돼 있다. 계기가 교체돼 번호가 바뀐 개소다.",
-            f"awms계기 {ev['awms계기']} · {str(ev['작업일'])[:10]} · {ev['작업구분']}")
-                             for r, ev in _drop])
-        map_rows = [x for x in map_rows if nm(x['계기번호']) not in _dset]
-        pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _dset]
-        pm = [m for m in pm if m not in _dset]          # 게이트 기대치도 같이 줄인다
+    # ── 제외축 C4(고객번호 경유 26년 신설) — **2026-09-23 C9 로 통합** ──────────
+    #   C4 는 다리를 보강현황 한 소스의 '철거 계기번호 열' 로만 잡아 10건밖에 못 잡았다.
+    #   C9(via_cust_done_hits)가 같은 일을 더 넓게 한다 — 다리를 원장·작업중·보강현황
+    #   합본으로 만들고, 근거도 26공사 시공 **또는** 청구(OR)로 본다.
+    #   ★함수 via_cust_26_hits() 는 남겨 두었다(되돌릴 때 이 블록만 복원하면 된다).
 
     # ── 제외축: 마스터만 미청구 — **2026-09-23 폐기** ─────────────────────────
     #   근거가 추정이었고, 확인해 보니 성립하지 않았다(영준님 "이것들은 그냥 우리가
@@ -1870,7 +1992,11 @@ def main():
         EX.stage(EX.L_MICH, [EX.row(EX.L_MICH, code, r, why(ev), ev_txt(ev)) for r, ev in hits])
         map_rows = [x for x in map_rows if nm(x['계기번호']) not in s]
         pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in s]
-        pm = [m for m in pm if m not in s]
+        # ★pm 은 **원본 번호**를 들고 있고 산출물은 교정본이다(METER_TYPO_FIX).
+        #   교정본으로 제외된 건은 원본으로 비교하면 안 빠져 게이트가 1건 어긋난다
+        #   (실측 2026-09-23: 3919048106A -> 39190481064).
+        _fx = {nm(k): nm(v[0]) for k, v in METER_TYPO_FIX.items()}
+        pm = [m for m in pm if m not in s and _fx.get(m, m) not in s]
 
     _apply('C6', bulga26_hits(map_rows + pend_rows), '26년 불가 겹침',
            lambda ev: f"26년에 현장이 가서 불가를 쳤다 — {ev['작업일']}"
@@ -1879,6 +2005,22 @@ def main():
                       + ". 25년 리스트로 또 보내면 같은 헛걸음을 반복한다.",
            lambda ev: f"26불가 {ev['작업일']} · {ev['불가사유']}",
            'research/미청구_26불가겹침_20260922.json')
+
+    # ★고객번호를 먼저 채운다 — C9 가 고객번호로 판정하므로 순서가 중요하다.
+    fill_cust_by_meter(map_rows + pend_rows)
+
+    # ★C9 — 고객번호로 같은 계약을 찾아 그 계약의 다른 계기가 끝났으면 뺀다.
+    #   C7(계기교체 표기 필요)보다 넓다. 표기가 없어도 잡는다 — 실측 54건이 MAC 까지 같은데
+    #   비고에 '계기교체' 가 없어 C7 을 빠져나갔다. C7 보다 **먼저** 걸어 C7 은 잔여만 가져간다.
+    _apply('C9', via_cust_done_hits(map_rows + pend_rows), '고객번호 경유 완료(26공사/청구)',
+           lambda ev: (f"고객번호 {ev['고객번호']} 로 같은 계약의 다른 계기를 찾았고, 그 계기가 "
+                       + (f"26공사에 시공됐다({' · '.join(ev['26공사계기'])}). " if ev['26공사계기'] else '')
+                       + (f"원장에서 청구 상태다({' · '.join(ev['청구계기'])}). " if ev['청구계기'] else '')
+                       + '계기가 교체돼 번호만 바뀐 개소다 — 계약 단위로는 끝났다.'),
+           lambda ev: (('26공사 ' + ' · '.join(ev['26공사계기'])) if ev['26공사계기'] else '')
+                      + (' / ' if ev['26공사계기'] and ev['청구계기'] else '')
+                      + (('청구 ' + ' · '.join(ev['청구계기'])) if ev['청구계기'] else ''),
+           'research/미청구_고객경유완료_20260923.json')
 
     _apply('C7', swapped_billed_hits(map_rows + pend_rows), '계기교체 후속청구',
            lambda ev: f"같은 고객번호({ev['고객번호']})로 계기 {' · '.join(ev['새계기'])} 가"
@@ -2042,7 +2184,9 @@ def main():
     checks = [
         (f'지도 {len(map_rows):,} + 대기 {len(pend_rows):,} = {len(map_rows)+len(pend_rows):,}'
          f' (기대 {len(pm):,})', len(map_rows) + len(pend_rows) == len(pm)),
-        (f'계기 차집합 — 목록에만 {len(src-got)} · 산출에만 {len(got-src)}', src == got),
+        (f'계기 차집합 — 목록에만 {len(src-got)} · 산출에만 {len(got-src)}'
+         + (f'  {sorted(src-got)[:5]}' if src-got else '')
+         + (f'  {sorted(got-src)[:5]}' if got-src else ''), src == got),
         (f'영문자 접두 목록 {alpha_src} · 산출 {alpha_out}', alpha_src == alpha_out),
         (f'lat/lng null {nullc}건', nullc == 0),
         (f'중복 계기번호 {dup}건', dup == 0),
