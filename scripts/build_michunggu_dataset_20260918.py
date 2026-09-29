@@ -1209,6 +1209,10 @@ def via_cust_done_hits(rows):
     ★무효 고객번호(0000000000 처럼 한 글자 반복)는 키로 쓰지 않는다 — 그걸로 묶으면
       남의 계약이 통째로 붙는다.
     ★계기↔고객 다리는 원장·작업중·boranggi 를 합쳐 만든다(원장만 쓰면 32% 가 빈다).
+    ★2026-09-29 다리를 더 넓혔다(영준님 승인) — `작업중.고객번호_2` 와 **불가 원장**을
+      추가했다. 한전 파일에 고객번호 열이 둘 있는 판이 있고(CLAUDE.md coalesce 조항),
+      불가 원장은 고객번호 채움률이 99%(10,906/11,015)라 미청구(74%)보다 좋다.
+      실측: 이 두 소스를 넣지 않아 미청구에서 9건을 놓치고 있었다.
     """
     import sqlite3
     from collections import defaultdict
@@ -1222,17 +1226,25 @@ def via_cust_done_hits(rows):
     def ok(cu):
         return bool(cu) and len(set(cu)) > 1          # 0000000000 같은 것 배제
 
-    cust = {}
-    for q in (f'SELECT 계기번호_norm,고객번호 FROM "{LEDGER_TABLE}" WHERE snapshot=?',
-              'SELECT 계기번호_norm,고객번호 FROM "작업중" WHERE snapshot=?'):
-        for m, cu in cur.execute(q, (SNAP,)):
-            cu = z10(cu)
-            if m and ok(cu):
-                cust.setdefault(nm(m), cu)
-    for m, cu in cur.execute('SELECT 계기번호_norm,고객번호 FROM boranggi'):
-        cu = z10(cu)
-        if m and ok(cu):
-            cust.setdefault(nm(m), cu)
+    # ★다리는 계기 -> 고객번호 **집합**이다(2026-09-29 수정).
+    #   전에는 계기당 하나만(`setdefault`) 담아서, **형제 계기가 다른 고객번호로 등록되면
+    #   `fam` 이 갈려 영원히 못 찾았다.** 실측 3건 — 02250023534(고객 0124412787)의 형제
+    #   02530077027 은 원장에 0105063868 로 들어가 있어 같은 계약인데 이어지지 않았다.
+    #   한 계기에 고객번호가 둘 붙는 것은 계약 변경이거나 판별 표기 차이이고, **어느
+    #   쪽이든 같은 개소**다. 형제 판정에는 전부 쓰고, 근거 문구에 이은 고객번호를 남긴다.
+    cust = defaultdict(set)
+    for q, p in ((f'SELECT 계기번호_norm,고객번호 FROM "{LEDGER_TABLE}" WHERE snapshot=?', (SNAP,)),
+                 ('SELECT 계기번호_norm,고객번호 FROM "작업중" WHERE snapshot=?', (SNAP,)),
+                 ('SELECT 계기번호_norm,고객번호_2 FROM "작업중" WHERE snapshot=?', (SNAP,)),
+                 ('SELECT 계기번호_norm,고객번호 FROM boranggi', ()),
+                 ('SELECT 계기번호_norm,고객번호 FROM "25년_보강_불가__sheet1"', ())):
+        try:
+            for m, cu in cur.execute(q, p):
+                cu = z10(cu)
+                if m and ok(cu):
+                    cust[nm(m)].add(cu)
+        except sqlite3.OperationalError as e:
+            log(f'  [다리] 건너뜀: {e}')          # 열·테이블이 없는 판이면 조용히 지나간다
 
     mw = {}
     for m, gu, d in cur.execute('SELECT 계기번호_norm,작업구분,작업일자 FROM modem_work_all'):
@@ -1246,21 +1258,33 @@ def via_cust_done_hits(rows):
     con.close()
 
     fam = defaultdict(set)
-    for m, cu in cust.items():
-        fam[cu].add(m)
+    for m, cus in cust.items():
+        for cu in cus:
+            fam[cu].add(m)
 
     out = []
     for x in rows:
         me = nm(x.get('계기번호'))
-        cu = z10(x.get('고객번호')) or cust.get(me, '')
-        if not ok(cu):
+        # 데이터셋에 실린 고객번호 + 다리가 아는 것 전부를 후보로 쓴다.
+        mine = set(cust.get(me, ()))
+        own = z10(x.get('고객번호'))
+        if ok(own):
+            mine.add(own)
+        if not mine:
             continue
-        others = [o for o in fam.get(cu, ()) if o != me]
+        others, via = set(), {}
+        for cu in mine:
+            for o in fam.get(cu, ()):
+                if o == me:
+                    continue
+                others.add(o)
+                via.setdefault(o, cu)
         a = [o for o in others if o in mw and mw[o][0] != '기설']
         b = [o for o in others if st.get(o) == '청구']
         if not a and not b:
             continue
-        out.append((x, {'고객번호': cu,
+        out.append((x, {'고객번호': via.get((sorted(b) or sorted(a))[0], sorted(mine)[0]),
+                        '고객번호후보': sorted(mine)[:3],
                         '26공사계기': [f'{o}({mw[o][0]} {mw[o][1]})' for o in sorted(a)[:3]],
                         '청구계기': sorted(b)[:3]}))
     return out

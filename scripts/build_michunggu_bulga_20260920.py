@@ -407,6 +407,31 @@ def main():
         recs = [x for x in recs if nm(x['계기번호']) not in _s]
         keep = [v for v in keep if v['_m'] not in _s]
 
+    # ── 제외축 C9: 고객번호 경유 완료 (영준님 2026-09-29 "25불가도 필터 다 찾아보자") ──
+    #   미청구와 **같은 함수**를 쓴다(D.via_cust_done_hits). 두 리스트에 다른 잣대를 대지 않는다.
+    #   불가 원장은 고객번호 채움률이 99%(10,906/11,015)라 미청구(74%)보다 잘 걸린다.
+    #   근거: 고객번호로 같은 계약의 다른 계기를 찾아, 그 계기가 26공사에 시공됐거나(★기설 제외)
+    #   원장에서 청구 상태면 계약 단위로 끝난 것으로 본다(OR). 시간 순서는 보지 않는다.
+    #   ★표본 성격 — 우리가 문잠김으로 못 들어간 개소를 나중에 누군가 들어가 갈고 청구까지 끝낸 건이다
+    #     (48451080466 중구 다산로42가길 6 '출입불가' → 같은 계약 08550107614 청구완료).
+    _c9 = D.via_cust_done_hits(recs)
+    if _c9:
+        _s9 = {nm(r['계기번호']) for r, _ in _c9}
+        log(f'고객번호 경유 완료(26공사/청구) — {len(_c9)}건 **제외**')
+        (ROOT / 'research/불가_고객경유완료_20260929.json').write_text(json.dumps(
+            [dict({k: r.get(k) for k in ('계기번호', '지사', '주소', '고객번호', '비고1', '비고2')}, **ev)
+             for r, ev in _c9], ensure_ascii=False, indent=1))
+        EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, 'C9', r,
+            f"고객번호 {ev['고객번호']} 로 같은 계약의 다른 계기를 찾았고, 그 계기가"
+            + (f" 원장에서 청구 상태다({' · '.join(ev['청구계기'])})." if ev['청구계기']
+               else f" 26공사에 시공돼 있다({' · '.join(ev['26공사계기'])}).")
+            + " 계기가 교체돼 번호만 바뀐 개소다 — 계약 단위로는 끝났다.",
+            ('청구 ' + ' · '.join(ev['청구계기'])) if ev['청구계기']
+            else ('26공사 ' + ' · '.join(ev['26공사계기'])))
+                              for r, ev in _c9])
+        recs = [x for x in recs if nm(x['계기번호']) not in _s9]
+        keep = [v for v in keep if v['_m'] not in _s9]
+
     # ── 좌표 ────────────────────────────────────────────────────────────────
     has = [x for x in recs if x['주소']]
     pend = [x for x in recs if not x['주소']]
