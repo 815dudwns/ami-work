@@ -206,43 +206,6 @@ function michungguLpTable(meter) {
 }
 
 
-/** LP 판독 배지 + 사유 + 마지막시공 (영준님 2026-09-30 "리스트를 고쳐야지 지도").
- *
- * ★여기서 **판독을 다시 계산하지 않는다.** 규칙 정본은 `scripts/lp_read.py` 이고,
- *   데이터에 미리 박아 둔 `LP판독*` 필드를 그대로 그린다. 주소 리포트
- *   (`scripts/gen_addr_report.py`)와 같은 함수를 쓰므로 **화면과 리포트가 절대 어긋나지 않는다.**
- *   화면에서 다시 판정하면 그 보장이 깨진다 — 규칙이 바뀌면 데이터를 다시 만들어라.
- *
- * ★필드 유무로 건다(카테고리로 걸지 않는다). 25년불가는 LP 원천이 없어 필드가 아예 없으므로
- *   아무것도 그리지 않는다. 나중에 같은 필드를 싣는 리스트가 들어와도 코드를 안 고친다.
- *
- * ★**LP 는 대상 판정축이 아니다**(HANDOFF). 이 값으로 마커를 숨기거나 마커 색을 바꾸지 않는다 —
- *   디테일 안 정보로만 둔다. 판단 유도 문구도 붙이지 않는다(영준님) — 라벨과 사유만 그린다.
- *   색은 원천이 준 `LP판독색` 을 그대로 쓴다(우리가 고르지 않는다).
- */
-function lpReadHtml(meter) {
-    if (!meter) return '';
-    const code = String(meter.LP판독 || '').trim();
-    const label = String(meter.LP판독라벨 || '').trim();
-    if (!code && !label) return '';
-
-    // 원천이 주는 색만 받는다. 모르는 값이 오면 회색으로 떨어뜨린다(임의로 칠하지 않는다).
-    const tone = ({ good: 'good', warn: 'warn', bad: 'bad', gray: 'gray' })[
-        String(meter.LP판독색 || '').trim()] || 'gray';
-    const why = String(meter.LP판독사유 || '').trim();
-    // `마지막시공` 은 '일자 · 통신방식 · 마스터/슬레이브 · 구분 · 시공자 · 비고' 를 이어 붙인 한 줄이다.
-    //   비고가 빈 건이 많아 끝에 구분자가 남는다 — 표시할 때만 다듬는다(저장값은 안 건드린다).
-    const last = String(meter.마지막시공 || '').trim().replace(/(\s*·\s*)+$/, '');
-
-    let html = `<div class="lp-read"><span class="lp-read-badge lp-${tone}">${label || code}</span>`;
-    if (why) html += `<span class="lp-read-why">${why}</span>`;
-    html += `</div>`;
-    // 마지막시공 — 지금 디테일엔 최종시공일만 있어서 'LTE 로 갈았다' 는 이력이 안 보였다.
-    if (last) html += `<div class="lp-read-last">마지막시공 ${last}</div>`;
-    return html;
-}
-
-
 function lpSummary(meter) {
     const rows = meter && meter.lp_이력;
     if (!Array.isArray(rows) || !rows.length) return null;
@@ -1161,8 +1124,6 @@ function renderMetersList() {
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
         // LP 7일치 표 — 값이 하나도 없으면 빈 문자열이라 아무것도 안 그린다.
         const lpTable = michungguLpTable(meter);
-        // LP 판독 — 값이 없으면 빈 문자열이라 아무것도 안 그린다(불가 리스트가 그 경우다).
-        const lpRead = lpReadHtml(meter);
         const details = detailParts.join(', ');
 
         // 계기번호 4구간 색상 분리
@@ -1221,7 +1182,6 @@ function renderMetersList() {
                     <button class="${failBtnClass}" data-meter="${meter.계기번호}">${failBtnLabel}</button>
                     ${details ? `<div class="meter-details">${details}</div>` : ''}
                     ${subDetails}
-                    ${lpRead}
                     ${lpTable}
                     ${addedInfo}
                     ${failInputHtml}
