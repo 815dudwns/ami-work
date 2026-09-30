@@ -131,8 +131,15 @@ def collect(cur, addrs):
         st = d.get('col_15') or ''
         s['state'] = '청구' if st == '청구' else (s['state'] or st)
         mac = d.get('mac_norm') or ''
-        if mac and mac not in s['macs']:
-            s['macs'].append(mac)
+        # ★대표 MAC = **가장 나중 시공 행의 MAC**(영준님 2026-09-30 "미청구면 왜 맥이 hpgp 로
+        #   남아있는거야? 마지막 맥으로 남아있어야지"). 함체가 갈리면 옛 MAC 섹션이 아니라
+        #   **지금 물려 있는 모뎀** 아래에 있어야 현장에서 맞다. 옛 MAC 은 타임라인에 남는다.
+        sd = re.sub(r'\D', '', str(d.get('시공일') or ''))
+        if mac:
+            if mac not in s['macs']:
+                s['macs'].append(mac)
+            if sd >= (s.get('mac_at') or ''):
+                s['mac_at'], s['mac_last'] = sd, mac
         day, tm = ymd(d.get('시공일'))
         # 이 행의 모든 값(빈값 제외) — '모든 정보'
         det = {k: str(v).strip() for k, v in d.items()
@@ -141,7 +148,8 @@ def collect(cur, addrs):
                         'who': d.get('시공자') or '', 'mac': mac, 'state': st,
                         'head': ' · '.join(x for x in (d.get('통신방식'), d.get('M/S'),
                                                        d.get('집/단'), d.get('구분')) if x),
-                        'src': '25년 원장', 'det': det})
+                        'src': '25년 원장', 'det': det,
+                        '__row': (norm_meter(d['계기번호']), sd, mac, str(d.get('앱넘버') or ''))})
         for k, v in det.items():
             s['fields'].setdefault(k, set()).add(v)
 
@@ -157,9 +165,56 @@ def collect(cur, addrs):
         why = ' / '.join(x for x in (d.get('비고1'), d.get('비고2')) if not blank(x))
         s['ev'].append({'day': day, 'tm': tm, 'kind': '불가', 'who': d.get('시공자') or '',
                         'mac': '', 'state': '불가', 'head': why or '사유 미기재',
-                        'src': '25년 불가원장', 'det': det})
+                        'src': '25년 불가원장', 'det': det,
+                        '__row': (norm_meter(d['계기번호']),
+                                  re.sub(r'\D', '', str(d.get('시공일') or '')), '',
+                                  str(d.get('앱넘버') or ''))})
         for k, v in det.items():
             s['fields'].setdefault(k, set()).add(v)
+
+    # ── 1b) ★주소가 빈 행까지 계기번호로 다시 긁는다 ────────────────────────
+    #   `구시공앱` 으로 작성된 기록은 **주소가 비어 있다**(실측 06190606718 의 2026-03-09
+    #   LTE 전환 행 2개). 주소로만 수집하면 그 행을 통째로 놓쳐 "왜 아직 HPGP 냐" 가 된다
+    #   (영준님 2026-09-30 지적). 그래서 1차로 얻은 계기번호로 원장을 한 번 더 훑는다.
+    ms0 = list(meters.keys())
+    if ms0:
+        mph0 = ','.join('?' * len(ms0))
+        seen_rows = {(e.get('__row')) for s in meters.values() for e in s['ev'] if e.get('__row')}
+        for t, cols_, src, kindf in ((LEDGER, lcols, '25년 원장', True),
+                                     (BULGA, bcols, '25년 불가원장', False)):
+            for row in cur.execute(f'SELECT * FROM "{t}" WHERE 계기번호_norm IN ({mph0})'
+                                   + (' AND snapshot=?' if t == LEDGER else ''),
+                                   (*ms0, SNAP) if t == LEDGER else ms0):
+                d = dict(zip(cols_, row))
+                mac = d.get('mac_norm') or ''
+                sd = re.sub(r'\D', '', str(d.get('시공일') or ''))
+                rid = (norm_meter(d['계기번호']), sd, mac, str(d.get('앱넘버') or ''))
+                if rid in seen_rows:
+                    continue
+                seen_rows.add(rid)
+                s = meters[norm_meter(d['계기번호'])]
+                st = d.get('col_15') or ''
+                if st == '청구':
+                    s['state'] = '청구'
+                elif not s['state']:
+                    s['state'] = st
+                if mac:
+                    if mac not in s['macs']:
+                        s['macs'].append(mac)
+                    if sd >= (s.get('mac_at') or ''):
+                        s['mac_at'], s['mac_last'] = sd, mac
+                day, tm = ymd(d.get('시공일'))
+                det = {k: str(v).strip() for k, v in d.items() if k not in SKIP and not blank(v)}
+                kind = '불가' if (st == '불가' or not kindf) else '시공'
+                head = (' · '.join(x for x in (d.get('통신방식'), d.get('M/S'), d.get('집/단'),
+                                               d.get('구분')) if x) if kindf else
+                        ' / '.join(x for x in (d.get('비고1'), d.get('비고2')) if not blank(x)))
+                s['ev'].append({'day': day, 'tm': tm, 'kind': kind,
+                                'who': d.get('시공자') or '', 'mac': mac, 'state': st,
+                                'head': head or '기록', 'src': src + '(주소없음 포함)',
+                                'det': det, '__row': rid})
+                for k, v in det.items():
+                    s['fields'].setdefault(k, set()).add(v)
 
     ms = list(meters.keys())
     if ms:
@@ -312,6 +367,7 @@ details{margin-top:3px} summary{font-size:11.5px;color:#2563eb;cursor:pointer}
 .lp-alive{background:#dcfce7;color:#15803d} .lp-weak{background:#fef9c3;color:#a16207}
 .lp-drop{background:#ffedd5;color:#c2410c} .lp-gone{background:#e5e7eb;color:#6b7280}
 .lp-none{background:#f3f4f6;color:#9ca3af}
+.lp-dead{background:#fecaca;color:#991b1b}
 .why{font-size:11.5px;color:#6b7280;margin-top:2px}
 .rd{background:#fff;border-radius:10px;padding:10px 12px;margin:10px 0 14px;font-size:12.5px;line-height:1.7}
 .rd b{font-size:13px} .rd .row{margin-top:3px}
@@ -340,13 +396,21 @@ details[open]>summary .arrow{transform:rotate(90deg);display:inline-block}
 @media print{body{background:#fff;padding:0} .macbox{background:#fff} details{display:none}}"""
 
 
-def read_lp(lp):
+def read_lp(lp, ctx=None):
     """LP 시계열 판독 — 미청구가 '왜 없어졌나' 를 읽는 축 (영준님 2026-09-30).
 
     영준님 법칙 그대로:
       · LP 가 없어지거나 불안한 것 = **계기가 아직 남아 있다** (우리 작업 대상)
       · `#N/A` = **거의 교체됐다고 보면 된다** (옛 번호만 남은 유령)
 
+    ★**LP 는 마지막 시공 이후의 값이다**(영준님 "재방문해서 LTE 로 교체됐으면 이 LP값도
+      LTE LP 이자나"). 그래서 `#N/A` 를 곧 '교체' 로 읽으면 틀린다 — 마지막 작업이 **LTE
+      교체이고 LP 구간이 그 뒤**라면, N/A 는 계기가 없어진 게 아니라 **갈아놓은 LTE 모뎀이
+      통신을 못 하고 있다**는 뜻이고 그건 우리가 손봐야 할 건이다.
+      실측 06190606718: 2026-03-09 에 HPGP -> LTE 교체(신호미약), LP 구간은 06/10·09-05~13
+      전부 그 뒤인데 전 구간 N/A.
+
+    ctx = {'last': '20260309163449'(마지막 시공일시), 'comm': 'LTE', 'swapped': True(LTE교체 이력)}
     ★제외 판정축이 아니다 — 왜 없어졌는지 **분석하는 재료**다. 확정은 현장·대장 대조로 한다.
     반환: (코드, 라벨, 설명)
     """
@@ -364,6 +428,15 @@ def read_lp(lp):
                 seq.append((k, None))
         vals = [x for _, x in seq if x is not None]
     if not vals:
+        # ★마지막 작업이 LTE 교체였다면 이 N/A 는 '교체돼 없어짐' 이 아니라
+        #   '갈아놓은 LTE 가 통신을 못 한다' 다 — 우리가 손볼 건이다.
+        c = ctx or {}
+        if c.get('swapped') or (c.get('comm') or '').startswith('LTE'):
+            when = c.get('last') or ''
+            when = f"{when[:4]}-{when[4:6]}-{when[6:8]}" if len(when) >= 8 else ''
+            return ('dead', 'LTE 교체했는데 LP 없음',
+                    f'{when} 에 LTE 로 갈았는데 그 뒤 LP 가 전 구간 N/A — 계기는 있고 '
+                    f'통신이 안 붙는다. 교체가 아니라 **통신 불량**이다')
         return 'gone', '교체 추정', 'LP 전 구간 N/A — 계기가 갈려 옛 번호만 남은 것으로 본다'
     last = seq[-1][1]
     if last is None:
@@ -377,8 +450,28 @@ def read_lp(lp):
     return 'weak', 'LP 불안', f'마지막 {last:.2f} — 계기는 있고 수신이 불안하다'
 
 
+def lp_ctx(s):
+    """LP 판독에 줄 맥락 — 마지막 시공일시·그때 통신방식·LTE 교체 이력."""
+    last, comm, swapped = '', '', False
+    for e in s['ev']:
+        if e['kind'] not in ('시공', '26공사'):
+            continue
+        d = re.sub(r'\D', '', (e['day'] or '') + (e['tm'] or ''))
+        if d >= last:
+            last, comm = d, (e['head'] or '').split(' · ')[0]
+        if 'LTE' in (e['head'] or '') or 'LTE' in ' '.join(e['det'].values() if e['det'] else []):
+            if 'LTE교체' in ' '.join(e['det'].values()) if e['det'] else False:
+                swapped = True
+    for k in ('비고2', '비고1'):
+        for v in (s['fields'].get(k) or ()):
+            if 'LTE' in v and ('교체' in v or '전환' in v):
+                swapped = True
+    return {'last': last, 'comm': comm, 'swapped': swapped}
+
+
 LP_CLS = {'alive': 'lp-alive', 'weak': 'lp-weak', 'zero': 'lp-weak',
-          'drop': 'lp-drop', 'cut': 'lp-drop', 'gone': 'lp-gone', 'none': 'lp-none'}
+          'drop': 'lp-drop', 'cut': 'lp-drop', 'dead': 'lp-dead',
+          'gone': 'lp-gone', 'none': 'lp-none'}
 
 
 def kv(title, data, cls=''):
@@ -398,11 +491,11 @@ def render(meters, title, addrs):
     # MAC -> 계기 (한 계기가 여러 MAC 에 나타날 수 있다 = 모뎀이 갈렸다는 정보)
     by_mac = defaultdict(set)
     for s in meters.values():
-        if s['macs']:
-            for m in s['macs']:
-                by_mac[m].add(s['meter'])
-        else:
-            by_mac['(모뎀 미상)'].add(s['meter'])
+        # ★대표 MAC 하나에만 넣는다 — 지금 물려 있는 모뎀 아래에 있어야 현장에서 맞다.
+        #   지도 데이터의 모뎀MAC(빌더가 최신으로 정한 값)이 있으면 그것을 먼저 믿는다.
+        mm = sorted(s['map'].get('모뎀MAC') or ())
+        rep = (mm[0] if mm else None) or s.get('mac_last') or (s['macs'][-1] if s['macs'] else None)
+        by_mac[rep or '(모뎀 미상)'].add(s['meter'])
     tgt = sum(1 for s in meters.values() if s['onmap'])
 
     def mac_rank(m):
@@ -425,7 +518,8 @@ def render(meters, title, addrs):
 </div>''']
 
     # ── 미청구가 '왜 없어졌나' — LP 판독 요약 (영준님 2026-09-30) ──────────
-    LAB = [('alive', '살아있음 · 확실한 대상'), ('weak', 'LP 불안 · 남아있음'),
+    LAB = [('dead', 'LTE 교체했는데 LP 없음 · 통신불량'),
+           ('alive', '살아있음 · 확실한 대상'), ('weak', 'LP 불안 · 남아있음'),
            ('zero', '통신 안 됨 · 남아있음'), ('drop', '최근 급락 · 교체 확인'),
            ('cut', '중간에 끊김 · 교체 확인'), ('gone', '교체 추정 · 헛걸음 주의'),
            ('none', 'LP 자료 없음')]
@@ -433,7 +527,7 @@ def render(meters, title, addrs):
     for s in meters.values():
         if not s['onmap']:
             continue
-        code, lab, _ = read_lp(s['lp'])
+        code, lab, _ = read_lp(s['lp'], lp_ctx(s))
         s['lpread'] = (code, lab)
         buck[code].append(s['meter'])
     if buck:
@@ -494,7 +588,7 @@ def render(meters, title, addrs):
                 pills.append(f'<span class="pill p-fail">{html.escape(s["type"])}</span>')
             # LP 판독 배지 — 작업대상만(청구된 건은 판독할 이유가 없다)
             if s['onmap']:
-                code, lab, why = read_lp(s['lp'])
+                code, lab, why = read_lp(s['lp'], lp_ctx(s))
                 pills.append(f'<span class="lpb {LP_CLS[code]}">{html.escape(lab)}</span>')
             else:
                 why = ''
