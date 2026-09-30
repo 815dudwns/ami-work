@@ -29,6 +29,7 @@ const ACCOUNTS = [
     { id: 'user24', pw: '1111', name: '김춘동', role: 'user' },
     { id: 'user25', pw: '1111', name: '신완식', role: 'user' },
     { id: 'user26', pw: '1111', name: '안병삼', role: 'user' },
+    { id: 'user27', pw: '1111', name: '장재혁', role: 'user' },  // 2026-10-01 발급
     // 종로 부조장 = 우영준(영준님 본인) = admin 계정으로 겸임 (별도 user 발급 안 함)
     // --- KDN 계정 (발주처 담당자 — 작업자가 아니라 userNN 번호를 쓰지 않는다) ---
     { id: 'kdn01', pw: '1111', name: '주덕기', role: 'user' },
