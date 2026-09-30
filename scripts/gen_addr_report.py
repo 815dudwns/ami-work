@@ -204,7 +204,7 @@ def collect(cur, addrs):
                             'src': '26년 장애', 'det': det})
         # ── 6) 대장(보강현황) — 한전 일자 + 동호수·상호 ──
         b = [c[1] for c in cur.execute('PRAGMA table_info(boranggi)')]
-        seen = set()
+        seen = {}
         for row in cur.execute(f'SELECT * FROM boranggi WHERE 계기번호_norm IN ({mph})'
                                f' OR replace(ifnull("계기번호_2","")," ","") IN ({mph})', ms + ms):
             d = dict(zip(b, row))
@@ -216,18 +216,38 @@ def collect(cur, addrs):
                 v = d.get(k)
                 if not blank(v):
                     s['fields'].setdefault(f'대장:{k}', set()).add(str(v).strip())
-            for label, v, ex in (('계기교체(한전)', d.get('계기교체일(A)'),
-                                  f'사유 {d.get("교체사유")}' if not blank(d.get('교체사유')) else ''),
-                                 ('연계 수신', d.get('연계 수신일(B)'), ''),
-                                 ('최초 LP 수신', d.get('최초LP 수신일(C)'),
-                                  f'LP {d.get("LP")}' if not blank(d.get('LP')) else '')):
-                day, tm = ymd(v)
-                if not day or (s['meter'], label, day) in seen:
+            # ★대장 한 행 = 타임라인 한 항목이다(영준님 2026-09-30 "타임라인이 행 하나당
+            #   타임라인임. 연계수신일 같은 거 한 행 정보는 그냥 정보고").
+            #   계기교체일(A)·연계(B)·최초LP(C) 는 그 행에 딸린 **정보**이므로 쪼개지 않는다.
+            day, tm = ymd(d.get('계기교체일(A)'))
+            if day:
+                info = []
+                for lbl, v in (('교체', d.get('계기교체일(A)')), ('연계', d.get('연계 수신일(B)')),
+                               ('최초LP', d.get('최초LP 수신일(C)'))):
+                    dd, _ = ymd(v)
+                    if dd:
+                        info.append(f'{lbl} {dd}')
+                for lbl, k in (('사유', '교체사유'), ('LP', 'LP'), ('차수', '사업차수'),
+                               ('검기만료', '검기만료년월'), ('DCU장애', 'DCU 장애여부')):
+                    if not blank(d.get(k)):
+                        info.append(f'{lbl} {str(d.get(k)).strip()}')
+                head = ' · '.join(info) or '계기교체'
+                # ★대장은 스냅샷 8판이라 같은 내용이 반복된다 — **값이 바뀔 때만** 항목으로
+                #   남기고, 같은 값은 판 이름만 합친다. 판마다 값이 달라지는 것 자체가 정보다
+                #   (실측: 같은 계기의 최초LP 가 판에 따라 09-22 / 09-26 로 갈린다).
+                sig = (s['meter'], day, head)
+                prev = seen.get(sig) if isinstance(seen, dict) else None
+                snap = str(d.get('snapshot') or '')
+                if prev is not None:
+                    prev['snaps'].append(snap)
+                    prev['src'] = '보강현황 ' + '·'.join(sorted(set(prev['snaps'])))
                     continue
-                seen.add((s['meter'], label, day))
-                s['ev'].append({'day': day, 'tm': tm, 'kind': '한전', 'who': '', 'mac': '',
-                                'state': '', 'head': label + (f' · {ex}' if ex else ''),
-                                'src': '보강현황', 'det': {}})
+                det = {k: str(v).strip() for k, v in d.items() if k not in SKIP and not blank(v)}
+                ev = {'day': day, 'tm': tm, 'kind': '한전', 'who': '', 'mac': '', 'state': '',
+                      'head': head, 'src': f'보강현황 {snap}'.strip(), 'det': det,
+                      'snaps': [snap]}
+                s['ev'].append(ev)
+                seen[sig] = ev
 
     # ── 7) 지도 데이터셋 — 동호수·상호·공동주택명·DCU·LP 등 전부 ──
     for f, label in DATASETS:
@@ -295,6 +315,28 @@ details{margin-top:3px} summary{font-size:11.5px;color:#2563eb;cursor:pointer}
 .why{font-size:11.5px;color:#6b7280;margin-top:2px}
 .rd{background:#fff;border-radius:10px;padding:10px 12px;margin:10px 0 14px;font-size:12.5px;line-height:1.7}
 .rd b{font-size:13px} .rd .row{margin-top:3px}
+/* ── 접기·펼치기 (영준님 2026-09-30 "이건 뭐 볼수가없다") ───────────── */
+.bar{position:sticky;top:0;z-index:5;background:#f4f5f7;padding:8px 0 10px;margin:-2px 0 10px}
+.bar button{border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:7px 12px;
+  font-size:12.5px;font-weight:700;color:#334155;cursor:pointer;margin:0 5px 5px 0}
+.bar button.on{background:#0f766e;border-color:#0f766e;color:#fff}
+details.mac>summary,details.mt>summary{cursor:pointer;list-style:none}
+details.mac>summary::-webkit-details-marker,details.mt>summary::-webkit-details-marker{display:none}
+details.mac{background:#eef2f7;border-radius:13px;padding:9px 10px;margin-bottom:10px}
+details.mac>summary{font:700 14px/1.35 ui-monospace,Menlo,monospace;letter-spacing:.2px;word-break:break-all}
+details.mac>summary .cnt{display:block;font:400 11.5px/1.5 -apple-system,sans-serif;color:#4b5563;margin-top:2px}
+details.mac[open]>summary{margin-bottom:8px;border-bottom:1px solid #dbe3ec;padding-bottom:6px}
+details.mt{background:#fff;border-radius:11px;margin-bottom:7px;border-left:4px solid #d1d5db}
+details.mt.tgt{border-left-color:#dc2626}
+details.mt>summary{padding:9px 11px;display:block}
+details.mt[open]>summary{border-bottom:1px solid #f1f5f9}
+.sm1{font:700 15px/1.2 ui-monospace,Menlo,monospace;letter-spacing:.3px}
+.sm2{font-size:12px;color:#0f766e;font-weight:700;margin-top:2px}
+.sm2.none{color:#9ca3af;font-weight:400}
+.body{padding:9px 11px 11px}
+.arrow{float:right;color:#94a3b8;font-size:12px;font-weight:400}
+details[open]>summary .arrow{transform:rotate(90deg);display:inline-block}
+.hide{display:none !important}
 @media print{body{background:#fff;padding:0} .macbox{background:#fff} details{display:none}}"""
 
 
@@ -375,7 +417,12 @@ def render(meters, title, addrs):
 <div class=sub>모뎀(MAC) 기준 정렬 · 계기마다 타임라인(시공 &gt; 불가·이후작업 &gt; 미청구)
  &nbsp;|&nbsp; {now} KST</div>
 <div class=sum><b>모뎀 {len(by_mac)}개 · 계기 {len(meters)}개 · 작업대상(지도 등재) {tgt}개</b><br>
-지번 {html.escape(" · ".join(addrs))}</div>''']
+지번 {html.escape(" · ".join(addrs))}</div>
+<div class=bar>
+  <button id=b-tgt>작업대상만</button>
+  <button id=b-close>모두 접기</button>
+  <button id=b-open>모두 펼치기</button>
+</div>''']
 
     # ── 미청구가 '왜 없어졌나' — LP 판독 요약 (영준님 2026-09-30) ──────────
     LAB = [('alive', '살아있음 · 확실한 대상'), ('weak', 'LP 불안 · 남아있음'),
@@ -428,8 +475,10 @@ def render(meters, title, addrs):
             meta.append(' / '.join(sorted(comms)))
         if roles:
             meta.append(' / '.join(sorted(roles)))
-        h.append(f'<div class=macbox><div class=machd>MAC {html.escape(mac)}</div>'
-                 f'<div class=macmeta>{html.escape(" · ".join(meta))}</div>')
+        # 미청구가 있는 모뎀만 기본 펼침 — 나머지는 접어 둔다(영준님 "이건 뭐 볼수가없다")
+        h.append(f'<details class=mac {"open" if un else ""} data-un="{un}">'
+                 f'<summary>MAC {html.escape(mac)}<span class=arrow>&#9656;</span>'
+                 f'<span class=cnt>{html.escape(" · ".join(meta))}</span></summary>')
         for mno in mset:
             s = meters[mno]
             pills = []
@@ -457,13 +506,17 @@ def render(meters, title, addrs):
             for k in ('대장:공동주택명', '대장:상호명'):
                 for v in (s['fields'].get(k) or ()):
                     dong.add(v)
-            dong_html = (f'<div class=dong>{html.escape(" · ".join(sorted(dong)))}</div>'
-                         if dong else
-                         '<div class="dong none">동호수·상호 없음 (대장 미등재)</div>')
-            h.append(f'<div class="card {"tgt" if s["onmap"] else ""}">'
-                     f'<div class=mno>{html.escape(mno)}</div>{dong_html}'
+            dong_txt = ' · '.join(sorted(dong)) if dong else '동호수·상호 없음 (대장 미등재)'
+            dong_cls = 'sm2' if dong else 'sm2 none'
+            # 계기도 접는다 — 작업대상만 펼쳐 둔다
+            h.append(f'<details class="mt {"tgt" if s["onmap"] else ""}" '
+                     f'{"open" if s["onmap"] else ""} data-tgt="{1 if s["onmap"] else 0}">'
+                     f'<summary><span class=sm1>{html.escape(mno)}</span>'
+                     f'<span class=arrow>&#9656;</span>'
+                     f'<div class="{dong_cls}">{html.escape(dong_txt)}</div>'
                      f'<div>{"".join(pills)}</div>'
-                     + (f'<div class=why>{html.escape(why)}</div>' if why else ''))
+                     + (f'<div class=why>{html.escape(why)}</div>' if why else '')
+                     + '</summary><div class=body>')
             # 동호수·상호 등 핵심 식별정보를 앞에 세운다
             key_map = {k: v for k, v in s['map'].items()
                        if k in ('주소', '도로명주소', '동호수', '공동주택명', '상호', '고객번호',
@@ -509,9 +562,28 @@ def render(meters, title, addrs):
             if rest_map:
                 h.append(f'<details><summary>지도 데이터 전체 필드 ({len(rest_map)})</summary>'
                          f'{kv("", rest_map)}</details>')
-            h.append('</div>')
-        h.append('</div>')
-    h.append('</body></html>\n')
+            h.append('</div></details>')
+        h.append('</details>')
+    h.append('''<script>
+const $$=s=>[...document.querySelectorAll(s)];
+let onlyTgt=false;
+function setAll(open){ $$('details.mac,details.mt').forEach(d=>d.open=open); }
+function tgtOnly(){
+  onlyTgt=!onlyTgt;
+  document.getElementById('b-tgt').classList.toggle('on',onlyTgt);
+  $$('details.mt').forEach(d=>d.classList.toggle('hide', onlyTgt && d.dataset.tgt==='0'));
+  $$('details.mac').forEach(m=>{
+    const vis=[...m.querySelectorAll('details.mt')].some(d=>!d.classList.contains('hide'));
+    m.classList.toggle('hide', onlyTgt && !vis);
+    if(onlyTgt && vis) m.open=true;
+  });
+}
+document.getElementById('b-open').onclick=()=>setAll(true);
+document.getElementById('b-close').onclick=()=>setAll(false);
+document.getElementById('b-tgt').onclick=tgtOnly;
+</script>
+</body></html>
+''')
     return ''.join(h)
 
 
