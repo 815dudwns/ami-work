@@ -117,6 +117,9 @@ async function initMap() {
     };
     map = new kakao.maps.Map(container, options);
 
+    // 근접 마커 분산은 픽셀 간격이라 줌마다 위치를 다시 잡는다(spreadOverlappingMarkers)
+    kakao.maps.event.addListener(map, 'zoom_changed', relayoutSpreadMarkers);
+
     // 지도 이동/줌 변경 시 현재 뷰 저장
     kakao.maps.event.addListener(map, 'idle', () => {
         const c = map.getCenter();
@@ -500,7 +503,8 @@ function loadMarkers() {
         //   예전엔 원값 문자열이라 값이 같아도 자릿수가 다르면(37.566847167 vs
         //   37.5668471674677) 다른 마커가 됐고, 아래 spreadOverlappingMarkers 는
         //   toFixed(6) 로 같다고 보고 **나선형으로 벌려 놓기까지** 했다.
-        //   ★spread 쪽과 **같은 자릿수(6)** 여야 한다 — 다르면 또 어긋난다.
+        //   ★이 키는 status-key.js markerKeyOf 와 같은 자릿수(6)여야 한다.
+        //   (분산은 2026-10-06 부터 거리 기준이라 이 키와 독립이다 — spreadOverlappingMarkers)
         const key = `${item.category}||${(+item.lat).toFixed(6)}||${(+item.lng).toFixed(6)}`;
         if (!grouped[key]) {
             grouped[key] = {
@@ -524,12 +528,14 @@ function loadMarkers() {
         }
     });
 
-    // 같은 좌표에 겹친 approximate 마커들 — 작은 원형으로 분산
+    // 5m 이내로 붙은 마커들 — 화면 픽셀 간격으로 분산(합치지는 않는다)
     spreadOverlappingMarkers(grouped);
 
     Object.values(grouped).forEach(data => {
         const coords = new kakao.maps.LatLng(data.lat, data.lng);
         createMarker(coords, data.address, data.meters, data.category, data.addresses, data.statusKeys);
+        // 분산된 마커는 줌이 바뀔 때 픽셀 간격을 다시 맞춘다(relayoutSpreadMarkers)
+        if (data.spread) markers[markers.length - 1].spread = data.spread;
     });
 }
 
@@ -557,8 +563,7 @@ function aggregateRework(addresses) {
     return (addresses || []).some(a => workStatus[a] && workStatus[a].rework === true);
 }
 
-// 같은 좌표에 겹친 마커 그룹을 좌표 중심으로 소용돌이(Sunflower spiral) 분산
-// 첫 마커는 정중앙, 이후 황금각(137.5°)으로 빡빡하게 나선형 확장
+// 근접 마커 덩어리를 중심 기준 해바라기 나선(Sunflower spiral)으로 분산 — 아래 spreadOverlappingMarkers
 // 마커 우선순위 — 겹칠 때 **중심에 남고 위에 그려지는** 순서(영준님 2026-09-20).
 //   합동 > 실효 > SKT > 25미청구 > 25년 미청구불가. 목록에 없는 카테고리는 뒤로 밀린다.
 //   ★두 군데서 쓴다: spreadOverlappingMarkers(중심 선점) · createMarker(zIndex).
@@ -570,31 +575,94 @@ function markerPriority(category) {
     return i === -1 ? MARKER_PRIORITY.length : i;
 }
 
-function spreadOverlappingMarkers(grouped) {
-    const SPIRAL_EXACT  = 0.000025; // ≈ 2.8m 기본 간격 (exact)
-    const SPIRAL_APPROX = 0.00008;  // ≈ 9m (approximate)
-    const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));   // ≈ 137.508°
-    const coordToKeys = {};
-    Object.entries(grouped).forEach(([key, data]) => {
-        const k = `${data.lat.toFixed(6)},${data.lng.toFixed(6)}`;
-        if (!coordToKeys[k]) coordToKeys[k] = [];
-        coordToKeys[k].push(key);
+// ★근접 마커 분산 (영준님 2026-10-06 "안 합쳐도 되니 띄워놔 확실하게")
+//   예전엔 toFixed(6) 로 **좌표가 정확히 같은** 마커만 벌렸고, 간격도 미터(2.8m)였다.
+//   그래서 두 가지가 다 샜다.
+//     1. 1m 떨어진 두 마커(중랑구 동일로 823-1 · 중화동 307-11, 25미청구)는 '같은 좌표'가 아니라서
+//        벌리지 않았고, 화면에선 완전히 포개져 1개처럼 보였다(줌 1 에서도 3px 차이).
+//     2. 벌린 곳도 2.8m 는 줌 4(기본 줌)에서 약 2px 이다. 마커 폭이 20px 이라 사실상 그대로 겹쳤다.
+//   지금 규칙:
+//     - SPREAD_NEAR_M 이내로 붙은 마커를 **연쇄로** 한 덩어리로 묶는다(union-find).
+//       카테고리가 달라도 묶는다 — 겹쳐 보이는 건 카테고리와 무관하다.
+//     - 덩어리 중심(평균 좌표)을 기준으로 해바라기 나선을 **픽셀 단위**로 편다.
+//       간격이 화면 픽셀이라 어느 줌에서나 마커가 확실히 떨어져 보인다. 줌이 바뀌면
+//       relayoutSpreadMarkers() 가 다시 좌표를 계산한다(initMap 의 zoom_changed).
+//     - ★합치지는 않는다. 그룹 키(loadMarkers)는 그대로다 — 상태키·디테일에 영향 없음.
+//   ※ 데이터 좌표(meters 의 lat/lng)는 건드리지 않는다. 화면 위치만 옮긴다.
+const SPREAD_NEAR_M  = 5;    // 이 거리(m) 이내면 같은 덩어리
+const SPREAD_STEP_PX = 30;   // 나선 간격(px) — 핀 20x26 + 여백. 26 은 줌4 실측에서 핀끝이 닿았다
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));   // ≈ 137.508°
+
+function _clusterNearby(entries) {
+    // entries: [{key, lat, lng}] -> 덩어리 배열(key 배열). 격자 버킷으로 이웃만 비교한다.
+    const M_PER_DEG_LAT = 111320;
+    const parent = entries.map((_, i) => i);
+    const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    const union = (a, b) => { a = find(a); b = find(b); if (a !== b) parent[b] = a; };
+    const cellOf = e => {
+        const mLng = M_PER_DEG_LAT * Math.cos(e.lat * Math.PI / 180);
+        return [Math.floor(e.lat * M_PER_DEG_LAT / SPREAD_NEAR_M), Math.floor(e.lng * mLng / SPREAD_NEAR_M)];
+    };
+    const grid = new Map();
+    entries.forEach((e, i) => {
+        const [cy, cx] = cellOf(e);
+        const k = cy + ',' + cx;
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(i);
     });
+    entries.forEach((e, i) => {
+        const [cy, cx] = cellOf(e);
+        const mLng = M_PER_DEG_LAT * Math.cos(e.lat * Math.PI / 180);
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            (grid.get((cy + dy) + ',' + (cx + dx)) || []).forEach(j => {
+                if (j <= i) return;
+                const o = entries[j];
+                const dm = Math.hypot((o.lat - e.lat) * M_PER_DEG_LAT, (o.lng - e.lng) * mLng);
+                if (dm <= SPREAD_NEAR_M) union(i, j);
+            });
+        }
+    });
+    const groups = new Map();
+    entries.forEach((e, i) => {
+        const r = find(i);
+        if (!groups.has(r)) groups.set(r, []);
+        groups.get(r).push(e.key);
+    });
+    return [...groups.values()];
+}
+
+// 덩어리 중심 + 픽셀 오프셋 -> 현재 줌에서의 화면 좌표
+function spreadLatLng(sp) {
+    const center = new kakao.maps.LatLng(sp.lat0, sp.lng0);
+    if (!sp.dx && !sp.dy) return center;
+    const proj = map.getProjection();
+    const p = proj.containerPointFromCoords(center);
+    return proj.coordsFromContainerPoint(new kakao.maps.Point(p.x + sp.dx, p.y + sp.dy));
+}
+
+// 줌이 바뀌면 분산된 마커 위치를 다시 계산한다(픽셀 간격 유지).
+function relayoutSpreadMarkers() {
+    markers.forEach(m => { if (m.spread) m.overlay.setPosition(spreadLatLng(m.spread)); });
+}
+
+function spreadOverlappingMarkers(grouped) {
+    const entries = Object.entries(grouped).map(([key, d]) => ({ key, lat: +d.lat, lng: +d.lng }));
     const prioOf = key => markerPriority(grouped[key].category);
-    Object.values(coordToKeys).forEach(keys => {
-        const n = keys.length;
-        if (n <= 1) return;
+    _clusterNearby(entries).forEach(keys => {
+        if (keys.length <= 1) return;
         // i=0 이 중심이므로 우선순위가 높은 것부터 앞에 둔다(동순위는 원래 순서 유지 — 안정 정렬).
         keys.sort((a, b) => prioOf(a) - prioOf(b));
-        const hasApprox = keys.some(k => grouped[k].meters.some(m => m.좌표정확도 === 'approximate'));
-        const c = hasApprox ? SPIRAL_APPROX : SPIRAL_EXACT;
-        // Sunflower seed pattern: r = c·√i, θ = i·golden_angle
-        // i=0이 중심, i 증가하면서 빡빡한 나선형
+        const lat0 = keys.reduce((s, k) => s + +grouped[k].lat, 0) / keys.length;
+        const lng0 = keys.reduce((s, k) => s + +grouped[k].lng, 0) / keys.length;
+        // Sunflower seed pattern: r = step·√i, θ = i·golden_angle (i=0 이 중심)
         keys.forEach((key, i) => {
-            const r = c * Math.sqrt(i);
+            const r = SPREAD_STEP_PX * Math.sqrt(i);
             const angle = i * GOLDEN_ANGLE;
-            grouped[key].lat += r * Math.cos(angle);
-            grouped[key].lng += r * Math.sin(angle);
+            const sp = { lat0, lng0, dx: r * Math.sin(angle), dy: -r * Math.cos(angle) };
+            grouped[key].spread = sp;
+            const ll = spreadLatLng(sp);
+            grouped[key].lat = ll.getLat();
+            grouped[key].lng = ll.getLng();
         });
     });
 }
