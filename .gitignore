@@ -94,3 +94,4 @@ data/inbox_hapdong/awms-fmpmtr-full-*.json
 
 # 제외 이력 staging — 빌더가 매 실행마다 새로 쓰는 중간물(정본은 data/exclusions.json)
 data/.exclusions-stage/
+cst-input/backend/config_changes.jsonl
