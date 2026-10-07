@@ -27,7 +27,7 @@ def _cleanup_old_temp(max_age_sec=3600):
                 pass
 import requests
 from PIL import Image
-from fastapi import FastAPI, Body, HTTPException
+from fastapi import FastAPI, Body, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -649,11 +649,53 @@ def api_config():
     return out
 
 
+# ★지사·동행·공사 덮어쓰기 차단 (2026-10-07 사고 — 26건이 서울본부직할·동행으로 등록, 7/22 24건 재발)
+#   원인: 폰 설정화면은 **어느 버튼을 눌러도**(계정 저장 포함) 폰에 저장된 지사·동행을 통째로 다시 보낸다.
+#     백엔드만 3600/N 으로 고쳐 두면 폰엔 옛 값(7793/Y)이 남아 있다가 다음 전송 때 되살아났다.
+#     옛 웹 설정(cst-input/www/settings.js)도 페이지를 여는 것만으로 기본값을 밀어 넣는다.
+#   규칙: 아래 GUARDED 키는 요청이 `_explicit` 목록에 **그 키를 직접 적었을 때만** 바꾼다
+#     (= 작업자가 설정화면에서 그 칸을 눌러 바꾼 요청). 계정(CRED_*)은 그대로 받는다.
+#     막힌 변경은 무시하고 로그를 남긴다 — 응답의 CONFIG 로 폰이 실제 값을 다시 맞춘다.
+#   ★변경·차단은 전부 config_changes.jsonl 에 전/후 값·시각·출처로 남긴다(사고 추적용).
+CONFIG_GUARDED = ("DEPT2", "WITH_YN", "WORKER2_SEQ", "BUSI_NUM")
+CONFIG_LOG = Path(__file__).resolve().parent / "config_changes.jsonl"
+
+
+def _config_log(rec: dict):
+    rec = {"ts": datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S"), **rec}
+    print(f"[config] {json.dumps(rec, ensure_ascii=False)}", flush=True)
+    try:
+        with open(CONFIG_LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
 @app.post("/api/config")
-def api_config_set(body: dict = Body(...)):
-    CONFIG.update({k: v for k, v in body.items() if k in CONFIG})
-    _save_config()   # 폰 설정값(지사 등) persist — 재기동해도 유지
-    return CONFIG
+def api_config_set(request: Request, body: dict = Body(...)):
+    explicit = body.get("_explicit") or []
+    if isinstance(explicit, str):
+        explicit = [explicit]
+    src = request.client.host if request.client else "?"
+    changed, blocked = {}, {}
+    for k, v in body.items():
+        if k not in CONFIG or CONFIG.get(k) == v:
+            continue
+        if k in CONFIG_GUARDED and k not in explicit:
+            blocked[k] = [CONFIG.get(k), v]
+            continue
+        if k in ("CRED_PW",):
+            changed[k] = ["***", "***"]
+        else:
+            changed[k] = [CONFIG.get(k), v]
+        CONFIG[k] = v
+    if changed:
+        _save_config()   # 폰 설정값(지사 등) persist — 재기동해도 유지
+    if changed or blocked:
+        _config_log({"src": src, "explicit": explicit, "changed": changed, "blocked": blocked})
+    out = dict(CONFIG)
+    out["_blocked"] = sorted(blocked)
+    return out
 
 
 # ── 이름 해석 (설정탭 표시용, 영준님 지시 2026-07-27) ──
