@@ -783,7 +783,8 @@ _JONGNO_SD = ROOT.parent / "jongno-combined" / "data" / "jongno-site-data.json"
 _AMIWORK_SD = ROOT / "data" / "site-data.json"
 _JONGNO_WS_URL = "https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/workStatus/jongno.json"
 _bdju_cache = {"jsd": None, "asd": None, "ws": None, "ws_ts": 0.0,
-               "jsd_mtime": None, "asd_mtime": None}
+               "jsd_mtime": None, "asd_mtime": None,
+               "m25": None, "m25_mtime": None, "b25": None, "b25_mtime": None}
 
 
 def _decode_jongno_key(k: str) -> str:
@@ -856,11 +857,75 @@ def _bdju_donghang(mid: str) -> str:
     return ""
 
 
+# ★일반 소스 순서 = 실효(site-data) -> 25 미청구 -> 25 불가. 첫 매칭(값이 나온 행)을 쓴다.
+#   영준님 2026-10-13: "25 미청구나 25불가, 지도에 있는 것들의 변대주를 아미큐에서 받아오기로 했는데
+#   그게 안 되고 있어" — 예전엔 실효만 봐서 미청구·불가 계기는 늘 빈값이었다.
+#   ★값 = 아미맵 상세 상단 변대주 줄의 [복사] 버튼 값과 **똑같이**(영준님 정정 2026-10-13).
+#     js/detail.js poleMeterForDisplay -> poleDisplay(copyVal) 를 그대로 옮긴 것이다.
+#     'DCUID 앞 8자리' 로 줄이지 마라 — 대장 미매칭이면 DCUID 를 버리고, 전산화번호가 있으면 그것을 쓴다.
+#     JS 를 고치면 여기도 같이 고친다(대조: node 로 detail.js 함수를 돌려 전 건 비교, 2026-10-13 불일치 0).
+#   ★실효에 있으면 실효가 이긴다. 실효·미청구 공통 45 중 4건이 값이 다르다(05195610788·05195612651·
+#     92190336615·94199082140) — 순서는 PM 지시대로 실효 우선.
+#   ★합동(hapdong-data.json)은 넣지 않는다 — 지도분 875 전부 DCUID 빈값(원본에 변대주가 없다).
+#   ★한 소스에서 계기는 찾았는데 값이 비었으면 다음 소스로 넘어간다(빈값으로 끝내지 않는다).
+_BDJU_ILBAN_SOURCES = (("asd", _AMIWORK_SD), ("m25", MICHUNGGU_FILE), ("b25", MICHUNGGU_BULGA_FILE))
+_LEDGER_KEYS = ("DCU차수", "DCU통신방식", "회선상태", "철거판정")
+
+
+def _js_truthy(v) -> bool:
+    """JS 의 참거짓 — '' · 0 · None · False 는 거짓."""
+    return v not in (None, "", 0, False)
+
+
+def _js_str(v) -> str:
+    return "" if v is None else (str(v).lower() if isinstance(v, bool) else str(v))
+
+
+def _pole_no_of(m: dict) -> str:
+    """detail.js poleNoOf — (변대주전산화 || 변대주번호) || ''"""
+    for k in ("변대주전산화", "변대주번호"):
+        if _js_truthy(m.get(k)):
+            return _js_str(m.get(k))
+    return ""
+
+
+def _pole_meter_for_display(m: dict) -> dict:
+    """detail.js poleMeterForDisplay — 대장출처 리스트는 대장 미매칭이면 DCUID 를 비운다."""
+    if not _js_truthy(m.get("대장출처")):
+        return m
+    if not any(_js_truthy(m.get(k)) for k in _LEDGER_KEYS):
+        return {**m, "DCUID": ""}
+    i = _js_str(m.get("DCUID") or "").strip()
+    pn = _pole_no_of(m)
+    if len(i) == 10 and pn and pn.upper() != i[:8]:
+        return {**m, "변대주전산화": i[:8], "변대주번호": i[:8]}
+    return m
+
+
+def _pole_copy_val(m: dict) -> str:
+    """detail.js poleDisplay 의 copyVal — 전산화번호 / (영문 섞인 DCUID) 끝 2 제외 / (숫자만) 전체."""
+    pn = _pole_no_of(m)
+    dcu = _js_str(m.get("DCUID")) if _js_truthy(m.get("DCUID")) else ""
+    if pn:
+        return pn
+    if re.search(r"[A-Za-z]", dcu):
+        return dcu[:-2]
+    return dcu
+
+
+def bdju_copy_val(m: dict) -> str:
+    """아미맵 상단 변대주 줄 [복사] 값 = poleDisplay(poleMeterForDisplay(m)).copyVal"""
+    return _pole_copy_val(_pole_meter_for_display(m))
+
+
 def _bdju_ilban(mid: str) -> str:
-    for m in _sd_cached("asd", _AMIWORK_SD):
-        if str(m.get("계기번호")) == mid:
-            d = str(m.get("DCUID") or "").strip()
-            return d[:8] if len(d) >= 8 else ""
+    want = norm_meter(mid)
+    for key, path in _BDJU_ILBAN_SOURCES:
+        for m in _sd_cached(key, path):
+            if str(m.get("계기번호")) == mid or norm_meter(m.get("계기번호")) == want:
+                v = bdju_copy_val(m)
+                if v:
+                    return v
     return ""
 
 
