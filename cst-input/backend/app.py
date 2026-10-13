@@ -9,7 +9,7 @@
 PoC 검증 완료(2026-07-01): 맥 직접 saveAct result:1, 마스터+슬레이브 MB_REG_CNT=2.
 """
 import json, subprocess, urllib.request, time, os, re, base64, tempfile, shutil, glob
-import hashlib, io, uuid
+import hashlib, io, uuid, threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -193,6 +193,7 @@ def pull_session():
         CONFIG["WORKER1_SEQ"] = rid
     _save_session()
     pull_workgroup()   # awms 저장 작업조(WORKER2_SEQ 등) 반영
+    shipped_refresh_bg(True, "세션 pull")   # 내 출고 모뎀 목록
     return SESSION
 
 
@@ -635,6 +636,7 @@ def api_session_push(body: dict = Body(...)):
         CONFIG["WORKER1_SEQ"] = rid
     _save_session()
     pull_workgroup()   # 폰이 세션 push할 때마다 awms 저장 작업조(WORKER2_SEQ) 반영
+    shipped_refresh_bg(True, "세션 push")   # 내 출고 모뎀 목록 — 백그라운드라 응답을 붙잡지 않는다
     return {"ok": True, "alive": session_alive(), "account": rid,
             "worker1": CONFIG["WORKER1_SEQ"], "worker2": CONFIG["WORKER2_SEQ"]}
 
@@ -1603,6 +1605,163 @@ def api_commtype(mac: str = "", meterNo: str = ""):
     r = commtype_for(mac, meterNo)
     r["options"] = [{"v": v, "t": t} for v, t in COMM_SUFFIX_LABELS]
     return r
+
+
+# ── 내 출고 모뎀 (자재관리 > 자재이력조회 > 출고, MOBMTL6000) ─────────────────
+# 영준님 지시 2026-10-13: "맥 스캔할 때 이게 등록모뎀(내가 출고받은 모뎀)인지 아닌지 표시".
+#   ★표시만 한다 — 저장·전송을 막지 않는다. 캐시가 없거나 조회가 실패하면 폰은 배지를 안 그린다.
+#
+# 원천: GET /ami/mob/mtl/mobMtl6000/selectList  radioVal=20(출고) … myMtrlYn=
+#   행 FCTY_ID = 모뎀 MAC(11자리 012… / 12자리 hex), WRHSG_SHP_YMD = 출고일, MTRL_STS_CD = N1 신품·N2 재사용.
+#   ★myMtrlYn(화면 라벨 '자재소유 여부')은 **빈값(전체)으로 받는다.** 실측 2026-10-13: 전체 1,046 =
+#     Y 975 + N 71 로 정확히 갈린다. N 71건도 인수자(TKOVR_USER_ID)는 우리(273584)다 — 출고는 받았는데
+#     지금 '소유'가 아닌 것(반납·이관 추정, 15건은 우리가 이미 시공등록). 그래서 출고 여부는 전체로 보고,
+#     소유 여부는 `owned` 로 따로 실어 보낸다.
+#   ★mob/mtl 은 mob/cst 와 다른 경로지만 같은 세션(JSESSIONID)으로 열린다(PM 실측).
+#
+# 이미 시공: 시공등록 목록(getMainList, workStep 25·28·29, 전 지사)의 MAC_MODEM 에 있으면 used=true.
+#   ★기설(M1030)은 남의(기존) 모뎀에 합류한 것이라 거의 출고목록 밖이다(실측 285 중 1).
+#
+# MAC 비교 규칙: 구분자(공백·:·-·*)만 지우고 대문자 — **자릿수는 건드리지 않는다**(11·12 섞임, zfill 금지).
+#   앱(normMac)이 저장하는 형태와 FCTY_ID 가 이미 같은 모양이라 그대로 맞는다.
+#
+# 갱신: 세션 pull/push 때 + 하루 1회(조회 때 24시간 지났으면) + POST /api/shipped/refresh.
+#   '이미 시공' 목록은 30분 지나면 조회 때 다시 받는다(그날 등록분 반영). 둘 다 백그라운드라 조회를 안 붙잡는다.
+SHIPPED_FILE = Path(__file__).resolve().parent / "shipped_cache.json"   # .gitignore (우리 자재 MAC 목록)
+SHIPPED_URL = "https://awms.kdn.com/ami/mob/mtl/mobMtl6000/selectList"
+SHIPPED_MAX_AGE = 24 * 3600
+SHIPPED_USED_MAX_AGE = 30 * 60
+SHIPPED_STS_NM = {"N1": "신품", "N2": "재사용", "S1": "수리", "S2": "불용"}
+SHIPPED = {"ts": 0, "usedTs": 0, "rows": {}, "used": [], "err": ""}
+_SHIPPED_LOCK = threading.Lock()
+_SHIPPED_BUSY = threading.Event()
+
+
+def shipped_norm(mac) -> str:
+    """출고목록·시공목록·폰 입력 MAC 을 같은 모양으로. 구분자 제거 + 대문자, 자릿수 그대로."""
+    return re.sub(r"[\s:\-*]", "", str(mac or "")).upper()
+
+
+def _shipped_save():
+    try:
+        SHIPPED_FILE.write_text(json.dumps(SHIPPED, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _shipped_load():
+    try:
+        SHIPPED.update(json.loads(SHIPPED_FILE.read_text(encoding="utf-8")))
+    except Exception:
+        pass
+
+
+def _shipped_get_list(my_yn: str):
+    p = {"radioVal": "20", "vFclClCode": "", "vMtlCode": "", "vShpPurpCtt": "",
+         "sortCd": "1", "searchVal": "", "myMtrlYn": my_yn}
+    h = _headers()
+    h["Referer"] = "https://awms.kdn.com/html/main/index.html?app=MOBMTL&menu=MOBMTL6000"
+    r = requests.get(SHIPPED_URL, params=p, headers=h, timeout=30)
+    if r.status_code != 200 or "json" not in r.headers.get("content-type", ""):
+        raise RuntimeError(f"출고목록 HTTP {r.status_code} — 세션 만료 또는 서버 오류")
+    arr = r.json()
+    if not isinstance(arr, list):
+        raise RuntimeError(f"출고목록 응답이 배열이 아님: {type(arr).__name__}")
+    return arr
+
+
+def _shipped_get_used(since: str):
+    today = datetime.now(KST).strftime("%Y%m%d")
+    p = {"FLAG": "M10", "DEPT1": CONFIG["DEPT1"], "DEPT2": "", "workStep": "25,28,29",
+         "pPageNo": "1", "pRowCount": "20000", "strDate": since or "20260301", "endDate": today}
+    r = requests.get(f"{AWMS}/getMainList", params=p, headers=_headers(), timeout=60)
+    if r.status_code != 200 or "json" not in r.headers.get("content-type", ""):
+        raise RuntimeError(f"getMainList HTTP {r.status_code}")
+    d = r.json()
+    rows = d if isinstance(d, list) else d.get("rows", d.get("list", []))
+    return sorted({shipped_norm(x.get("MAC_MODEM")) for x in rows
+                   if isinstance(x, dict) and shipped_norm(x.get("MAC_MODEM")) not in ("", "-")})
+
+
+def shipped_refresh(full: bool = True, why: str = ""):
+    """출고목록(full=True 일 때) + 이미 시공 목록을 다시 받는다. 실패하면 옛 캐시를 그대로 둔다."""
+    if not SESSION.get("jsessionid"):
+        return {"ok": False, "error": "세션 없음"}
+    with _SHIPPED_LOCK:
+        try:
+            if full or not SHIPPED["rows"]:
+                allr = _shipped_get_list("")
+                not_owned = {shipped_norm(x.get("FCTY_ID")) for x in _shipped_get_list("N")}
+                rows = {}
+                for x in allr:
+                    k = shipped_norm(x.get("FCTY_ID"))
+                    if not k:
+                        continue
+                    rows[k] = {"ymd": str(x.get("WRHSG_SHP_YMD") or ""), "sts": str(x.get("MTRL_STS_CD") or ""),
+                               "owned": k not in not_owned}
+                SHIPPED["rows"] = rows
+                SHIPPED["ts"] = int(time.time())
+            since = min((v["ymd"] for v in SHIPPED["rows"].values() if v.get("ymd")), default="20260301")
+            SHIPPED["used"] = _shipped_get_used(since)
+            SHIPPED["usedTs"] = int(time.time())
+            SHIPPED["err"] = ""
+            _shipped_save()
+            n_used = len(set(SHIPPED["used"]) & set(SHIPPED["rows"]))
+            print(f"[shipped] 갱신({why or '-'}) 출고 {len(SHIPPED['rows'])} · 시공등록 MAC {len(SHIPPED['used'])}"
+                  f" · 출고 중 시공 {n_used}", flush=True)
+            return {"ok": True, "total": len(SHIPPED["rows"]), "used": len(SHIPPED["used"]),
+                    "shippedUsed": n_used, "ts": SHIPPED["ts"], "usedTs": SHIPPED["usedTs"]}
+        except Exception as e:
+            SHIPPED["err"] = f"{type(e).__name__}: {e}"
+            print(f"[shipped] 갱신 실패({why or '-'}) — {SHIPPED['err']} (옛 캐시 유지)", flush=True)
+            return {"ok": False, "error": SHIPPED["err"]}
+
+
+def shipped_refresh_bg(full: bool = True, why: str = ""):
+    """백그라운드 갱신 — 이미 돌고 있으면 건너뛴다(조회·세션 push 를 붙잡지 않는다)."""
+    if _SHIPPED_BUSY.is_set():
+        return
+    _SHIPPED_BUSY.set()
+
+    def _run():
+        try:
+            shipped_refresh(full, why)
+        finally:
+            _SHIPPED_BUSY.clear()
+    threading.Thread(target=_run, daemon=True).start()
+
+
+@app.get("/api/shipped/check")
+def api_shipped_check(mac: str = ""):
+    """MAC 하나가 내 출고 모뎀인가 · 이미 시공등록됐나.
+
+    → {available, mac, norm, shipped, ymd, sts, stsNm, owned, used, total, ts, usedTs}
+    ★available=false 면 폰은 배지를 그리지 않는다(캐시 없음 = 모름, '미출고' 아님).
+    """
+    now = time.time()
+    if now - SHIPPED.get("ts", 0) > SHIPPED_MAX_AGE:
+        shipped_refresh_bg(True, "하루 경과")
+    elif now - SHIPPED.get("usedTs", 0) > SHIPPED_USED_MAX_AGE:
+        shipped_refresh_bg(False, "시공목록 30분 경과")
+    k = shipped_norm(mac)
+    if not SHIPPED.get("rows"):
+        return {"available": False, "mac": mac, "norm": k, "error": SHIPPED.get("err", "")}
+    row = SHIPPED["rows"].get(k)
+    return {"available": True, "mac": mac, "norm": k, "shipped": bool(row),
+            "ymd": (row or {}).get("ymd", ""), "sts": (row or {}).get("sts", ""),
+            "stsNm": SHIPPED_STS_NM.get((row or {}).get("sts", ""), ""),
+            "owned": bool(row and row.get("owned")),
+            "used": k in set(SHIPPED.get("used") or []),
+            "total": len(SHIPPED["rows"]), "ts": SHIPPED.get("ts", 0), "usedTs": SHIPPED.get("usedTs", 0)}
+
+
+@app.post("/api/shipped/refresh")
+def api_shipped_refresh():
+    """수동 갱신 — 기다렸다가 결과를 돌려준다."""
+    return shipped_refresh(True, "수동")
+
+
+_shipped_load()   # 재기동 시 디스크 캐시 복원 — 세션이 없어도 마지막 목록으로 배지를 그린다
 
 
 # ── awms 등록 확인 (saveAct 직후 검증) ──────────────────────────────────
