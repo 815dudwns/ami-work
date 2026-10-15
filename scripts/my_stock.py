@@ -33,13 +33,21 @@ import awms_cst_detail as A  # noqa: E402
 CACHE = ROOT / "cst-input/backend/shipped_cache.json"
 DB = ROOT / "data/ami.db"
 AMIGO = ("012497", "012498", "012536", "012642")
-GTYPE = ("012540", "012545")
+GTYPE = ("012540", "012545", "012556")
 
 
 def kind(m):
     # LTE prefix -> meter type, measured from past master installs (>99% each, 2026-10-15)
     if m.startswith("012"):
         return "LTE-아미고" if m[:6] in AMIGO else ("LTE-G" if m[:6] in GTYPE else "LTE-AE")
+    # PLC names per 영준님 2026-10-15; AC5E8C split measured from master installs (A*=AE meters
+    # only, B0*=Amigo meters only)
+    if m.startswith("E0AEED"):
+        return "KS-PLC AE"
+    if m.startswith("AC5E8C"):
+        return "IoT-PLC 아미고" if m[6:8] == "B0" else ("IoT-PLC AE" if m[6] == "A" else "IoT-PLC ?")
+    if m.startswith("8472070"):
+        return "IoT-PLC E"
     return "PLC-" + m[:6]
 
 

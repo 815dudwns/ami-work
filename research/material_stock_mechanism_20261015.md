@@ -36,7 +36,9 @@ Refresh both caches first: `POST http://127.0.0.1:8766/api/shipped/refresh` (the
 - Amigo: `012536` `012642` `012497` `012498`
 - G: `012545` `012540`
 - AE (plain LTE): `012544` `012543` `0123xx` `0122xx` — `012380` and `012234` also went to G ~20-25%.
-- PLC: `E0AEED` KS-PLC, `847207` (7th char 0/E K-DCU, B/C/D KS-PLC), `AC5E8C` mixed.
+- G also `012556` (70/70 G masters).
+- PLC (영준님 2026-10-15): `E0AEED` = KS-PLC AE · `8472070` = IoT-PLC E-type · `AC5E8C` = IoT-PLC,
+  split by 7th-8th chars: `AC5E8CA*` AE (masters 100% AE meters) / `AC5E8CB0*` Amigo (100% Amigo meters).
 
 ## Result 2026-10-15 13:xx KST
 Ledger owned 975, unused 150 -> excluded 80 (pre-9/5 leftovers 70, replacement scrap 9, other's install 1)
