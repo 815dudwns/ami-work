@@ -36,19 +36,29 @@ AMIGO = ("012497", "012498", "012536", "012642")
 GTYPE = ("012540", "012545", "012556")
 
 
+# 영준님 자재수령 양식 순서 (2026-10-15). Modem rows only — seals/cables/연결장치 are not in the 출고 list.
+FORMAT = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE타입)", "LTE 모뎀(E타입)", "LTE 모뎀(G타입)",
+          "PLC모뎀(AE타입)", "PLC모뎀(E 타입)", "PLC모뎀(AMIGO)",
+          "IotPLC모뎀(AE타입)", "IotPLC모뎀(E 타입)", "HPGP모뎀(AE타입)", "HPGP모뎀(G타입)"]
+
+
 def kind(m):
-    # LTE prefix -> meter type, measured from past master installs (>99% each, 2026-10-15)
+    # LTE prefix -> meter type, measured from past master installs (>99% each, 2026-10-15).
+    # LTE E-type prefix not identified yet -> plain 012 falls to AE.
     if m.startswith("012"):
-        return "LTE-아미고" if m[:6] in AMIGO else ("LTE-G" if m[:6] in GTYPE else "LTE-AE")
-    # PLC names per 영준님 2026-10-15; AC5E8C split measured from master installs (A*=AE meters
-    # only, B0*=Amigo meters only)
+        return "LTE 모뎀(AMIGO)" if m[:6] in AMIGO else ("LTE 모뎀(G타입)" if m[:6] in GTYPE else "LTE 모뎀(AE타입)")
+    # PLC per 영준님 2026-10-15: E0AEED=KS-PLC AE, 8472070=IoT-PLC E, AC5E8C=IoT-PLC.
+    # AC5E8C split measured from master installs: A*=AE meters only, B0*=Amigo meters only.
+    # The form has no IoT-PLC Amigo row, so B0* goes to PLC모뎀(AMIGO) — unconfirmed.
     if m.startswith("E0AEED"):
-        return "KS-PLC AE"
+        return "PLC모뎀(AE타입)"
     if m.startswith("AC5E8C"):
-        return "IoT-PLC 아미고" if m[6:8] == "B0" else ("IoT-PLC AE" if m[6] == "A" else "IoT-PLC ?")
+        return "PLC모뎀(AMIGO)" if m[6:8] == "B0" else "IotPLC모뎀(AE타입)"
     if m.startswith("8472070"):
-        return "IoT-PLC E"
-    return "PLC-" + m[:6]
+        return "IotPLC모뎀(E 타입)"
+    if m.startswith(("44B433", "0014B0")):
+        return "HPGP모뎀(AE타입)"
+    return "미분류 " + m[:7]
 
 
 def refresh():
@@ -126,12 +136,12 @@ def main():
         print(f"  제외 {k}: {len(v)}")
     total = sum(len(v) for v in keep.values())
     print(f"\n실재고 추정 {total}개 ({a.since} 이후 수령)")
-    for k in sorted(keep):
+    for k in FORMAT + sorted(set(keep) - set(FORMAT)):
         v = sorted(keep[k])
         days = defaultdict(int)
         for y, _ in v:
             days[y] += 1
-        print(f"  {k:12} {len(v):3}  수령일 {dict(days)}")
+        print(f"  {k:18} {len(v):3}" + (f"  수령일 {dict(days)}" if v else ""))
         if a.list:
             print("     ", " ".join(m for _, m in v))
     singles = [(y, m) for k in keep for y, m in keep[k]
