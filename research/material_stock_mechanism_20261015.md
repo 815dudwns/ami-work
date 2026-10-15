@@ -20,7 +20,11 @@ Refresh both caches first: `POST http://127.0.0.1:8766/api/shipped/refresh` (the
 2. **Jun-Aug box bulk registration was wrong** (영준님). Leftovers from those receipts have no
    physical unit. Largest: 6/18-19 Amigo box `012536536xx`-`012536591xx`, 38 units, nobody has
    installed any of them (to 9/18). 영준님 did 자재이관등록 for some; the rest still show owned=Y.
-   Rule from 영준님: **recent receipts are my real stock** -> `--since` (default 20260905).
+   ~~Rule: recent receipts only (since 9/5)~~ — corrected by 영준님 the same evening: modems
+   were returned and **re-issued in one batch on 6/22, every unit scanned**; "그때부터 제대로 된
+   카운트야". `--since` default is now **20260622**. IoT PLC (AC5E8C, 8/12) and old K-DCU
+   (847207 7th char 0, 6/22) must be counted. Pre-6/22 leftovers (6/18-19 Amigo 38, 3/27 AE 2)
+   stay excluded.
 3. **Other workers' installs booked to me.** `01249850903`: installed by 김영진 6/15 (also in the
    장애 sheet), booked to me 9/4.
 4. **Ledger date lags physical receipt.** The 10/6 box (`0126426x`-`0126427x`) was installed from 10/1.
@@ -39,6 +43,10 @@ Ledger owned 975, unused 150 -> excluded 80 (pre-9/5 leftovers 70, replacement s
 -> **estimated stock 70**: E0AEED 40 (10/6) · G 21 (9/22 x20, 9/28 x1) · AE 5 · Amigo 3 · 847207 1.
 영준님 physical Amigo count = 1 vs ledger 2 (10/6) + 1 single (9/29): mismatch open
 (misread MAC at registration, partner-account registration, or not yet registered).
+
+## Correction 2026-10-15 evening (cutoff 6/22, cache not refreshed — session expired)
+Adds 29 from 6/22-9/4: AC5E8C 16 (8/12) · E0AEED 5 · AE 2 · G 2 · 847207 K-DCU 2 · Amigo 2
+(7/28 01253654886, 8/12 01253654342) -> **about 99**. Rerun after login to confirm.
 
 ## Open
 - Physical count of G 21 / AE 5 / E0AEED 40 to validate the method.

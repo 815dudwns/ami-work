@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """My real modem stock (통신팀, 영준님 계정) — awms 장부에서 실물 아닌 것을 걸러 낸다.
 
-    python3 scripts/my_stock.py                 # 기본: 2026-09-05 이후 수령분
+    python3 scripts/my_stock.py                 # 기본: 2026-06-22(일괄 재출고) 이후 수령분
     python3 scripts/my_stock.py --since 20261001
     python3 scripts/my_stock.py --list          # 남은 MAC 전부 출력
 
@@ -10,8 +10,9 @@ see research/material_stock_mechanism_20261015.md:
   1. Modem replacement (M1020): the REMOVED old modem is booked to me as a 1-unit 출고
      on the replacement date. It is scrap, not stock. Detected via my getMainList
      EXT_FCTY_ID (9/2, 9/4: 9 MACs).
-  2. Jun-Aug boxes were bulk-registered wrongly; leftovers there have no physical unit
-     (영준님 2026-10-15: "최근에 받은 것이 내 자재"). Hence --since.
+  2. Before the 6/22 bulk reissue (modems returned, then re-issued at once and every unit
+     scanned) the ledger is wrong — e.g. the 6/18-19 Amigo box. From 6/22 on the count is
+     right, IoT PLC (AC5E8C) and old K-DCU (847207 7th 0) included (영준님 2026-10-15). Hence --since.
   3. Other workers' installs booked to me (e.g. 01249850903, installed by 김영진 6/15,
      booked to me 9/4). Detected via modem_work_all (installs of everyone, to 9/18).
   4. Ledger 출고 date lags physical receipt (10/6 box was installed from 10/1).
@@ -86,7 +87,7 @@ def others_installed(macs):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--since", default="20260905", help="수령분 기준일(이전은 박스 오등록 잔여로 본다)")
+    ap.add_argument("--since", default="20260622", help="수령분 기준일 — 6/22 반납 후 일괄 재출고(전량 스캔)부터 장부가 실물과 맞는다")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--no-refresh", action="store_true")
     a = ap.parse_args()
