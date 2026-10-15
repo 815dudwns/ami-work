@@ -37,16 +37,17 @@ GTYPE = ("012540", "012545", "012556")
 
 
 # 영준님 자재수령 양식 순서 (2026-10-15). Modem rows only — seals/cables/연결장치 are not in the 출고 list.
-FORMAT = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE타입)", "LTE 모뎀(E타입)", "LTE 모뎀(G타입)",
+FORMAT = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE·E타입)", "LTE 모뎀(G타입)",
           "PLC모뎀(AE타입)", "PLC모뎀(E 타입)", "PLC모뎀(AMIGO)",
           "IotPLC모뎀(AE타입)", "IotPLC모뎀(E 타입)", "HPGP모뎀(AE타입)", "HPGP모뎀(G타입)"]
 
 
 def kind(m):
     # LTE prefix -> meter type, measured from past master installs (>99% each, 2026-10-15).
-    # LTE E-type prefix not identified yet -> plain 012 falls to AE.
+    # LTE other than G/Amigo: AE and E share prefixes and are heavily reused (영준님 2026-10-15),
+    # so they cannot be split by MAC — one combined row; split physically.
     if m.startswith("012"):
-        return "LTE 모뎀(AMIGO)" if m[:6] in AMIGO else ("LTE 모뎀(G타입)" if m[:6] in GTYPE else "LTE 모뎀(AE타입)")
+        return "LTE 모뎀(AMIGO)" if m[:6] in AMIGO else ("LTE 모뎀(G타입)" if m[:6] in GTYPE else "LTE 모뎀(AE·E타입)")
     # PLC per 영준님 2026-10-15: E0AEED=KS-PLC AE, 8472070=IoT-PLC E, AC5E8C=IoT-PLC.
     # AC5E8C split measured from master installs: A*=AE meters only, B0*=Amigo meters only.
     # The form has no IoT-PLC Amigo row, so B0* goes to PLC모뎀(AMIGO) — unconfirmed.
