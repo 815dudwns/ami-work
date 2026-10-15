@@ -37,26 +37,55 @@ GTYPE = ("012540", "012545", "012556")
 
 
 # 영준님 자재수령 양식 순서 (2026-10-15). Modem rows only — seals/cables/연결장치 are not in the 출고 list.
-FORMAT = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE·E타입)", "LTE 모뎀(G타입)",
+FORMAT = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE타입)", "LTE 모뎀(E타입)", "LTE 모뎀(G타입)",
           "PLC모뎀(AE타입)", "PLC모뎀(E 타입)", "PLC모뎀(AMIGO)",
-          "IotPLC모뎀(AE타입)", "IotPLC모뎀(E 타입)", "HPGP모뎀(AE타입)", "HPGP모뎀(G타입)"]
+          "IotPLC모뎀(AE타입)", "IotPLC모뎀(E 타입)", "IotPLC모뎀(AMIGO)",
+          "HPGP모뎀(AE타입)", "HPGP모뎀(G타입)"]
+
+
+def _history_type(m):
+    # AE vs E for reused LTE / mixed PLC: majority of everyone's master installs on the same
+    # 7-char prefix. 외장형연결장치=Y on an Adv-E meter = E modem via adapter (영준님 2026-10-15).
+    # Measured table: research/modem_type_by_prefix_20261015.md (scripts/modem_type_map.py).
+    if not DB.exists():
+        return None
+    c = sqlite3.connect(DB)
+    e = ae = 0
+    for mt, conn, n in c.execute(
+            "SELECT 계기유형, 외장형연결장치, count(*) FROM modem_work_all WHERE mac_norm LIKE ? "
+            "AND 모뎀유형='마스터' GROUP BY 1, 2", (m[:7] + "%",)):
+        if mt == "E-type" or (mt == "Adv-E" and conn == "Y"):
+            e += n
+        elif mt == "Adv-E":
+            ae += n
+    if e + ae < 5:
+        return None
+    return "E" if e / (e + ae) >= 0.6 else ("AE" if ae / (e + ae) >= 0.6 else None)
 
 
 def kind(m):
-    # LTE prefix -> meter type, measured from past master installs (>99% each, 2026-10-15).
-    # LTE other than G/Amigo: AE and E share prefixes and are heavily reused (영준님 2026-10-15),
-    # so they cannot be split by MAC — one combined row; split physically.
+    # LTE Amigo/G prefixes: >99% of master installs. Other LTE = AE or E, prefixes reused ->
+    # decided per 7-char prefix from history; unresolved stays "AE·E 확인".
     if m.startswith("012"):
-        return "LTE 모뎀(AMIGO)" if m[:6] in AMIGO else ("LTE 모뎀(G타입)" if m[:6] in GTYPE else "LTE 모뎀(AE·E타입)")
-    # PLC per 영준님 2026-10-15: E0AEED=KS-PLC AE, 8472070=IoT-PLC E, AC5E8C=IoT-PLC.
-    # AC5E8C split measured from master installs: A*=AE meters only, B0*=Amigo meters only.
-    # The form has no IoT-PLC Amigo row, so B0* goes to PLC모뎀(AMIGO) — unconfirmed.
+        if m[:6] in AMIGO:
+            return "LTE 모뎀(AMIGO)"
+        if m[:6] in GTYPE:
+            return "LTE 모뎀(G타입)"
+        t = _history_type(m)
+        return f"LTE 모뎀({t}타입)" if t else "LTE 모뎀(AE·E 확인)"
+    # PLC: KS-PLC = DCU 1-4차, IoT-PLC = DCU 5-6차, K-DCU = IoT-PLC (영준님 2026-10-15).
+    # Generation measured via DCU 차수 of the installs: E0AEED, 847207B/C/D = DCU1-4 (KS-PLC);
+    # 8472070, 847207E, AC5E8C = DCU5-6 (IoT-PLC). 44B433/0014B0 = HPGP.
+    if m.startswith("AC5E8C"):
+        return "IotPLC모뎀(AMIGO)" if m[6:8] == "B0" else "IotPLC모뎀(AE타입)"
+    if m.startswith("8472070"):
+        return "IotPLC모뎀(E 타입)"  # 영준님; history: E-via-adapter majority
+    if m.startswith("847207E"):
+        return f"IotPLC모뎀({_history_type(m) or 'AE·E 확인'} 타입)"
     if m.startswith("E0AEED"):
         return "PLC모뎀(AE타입)"
-    if m.startswith("AC5E8C"):
-        return "PLC모뎀(AMIGO)" if m[6:8] == "B0" else "IotPLC모뎀(AE타입)"
-    if m.startswith("8472070"):
-        return "IotPLC모뎀(E 타입)"
+    if m.startswith(("847207B", "847207C", "847207D")):
+        return f"PLC모뎀({_history_type(m) or 'AE·E 확인'} 타입)".replace("(AE 타입)", "(AE타입)")
     if m.startswith(("44B433", "0014B0")):
         return "HPGP모뎀(AE타입)"
     return "미분류 " + m[:7]
