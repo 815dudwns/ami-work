@@ -48,6 +48,16 @@ Ledger owned 975, unused 150 -> excluded 80 (pre-9/5 leftovers 70, replacement s
 Adds 29 from 6/22-9/4: AC5E8C 16 (8/12) · E0AEED 5 · AE 2 · G 2 · 847207 K-DCU 2 · Amigo 2
 (7/28 01253654886, 8/12 01253654342) -> **about 99**. Rerun after login to confirm.
 
+## The mismatched box (영준님 2026-10-15)
+Around early Sep (soon after starting 서대문) 영준님 registered a box by its box barcode; it did
+not match the physical modems, so every unit was re-scanned one by one and units shown as
+received by others were taken over via 자재이관. In the ledger this is **9/8**: 80 rows = G 40
+(39 owned, all used) + **Amigo 40 `01264260199`-`01264273297` + `01254537145`, owned=N, none
+used by me**. Same 012642 range as the 10/6 Amigo box that was actually installed. owned=N
+already removes it, so it does not inflate stock — but expect that box never to reconcile.
+Recount from the 18:01 cache with cutoff 6/22: **97** (AE 7, G 22, Amigo 4, 847207 3,
+AC5E8C 16, E0AEED 45).
+
 ## Open
 - Physical count of G 21 / AE 5 / E0AEED 40 to validate the method.
 - Remaining Jun-Aug leftovers: transfer (이관) or ask KDN to clear.
