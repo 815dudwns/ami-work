@@ -229,7 +229,8 @@ def from_baseline(a):
         seen.add(key)
         used.append((m, r.get("WORK_DATE"), key))
         stock[bucket(kind(m))] -= 1
-    ledger = set(json.loads(CACHE.read_text())["rows"]) | set(handovers())
+    _c = json.loads(CACHE.read_text())
+    ledger = set(_c.get("ledger") or _c["rows"]) | set(handovers())  # backend now strips self-handover/excluded from rows
     print(f"이후 수령 {len(got)} · 이후 시공 {len(used)}")
     print(f"\n현재 재고 {sum(stock.values())}개")
     for k in FORMAT_B + sorted(set(stock) - set(FORMAT_B)):
