@@ -1700,7 +1700,11 @@ SHIPPED_URL = "https://awms.kdn.com/ami/mob/mtl/mobMtl6000/selectList"
 SHIPPED_MAX_AGE = 24 * 3600
 SHIPPED_USED_MAX_AGE = 30 * 60
 SHIPPED_STS_NM = {"N1": "신품", "N2": "재사용", "S1": "수리", "S2": "불용"}
-SHIPPED = {"ts": 0, "usedTs": 0, "rows": {}, "used": [], "err": ""}
+SHIPPED = {"ts": 0, "usedTs": 0, "rows": {}, "used": [], "recv": [], "ledger": [], "err": ""}
+# rows   = '내 모뎀' 판정용 — 출고(20)+인계(40) 중 본인인계(장애 교체) 행·stock_exclude 를 뺀 것
+# recv   = 재고 계산용 수령 행 전부 [{mac, regTs(ms), src 20|40, self}] — 기준점 이후 수령을 여기서 센다
+# ledger = 장부에 한 번이라도 나온 MAC 전부(본인인계·제외 포함) — 오독 의심(장부에 없는 MAC 시공) 판정용
+SHIPPED_ME = "273584"   # 본인 — 출고 인계자(HNDOVR_USER_ID)가 본인이면 장애 교체로 잡힌 행(실물 아님)
 _SHIPPED_LOCK = threading.Lock()
 _SHIPPED_BUSY = threading.Event()
 
@@ -1724,8 +1728,9 @@ def _shipped_load():
         pass
 
 
-def _shipped_get_list(my_yn: str):
-    p = {"radioVal": "20", "vFclClCode": "", "vMtlCode": "", "vShpPurpCtt": "",
+def _shipped_get_list(my_yn: str, radio: str = "20"):
+    """자재이력조회(MOBMTL6000). radio 20=출고 탭 · 40=인계 탭(다른 작업자가 넘겨준 것)."""
+    p = {"radioVal": radio, "vFclClCode": "", "vMtlCode": "", "vShpPurpCtt": "",
          "sortCd": "1", "searchVal": "", "myMtrlYn": my_yn}
     h = _headers()
     h["Referer"] = "https://awms.kdn.com/html/main/index.html?app=MOBMTL&menu=MOBMTL6000"
@@ -1758,15 +1763,27 @@ def shipped_refresh(full: bool = True, why: str = ""):
     with _SHIPPED_LOCK:
         try:
             if full or not SHIPPED["rows"]:
-                allr = _shipped_get_list("")
-                not_owned = {shipped_norm(x.get("FCTY_ID")) for x in _shipped_get_list("N")}
-                rows = {}
-                for x in allr:
-                    k = shipped_norm(x.get("FCTY_ID"))
-                    if not k:
-                        continue
-                    rows[k] = {"ymd": str(x.get("WRHSG_SHP_YMD") or ""), "sts": str(x.get("MTRL_STS_CD") or ""),
-                               "owned": k not in not_owned}
+                excl = stock_exclude()
+                rows, recv, ledger = {}, [], set()
+                for radio in ("20", "40"):
+                    allr = _shipped_get_list("", radio)
+                    not_owned = {shipped_norm(x.get("FCTY_ID")) for x in _shipped_get_list("N", radio)}
+                    for x in allr:
+                        k = shipped_norm(x.get("FCTY_ID"))
+                        if not k:
+                            continue
+                        ledger.add(k)
+                        # 출고 탭의 인계자가 본인 = 장애 교체 작업에 쓴 MAC 을 awms 가 1개 출고로 잡은 것(영준님 2026-10-16)
+                        selfh = radio == "20" and str(x.get("HNDOVR_USER_ID") or "") == SHIPPED_ME
+                        recv.append({"mac": k, "regTs": int(x.get("REG_DATE") or 0), "src": radio, "self": selfh})
+                        if selfh or k in excl:
+                            continue
+                        if k in rows and rows[k]["owned"]:
+                            continue   # 출고·인계 양쪽에 있으면 소유 행을 남긴다
+                        rows[k] = {"ymd": str(x.get("WRHSG_SHP_YMD") or ""), "sts": str(x.get("MTRL_STS_CD") or ""),
+                                   "owned": k not in not_owned, "src": radio}
+                SHIPPED["recv"] = recv
+                SHIPPED["ledger"] = sorted(ledger)
                 SHIPPED["rows"] = rows
                 SHIPPED["ts"] = int(time.time())
             since = min((v["ymd"] for v in SHIPPED["rows"].values() if v.get("ymd")), default="20260301")
@@ -1774,6 +1791,7 @@ def shipped_refresh(full: bool = True, why: str = ""):
             SHIPPED["usedTs"] = int(time.time())
             SHIPPED["err"] = ""
             _shipped_save()
+            stock_compute(why)   # 재고는 같은 갱신에 얹는다(실패해도 출고목록 갱신은 살린다)
             n_used = len(set(SHIPPED["used"]) & set(SHIPPED["rows"]))
             print(f"[shipped] 갱신({why or '-'}) 출고 {len(SHIPPED['rows'])} · 시공등록 MAC {len(SHIPPED['used'])}"
                   f" · 출고 중 시공 {n_used}", flush=True)
@@ -1829,6 +1847,179 @@ def api_shipped_refresh():
     return shipped_refresh(True, "수동")
 
 
+# ── 내 모뎀 재고 (실물 기준점 + 이후 수령 − 이후 시공) ─────────────────────
+# 정본 로직 = scripts/my_stock.py from_baseline() 을 그대로 옮긴 것. 원리 research/material_stock_mechanism_20261015.md
+# 장부(출고목록)는 실물과 맞출 수 없다(박스 오등록·등록 때 MAC 오독·장부 밖 IoT-PLC AE) → 영준님이 한 번 실물을 세고
+# (stock_baseline.json) 그 뒤로는 차이만 계산한다:
+#   + 기준 이후 수령 = 출고(20)·인계(40) 의 REG_DATE > 기준 ts. 출고 중 인계자=본인 행(장애 교체분)은 뺀다
+#   − 기준 이후 시공 = getMainList 마스터(MODEM_DIV 10) 중 신설·교체(M1010/M1020), **계기당 1회**
+#     (MAC 정정 재전송 시 옛 행이 KDN 삭제 전까지 남아 이중 차감되는 것을 막는다)
+#   ★DEPT2='' 로 전 지사 + 기타·기타2(9999)·구좌 까지 한 번에 온다(실측 2026-10-16: 6월분 1,008 = 지사별 13개 합 1,008).
+#     7개 지사만 보면 9999 기타2 등록분이 빠진다.
+# 갱신 = 출고목록 갱신(shipped_refresh)에 얹혀 돈다 → 세션 pull/push(로그인) 때마다 + 조회 때 30분 경과 시.
+STOCK_BASELINE_FILE = Path(__file__).resolve().parent / "stock_baseline.json"   # .gitignore — 영준님 실물 카운트
+STOCK_EXCLUDE_FILE = Path(__file__).resolve().parent / "stock_exclude.json"     # .gitignore — 장부엔 내 것, 실물 없음
+STOCK_FILE = Path(__file__).resolve().parent / "stock_cache.json"               # .gitignore
+STOCK_MAX_AGE = 30 * 60
+STOCK = {"ts": 0, "err": ""}
+_STOCK_DB = Path(__file__).resolve().parents[2] / "data" / "ami.db"   # 전 작업자 시공 이력(modem_work_all) — AE/E 판정용
+_STOCK_KIND_CACHE = {}
+
+STOCK_AMIGO = ("012497", "012498", "012536", "012642")
+STOCK_GTYPE = ("012540", "012545", "012556")
+# 영준님 자재수령 양식 순서(2026-10-15). 실물은 LTE AE·E 를 한 줄로 센다(MAC 으로 못 가른다).
+STOCK_FORMAT = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE·E타입)", "LTE 모뎀(G타입)", "PLC모뎀(AE타입)", "PLC모뎀(E 타입)",
+                "PLC모뎀(AMIGO)", "IotPLC모뎀(AE타입)", "IotPLC모뎀(E 타입)", "IotPLC모뎀(AMIGO)",
+                "HPGP모뎀(AE타입)", "HPGP모뎀(G타입)"]
+
+
+def stock_exclude() -> dict:
+    try:
+        return {shipped_norm(k): v for k, v in
+                json.loads(STOCK_EXCLUDE_FILE.read_text(encoding="utf-8")).get("macs", {}).items()}
+    except Exception:
+        return {}
+
+
+def _stock_history_type(m: str):
+    """같은 7자리 접두의 전 작업자 마스터 시공 다수결로 AE/E. 외장형연결장치=Y 인 Adv-E 는 E(어댑터)."""
+    if m[:7] in _STOCK_KIND_CACHE:
+        return _STOCK_KIND_CACHE[m[:7]]
+    t = None
+    try:
+        import sqlite3
+        c = sqlite3.connect(f"file:{_STOCK_DB}?mode=ro", uri=True)
+        e = ae = 0
+        for mt, conn, n in c.execute(
+                "SELECT 계기유형, 외장형연결장치, count(*) FROM modem_work_all WHERE mac_norm LIKE ? "
+                "AND 모뎀유형='마스터' GROUP BY 1, 2", (m[:7] + "%",)):
+            if mt == "E-type" or (mt == "Adv-E" and conn == "Y"):
+                e += n
+            elif mt == "Adv-E":
+                ae += n
+        c.close()
+        if e + ae >= 5:
+            t = "E" if e / (e + ae) >= 0.6 else ("AE" if ae / (e + ae) >= 0.6 else None)
+    except Exception:
+        t = None
+    _STOCK_KIND_CACHE[m[:7]] = t
+    return t
+
+
+def stock_kind(m: str) -> str:
+    """MAC → 모뎀 종류(my_stock.py kind() 그대로). PLC 세대는 DCU 차수: E0AEED·847207B/C/D = KS-PLC(1~4차),
+    8472070·847207E·AC5E8C = IoT-PLC(5~6차). 44B433·0014B0 = HPGP."""
+    if m.startswith("012"):
+        if m[:6] in STOCK_AMIGO:
+            return "LTE 모뎀(AMIGO)"
+        if m[:6] in STOCK_GTYPE:
+            return "LTE 모뎀(G타입)"
+        t = _stock_history_type(m)
+        return f"LTE 모뎀({t}타입)" if t else "LTE 모뎀(AE·E 확인)"
+    if m.startswith("AC5E8C"):
+        return "IotPLC모뎀(AMIGO)" if m[6:8] == "B0" else "IotPLC모뎀(AE타입)"
+    if m.startswith("8472070"):
+        return "IotPLC모뎀(E 타입)"
+    if m.startswith("847207E"):
+        return f"IotPLC모뎀({_stock_history_type(m) or 'AE·E 확인'} 타입)"
+    if m.startswith("E0AEED"):
+        return "PLC모뎀(AE타입)"
+    if m.startswith(("847207B", "847207C", "847207D")):
+        return f"PLC모뎀({_stock_history_type(m) or 'AE·E 확인'} 타입)".replace("(AE 타입)", "(AE타입)")
+    if m.startswith(("44B433", "0014B0")):
+        return "HPGP모뎀(AE타입)"
+    return "미분류 " + m[:7]
+
+
+def stock_bucket(k: str) -> str:
+    return "LTE 모뎀(AE·E타입)" if k.startswith("LTE 모뎀(AE") or k == "LTE 모뎀(E타입)" else k
+
+
+def _stock_save():
+    try:
+        STOCK_FILE.write_text(json.dumps(STOCK, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def stock_compute(why: str = ""):
+    """SHIPPED(recv·ledger) + 기준점 이후 getMainList 로 재고를 다시 센다. 실패하면 옛 결과 유지."""
+    from collections import defaultdict
+    try:
+        b = json.loads(STOCK_BASELINE_FILE.read_text(encoding="utf-8"))
+    except Exception as e:
+        STOCK.update(err=f"기준점 파일 없음/깨짐: {e}")
+        return
+    try:
+        ts = int(b["ts"]) * 1000
+        excl = stock_exclude()
+        stock = defaultdict(int, b["counts"])
+        got = []
+        for r in SHIPPED.get("recv") or []:
+            if r["regTs"] > ts and not r["self"] and r["mac"] not in excl:
+                k = stock_kind(r["mac"])
+                stock[stock_bucket(k)] += 1
+                got.append({"mac": r["mac"], "kind": k, "regTs": r["regTs"], "src": "출고" if r["src"] == "20" else "인계"})
+        d0 = datetime.fromtimestamp(int(b["ts"]), KST).strftime("%Y%m%d")
+        today = datetime.now(KST).strftime("%Y%m%d")
+        p = {"FLAG": "M10", "DEPT1": CONFIG["DEPT1"], "DEPT2": "", "searchKeyword": "", "sortKey": "0",
+             "workStep": "25,28,29", "pPageNo": "1", "pRowCount": "5000", "strDate": d0, "endDate": today}
+        resp = requests.get(f"{AWMS}/getMainList", params=p, headers=_headers(), timeout=60)
+        if resp.status_code != 200 or "json" not in resp.headers.get("content-type", ""):
+            raise RuntimeError(f"getMainList HTTP {resp.status_code}")
+        d = resp.json()
+        rows = d if isinstance(d, list) else d.get("rows", d.get("list", []))
+        seen, used, dup = set(), [], []
+        for r in sorted((x for x in rows if isinstance(x, dict)), key=lambda x: x.get("REG_DATE") or 0):
+            m = shipped_norm(r.get("MAC_MODEM"))
+            if (r.get("REG_DATE") or 0) <= ts or r.get("MODEM_DIV") != "10" or r.get("WORK_DIV") not in ("M1010", "M1020"):
+                continue
+            key = r.get("INSTR_NUM")
+            if key in seen:
+                dup.append({"mac": m, "meter": key, "workDate": r.get("WORK_DATE") or ""})
+                continue
+            seen.add(key)
+            k = stock_kind(m)
+            stock[stock_bucket(k)] -= 1
+            used.append({"mac": m, "kind": k, "meter": key, "workDate": r.get("WORK_DATE") or "",
+                         "workDiv": r.get("WORK_DIV")})
+        ledger = set(SHIPPED.get("ledger") or [])
+        odd = [u for u in used if u["mac"] not in ledger and not u["mac"].startswith("AC5E8CA")]
+        order = STOCK_FORMAT + sorted(set(stock) - set(STOCK_FORMAT))
+        STOCK.clear()
+        STOCK.update({
+            "ts": int(time.time()), "err": "",
+            "counts": [{"name": k, "n": stock[k]} for k in order if stock.get(k)],
+            "total": sum(stock.values()),
+            "baselineTs": int(b["ts"]), "baselineTotal": sum(b["counts"].values()),
+            "receivedSince": got, "usedSince": used, "dupSkipped": dup, "misreadSuspects": odd,
+        })
+        _stock_save()
+        print(f"[stock] 재고({why or '-'}) {STOCK['total']}개 = 기준 {STOCK['baselineTotal']} + 수령 {len(got)}"
+              f" − 시공 {len(used)}" + (f" · ★오독의심 {len(odd)}" if odd else "")
+              + (f" · 재등록 {len(dup)}" if dup else ""), flush=True)
+    except Exception as e:
+        STOCK["err"] = f"{type(e).__name__}: {e}"
+        print(f"[stock] 계산 실패({why or '-'}) — {STOCK['err']} (옛 결과 유지)", flush=True)
+
+
+@app.get("/api/stock")
+def api_stock():
+    """내 모뎀 재고 → {counts:[{name,n}](자재수령 양식 순서), total, baselineTs, baselineTotal, ts,
+    receivedSince[], usedSince[], dupSkipped[], misreadSuspects[], err}. 30분 지났으면 백그라운드로 다시 받는다."""
+    if time.time() - max(STOCK.get("ts", 0), 0) > STOCK_MAX_AGE:
+        shipped_refresh_bg(True, "재고 30분 경과")
+    return {"available": bool(STOCK.get("counts")), **STOCK}
+
+
+def _stock_load():
+    try:
+        STOCK.update(json.loads(STOCK_FILE.read_text(encoding="utf-8")))
+    except Exception:
+        pass
+
+
+_stock_load()
 _shipped_load()   # 재기동 시 디스크 캐시 복원 — 세션이 없어도 마지막 목록으로 배지를 그린다
 
 
