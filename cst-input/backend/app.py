@@ -1942,6 +1942,32 @@ def _stock_save():
         pass
 
 
+def _stock_meter_had_master_before(meter: str, ts_ms: int) -> bool:
+    """이 계기에 기준점 이전에 등록된 마스터 행이 있으면 True(= 정정 재저장). 계기번호 검색, 올해 전체."""
+    if not meter:
+        return False
+    cache = _STOCK_PRIOR.get(meter)
+    if cache is not None:
+        return cache
+    p = {"FLAG": "M10", "DEPT1": CONFIG["DEPT1"], "DEPT2": "", "searchKeyword": meter, "sortKey": "0",
+         "workStep": "25,28,29", "pPageNo": "1", "pRowCount": "50", "strDate": "20260101",
+         "endDate": datetime.now(KST).strftime("%Y%m%d")}
+    try:
+        r = requests.get(f"{AWMS}/getMainList", params=p, headers=_headers(), timeout=30)
+        d = r.json() if "json" in r.headers.get("content-type", "") else []
+        rows = d if isinstance(d, list) else d.get("rows", d.get("list", []))
+        hit = any(isinstance(x, dict) and x.get("INSTR_NUM") == meter and x.get("MODEM_DIV") == "10"
+                  and (x.get("REG_DATE") or 0) <= ts_ms for x in rows)
+    except Exception:
+        return False
+    _STOCK_PRIOR[meter] = hit
+    return hit
+
+
+_STOCK_PRIOR: dict = {}
+
+
+
 def stock_compute(why: str = ""):
     """SHIPPED(recv·ledger) + 기준점 이후 getMainList 로 재고를 다시 센다. 실패하면 옛 결과 유지."""
     from collections import defaultdict
@@ -1979,6 +2005,11 @@ def stock_compute(why: str = ""):
                 dup.append({"mac": m, "meter": key, "workDate": r.get("WORK_DATE") or ""})
                 continue
             seen.add(key)
+            if _stock_meter_had_master_before(key, ts):
+                # MAC 정정 재저장(옛 오기 행이 기준점 전에 있음) — 새로 쓴 모뎀이 아니다. 실측 2026-10-16:
+                # 4그룹 재저장 마스터 4개가 시공으로 빠져 143 → 139 가 됐다.
+                dup.append({"mac": m, "meter": key, "workDate": r.get("WORK_DATE") or "", "why": "정정 재저장"})
+                continue
             k = stock_kind(m)
             stock[stock_bucket(k)] -= 1
             used.append({"mac": m, "kind": k, "meter": key, "workDate": r.get("WORK_DATE") or "",

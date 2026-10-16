@@ -227,6 +227,12 @@ def from_baseline(a):
             print(f"  ★같은 계기 재등록(이중 차감 안 함): {key} {m}")
             continue
         seen.add(key)
+        prior = A.get(f"getMainList?FLAG=M10&DEPT1=3970&DEPT2=&searchKeyword={key}&sortKey=0&workStep=25,28,29"
+                      f"&pPageNo=1&pRowCount=50&strDate=20260101&endDate={today}", h) or []
+        if any(x.get("INSTR_NUM") == key and x.get("MODEM_DIV") == "10" and (x.get("REG_DATE") or 0) <= ts
+               for x in prior):
+            print(f"  정정 재저장(차감 안 함): {key} {m}")
+            continue
         used.append((m, r.get("WORK_DATE"), key))
         stock[bucket(kind(m))] -= 1
     _c = json.loads(CACHE.read_text())
