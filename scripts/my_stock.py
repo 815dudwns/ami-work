@@ -120,6 +120,28 @@ def replaced_ext(since):
     return ext
 
 
+def handovers():
+    # 자재이력조회 '인계' tab (radioVal=40): modems other workers handed over to me (자재인계).
+    # The backend cache holds only the 출고 tab, so these were missing until 2026-10-16
+    # (영준님: "인계목록에 있는 것도 내 것"). myMtrlYn=N marks the ones no longer mine.
+    import urllib.parse
+    h = A.headers()
+    h["Referer"] = "https://awms.kdn.com/html/main/index.html?app=MOBMTL&menu=MOBMTL6000"
+    out = {}
+    for yn in ("", "N"):
+        q = urllib.parse.urlencode({"radioVal": "40", "vFclClCode": "", "vMtlCode": "", "vShpPurpCtt": "",
+                                    "sortCd": "1", "searchVal": "", "myMtrlYn": yn})
+        req = urllib.request.Request(f"https://awms.kdn.com/ami/mob/mtl/mobMtl6000/selectList?{q}", headers=h)
+        for x in json.loads(urllib.request.urlopen(req, timeout=60).read() or b"[]"):
+            m = (x.get("FCTY_ID") or "").replace(":", "").upper()
+            if yn == "":
+                out[m] = {"ymd": x.get("WRHSG_SHP_YMD") or "", "sts": x.get("MTRL_STS_CD") or "",
+                          "owned": True, "from": x.get("HNDOVR_USER_NM") or ""}
+            elif m in out:
+                out[m]["owned"] = False
+    return out
+
+
 def others_installed(macs):
     if not DB.exists():
         return {}
@@ -143,6 +165,9 @@ def main():
         refresh()
     d = json.loads(CACHE.read_text())
     rows, used = d["rows"], set(d["used"])
+    hand = handovers()
+    print(f"인계 받은 모뎀 {len(hand)} (소유 {sum(v['owned'] for v in hand.values())})")
+    rows = {**hand, **rows}
     own = {m: v for m, v in rows.items() if v.get("owned")}
     unused = [m for m in own if m not in used]
     ext = replaced_ext(a.since)
@@ -156,7 +181,7 @@ def main():
             drop["교체 회수(철거품)"].append(m)
         elif m in other:
             drop["타 작업자 시공분"].append(m)
-        elif y < a.since:
+        elif y < a.since and m not in hand:  # 인계 rows count regardless of date (영준님)
             drop[f"{a.since} 이전 수령 잔여(박스 오등록)"].append(m)
         else:
             keep[kind(m)].append((y, m))
