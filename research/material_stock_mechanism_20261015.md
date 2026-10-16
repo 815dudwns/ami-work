@@ -76,3 +76,14 @@ mobMtl6000 radioVal=40 (인계) = modems handed to me by other workers; the 출�
 not 출고등록: 19 rows (3/27 3, 4/1 2, 9/2 6, 9/4 4, 9/28 3, 9/29 1). Excluded — this explains the
 "unexplained singles" of 9/28-9/29. Other 출고 rows: 인계자 18104059 (warehouse, 756) or '-' (300).
 Stock 10/16 = **146**.
+
+## 2026-10-16: physical baseline (current method)
+The ledger cannot be reconciled: box-scan registrations that never matched the box (Amigo LTE),
+misread MACs on registration (e.g. 8472070CA199 registered as 9472070CA199 on 8/13; a 13-char
+E0AEED9952833 on 8/24), and IoT-PLC AE (AC5E8CA*) modems that have no 출고/인계 record at all
+(~50 installed since 7/15, none in the ledger). 영준님 counted physically on 10/16 morning
+(LTE Amigo 41 · LTE AE+E 9 · G 21 · KS-PLC AE 42 · IoT-PLC AE 13 · IoT-PLC E 1 · IoT-PLC Amigo 16).
+Stored in `cst-input/backend/stock_baseline.json` (gitignored). `my_stock.py` now reports
+baseline + receipts after it (출고 excluding self-handover, 인계) - master installs after it
+(M1010/M1020, one per meter so a MAC-fix re-send is not subtracted twice), and lists installs whose
+MAC is not in the ledger (misread suspects). `--ledger` keeps the old estimate.

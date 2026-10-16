@@ -42,6 +42,10 @@ FORMAT = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE타입)", "LTE 모뎀(E타입)", "L
           "IotPLC모뎀(AE타입)", "IotPLC모뎀(E 타입)", "IotPLC모뎀(AMIGO)",
           "HPGP모뎀(AE타입)", "HPGP모뎀(G타입)"]
 
+FORMAT_B = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE·E타입)", "LTE 모뎀(G타입)", "PLC모뎀(AE타입)", "PLC모뎀(E 타입)",
+            "PLC모뎀(AMIGO)", "IotPLC모뎀(AE타입)", "IotPLC모뎀(E 타입)", "IotPLC모뎀(AMIGO)",
+            "HPGP모뎀(AE타입)", "HPGP모뎀(G타입)"]
+
 
 def _history_type(m):
     # AE vs E for reused LTE / mixed PLC: majority of everyone's master installs on the same
@@ -174,14 +178,78 @@ def others_installed(macs):
     return out
 
 
+BASELINE = ROOT / "cst-input/backend/stock_baseline.json"   # gitignored
+
+
+def bucket(k):
+    # baseline buckets: LTE AE and E are counted together physically
+    return "LTE 모뎀(AE·E타입)" if k.startswith("LTE 모뎀(AE") or k == "LTE 모뎀(E타입)" else k
+
+
+def from_baseline(a):
+    """Physical count on a date + receipts after it - modems I installed after it.
+
+    Why (2026-10-16): the ledger cannot be reconciled — box-scan registrations that never matched
+    the box, misread MACs on registration, and IoT-PLC AE modems that arrive with no 출고 record
+    at all. So 영준님 counted physically once; from then on only the delta is computed.
+    """
+    import datetime
+    b = json.loads(BASELINE.read_text())
+    ts = b["ts"] * 1000
+    stock = defaultdict(int, b["counts"])
+    print(f"기준 실물 {sum(stock.values())}개 ({datetime.datetime.fromtimestamp(b['ts']):%m/%d %H:%M})")
+    # receipts after the baseline: 출고 (not self-handover) + 인계
+    me = "273584"
+    got = []
+    for radio in ("20", "40"):
+        for x in _mtl6000(radio):
+            if (x.get("REG_DATE") or 0) > ts and not (radio == "20" and str(x.get("HNDOVR_USER_ID")) == me):
+                got.append((x.get("FCTY_ID") or "").upper())
+    for m in got:
+        stock[bucket(kind(m))] += 1
+    # installs after the baseline: master rows that consumed a new modem (신설·교체), one per meter
+    h = A.headers()
+    d0 = datetime.datetime.fromtimestamp(b["ts"]).strftime("%Y%m%d")
+    today = datetime.date.today().strftime("%Y%m%d")
+    seen, used, rows = set(), [], []
+    for code in A.DEPTS:
+        rows += A.get(f"getMainList?FLAG=M10&DEPT1=3970&DEPT2={code}&searchKeyword=&sortKey=0"
+                      f"&workStep=25,28,29&pPageNo=1&pRowCount=5000&strDate={d0}&endDate={today}", h) or []
+    for r in sorted(rows, key=lambda r: r.get("REG_DATE") or 0):
+        m = (r.get("MAC_MODEM") or "").upper()
+        if (r.get("REG_DATE") or 0) <= ts or r.get("MODEM_DIV") != "10" or r.get("WORK_DIV") not in ("M1010", "M1020"):
+            continue
+        key = r.get("INSTR_NUM")
+        if key in seen:      # re-sent after a MAC fix: the old row stays until KDN deletes it
+            print(f"  ★같은 계기 재등록(이중 차감 안 함): {key} {m}")
+            continue
+        seen.add(key)
+        used.append((m, r.get("WORK_DATE"), key))
+        stock[bucket(kind(m))] -= 1
+    ledger = set(json.loads(CACHE.read_text())["rows"]) | set(handovers())
+    print(f"이후 수령 {len(got)} · 이후 시공 {len(used)}")
+    print(f"\n현재 재고 {sum(stock.values())}개")
+    for k in FORMAT_B + sorted(set(stock) - set(FORMAT_B)):
+        if stock.get(k):
+            print(f"  {k:18} {stock[k]:3}")
+    odd = [(m, d, n) for m, d, n in used if m not in ledger and not m.startswith("AC5E8CA")]
+    if odd:
+        print("\n  ★장부에 없는 MAC으로 시공(오독 의심 — 재전송 확인):")
+        for m, d, n in odd:
+            print(f"     {d} 계기 {n}  MAC {m}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--since", default="20260622", help="수령분 기준일 — 6/22 반납 후 일괄 재출고(전량 스캔)부터 장부가 실물과 맞는다")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--no-refresh", action="store_true")
+    ap.add_argument("--ledger", action="store_true", help="기준 실물 대신 장부 추정 방식으로")
     a = ap.parse_args()
     if not a.no_refresh:
         refresh()
+    if BASELINE.exists() and not a.ledger:
+        return from_baseline(a)
     d = json.loads(CACHE.read_text())
     rows, used = d["rows"], set(d["used"])
     hand = handovers()

@@ -96,3 +96,4 @@ data/inbox_hapdong/awms-fmpmtr-full-*.json
 data/.exclusions-stage/
 cst-input/backend/config_changes.jsonl
 cst-input/backend/shipped_cache.json
+cst-input/backend/stock_baseline.json
