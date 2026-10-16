@@ -70,3 +70,9 @@ AC5E8C 16, E0AEED 45).
 mobMtl6000 radioVal=40 (인계) = modems handed to me by other workers; the 출고 tab misses them.
 70 rows: 6/8 장진교 Amigo 40 (2 left) · 6/11 장진교 E0AEED 10 (6 left) · 9/10 이용택 Amigo 4 (all used) ·
 10/16 김상권 Amigo 16. Counted regardless of the cutoff. Stock 10/16 09:33 = **150**.
+
+## 2026-10-16: 장애 replacement rows
+출고 rows with 인계자 HNDOVR_USER_ID = 273584 (myself) are MACs booked to me by 장애 replacement work,
+not 출고등록: 19 rows (3/27 3, 4/1 2, 9/2 6, 9/4 4, 9/28 3, 9/29 1). Excluded — this explains the
+"unexplained singles" of 9/28-9/29. Other 출고 rows: 인계자 18104059 (warehouse, 756) or '-' (300).
+Stock 10/16 = **146**.

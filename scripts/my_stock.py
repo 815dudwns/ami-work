@@ -120,6 +120,25 @@ def replaced_ext(since):
     return ext
 
 
+def _mtl6000(radio, yn=""):
+    import urllib.parse
+    h = A.headers()
+    h["Referer"] = "https://awms.kdn.com/html/main/index.html?app=MOBMTL&menu=MOBMTL6000"
+    q = urllib.parse.urlencode({"radioVal": radio, "vFclClCode": "", "vMtlCode": "", "vShpPurpCtt": "",
+                                "sortCd": "1", "searchVal": "", "myMtrlYn": yn})
+    req = urllib.request.Request(f"https://awms.kdn.com/ami/mob/mtl/mobMtl6000/selectList?{q}", headers=h)
+    return json.loads(urllib.request.urlopen(req, timeout=60).read() or b"[]")
+
+
+def self_shipped():
+    # 출고 rows whose 인계자(HNDOVR_USER_ID) is me: awms books MACs used in 장애 replacement
+    # work to me as a 1-unit 출고 from myself. Not stock (영준님 2026-10-16: "순수 내가 출고등록과
+    # 이관등록한 것만 내 것"). Real 출고 rows have the warehouse (18104059) or '-' as 인계자.
+    me = "273584"
+    return {(x.get("FCTY_ID") or "").replace(":", "").upper() for x in _mtl6000("20")
+            if str(x.get("HNDOVR_USER_ID")) == me}
+
+
 def handovers():
     # 자재이력조회 '인계' tab (radioVal=40): modems other workers handed over to me (자재인계).
     # The backend cache holds only the 출고 tab, so these were missing until 2026-10-16
@@ -171,6 +190,7 @@ def main():
     own = {m: v for m, v in rows.items() if v.get("owned")}
     unused = [m for m in own if m not in used]
     ext = replaced_ext(a.since)
+    selfs = self_shipped()
     other = others_installed(unused)
 
     drop = defaultdict(list)
@@ -179,6 +199,8 @@ def main():
         y = own[m]["ymd"]
         if m in ext:
             drop["교체 회수(철거품)"].append(m)
+        elif m in selfs:
+            drop["장애 교체 투입(자기 인계 출고)"].append(m)
         elif m in other:
             drop["타 작업자 시공분"].append(m)
         elif y < a.since and m not in hand:  # 인계 rows count regardless of date (영준님)
