@@ -65,3 +65,8 @@ AC5E8C 16, E0AEED 45).
 ## Open
 - Physical count of G 21 / AE 5 / E0AEED 40 to validate the method.
 - Remaining Jun-Aug leftovers: transfer (이관) or ask KDN to clear.
+
+## 2026-10-16: 인계 tab added
+mobMtl6000 radioVal=40 (인계) = modems handed to me by other workers; the 출고 tab misses them.
+70 rows: 6/8 장진교 Amigo 40 (2 left) · 6/11 장진교 E0AEED 10 (6 left) · 9/10 이용택 Amigo 4 (all used) ·
+10/16 김상권 Amigo 16. Counted regardless of the cutoff. Stock 10/16 09:33 = **150**.
