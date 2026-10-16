@@ -87,3 +87,10 @@ Stored in `cst-input/backend/stock_baseline.json` (gitignored). `my_stock.py` no
 baseline + receipts after it (출고 excluding self-handover, 인계) - master installs after it
 (M1010/M1020, one per meter so a MAC-fix re-send is not subtracted twice), and lists installs whose
 MAC is not in the ledger (misread suspects). `--ledger` keeps the old estimate.
+
+## 2026-10-16: registrations outside the 7 branch codes
+getMainList per DEPT2 over the 7 branches misses rows filed under 기타2 (9999) / 기타 (9922) / 구좌(PLC) (5999) etc.
+6/23 92190689274 (E0AEED9528E4) and 92190685309 (9528E5) are under 9999 — they looked unused. `my_stock.py` now
+queries ALL_DEPTS. KS-PLC physical scan (42) vs ledger: unexplained 7 → 6/11 장진교 인계 E9/EC/EF/F0/F2,
+8/3 952963, 8/25 952A86. Misread registrations photo-confirmed: 9531FB→EB, 95312D→ED, 9472070CA199→8472070CA199,
+952ABF→952A8F (to re-send), 9952833→952833 (already re-sent 9/9).

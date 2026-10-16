@@ -112,7 +112,7 @@ def replaced_ext(since):
     while d <= today:
         nxt = (d.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
         end = min(nxt - datetime.timedelta(days=1), today)
-        for code in A.DEPTS:
+        for code in ALL_DEPTS:
             rows = A.get(f"getMainList?FLAG=M10&DEPT1=3970&DEPT2={code}&searchKeyword=&sortKey=0"
                          f"&workStep=25,28,29&pPageNo=1&pRowCount=5000"
                          f"&strDate={d:%Y%m%d}&endDate={end:%Y%m%d}", h) or []
@@ -178,6 +178,9 @@ def others_installed(macs):
     return out
 
 
+# The 7 branch codes miss rows registered under 기타·기타2·구좌(PLC) etc. — measured 2026-10-16:
+# 6/23 92190689274·92190685309 (KS-PLC 9528E4/E5) sat under 9999 기타2 and looked unused.
+ALL_DEPTS = A.DEPTS + ["5999", "9922", "9999", "9100", "3985", "7290"]
 BASELINE = ROOT / "cst-input/backend/stock_baseline.json"   # gitignored
 
 
@@ -212,7 +215,7 @@ def from_baseline(a):
     d0 = datetime.datetime.fromtimestamp(b["ts"]).strftime("%Y%m%d")
     today = datetime.date.today().strftime("%Y%m%d")
     seen, used, rows = set(), [], []
-    for code in A.DEPTS:
+    for code in ALL_DEPTS:
         rows += A.get(f"getMainList?FLAG=M10&DEPT1=3970&DEPT2={code}&searchKeyword=&sortKey=0"
                       f"&workStep=25,28,29&pPageNo=1&pRowCount=5000&strDate={d0}&endDate={today}", h) or []
     for r in sorted(rows, key=lambda r: r.get("REG_DATE") or 0):
