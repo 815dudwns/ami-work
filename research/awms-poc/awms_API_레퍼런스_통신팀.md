@@ -125,6 +125,7 @@ GET /ami/mob/cst/mobCst1000/getMainList
 ### 중복 결합 삭제 (deleteRows)
 - `vm.deleteRow()` = `checkedItems.forEach(FLAG=radio)` → `mobCst1000Api.deleteRows(checkedItems)`. response.data>0 = 성공 → fnSearch 갱신.
 - **복합키 삭제**: row의 `INSTR_NUM`+`MAC_MODEM`으로 식별 → **옛맥 행만 지우고 새맥(정상)·타 그룹은 보존**(실측 확인). 통신팀은 삭제 자유(전송 전이면 부담 없음). 계기팀은 완료 삭제 불가 — 팀별 차이.
+- **Script call (measured 2026-10-16)**: `POST mobCst1000/deleteRows` with a JSON array of the getMainList row plus `FLAG=M10`, **every value stringified (null -> "")** -> body `1`. Raw row with nulls/numbers -> HTTP 500. Deletes only that INSTR_NUM+MAC_MODEM row; the old step-29 row with another MAC is untouched.
 
 ### saveAct FormData (64필드)
 - 계기별 다름: `INSTR_NUM`, `MODEM_DIV`(+_NM), `MB_METER_ID`, `ATCH_FILE_ID_3/4/5/6`(사진).
