@@ -97,3 +97,4 @@ data/.exclusions-stage/
 cst-input/backend/config_changes.jsonl
 cst-input/backend/shipped_cache.json
 cst-input/backend/stock_baseline.json
+cst-input/backend/stock_exclude.json
