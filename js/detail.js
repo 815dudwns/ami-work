@@ -680,33 +680,16 @@ function getSortedMeters() {
     return meters;
 }
 
-// 계기 개별 불가 토글
+// 계기 개별 불가 토글 — 저장·전송은 firebase.js saveMeterFailEvent 한 곳에서(체크와 같은 길)
 function toggleMeterFail(meterNumber) {
-    if (!workStatus[currentStatusKey]) {
-        workStatus[currentStatusKey] = { state: 'pending', checkedMeters: [], reason: '' };
-    }
-    const status = workStatus[currentStatusKey];
-    if (!status.failedMeters) status.failedMeters = {};
-
-    if (status.failedMeters[meterNumber] !== undefined) {
-        // 이미 불가 → 해제
-        delete status.failedMeters[meterNumber];
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
-        // Firebase 동기화: 불가 해제 이벤트
-        if (typeof addEvent === 'function') {
-            addEvent({ type: 'meterFail', address: currentStatusKey, meter: meterNumber, failed: false, ts: Date.now() });
-        }
-        if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
+    const status = workStatus[currentStatusKey] || {};
+    const isFailed = !!(status.failedMeters && status.failedMeters[meterNumber] !== undefined);
+    if (isFailed) {
+        _meterFailPending.delete(meterNumber);
+        saveMeterFailEvent(currentStatusKey, meterNumber, false);
         renderMetersList();
     } else {
-        // 불가 처리 → 일단 빈 사유로 등록하고 입력창 표시 (renderMetersList에서 처리)
-        status.failedMeters[meterNumber] = '';
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
-        // Firebase 동기화: 불가 설정 이벤트 (사유는 saveMeterFailReason에서 갱신)
-        if (typeof addEvent === 'function') {
-            addEvent({ type: 'meterFail', address: currentStatusKey, meter: meterNumber, reason: '', failed: true, ts: Date.now() });
-        }
-        if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
+        saveMeterFailEvent(currentStatusKey, meterNumber, true, '');
         renderMetersList();
         // 렌더링 후 해당 입력창에 포커스
         setTimeout(() => {
@@ -716,18 +699,32 @@ function toggleMeterFail(meterNumber) {
     }
 }
 
-// 계기 불가 사유 저장
-function saveMeterFailReason(meterNumber, reason) {
-    if (!workStatus[currentStatusKey]) return;
-    const status = workStatus[currentStatusKey];
-    if (!status.failedMeters) status.failedMeters = {};
-    status.failedMeters[meterNumber] = reason;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(workStatus));
-    // Firebase 동기화: 사유 갱신 이벤트
-    if (typeof addEvent === 'function') {
-        addEvent({ type: 'meterFail', address: currentStatusKey, meter: meterNumber, reason: reason, failed: true, ts: Date.now() });
-    }
-    if (typeof flushEventQueueDebounced === 'function') flushEventQueueDebounced();
+// 계기 불가 사유 — 입력 중엔 로컬만 갱신하고 1초 쉬면 전송, Enter·blur·상세 닫기 때 즉시 전송
+const _meterFailPending = new Map();   // meter → { addr, reason, timer }
+const METER_FAIL_DEBOUNCE_MS = 1000;
+
+function saveMeterFailReason(meterNumber, reason, addr) {
+    const a = addr || currentStatusKey;
+    const pend = _meterFailPending.get(meterNumber);
+    if (pend) { clearTimeout(pend.timer); _meterFailPending.delete(meterNumber); }
+    const st = workStatus[a];
+    if (!st || !st.failedMeters || st.failedMeters[meterNumber] === undefined) return;   // 그 사이 해제됨
+    saveMeterFailEvent(a, meterNumber, true, reason);
+}
+
+function queueMeterFailReason(meterNumber, reason) {
+    const a = currentStatusKey;
+    const st = workStatus[a];
+    if (!st || !st.failedMeters || st.failedMeters[meterNumber] === undefined) return;
+    st.failedMeters[meterNumber] = reason;          // 로컬 즉시 반영(다시 그려도 입력값 유지)
+    const prev = _meterFailPending.get(meterNumber);
+    if (prev) clearTimeout(prev.timer);
+    const timer = setTimeout(() => saveMeterFailReason(meterNumber, reason, a), METER_FAIL_DEBOUNCE_MS);
+    _meterFailPending.set(meterNumber, { addr: a, reason, timer });
+}
+
+function flushMeterFailReasons() {
+    for (const [m, p] of Array.from(_meterFailPending.entries())) saveMeterFailReason(m, p.reason, p.addr);
 }
 
 // 추가된 계기(added_meters)를 currentMeters에 가짜 객체로 합쳐서 함께 표시
@@ -1255,6 +1252,9 @@ function renderMetersList() {
             input.addEventListener('blur', (e) => {
                 saveMeterFailReason(input.dataset.meter, input.value.trim());
             });
+            input.addEventListener('input', () => {
+                queueMeterFailReason(input.dataset.meter, input.value.trim());
+            });
         });
 
         // 계기 검색 — 입력 시 목록으로 자동 스크롤
@@ -1289,6 +1289,7 @@ function updateSortBtnUI() {
 
 // 상세 패널 닫기
 function closeDetail() {
+    flushMeterFailReasons();   // 입력 중이던 불가 사유를 닫기 전에 보낸다
     document.getElementById('fullpage-overlay').classList.remove('active');
 }
 

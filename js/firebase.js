@@ -504,6 +504,37 @@ function saveCheckEvent(address, meter, checked) {
     }
 }
 
+// 계기 개별 불가 — 켜기/끄기/사유 갱신 (2026-10-19)
+//   ★전엔 detail.js 가 workStatus 전체(6MB)를 try 없이 localStorage 에 썼다. quota 예외가 나면
+//     이벤트 큐·전송까지 못 가서 9/21 이후 Firebase 에 불가 기록이 0건이었고, 매 클릭 6MB 직렬화라 느렸다.
+//     체크와 같은 길로 모은다: 로컬 미러는 persistStatus(IDB), 서버는 직접 update, 실패 시만 큐.
+//   failed=false 면 노드를 지운다(null). reason 은 빈 문자열 허용(사유 입력 전).
+function saveMeterFailEvent(address, meter, failed, reason) {
+    if (!workStatus[address]) {
+        workStatus[address] = { state: 'pending', checkedMeters: [], reason: '' };
+    }
+    const st = workStatus[address];
+    if (!st.failedMeters) st.failedMeters = {};
+    if (failed) st.failedMeters[meter] = reason || '';
+    else delete st.failedMeters[meter];
+    persistStatus(0);
+
+    const _ts = Date.now();
+    const ev = failed
+        ? { type: 'meterFail', address, meter, reason: reason || '', failed: true, ts: _ts }
+        : { type: 'meterFail', address, meter, failed: false, ts: _ts };
+    const _fallback = () => queueFallback(ev, '계기 불가', 400);
+
+    if (statusRef) {
+        const p = encodeKey(address);
+        const m = encodeKey(meter);
+        statusRef.child(p).update(withSyncAt({ [`failedMeters/${m}`]: failed ? (reason || '') : null }))
+            .catch(err => { console.warn('[meterFail] 직접 전송 실패, 큐 폴백:', err && err.message); _fallback(); });
+    } else {
+        _fallback();
+    }
+}
+
 // ── Firebase 데이터 → 내부 형식 변환 ─────────────────────────
 
 // 단일 Firebase 값(val) → 내부 형식 객체 변환 (주소 키 불필요, 값 객체만 처리)
