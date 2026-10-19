@@ -184,9 +184,11 @@ function populateJisaOptions() {
         // 저장된 지사가 유효한 옵션에 있으면 복원
         select.value = saved;
     } else {
-        // 저장값 없거나 구버전 "기타" 등 — 첫 지사로 폴백
+        // 저장값 없거나 지금 옵션에 없음 — 화면만 첫 지사로 임시 선택한다.
+        //   ★저장값은 덮어쓰지 않는다(2026-10-20 영준님 '자꾸 강북성북이 나온다'). 덮어쓰면 한 번
+        //     옵션에 없던 순간(예: '미분류' 가 이번 데이터에 없음) 저장 지사가 영영 첫 지사로 바뀐다.
+        //     작업자가 지사를 직접 고를 때(onJisaChange)만 저장한다. 마커는 화면 선택값을 따른다(loadMarkers).
         select.value = jisaList[0];
-        localStorage.setItem('ami_selected_jisa', jisaList[0]);
     }
 
     // 구 체크박스 초기 렌더
@@ -487,7 +489,9 @@ function setSelectedDates(cat, setObj) {
 
 // 전체 마커 생성 (카테고리||주소 기준 그룹핑) — 지사·구·카테고리 필터링
 function loadMarkers() {
-    const selectedJisa = localStorage.getItem('ami_selected_jisa') || '';
+    // 화면에 선택된 지사를 따른다 — 저장값이 무효라 화면만 임시 선택된 경우에도 둘이 어긋나지 않게
+    const _jsel = document.getElementById('jisa-select');
+    const selectedJisa = (_jsel && _jsel.value) || localStorage.getItem('ami_selected_jisa') || '';
     const selectedGuRaw = localStorage.getItem('ami_selected_gu');
     // ami_selected_gu 없으면(null) 선택 지사 전체 구 표시, 있으면 배열로 파싱
     const selectedGu = selectedGuRaw ? new Set(JSON.parse(selectedGuRaw)) : null;

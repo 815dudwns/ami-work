@@ -48,7 +48,9 @@ const FORCE_LOGOUT_VERSION_KEY = 'ami_force_logout_version';
 // 강력 업데이트(강제 로그아웃)시에만 함께 리셋할 화면상태 키 — 지사/필터/지도위치.
 // 평소 로그아웃·재시작에는 보존되고, FORCE_LOGOUT_VERSION을 올릴 때만 초기화된다.
 // ★작업 데이터(ami_work_status·ami_checked_meters·ami_event_queue)는 여기 넣지 말 것(유실 방지).
-const UI_STATE_KEYS = ['ami_map_view', 'ami_selected_jisa', 'ami_selected_gu', 'ami_selected_categories', 'ami_seen_categories'];
+// ★지사·구 선택(ami_selected_jisa·ami_selected_gu)은 2026-10-20 에 뺐다 — 강제 로그아웃 때마다 지사가
+//   날아가 전원이 첫 지사(강북성북)로 떨어졌다(영준님 '자꾸 강북성북이 나온다'). 작업자가 고른 지사는 남긴다.
+const UI_STATE_KEYS = ['ami_map_view', 'ami_selected_categories', 'ami_seen_categories'];
 
 /**
  * 로그인 시도
