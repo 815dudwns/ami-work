@@ -97,8 +97,38 @@ _OCR_LOGIC_VER = "e5-2026-07-14"
 # 디스크 persist → 백엔드 재기동해도 세션 생존(무USB 자립: 폰 재전송 없이도 4시간 내 유지).
 SESSION = {"jsessionid": None, "rememberedId": None, "xsrf": None, "ua": None, "ts": 0}
 SESSION_FILE = Path(__file__).resolve().parent / "session.json"   # *.py·session.json은 .gitignore
-# 무USB 원격 세션 전송 보호용 공유 시크릿 (헬퍼 inject와 동일값). 공개 터널 write 보호.
-PUSH_SECRET = "cst-amiq-2026"
+# ── 호출자 인증 토큰 (2026-10-19 감사) ─────────────────────────────────────
+# 백엔드는 공개 터널로 열려 있고 터널 주소는 Firebase 에서 누구나 읽는다. 그래서 모든 /api/* (health 제외)에
+# 공유 토큰 헤더 X-Amiq-Token 을 요구한다. 토큰은 **레포 밖이 아니라 gitignore 된 파일**에 둔다:
+#   cst-input/backend/api_token.txt  (없으면 기동 때 한 번 만든다 · 권한 600 · 절대 커밋 금지)
+# 세션 push 의 시크릿도 같은 값을 쓴다(소스에 박힌 옛 문자열은 폐기).
+# ★비상 해제: cst-input/backend/auth_off 파일을 만들거나(재기동 불필요) 환경변수 AMIQ_AUTH_OFF=1 로 기동.
+#   해제하면 토큰 없이도 통과한다(로그에 표시). 해제 파일을 지우면 즉시 다시 강제된다.
+API_TOKEN_FILE = Path(__file__).resolve().parent / "api_token.txt"
+AUTH_OFF_FILE = Path(__file__).resolve().parent / "auth_off"
+
+
+def _load_api_token() -> str:
+    import secrets
+    try:
+        t = API_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        if len(t) >= 16:
+            return t
+    except Exception:
+        pass
+    t = secrets.token_urlsafe(24)
+    API_TOKEN_FILE.write_text(t + "\n", encoding="utf-8")
+    try:
+        os.chmod(API_TOKEN_FILE, 0o600)
+    except Exception:
+        pass
+    print(f"[auth] 토큰 파일 새로 만듦: {API_TOKEN_FILE.name}", flush=True)
+    return t
+
+
+API_TOKEN = _load_api_token()
+# 무USB 원격 세션 전송 보호용 공유 시크릿 — 이제 API 토큰과 같은 값(폰이 secret 으로 토큰을 보낸다).
+PUSH_SECRET = API_TOKEN
 
 
 def _save_session():
@@ -383,7 +413,7 @@ def mac_to_suffix(mac: str) -> str:
 
 # 계기유형(INST_M) = 계기번호 타입코드 자동판별 (daily_cycle TYPE_MAP 이식)
 _TYPE_MAP = {'17': 'E', '19': 'EA', '25': 'G', '26': 'G', '27': 'G',
-             '45': 'G', '46': 'G', '47': 'G', '53': 'Amigo', '55': 'Amigo'}
+             '45': 'G', '46': 'G', '47': 'G', '52': 'Amigo', '53': 'Amigo', '54': 'Amigo', '55': 'Amigo'}
 _TYPE_TO_INSTM = {'E': 'HW4020', 'EA': 'HW4040', 'G': 'HW4030', 'Amigo': 'HW4050'}
 
 
@@ -536,6 +566,7 @@ def _common(meter_no, mac, inst_m, mb_meter_id, mb_cnt, inst_s, bungi=""):
     d.update({
         "DEPT1": CONFIG["DEPT1"], "DEPT2": CONFIG["DEPT2"], "BUSI_NUM": CONFIG["BUSI_NUM"],
         "WORKER1_SEQ": CONFIG["WORKER1_SEQ"], "WORKER2_SEQ": CONFIG["WORKER2_SEQ"],
+        "WORKER3_SEQ": str(CONFIG.get("WORKER3_SEQ", "") or ""),   # awms 작업조3(3인 작업). 빈값이면 빈값(종전 동일)
         "INSTR_NUM": meter_no, "INST_M": inst_m, "INST_S": inst_s,
         "MAC_MODEM": mac, "MODEM_MAC": mac, "MB_METER_ID": mb_meter_id, "MB_CNT": str(mb_cnt),
     })
@@ -551,23 +582,82 @@ def saveact_post(fields: dict, photos: dict):
     """
     data = {k: v for k, v in fields.items()}
     files = []
-    for k, v in photos.items():
-        if k.endswith("_SRC"):     # 바이너리 슬롯
-            files.append((k, (os.path.basename(v), open(v, "rb"), "image/jpeg")))
-        else:                       # 공유 파일ID (문자열)
-            data[k] = v
-    r = requests.post(f"{AWMS}/saveAct", headers=_headers(), data=data, files=files, timeout=60)
     try:
-        return r.json()
-    except Exception:
-        return {"_status": r.status_code, "_text": r.text[:300]}
+        for k, v in photos.items():
+            if k.endswith("_SRC"):     # 바이너리 슬롯
+                files.append((k, (os.path.basename(v), open(v, "rb"), "image/jpeg")))
+            else:                       # 공유 파일ID (문자열)
+                data[k] = v
+        r = requests.post(f"{AWMS}/saveAct", headers=_headers(), data=data, files=files, timeout=60)
+        try:
+            return r.json()
+        except Exception:
+            return {"_status": r.status_code, "_text": r.text[:300]}
+    except Exception as e:
+        # ★예외를 500 으로 흘리지 않는다 — job.json 이 sending 으로 남고 호출자가 결과를 못 본다(2026-10-19 감사).
+        #   타임아웃·연결 끊김은 awms 가 이미 받았을 수 있다(_unknown) — 폰은 verify 로 재확인한다.
+        print(f"[saveact_post] 예외 — {type(e).__name__}: {e}", flush=True)
+        return {"result": -1, "_status": 0, "_error": f"{type(e).__name__}: {e}"[:200],
+                "_unknown": isinstance(e, (requests.Timeout, requests.ConnectionError))}
+    finally:
+        for _, fv in files:
+            try:
+                fv[1].close()
+            except Exception:
+                pass
 
 
 # ── FastAPI ─────────────────────────────────────────
 app = FastAPI(title="통신팀 awms 맥 입력장치")
 from fastapi.middleware.cors import CORSMiddleware
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
-                   allow_methods=["*"], allow_headers=["*"])  # 폰 앱/터널에서 호출
+
+_LOCAL_HOSTS = ("127.0.0.1", "localhost", "[::1]")
+_PROXY_HEADERS = (b"cf-connecting-ip", b"cf-ray", b"x-forwarded-for", b"x-real-ip", b"forwarded", b"cf-visitor")
+
+
+def _auth_enforced() -> bool:
+    return not (os.environ.get("AMIQ_AUTH_OFF") == "1" or AUTH_OFF_FILE.exists())
+
+
+class _TokenAuth:
+    """순수 ASGI 미들웨어 — 스트리밍(NDJSON)을 버퍼링하지 않는다.
+    /api/* 는 X-Amiq-Token 이 맞아야 통과(/api/health 와 CORS preflight 는 예외).
+    ★맥 자신의 로컬 호출(스킬·스크립트의 curl 127.0.0.1)은 면제한다: 클라이언트가 루프백이고, Host 가 로컬이며,
+      터널이 붙이는 프록시 헤더(cf-*·x-forwarded-for)가 **없을 때만**. 터널로 들어온 요청은 항상 헤더가 붙어 면제되지 않는다."""
+
+    def __init__(self, app_):
+        self.app = app_
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        path = scope.get("path", "")
+        if (not path.startswith("/api/")) or path == "/api/health" or scope.get("method") == "OPTIONS" or not _auth_enforced():
+            return await self.app(scope, receive, send)
+        hdrs = {k.lower(): v for k, v in scope.get("headers", [])}
+        import hmac
+        got = hdrs.get(b"x-amiq-token", b"").decode("latin-1")
+        if got and hmac.compare_digest(got, API_TOKEN):
+            return await self.app(scope, receive, send)
+        client = (scope.get("client") or ("", 0))[0]
+        host = hdrs.get(b"host", b"").decode("latin-1").lower()
+        local_host = any(host == h or host.startswith(h + ":") for h in _LOCAL_HOSTS)
+        if client in ("127.0.0.1", "::1") and local_host and not any(h in hdrs for h in _PROXY_HEADERS):
+            return await self.app(scope, receive, send)
+        print(f"[auth] 401 {scope.get('method')} {path} client={client}", flush=True)
+        resp = JSONResponse({"detail": "인증 실패 — 앱 설정의 백엔드 토큰을 확인하라"}, status_code=401)
+        return await resp(scope, receive, send)
+
+
+# ★순서: 인증을 먼저 add 하고 CORS 를 나중에 add — 나중에 add 한 쪽이 바깥이라 401 에도 CORS 헤더가 붙는다.
+app.add_middleware(_TokenAuth)
+# CORS: 폰 네이티브 앱(OkHttp)은 CORS 를 쓰지 않는다. 브라우저에서 쓰는 곳은 맥 로컬 웹(구 www)뿐이라 로컬 출처만 허용한다.
+app.add_middleware(CORSMiddleware,
+                   allow_origins=["http://127.0.0.1:8766", "http://localhost:8766"],
+                   allow_credentials=False,
+                   allow_methods=["GET", "POST", "OPTIONS"],
+                   allow_headers=["Content-Type", "X-Amiq-Token", "Accept", "Cache-Control"])
+print(f"[auth] 토큰 인증 {'강제' if _auth_enforced() else '해제됨(비상 스위치)'}", flush=True)
 
 
 # ── 헬스체크: 지금 돌고 있는 코드가 디스크와 같은가 (부작용 없는 읽기 전용) ──
@@ -784,21 +874,13 @@ def api_diag_workgroup():
 
 
 # ── 변대주번호 자동조회 (아미큐 자동채움, 영준님 2026-07-02) ──────────
-# 동행(WITH_YN=Y): 계기번호==종로 workStatus new_meter_id(임시저장 포함) → 종로 site-data '변대주'(0000A000)
-# 일반(그외):       계기번호==ami-work site-data 계기번호 → 'DCUID' 앞 8자(0000A000)
-_JONGNO_SD = ROOT.parent / "jongno-combined" / "data" / "jongno-site-data.json"
+# 계기번호==ami-work 지도 데이터(실효·25 미청구·25 불가) 계기번호 -> 변대주(0000A000).
+# ★동행 모드의 종로 workStatus·종로 site-data 조회는 폐지했다(2026-10-19, 종로맵 은퇴).
+#   예전 경로(ROOT.parent/jongno-combined)는 존재하지 않아 늘 빈값이었고, 3분마다 종로 workStatus
+#   를 내려받기만 했다. 동행(WITH_YN=Y) 여부는 saveAct 의 MTR_WITH_YN 에만 쓰이고 변대주 조회와 무관하다.
 _AMIWORK_SD = ROOT / "data" / "site-data.json"
-_JONGNO_WS_URL = "https://ami-jongno-default-rtdb.asia-southeast1.firebasedatabase.app/workStatus/jongno.json"
-_bdju_cache = {"jsd": None, "asd": None, "ws": None, "ws_ts": 0.0,
-               "jsd_mtime": None, "asd_mtime": None,
+_bdju_cache = {"asd": None, "asd_mtime": None,
                "m25": None, "m25_mtime": None, "b25": None, "b25_mtime": None}
-
-
-def _decode_jongno_key(k: str) -> str:
-    for a, b in (("__DOT__", "."), ("__HASH__", "#"), ("__DOLLAR__", "$"),
-                 ("__SLASH__", "/"), ("__LBRACKET__", "["), ("__RBRACKET__", "]")):
-        k = k.replace(a, b)
-    return k
 
 
 def _load_sd(path):
@@ -830,38 +912,6 @@ def _sd_cached(key: str, path):
         _bdju_cache[key + "_mtime"] = mtime
         print(f"[bdju] {key} 재적재: {len(_bdju_cache[key])}건 mtime={mtime}", flush=True)
     return _bdju_cache[key]
-
-
-def _jongno_ws():
-    now = time.time()
-    if _bdju_cache["ws"] is None or now - _bdju_cache["ws_ts"] > 180:   # 3분 캐시
-        try:
-            with urllib.request.urlopen(_JONGNO_WS_URL, timeout=60) as r:
-                _bdju_cache["ws"] = json.load(r); _bdju_cache["ws_ts"] = now
-        except Exception:
-            if _bdju_cache["ws"] is None:
-                _bdju_cache["ws"] = {}
-    return _bdju_cache["ws"]
-
-
-def _bdju_donghang(mid: str) -> str:
-    ws = _jongno_ws()
-    jsd = _sd_cached("jsd", _JONGNO_SD)
-    for k, v in ws.items():
-        if not isinstance(v, dict):
-            continue
-        rl = v.get("replacement_list") or {}
-        if not isinstance(rl, dict):
-            continue
-        for oldid, r in rl.items():
-            if isinstance(r, dict) and str(r.get("new_meter_id", "")) == mid:
-                addr = _decode_jongno_key(k).strip()
-                for m in jsd:
-                    if str(m.get("계기번호")) == str(oldid) or str(m.get("주소", "")).strip() == addr:
-                        b = str(m.get("변대주") or "").strip()
-                        if b:
-                            return b
-    return ""
 
 
 # ★일반 소스 순서 = 실효(site-data) -> 25 미청구 -> 25 불가. 첫 매칭(값이 나온 행)을 쓴다.
@@ -938,15 +988,13 @@ def _bdju_ilban(mid: str) -> str:
 
 @app.get("/api/bdju")
 def api_bdju(meters: str = ""):
-    """변대주번호(0000A000) 자동조회. meters=쉼표구분(마스터,슬레이브…), 마스터 우선 첫 매칭 반환.
-    동행(WITH_YN=Y)=종로 우선 / 일반=ami-work 우선. 못 찾으면 반대 소스도 시도."""
+    """변대주번호(0000A000) 자동조회. meters=쉼표구분(마스터,슬레이브…), 마스터 우선 첫 매칭 반환."""
     mids = [x.strip() for x in meters.split(",") if x.strip()]
     donghang = str(CONFIG.get("WITH_YN", "")).strip() == "Y"
-    primary, secondary = (_bdju_donghang, _bdju_ilban) if donghang else (_bdju_ilban, _bdju_donghang)
     for mid in mids:
         if len(mid) < 10:
             continue
-        b = primary(mid) or secondary(mid)
+        b = _bdju_ilban(mid)
         if b:
             return {"bdju": b, "meter": mid, "donghang": donghang}
     return {"bdju": "", "donghang": donghang}
@@ -976,7 +1024,7 @@ _ALNUM_11 = re.compile(r'\b([0-9A-Z]{11})\b', re.IGNORECASE)
 # E5 처방 3: 끝 4자리(-\d{4}) 삭제 → (\d{6,7}) 로 완화. 부가번호(-1607 등) 없어도 통과.
 _METER_HYPHEN = re.compile(r'(\d{2})\s*[-]\s*(\d{2})\s*[-]\s*(\d{6,7})')
 _AMIGO_HYPHEN = re.compile(r'A0\s*[-]\s*55\s*[-]\s*(\d{7,8})', re.IGNORECASE)
-_METER_TYPE_CODES = {'17', '19', '25', '26', '27', '45', '46', '47', '53', '55'}
+_METER_TYPE_CODES = {'17', '19', '25', '26', '27', '45', '46', '47', '52', '53', '54', '55'}
 
 
 def _hyphen_search(text: str):
@@ -1316,7 +1364,7 @@ def _archive_begin(body):
         _archive_cleanup()
         now = datetime.now(KST)
         m = body.get("master") or {}
-        mb = str(m.get("meterNo", "")).strip() or "unknown"
+        mb = re.sub(r"[^0-9A-Za-z]", "", str(m.get("meterNo", ""))) or "unknown"   # 경로 탈출 방지
         jd = ARCHIVE_DIR / now.strftime("%Y%m%d") / f"{now.strftime('%H%M%S')}_{mb}"
         jd.mkdir(parents=True, exist_ok=True)
         _archive_write(jd, patch={
@@ -1391,28 +1439,49 @@ def _saveact_precheck():
         raise HTTPException(400, f"공사설정 누락: {', '.join(miss)} — 설정페이지/세션 가져오기로 채우세요")
 
 
-def _saveact_core(body):
-    """마스터 1 + 슬레이브 N 결합 등록의 실제 로직. 진행 이벤트를 yield하는 제너레이터.
-    yield: {"type":"start","total":n}
-         / {"type":"item","role","meterNo","idx","total","ok"}  (건별 등록 직후)
-         / {"type":"done","results":[...]}                       (마지막, 전체 결과)
-    classic 엔드포인트는 이 제너레이터를 소비해 done의 results만 반환(출력 바이트 동일 유지).
-    stream 엔드포인트는 각 이벤트를 NDJSON 한 줄로 흘려보냄.
-    ★ fid3/fid4 마스터→슬레이브 공유·순차 로직은 종전과 동일 — 감싸기만."""
-    # ★폰이 실제로 보낸 원본 키 — 2026-08-11 진단(체크박스가 반영 안 된다는 보고).
-    #   "폰이 안 보냄"과 "백엔드가 무시함"을 가르는 유일한 증거. 사진 base64는 찍지 않는다.
-    print(f"[saveact:raw] keys={sorted(body.keys())} "
-          f"extConn={body.get('extConn')!r} addl={body.get('addl')!r} "
-          f"ham={body.get('ham')!r} mode={body.get('mode')!r} "
-          f"extMac={body.get('extMac')!r} replaceReason={body.get('replaceReason')!r} "
-          f"master.meterNo={(body.get('master') or {}).get('meterNo')!r}", flush=True)
-    tmpd = Path(tempfile.mkdtemp(prefix="cstsave_"))
-    m = body["master"]; mb = m["meterNo"]; mac = m["mac"]
-    slaves = body.get("slaves", [])
-    n = 1 + len(slaves)
-    arch = _archive_begin(body)   # ★큐/사진 30일 보관 — 전송 성공해도 지우지 않음
-    yield {"type": "start", "total": n}
-    # ── 마스터 통신방식(suffix) 확정: 직접선택(commSuffix) 우선 → 자동판별 → LTE는 계기유형으로 ──
+# ── 입력 게이트 (2026-10-19 감사) ─────────────────────────────────────────────
+# 수집 화면에서만 검사하던 것을 백엔드 진입부 한 곳으로 모은다. 큐 [수정]·손입력·OCR 오독이 그대로 awms 로
+# 나가던 길을 막는다. 두 saveAct 엔드포인트(classic/stream)가 전송 시작 전에 부른다 — 실패는 정상 HTTP 400.
+#   계기번호: 공백·하이픈 제거 + 대문자, 순수 숫자면 zfill(11), 영문 접두(A0·LA)는 그대로.
+#             법칙 ^[0-9A-Z]{2}[0-9]{9}$ (11자리 · 1~2번째만 영문 가능 · 5~11번째 숫자). 자동 교정은 하지 않는다.
+#   모뎀맥:   구분자(공백·:·-·*) 제거 + 대문자 + mac_format_error. 자릿수는 건드리지 않는다(11·12 섞임, zfill 금지).
+#   변대주:   영문이 섞인 10자리(DCUID)면 앞 8자리 — 끝 2자리는 접미라 DCU_ID 에 직접 넣으면 11자리로 나간다.
+#             쓰이는 경우(PLC 신설·교체)에는 ^[0-9A-Z]{8}$ 필수.
+_METER_LAW_RE = re.compile(r"^[0-9A-Z]{2}[0-9]{9}$")
+_BDJU_RE = re.compile(r"^[0-9A-Z]{8}$")
+
+
+def gate_meter(v, label: str) -> str:
+    n = norm_meter(v)
+    if not n:
+        raise ValueError(f"{label} 계기번호가 비어 있다")
+    if not _METER_LAW_RE.match(n):
+        raise ValueError(f"{label} 계기번호 {n} 형식 오류 — 11자리, 앞 2자리만 영문 가능, 나머지 9자리는 숫자")
+    return n
+
+
+def gate_mac(v) -> str:
+    s = re.sub(r"[\s:\-*]", "", str(v or "")).upper()
+    err = mac_format_error(s)
+    if err:
+        raise ValueError(f"모뎀맥 {s or '(빈값)'} 오류 — {err['reason']}" + (f" (후보 {err['suggest']})" if err.get("suggest") else ""))
+    return s
+
+
+def gate_bdju(v) -> str:
+    t = re.sub(r"\s+", "", str(v or "")).upper()
+    if len(t) == 10 and re.search(r"[A-Z]", t):
+        t = t[:8]      # DCUID(전산화번호 8자리 + 접미 2자리) -> 전산화번호
+    return t
+
+
+# 계기유형(INST_M) 타입코드 -> 슬레이브 분기 자동값 등은 core 에 있다. 여기는 입력 검사만.
+def _saveact_plan(body: dict) -> dict:
+    """요청 본문에서 전송 계획(통신방식·작업구분·교체필드·변대주)을 확정한다. 틀리면 HTTPException(400).
+    core 가 같은 값을 쓰도록 한 곳에 둔다 — 검사와 전송이 갈리지 않게."""
+    m = body["master"]
+    mb = m["meterNo"]
+    mac = m["mac"]
     m_instM = infer_inst_m(mb)
     override = str(body.get("commSuffix", "")).strip()   # 프론트 직접선택 '10'/'20'/'40'/'70'/'80'/'90'/'92'
     if override:
@@ -1448,11 +1517,100 @@ def _saveact_core(body):
             raise HTTPException(400, f"교체 구분상세 코드 오류: {replace_reason}")
     # 변대주 → DCU_ID: [신설(M1010)] + [PLC계열: 10 ks-plc/20 hpgp/90 k-dcu] + [변대주있음] 에서만 (영준님 2026-07-15).
     #   DCU_ID = 변대주 전산화번호(DCUID 앞8자, 끝2 제외) 그대로. +00 아님. 기설(M1030)은 미입력. iot-plc(80)·IP-HPGP(85) 미사용. 마스터·슬레이브 동일.
-    bdju = str(body.get("bdju", "")).strip()
     #   교체(M1020)도 채운다 — awms 화면의 DATA_NUM watch 는 작업구분을 보지 않고 변대주만 있으면 DCU_ID 를
     #   계산한다(MOBCST1000.html 'mainList.currentRow.DATA_NUM' 핸들러, 2026-09-02 실측). 교체는 기존 PLC
     #   선에 그대로 물리는 작업이라 변대주가 있다. 기설(M1030)은 종전대로 미입력.
-    dcu_id = bdju if (work_div in ("M1010", "M1020") and bdju and master_suffix in ("10", "20", "90")) else ""
+    bdju = gate_bdju(body.get("bdju", ""))
+    bdju_used = work_div in ("M1010", "M1020") and master_suffix in ("10", "20", "90")
+    warnings = []
+    if bdju_used:
+        if bdju and not _BDJU_RE.match(bdju):
+            raise HTTPException(400, f"변대주 {bdju} 형식 오류 — 영문·숫자 8자리(전산화번호)여야 한다. "
+                                     "DCUID(10자리)면 앞 8자리만 쓴다")
+        if not bdju and work_div == "M1010":
+            warnings.append("PLC 신설인데 변대주가 비어 있다 — DATA_NUM/DCU_ID 없이 등록된다(LP 미수신 위험). 변대주를 확인하라")
+    dcu_id = bdju if (bdju_used and bdju) else ""
+    return {"mb": mb, "mac": mac, "m_instM": m_instM, "m_inst_s": m_inst_s, "master_suffix": master_suffix,
+            "work_div": work_div, "is_replace": is_replace, "ext_mac": ext_mac,
+            "replace_reason": replace_reason, "bdju": bdju, "dcu_id": dcu_id, "warnings": warnings}
+
+
+def _saveact_prepare(body: dict) -> dict:
+    """★입력 단일 게이트. body 를 제자리에서 정규화하고(계기번호·맥·변대주) 전송 계획을 돌려준다.
+    틀린 입력은 전부 한꺼번에 모아 HTTPException(400, 한국어 사유)."""
+    m = body.get("master")
+    if not isinstance(m, dict):
+        raise HTTPException(400, "마스터 정보가 없다")
+    errs = []
+    try:
+        m["meterNo"] = gate_meter(m.get("meterNo"), "대표(마스터)")
+    except ValueError as e:
+        errs.append(str(e))
+    try:
+        m["mac"] = gate_mac(m.get("mac"))
+    except ValueError as e:
+        errs.append(str(e))
+    slaves = body.get("slaves") or []
+    if not isinstance(slaves, list):
+        raise HTTPException(400, "슬레이브 목록 형식 오류")
+    for i, s in enumerate(slaves):
+        if not isinstance(s, dict):
+            errs.append(f"슬레이브{i + 1} 형식 오류")
+            continue
+        try:
+            s["meterNo"] = gate_meter(s.get("meterNo"), f"슬레이브{i + 1}")
+        except ValueError as e:
+            errs.append(str(e))
+    body["slaves"] = slaves
+    if errs:
+        raise HTTPException(400, " / ".join(errs))
+    return _saveact_plan(body)
+
+
+def _saveact_core(body, plan=None):
+    """마스터 1 + 슬레이브 N 결합 등록의 실제 로직. 진행 이벤트를 yield하는 제너레이터.
+    yield: {"type":"start","total":n}
+         / {"type":"item","role","meterNo","idx","total","ok"}  (건별 등록 직후)
+         / {"type":"done","results":[...]}                       (마지막, 전체 결과)
+    classic 엔드포인트는 이 제너레이터를 소비해 done의 results만 반환(출력 바이트 동일 유지).
+    stream 엔드포인트는 각 이벤트를 NDJSON 한 줄로 흘려보냄.
+    ★ fid3/fid4 마스터→슬레이브 공유·순차 로직은 종전과 동일 — 감싸기만.
+    plan = _saveact_prepare(body) 결과(입력 게이트 통과·정규화 완료). 없으면 여기서 만든다."""
+    if plan is None:
+        plan = _saveact_prepare(body)
+    # ★폰이 실제로 보낸 원본 키 — 2026-08-11 진단(체크박스가 반영 안 된다는 보고).
+    #   "폰이 안 보냄"과 "백엔드가 무시함"을 가르는 유일한 증거. 사진 base64는 찍지 않는다.
+    print(f"[saveact:raw] keys={sorted(body.keys())} "
+          f"extConn={body.get('extConn')!r} addl={body.get('addl')!r} "
+          f"ham={body.get('ham')!r} mode={body.get('mode')!r} "
+          f"extMac={body.get('extMac')!r} replaceReason={body.get('replaceReason')!r} "
+          f"master.meterNo={(body.get('master') or {}).get('meterNo')!r}", flush=True)
+    tmpd = Path(tempfile.mkdtemp(prefix="cstsave_"))
+    arch = None
+    try:
+        arch = _archive_begin(body)   # ★큐/사진 30일 보관 — 전송 성공해도 지우지 않음
+        yield from _saveact_run(body, plan, tmpd, arch)
+    except GeneratorExit:
+        _archive_write(arch, patch={"error": "클라이언트 연결 끊김 — 중단"}, status="aborted")
+        raise
+    except BaseException as e:
+        _archive_write(arch, patch={"error": f"{type(e).__name__}: {e}"[:300]}, status="error")
+        raise
+    finally:
+        shutil.rmtree(tmpd, ignore_errors=True)   # 임시폴더만 정리(원본은 ARCHIVE_DIR에 30일 보관)
+
+
+def _saveact_run(body, plan, tmpd, arch):
+    m = body["master"]; mb = plan["mb"]; mac = plan["mac"]
+    slaves = body.get("slaves", [])
+    n = 1 + len(slaves)
+    m_instM = plan["m_instM"]; m_inst_s = plan["m_inst_s"]; master_suffix = plan["master_suffix"]
+    work_div = plan["work_div"]; is_replace = plan["is_replace"]
+    ext_mac = plan["ext_mac"]; replace_reason = plan["replace_reason"]
+    bdju = plan["bdju"]; dcu_id = plan["dcu_id"]
+    for w in plan["warnings"]:
+        print(f"[saveact] 경고 {mb}: {w}", flush=True)
+    yield {"type": "start", "total": n, "warnings": plan["warnings"]}
     # ★DCU_ID 는 우리가 직접 채운다 (2026-08-29). 2026-07-15 실측 당시엔 DATA_NUM만 보내면 awms가
     #   DCU_ID를 자동생성했으나, awms가 2026-07-27 개편(BUILTIN_YN 신규필드와 같은 시점)된 뒤로
     #   자동생성이 사라져 saveAct 직접호출 건만 DCU_ID가 빈 채 저장됐다 → LP 미수신·미개통 누적.
@@ -1519,6 +1677,17 @@ def _saveact_core(body):
     results = [{"role": "master", "meterNo": mb, "resp": res_m}]
     yield {"type": "item", "role": "master", "meterNo": mb, "idx": 1, "total": n,
            "ok": bool(res_m.get("result") == 1)}
+    if res_m.get("result") != 1:
+        # ★마스터가 실패하면 슬레이브를 보내지 않는다(2026-10-19 감사). 마스터 없는 고아 슬레이브 행이 생기고
+        #   (사진 3·4 빈값, MB_METER_ID 는 등록 안 된 마스터를 가리킨다) 재전송 때 중복이 된다.
+        #   슬레이브는 결과에 '미전송'으로 남겨 폰이 실패로 읽게 한다(result != 1).
+        print(f"[saveact] 마스터 {mb} 실패 — 슬레이브 {len(slaves)}건 전송 중단", flush=True)
+        for s_ in slaves:
+            results.append({"role": "slave", "meterNo": s_["meterNo"],
+                            "resp": {"result": -1, "_skipped": "마스터 등록 실패로 전송하지 않음"}})
+        _archive_write(arch, patch={"skippedSlaves": [s_["meterNo"] for s_ in slaves]}, status="failed")
+        yield {"type": "done", "results": results, "warnings": plan["warnings"]}
+        return
     # 슬레이브 (INST_S=슬레이브계기타입+마스터suffix 상속, BUNGI=아미고?무선:0.5 — 아래 주석 참조)
     for i, s in enumerate(slaves):
         s_instM = infer_inst_m(s["meterNo"])
@@ -1600,9 +1769,8 @@ def _saveact_core(body):
         results.append({"role": "slave", "meterNo": s["meterNo"], "resp": res_s})
         yield {"type": "item", "role": "slave", "meterNo": s["meterNo"], "idx": i + 2, "total": n,
                "ok": bool(res_s.get("result") == 1)}
-    shutil.rmtree(tmpd, ignore_errors=True)   # 임시폴더만 정리(원본은 ARCHIVE_DIR에 30일 보관)
     _archive_write(arch, status="done")
-    yield {"type": "done", "results": results}
+    yield {"type": "done", "results": results, "warnings": plan["warnings"]}
 
 
 @app.post("/api/saveact")
@@ -1610,11 +1778,15 @@ def api_saveact(body: dict = Body(...)):
     """마스터 1 + 슬레이브 N 결합 등록 (classic). 출력 = {"results":[...]} — 종전과 바이트 동일.
     ★진행표시가 필요한 프론트는 /api/saveact/stream을 먼저 시도하고, 실패 시 이 경로로 폴백."""
     _saveact_precheck()
+    plan = _saveact_prepare(body)   # 입력 단일 게이트 — 틀리면 전송 전에 400
     results = []
-    for ev in _saveact_core(body):
+    for ev in _saveact_core(body, plan):
         if ev.get("type") == "done":
             results = ev["results"]
-    return {"results": results}
+    out = {"results": results}
+    if plan["warnings"]:
+        out["warnings"] = plan["warnings"]
+    return out
 
 
 @app.post("/api/saveact/stream")
@@ -1624,10 +1796,11 @@ def api_saveact_stream(body: dict = Body(...)):
     상태코드 못 바꾸므로 done의 각 resp.result로 성공/실패 판정.
     ★터널(cloudflare) 버퍼링 대비: X-Accel-Buffering:no + content-length 없이 chunked."""
     _saveact_precheck()
+    plan = _saveact_prepare(body)   # 입력 단일 게이트 — 스트림 시작 전이라 정상 400 으로 나간다
 
     def _gen():
         try:
-            for ev in _saveact_core(body):
+            for ev in _saveact_core(body, plan):
                 yield json.dumps(ev, ensure_ascii=False) + "\n"
         except HTTPException as he:
             yield json.dumps({"type": "error", "detail": he.detail}, ensure_ascii=False) + "\n"
@@ -1974,10 +2147,13 @@ def _stock_meter_had_master_before(meter: str, ts_ms: int) -> bool:
          "endDate": datetime.now(KST).strftime("%Y%m%d")}
     try:
         r = requests.get(f"{AWMS}/getMainList", params=p, headers=_headers(), timeout=30)
-        d = r.json() if "json" in r.headers.get("content-type", "") else []
+        if r.status_code != 200 or "json" not in r.headers.get("content-type", ""):
+            return False   # ★실패 응답은 캐시하지 않는다 — 다음 계산 때 다시 묻는다(2026-10-19 감사)
+        d = r.json()
         rows = d if isinstance(d, list) else d.get("rows", d.get("list", []))
+        # 정정 재저장 = 기준점 이전에 같은 계기의 신설(M1010) 마스터 행이 있다. 기설·교체 행은 해당 없음.
         hit = any(isinstance(x, dict) and x.get("INSTR_NUM") == meter and x.get("MODEM_DIV") == "10"
-                  and (x.get("REG_DATE") or 0) <= ts_ms for x in rows)
+                  and x.get("WORK_DIV") == "M1010" and (x.get("REG_DATE") or 0) <= ts_ms for x in rows)
     except Exception:
         return False
     _STOCK_PRIOR[meter] = hit
@@ -2025,7 +2201,8 @@ def stock_compute(why: str = ""):
                 dup.append({"mac": m, "meter": key, "workDate": r.get("WORK_DATE") or ""})
                 continue
             seen.add(key)
-            if _stock_meter_had_master_before(key, ts):
+            # 교체(M1020)는 새 모뎀을 쓰므로 항상 차감한다 — 예전에 우리가 시공한 계기를 장애 리스트에서 교체해도 빠져야 한다.
+            if r.get("WORK_DIV") != "M1020" and _stock_meter_had_master_before(key, ts):
                 # MAC 정정 재저장(옛 오기 행이 기준점 전에 있음) — 새로 쓴 모뎀이 아니다. 실측 2026-10-16:
                 # 4그룹 재저장 마스터 4개가 시공으로 빠져 143 → 139 가 됐다.
                 dup.append({"mac": m, "meter": key, "workDate": r.get("WORK_DATE") or "", "why": "정정 재저장"})
@@ -2102,6 +2279,7 @@ def api_verify(body: dict = Body(...)):
     def _norm(mid: str) -> str:
         return str(mid or "").strip().zfill(11)
 
+    want_mac = shipped_norm(body.get("mac", ""))
     req_norms = [_norm(m) for m in meter_nos if str(m or "").strip()]
     if not req_norms:
         raise HTTPException(400, "유효한 계기번호 없음")
@@ -2156,7 +2334,10 @@ def api_verify(body: dict = Body(...)):
                 time.sleep(2); continue
             return JSONResponse({"verified": False, "error": f"getMainList 응답 구조 미상: {list(data.keys()) if isinstance(data, dict) else type(data).__name__}"})
         rows_checked = len(rows)
-        registered |= {_norm(row.get("INSTR_NUM", "")) for row in rows if isinstance(row, dict)}
+        # ★mac 이 오면 계기번호+모뎀맥이 둘 다 맞는 행만 센다 — MAC 정정 재전송이 반영 안 됐는데 옛 행 때문에
+        #   "등록 확인"이 되던 오판 방지(2026-10-19 감사). mac 없으면 종전처럼 계기번호만.
+        registered |= {_norm(row.get("INSTR_NUM", "")) for row in rows if isinstance(row, dict)
+                       and (not want_mac or shipped_norm(row.get("MAC_MODEM")) == want_mac)}
         if all(m in registered for m in req_norms):
             break
         if attempt < 2:

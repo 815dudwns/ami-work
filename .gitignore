@@ -101,3 +101,7 @@ cst-input/backend/stock_exclude.json
 cst-input/backend/stock_baseline.json
 cst-input/backend/stock_exclude.json
 cst-input/backend/stock_type_override.json
+
+# 아미큐 백엔드 인증 토큰·비상스위치 (2026-10-19) — 절대 커밋 금지
+cst-input/backend/api_token.txt
+cst-input/backend/auth_off
