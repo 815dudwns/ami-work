@@ -641,9 +641,16 @@ def api_session_push(body: dict = Body(...)):
             "worker1": CONFIG["WORKER1_SEQ"], "worker2": CONFIG["WORKER2_SEQ"]}
 
 
+def _public_config():
+    # Never hand the awms account back out — the backend is reachable through a public tunnel
+    # and the tunnel URL is readable from Firebase (2026-10-19 audit: CRED_PW leaked here).
+    # The phone only ever writes CRED_*; it does not read them back.
+    return {k: v for k, v in CONFIG.items() if not k.startswith("CRED_")}
+
+
 @app.get("/api/config")
 def api_config():
-    out = dict(CONFIG)
+    out = _public_config()
     out["WORKER1_NM"] = _worker_name(CONFIG.get("WORKER1_SEQ", ""))
     out["WORKER2_NM"] = _worker_name(CONFIG.get("WORKER2_SEQ", ""))
     out["WORKER3_NM"] = _worker_name(CONFIG.get("WORKER3_SEQ", ""))
@@ -695,7 +702,7 @@ def api_config_set(request: Request, body: dict = Body(...)):
         _save_config()   # 폰 설정값(지사 등) persist — 재기동해도 유지
     if changed or blocked:
         _config_log({"src": src, "explicit": explicit, "changed": changed, "blocked": blocked})
-    out = dict(CONFIG)
+    out = _public_config()
     out["_blocked"] = sorted(blocked)
     return out
 
