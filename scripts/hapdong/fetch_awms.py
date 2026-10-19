@@ -264,11 +264,25 @@ def main():
         # 다시 받은 날이 전보다 줄었으면 알린다 — 늦게 올린 물량을 주우려고 재조회하는 것이라
         #   늘어나는 것이 정상이다. 줄었다면 조회 조건이나 세션을 의심해야 한다.
         before = None
+        kept_addr = 0
         if out.exists():
             try:
-                before = len(json.loads(out.read_text()).get("rows") or [])
+                prev_rows = json.loads(out.read_text()).get("rows") or []
+                before = len(prev_rows)
+                # ★awms is wiping WRK_PLCE_ADDR_CTT on rows that had it (2026-10-19 evening: 4,836 rows in
+                #   노원·마포·동대문·서대문 went blank after the fact). Never let a re-fetch erase an address
+                #   we already hold — keep the old one when the new value is empty.
+                prev_addr = {x.get("CONS_TGT_SEQNO"): x.get("WRK_PLCE_ADDR_CTT") for x in prev_rows
+                             if (x.get("WRK_PLCE_ADDR_CTT") or "").strip()}
+                for x in result["rows"]:
+                    if not (x.get("WRK_PLCE_ADDR_CTT") or "").strip() and x.get("CONS_TGT_SEQNO") in prev_addr:
+                        x["WRK_PLCE_ADDR_CTT"] = prev_addr[x["CONS_TGT_SEQNO"]]
+                        x["__addrKept"] = True
+                        kept_addr += 1
             except Exception:
                 before = None
+        if kept_addr:
+            print(f"  ★[주소 보존] {day} awms 에서 주소가 빈 {kept_addr}건 — 이전 수집 주소 유지", file=sys.stderr)
         out.write_text(json.dumps(result, ensure_ascii=False, indent=1))
         delta = ''
         if before is not None:
