@@ -1052,7 +1052,7 @@ def _extract_meter_no(lines):
         #   타입코드 필터를 통과한 것만 담으므로 잡문자열은 걸러진다.
         for m in _ALNUM_11.finditer(text):
             w = m.group(1).upper()
-            if not w.isdigit() and w[2:4] in _METER_TYPE_CODES:
+            if not w.isdigit() and w[2:4] in _METER_TYPE_CODES and _METER_LAW_RE.match(w):   # 법칙: 3번째 이후 영문은 오독
                 candA.append((y, conf, w))
         for m in _AMIGO_HYPHEN.finditer(text):
             amigo = 'A055' + re.sub(r'[^0-9]', '', m.group(1))
@@ -1075,7 +1075,10 @@ def _extract_meter_no(lines):
         digits_only = re.sub(r'[\s\-]', '', text).upper()
         if re.match(r'^[0-9A-Z]{11}$', digits_only) and digits_only[2:4] in _METER_TYPE_CODES:
             # 문자가 섞였으면 위와 같은 이유로 문자접두 후보 쪽에 넣는다(우선순위 유지).
-            (cand11 if digits_only.isdigit() else candA).append((y, conf, digits_only))
+            if digits_only.isdigit():
+                cand11.append((y, conf, digits_only))
+            elif _METER_LAW_RE.match(digits_only):
+                candA.append((y, conf, digits_only))
         else:
             # 처방 1: \b\d{11}\b 매치 후 타입코드 유효한 것만
             for m in _METER_11.finditer(text):
@@ -1530,7 +1533,12 @@ def _saveact_plan(body: dict) -> dict:
         if not bdju and work_div == "M1010":
             warnings.append("PLC 신설인데 변대주가 비어 있다 — DATA_NUM/DCU_ID 없이 등록된다(LP 미수신 위험). 변대주를 확인하라")
     dcu_id = bdju if (bdju_used and bdju) else ""
-    return {"mb": mb, "mac": mac, "m_instM": m_instM, "m_inst_s": m_inst_s, "master_suffix": master_suffix,
+    # 재전송 멱등: 마스터를 건너뛰는데 보낼 슬레이브가 남았으면 마스터 사진 파일ID(3·4)가 있어야 한다.
+    m_skip = bool(m.get("skip"))
+    fid3 = str(m.get("fid3") or ""); fid4 = str(m.get("fid4") or "")
+    if m_skip and any(not s.get("skip") for s in body.get("slaves", [])) and not (fid3 and fid4):
+        raise HTTPException(400, "마스터는 이미 등록됐지만 사진 파일ID 기록이 없어 슬레이브를 자동 재전송할 수 없다 — awms 에서 확인하라")
+    return {"m_skip": m_skip, "fid3": fid3, "fid4": fid4, "mb": mb, "mac": mac, "m_instM": m_instM, "m_inst_s": m_inst_s, "master_suffix": master_suffix,
             "work_div": work_div, "is_replace": is_replace, "ext_mac": ext_mac,
             "replace_reason": replace_reason, "bdju": bdju, "dcu_id": dcu_id, "warnings": warnings}
 
@@ -1653,30 +1661,38 @@ def _saveact_run(body, plan, tmpd, arch):
     if dcu_id:
         mf["DATA_NUM"] = dcu_id     # ★변대주 전산화번호 = awms 화면 '변대주' 칸(필드명 DATA_NUM)
         mf["DCU_ID"] = dcu_full     # 변대주+접미. awms 자동생성이 2026-07-27 개편으로 사라져 직접 채운다
-    # 25리스트 계기면 비고 '25' (계기 단위 — 같은 함체라도 리스트 밖은 안 붙인다)
-    m_25 = apply_michunggu_memo(mf, mb, "master")
-    mp = _photos_to_files(m.get("photos", {}), tmpd)
-    m_saved = _archive_photos(arch, "master", mp)   # 전송 전 보관(전송 실패해도 사진 남김)
-    res_m = saveact_post(mf, mp)
-    # 진단 로그. stale이면 경고를 같이 붙인다 — 전송 1건 만에 "옛 코드로 돌고 있다"가 드러난다.
-    print(f"[saveact] master {mb} workDiv={work_div} ham={ham or '집합'} addl={addl} fclty={fclty} "
-          f"instM={m_instM} extConn={ext_conn}"
-          f"{f' extMac={ext_mac} reason={replace_reason or None}' if is_replace else ''}"
-          f"{f' 비고25={m_25}' if m_25 else ''}"
-          f" → {res_m}{_stale_note()}", flush=True)
-    _archive_write(arch, sent={"role": "master", "meterNo": mb, "fields": mf,
-                               "photos": m_saved, "resp": res_m,
-                               "ok": bool(res_m.get("result") == 1)})
-    try:   # OCR 실패표본 매칭(슬롯5=계기판 사진) — saveAct 흐름과 완전분리
-        p5 = m.get("photos", {}).get("5")
-        if p5:
-            _ocr_sample_try_match(base64.b64decode(str(p5).split(",")[-1]), mb)
-    except Exception:
-        pass
+    if plan["m_skip"]:
+        # ★재전송 멱등: 폰이 '이미 등록됨'으로 기록한 마스터는 다시 보내지 않는다(2026-10-19 감사 — 같은 MAC 재등록은
+        #   670 거부·사진 3·4 누락을 부른다). 슬레이브가 공유할 사진 파일ID 는 폰이 이전 응답에서 보관한 값을 쓴다.
+        res_m = {"result": 1, "atchFileId3": plan["fid3"], "atchFileId4": plan["fid4"],
+                 "_skipped": "이미 등록됨 — 재전송 건너뜀"}
+        print(f"[saveact] master {mb} 건너뜀(이미 등록됨, 재전송)", flush=True)
+    else:
+        # 25리스트 계기면 비고 '25' (계기 단위 — 같은 함체라도 리스트 밖은 안 붙인다)
+        m_25 = apply_michunggu_memo(mf, mb, "master")
+        mp = _photos_to_files(m.get("photos", {}), tmpd)
+        m_saved = _archive_photos(arch, "master", mp)   # 전송 전 보관(전송 실패해도 사진 남김)
+        res_m = saveact_post(mf, mp)
+        # 진단 로그. stale이면 경고를 같이 붙인다 — 전송 1건 만에 "옛 코드로 돌고 있다"가 드러난다.
+        print(f"[saveact] master {mb} workDiv={work_div} ham={ham or '집합'} addl={addl} fclty={fclty} "
+              f"instM={m_instM} extConn={ext_conn}"
+              f"{f' extMac={ext_mac} reason={replace_reason or None}' if is_replace else ''}"
+              f"{f' 비고25={m_25}' if m_25 else ''}"
+              f" → {res_m}{_stale_note()}", flush=True)
+        _archive_write(arch, sent={"role": "master", "meterNo": mb, "fields": mf,
+                                   "photos": m_saved, "resp": res_m,
+                                   "ok": bool(res_m.get("result") == 1)})
+        try:   # OCR 실패표본 매칭(슬롯5=계기판 사진) — saveAct 흐름과 완전분리
+            p5 = m.get("photos", {}).get("5")
+            if p5:
+                _ocr_sample_try_match(base64.b64decode(str(p5).split(",")[-1]), mb)
+        except Exception:
+            pass
     fid3 = res_m.get("atchFileId3", ""); fid4 = res_m.get("atchFileId4", "")
     results = [{"role": "master", "meterNo": mb, "resp": res_m}]
     yield {"type": "item", "role": "master", "meterNo": mb, "idx": 1, "total": n,
-           "ok": bool(res_m.get("result") == 1)}
+           "ok": bool(res_m.get("result") == 1), "fid3": fid3, "fid4": fid4,
+           "skipped": bool(plan["m_skip"])}   # 폰이 fid3/4 를 보관했다가 재전송 때 돌려준다
     if res_m.get("result") != 1:
         # ★마스터가 실패하면 슬레이브를 보내지 않는다(2026-10-19 감사). 마스터 없는 고아 슬레이브 행이 생기고
         #   (사진 3·4 빈값, MB_METER_ID 는 등록 안 된 마스터를 가리킨다) 재전송 때 중복이 된다.
@@ -1690,6 +1706,13 @@ def _saveact_run(body, plan, tmpd, arch):
         return
     # 슬레이브 (INST_S=슬레이브계기타입+마스터suffix 상속, BUNGI=아미고?무선:0.5 — 아래 주석 참조)
     for i, s in enumerate(slaves):
+        if s.get("skip"):   # 이미 등록된 슬레이브 — 재전송에서 건너뛴다(폰 기록 기준)
+            print(f"[saveact] slave {s['meterNo']} 건너뜀(이미 등록됨, 재전송)", flush=True)
+            results.append({"role": "slave", "meterNo": s["meterNo"],
+                            "resp": {"result": 1, "_skipped": "이미 등록됨 — 재전송 건너뜀"}})
+            yield {"type": "item", "role": "slave", "meterNo": s["meterNo"], "idx": i + 2, "total": n,
+                   "ok": True, "skipped": True}
+            continue
         s_instM = infer_inst_m(s["meterNo"])
         s_inst_s = s_instM + master_suffix
         # 분기(BUNGI) — 자동판정이 기본이고, **아미고 모뎀 함체의 아미고 슬레이브만** 고쳐 쓸 수 있다.
