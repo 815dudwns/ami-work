@@ -1860,6 +1860,7 @@ def api_shipped_refresh():
 STOCK_BASELINE_FILE = Path(__file__).resolve().parent / "stock_baseline.json"   # .gitignore — 영준님 실물 카운트
 STOCK_EXCLUDE_FILE = Path(__file__).resolve().parent / "stock_exclude.json"     # .gitignore — 장부엔 내 것, 실물 없음
 STOCK_FILE = Path(__file__).resolve().parent / "stock_cache.json"               # .gitignore
+STOCK_TYPE_FILE = Path(__file__).resolve().parent / "stock_type_override.json"  # .gitignore — 실물 라벨로 확정한 AE/E
 STOCK_MAX_AGE = 30 * 60
 STOCK = {"ts": 0, "err": ""}
 _STOCK_DB = Path(__file__).resolve().parents[2] / "data" / "ami.db"   # 전 작업자 시공 이력(modem_work_all) — AE/E 판정용
@@ -1881,8 +1882,20 @@ def stock_exclude() -> dict:
         return {}
 
 
+def _stock_type_override() -> dict:
+    try:
+        return {shipped_norm(k): v.get("type") for k, v in
+                json.loads(STOCK_TYPE_FILE.read_text(encoding="utf-8")).get("macs", {}).items()}
+    except Exception:
+        return {}
+
+
 def _stock_history_type(m: str):
-    """같은 7자리 접두의 전 작업자 마스터 시공 다수결로 AE/E. 외장형연결장치=Y 인 Adv-E 는 E(어댑터)."""
+    """같은 7자리 접두의 전 작업자 마스터 시공 다수결로 AE/E. 외장형연결장치=Y 인 Adv-E 는 E(어댑터).
+    실물 라벨로 확정한 MAC(stock_type_override.json)이 있으면 그게 이긴다 — 재사용 LTE 는 접두가 섞인다."""
+    t = _stock_type_override().get(m)
+    if t:
+        return t
     if m[:7] in _STOCK_KIND_CACHE:
         return _STOCK_KIND_CACHE[m[:7]]
     t = None

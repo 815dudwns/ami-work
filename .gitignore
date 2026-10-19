@@ -100,3 +100,4 @@ cst-input/backend/stock_cache.json
 cst-input/backend/stock_exclude.json
 cst-input/backend/stock_baseline.json
 cst-input/backend/stock_exclude.json
+cst-input/backend/stock_type_override.json

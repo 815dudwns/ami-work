@@ -47,7 +47,17 @@ FORMAT_B = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE·E타입)", "LTE 모뎀(G타입)
             "HPGP모뎀(AE타입)", "HPGP모뎀(G타입)"]
 
 
+TYPE_OVERRIDE = Path(__file__).resolve().parent.parent / "cst-input/backend/stock_type_override.json"
+
+
 def _history_type(m):
+    # A type confirmed on the physical label wins (reused LTE prefixes are mixed)
+    try:
+        t = json.loads(TYPE_OVERRIDE.read_text()).get("macs", {}).get(m, {}).get("type")
+        if t:
+            return t
+    except Exception:
+        pass
     # AE vs E for reused LTE / mixed PLC: majority of everyone's master installs on the same
     # 7-char prefix. 외장형연결장치=Y on an Adv-E meter = E modem via adapter (영준님 2026-10-15).
     # Measured table: research/modem_type_by_prefix_20261015.md (scripts/modem_type_map.py).
