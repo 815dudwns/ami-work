@@ -50,7 +50,9 @@ const FORCE_LOGOUT_VERSION_KEY = 'ami_force_logout_version';
 // ★작업 데이터(ami_work_status·ami_checked_meters·ami_event_queue)는 여기 넣지 말 것(유실 방지).
 // ★지사·구 선택(ami_selected_jisa·ami_selected_gu)은 2026-10-20 에 뺐다 — 강제 로그아웃 때마다 지사가
 //   날아가 전원이 첫 지사(강북성북)로 떨어졌다(영준님 '자꾸 강북성북이 나온다'). 작업자가 고른 지사는 남긴다.
-const UI_STATE_KEYS = ['ami_map_view', 'ami_selected_categories', 'ami_seen_categories'];
+// ★리스트 선택(ami_selected_categories·ami_seen_categories)도 2026-10-20 에 뺐다 — 지우면 첫 진입에 리스트가
+//   전부 켜져 25미청구(14.5MB)·불가(6.7MB)까지 받고 마커가 폭증해 느려졌다(영준님 '속도가 왜 이리 느려졌냐').
+const UI_STATE_KEYS = ['ami_map_view'];
 
 /**
  * 로그인 시도

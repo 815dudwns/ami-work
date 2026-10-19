@@ -60,8 +60,7 @@ async function loadDataset(d) {
         if (d.category === '실효') {
             rows = await loadSiteDataCached(d.file);
         } else {
-            const r = await fetch(d.file, { cache: 'no-cache' });
-            rows = r.ok ? await r.json() : [];
+            rows = await loadListCached(d.file);
         }
         return rows.map(r => ({ ...r, category: d.category }));
     } catch (e) {
@@ -110,6 +109,46 @@ async function loadSiteDataCached(file) {
     return parsed;
 }
 
+// 실효 외 리스트도 IndexedDB 캐시 (2026-10-20, 영준님 '속도가 왜 이리 느려졌냐').
+//   ★버전 판정은 서버 ETag(없으면 Last-Modified)로 한다 — HEAD 한 번(수백 바이트)으로 내용이 바뀌었는지 안다.
+//     별도 버전 파일을 두면 데이터 배포 때 갱신을 잊는 순간 폰이 옛 데이터를 계속 쓴다(합동은 매일 바뀐다).
+//   ★정상 응답이고 배열일 때만 캐시한다(실패 응답 캐시 금지 — loadSiteDataCached 와 같은 규칙).
+//   어떤 실패든 그냥 받아 온다(누락 금지).
+async function loadListCached(file) {
+    const key = 'list:' + file;
+    let tag = null;
+    try {
+        const h = await fetch(file, { method: 'HEAD', cache: 'no-store' });
+        if (h.ok) tag = h.headers.get('etag') || h.headers.get('last-modified');
+    } catch (e) { /* 못 받으면 캐시 판정 없이 받아 온다 */ }
+    if (tag && typeof idbGet === 'function') {
+        try {
+            const c = await idbGet(key);
+            if (c && c.tag === tag && typeof c.text === 'string') {
+                console.log('[list] 캐시 히트(IDB)', file);
+                return JSON.parse(c.text);
+            }
+        } catch (e) { /* IDB 실패 → 받아 온다 */ }
+    }
+    const r = await fetch(file, { cache: 'no-cache' });
+    const text = r.ok ? await r.text() : '[]';
+    let parsed;
+    try { parsed = JSON.parse(text); } catch (e) { parsed = null; }
+    if (!r.ok || !Array.isArray(parsed)) {
+        console.warn('[list] 비정상 응답 — 캐시 안 함', r.status, file);
+        return Array.isArray(parsed) ? parsed : [];
+    }
+    const tag2 = r.headers.get('etag') || r.headers.get('last-modified') || tag;
+    if (tag2 && typeof idbSet === 'function') {
+        try { await idbSet(key, { tag: tag2, text }); } catch (e) { console.warn('[list] IDB 저장 실패(무시):', e); }
+    }
+    return parsed;
+}
+
+// 큰 리스트 — 첫 화면을 먼저 그린 뒤 뒤에서 불러온다(25미청구 14.5MB · 불가 6.7MB).
+//   ★상태키가 안 흔들린다: 이 둘은 네임스페이스 카테고리라 실효·합동의 갈림 판정에 끼지 않는다(js/status-key.js).
+const DEFERRED_CATEGORIES = ['미청구', '미청구불가'];
+
 // 지도 초기화 (카카오맵 생성 + 마커 로드)
 async function initMap() {
     // 보관소는 IndexedDB(비동기)로 옮겼다 — 첫 화면을 옛 상태로라도 즉시 그리기 위해
@@ -134,8 +173,10 @@ async function initMap() {
         localStorage.setItem('ami_map_view', JSON.stringify({ lat: c.getLat(), lng: c.getLng(), level: map.getLevel() }));
     });
 
+    const _first = DATASETS.filter(d => !DEFERRED_CATEGORIES.includes(d.category));
+    const _later = DATASETS.filter(d => DEFERRED_CATEGORIES.includes(d.category));
     try {
-        const loaded = await Promise.all(DATASETS.map(loadDataset));
+        const loaded = await Promise.all(_first.map(loadDataset));
         sampleData = loaded.flat();
     } catch (e) {
         console.error('[siteData] 로드 실패:', e);
@@ -153,8 +194,29 @@ async function initMap() {
     populateJisaOptions();
     populateCategoryFilter();
     loadMarkers();
+    // 큰 리스트는 뒤에서 — 첫 화면(실효·합동 등)을 붙잡지 않는다
+    const _laterDone = loadDeferredLists(_later);
     await initFirebase();
     markers.forEach(m => repaintMarker(m));
+    await _laterDone;
+}
+
+async function loadDeferredLists(list) {
+    if (!list || !list.length) return;
+    try {
+        const loaded = await Promise.all(list.map(loadDataset));
+        const rows = loaded.flat();
+        if (!rows.length) return;
+        sampleData = sampleData.concat(rows);
+        statusKeyIndex = buildStatusKeyIndex(sampleData);
+        collectDatasetDates();
+        // 선택된 리스트에 들어 있을 때만 다시 그린다(꺼져 있으면 마커가 안 바뀐다)
+        const sel = getSelectedCategories();
+        if (list.some(d => sel.has(d.category))) rebuildMarkers();
+        console.log('[siteData] 큰 리스트 뒤늦게 반영:', rows.length, '개');
+    } catch (e) {
+        console.warn('[siteData] 큰 리스트 로드 실패:', e);
+    }
 }
 
 // 지사 드롭다운 옵션 채우기 (JISA_TO_GU 7개 키 기준 + localStorage 복원)
