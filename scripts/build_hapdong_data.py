@@ -868,6 +868,52 @@ def enrich_jongno(recs):
     return stat
 
 
+# ─── 빈 주소 보충 ──────────────────────────────────────────────────────────
+# awms 가 주소를 비워 올리는 건(노원도봉 반복, 2026-10-19 엔 4개 지사 주소 일괄 삭제)은 지도에 마커가 안 뜬다.
+#   같은 건을 awms 계기팀 고객조회(mobMtr5000/selectCustomerInfo, 철거계기로 조회)로 받은 주소가
+#   addr_fill_custinfo.json 에 있다 — 키 CONS_TGT_SEQNO, custMatch=true(고객번호 일치)인 것만 쓴다.
+#   ★원본 raw 는 건드리지 않는다. 채우는 건 빌드 단계뿐이고, 채운 행엔 '주소출처' 를 남긴다(상세모달엔 안 띄운다).
+#   ★원본 raw 가 inbox 에 없는 옛 건(백업에만 있는 것)도 여기서 꺼내 같이 채운다 — 그래야 좌표가 다시 잡힌다.
+ADDR_FILL = INBOX / 'addr_fill_custinfo.json'
+ADDR_FILL_SOURCE = '한전 고객조회'
+
+
+def load_addr_fill():
+    if not ADDR_FILL.exists():
+        return {}
+    out = {}
+    for k, v in json.loads(ADDR_FILL.read_text(encoding='utf-8')).items():
+        a = clean_addr((v or {}).get('addr'))
+        if a and (v or {}).get('custMatch') is True:
+            out[str(k)] = a
+    return out
+
+
+def fill_empty_addresses(recs):
+    fill = load_addr_fill()
+    if not fill:
+        return
+    seen = {str(e.get('CONS_TGT_SEQNO')) for e in recs}
+    # 원본 raw 가 없어 recs 에 안 들어온 옛 건 — 기존 산출물에서 꺼내 recs 뒤에 붙인다(병합 때 recs 가 이긴다)
+    for src in (ARCHIVE, OUT):
+        if not src.exists():
+            continue
+        for e in json.loads(src.read_text(encoding='utf-8')):
+            k = str(e.get('CONS_TGT_SEQNO'))
+            if k in fill and k not in seen and not str(e.get('주소') or '').strip():
+                recs.append(dict(e))
+                seen.add(k)
+    n = 0
+    for e in recs:
+        k = str(e.get('CONS_TGT_SEQNO'))
+        if k in fill and not str(e.get('주소') or '').strip():
+            e['주소'] = fill[k]
+            e['동호수'] = split_detail(fill[k])
+            e['주소출처'] = ADDR_FILL_SOURCE
+            n += 1
+    print(f'[주소보충] 원본 빈 주소 {n}건을 {ADDR_FILL_SOURCE} 주소로 채움 (보충 파일 {len(fill)}건)', flush=True)
+
+
 def main():
     args = sys.argv[1:]
     no_archive = '--no-archive' in args
@@ -896,6 +942,9 @@ def main():
         rows = [r for r in rows if str(r.get('CNTR_CLAS_CD') or '').strip() not in _HV]
         _watch_query_shape(p.name, rows)
         recs += [to_record(r, day) for r in rows]
+
+    # 1-b) 빈 주소 보충 — awms 원본 WRK_PLCE_ADDR_CTT 가 빈 건을 한전 고객조회 주소로 채운다(2026-10-19).
+    fill_empty_addresses(recs)
 
     # 2) 지오코딩 — 같은 (지번, 도로명) 은 한 번만
     cache = load_geo_cache()
