@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v85'; // v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v86'; // v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1803,6 +1803,61 @@ function parseValue(text) {
         return found;
       };
       var _t = 0, _iv = setInterval(function () { _t++; if (rebindHome() || _t > 25) clearInterval(_iv); }, 300);
+    }
+  } catch (e) {}
+
+  // [v86] Tester gate — features under test run only for the accounts listed here.
+  //   Everyone loads this same file from GitHub, so new behaviour must check this first.
+  var TESTER_IDS = ['273584'];   // 우영준
+  var __testerState = null;      // null = not known yet (awms screen not ready)
+  function __isTester() {
+    if (__testerState !== null) return __testerState;
+    try {
+      var vm = getAwmsVM();
+      var s = vm && (vm.session || (vm.$root && vm.$root.session));
+      if (!s || !s.USER_ID) return false;   // unknown yet — ask again later
+      __testerState = TESTER_IDS.indexOf(String(s.USER_ID)) > -1;
+      rec({ stage: 'tester-gate', id: String(s.USER_ID), on: __testerState });
+    } catch (e) { return false; }
+    return __testerState;
+  }
+  window.__isTester = __isTester;
+
+  // [v86] Keyboard covers the bottom fields (비고): the helper app draws edge-to-edge and does not
+  //   shrink the page for the keyboard, so the last fields cannot scroll above it. On focus, pad the
+  //   field's scroll container and bring the field to the middle; remove the padding on blur.
+  try {
+    if (!window.__kbLiftHooked) {
+      window.__kbLiftHooked = true;
+      var __padded = null, __padOrig = '';
+      var scrollParent = function (el) {
+        for (var n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+          var oy = getComputedStyle(n).overflowY;
+          if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight) return n;
+        }
+        return document.scrollingElement || document.body;
+      };
+      var unpad = function () {
+        if (__padded) { __padded.style.paddingBottom = __padOrig; __padded = null; }
+      };
+      document.addEventListener('focusin', function (e) {
+        try {
+          var t = e.target;
+          if (!t || !/^(INPUT|TEXTAREA)$/.test(t.tagName) || t.readOnly) return;
+          if (/^(checkbox|radio|button|submit|file|hidden)$/i.test(t.type || '')) return;
+          if (!__isTester()) return;
+          var sp = scrollParent(t);
+          if (__padded !== sp) { unpad(); __padded = sp; __padOrig = sp.style.paddingBottom; }
+          sp.style.paddingBottom = '60vh';
+          setTimeout(function () { try { t.scrollIntoView({ block: 'center' }); } catch (x) {} }, 350);
+        } catch (x) {}
+      }, true);
+      document.addEventListener('focusout', function () {
+        setTimeout(function () {
+          var a = document.activeElement;
+          if (!a || !/^(INPUT|TEXTAREA)$/.test(a.tagName)) unpad();
+        }, 250);
+      }, true);
     }
   } catch (e) {}
 })();
