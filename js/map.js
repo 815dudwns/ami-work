@@ -212,6 +212,12 @@ function renderGuCheckboxes(jisa) {
             const inter = arr.filter(g => gus.includes(g));
             savedSet = inter.length > 0 ? new Set(arr) : null;
         } catch { savedSet = null; }
+        // ★화면과 내부 선택값을 같게 맞춘다(2026-10-20 영준님 '도봉 눌러도 안 뜸').
+        //   저장값이 비었거나('[]') 이 지사 구와 겹치지 않으면 화면은 '전체 켬'으로 그리는데,
+        //   loadMarkers 는 저장값을 그대로 읽어 빈 집합 = 마커 0개가 됐다. 그 상태에서 구를 누르면
+        //   보이는 것과 반대로 토글돼 '리스트를 하나 꺼야 뜨는' 것처럼 보였다.
+        //   화면대로 '전체'(null)로 되돌린다.
+        if (!savedSet) localStorage.removeItem('ami_selected_gu');
     }
 
     gus.forEach(g => {
