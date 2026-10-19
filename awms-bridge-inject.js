@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v86'; // v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v87'; // v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1027,6 +1027,11 @@ function parseValue(text) {
         // 헬퍼 모드: localStorage 마지막 저장값 복원. 피드백 루프 없음 — 저장 버튼 클릭 시에만 기록.
         var ld = localStorage.getItem('helper_last_dept');
         var lw = localStorage.getItem('helper_last_with');
+        // [v87] 헬퍼 설정 화면의 지사·동행이 있으면 마지막 저장값보다 우선 (테스터 전용, 밤에 전체 적용 예정)
+        if (__isTester()) {
+          if (window.__helperDept) ld = window.__helperDept;
+          if (window.__helperWith) lw = window.__helperWith;
+        }
         console.log('[DEPT] helper=true ld=' + ld + ' lw=' + lw + ' before DEPT2=' + row.DEPT2 + ' WITH=' + row.MTR_WITH_YN);
         if (ld) setRow(vm, row, 'DEPT2', ld);
         if (lw) setRow(vm, row, 'MTR_WITH_YN', lw);
@@ -1391,13 +1396,15 @@ function parseValue(text) {
           // ② 형식 검사 — 손입력 중에는 조용하다(force=false). 자릿수가 다 차야 판정된다.
           //    QR/바코드/손입력 어느 경로로 들어오든 여기서 한 번은 걸린다(바코드는 awms 원래
           //    스캐너를 쓰므로 __onNativeScan 을 안 탄다 — 이 watch 가 유일한 그물이다).
-          checkMacValue(cleaned, false, null);
+          var __macBad = checkMacValue(cleaned, false, null);
+          if (!__macBad) macOwnerCheck(vm, cleaned);   // [v87] 테스터 전용 (내부에서 게이트)
         } catch (e) {}
         setTimeout(function () { applyCommBungi(vm); }, 200);
       });
       vm.$watch('mainList.currentRow.INST_M', function () { setTimeout(function () { applyCommBungi(vm); }, 300); });
       vm.$watch('mainList.currentRow.MODEM_DIV', function () { setTimeout(function () { applyCommBungi(vm); applyMbToMeter(vm); }, 150); });
       vm.$watch('mainList.currentRow.MB_METER_ID', function () { applyMbToMeter(vm); });   // [v64] 대표계기 입력 → 계기번호 자동
+      installInputChecks(vm);   // [v87] 테스터 전용 입력 검사 (감시는 걸어 두되 실행은 내부 게이트)
     } catch (e) {}
     // 헬퍼 모드에서만 저장 리스너 등록
     if (window.__awmsHelper) { installSaveListener(); installAddRowHook(vm); }
@@ -1822,6 +1829,118 @@ function parseValue(text) {
     return __testerState;
   }
   window.__isTester = __isTester;
+
+
+  // ===== [v87] Tester-only input checks =====
+  //   meter number: law check + membership in the map lists (data/meter-list-index.json)
+  //   modem MAC: own-material check against awms (GET selectBarcdQr, read only)
+  //   Never blocks saving. Everything is behind __isTester().
+  var LIST_NAMES = { s: '실효', h: '합동', m: '25미청구', u: '25불가', j: '장애', g: '고압', k: 'SKT' };
+  var __meterIdx = null, __meterIdxLoading = false, __meterIdxFail = false;
+  function loadMeterIndex(cb) {
+    if (__meterIdx) { cb(); return; }
+    if (__meterIdxFail) return;
+    if (__meterIdxLoading) { setTimeout(function () { loadMeterIndex(cb); }, 500); return; }
+    __meterIdxLoading = true;
+    fetch('https://815dudwns.github.io/ami-work/data/meter-list-index.json', { cache: 'force-cache' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { __meterIdx = j; __meterIdxLoading = false; rec({ stage: 'meteridx-loaded', n: Object.keys(j).length }); cb(); })
+      .catch(function (e) { __meterIdxLoading = false; __meterIdxFail = true; rec({ stage: 'meteridx-fail', msg: String(e) }); });
+  }
+  var CHK_COLOR = { ok: '#067647', warn: '#b54708', err: '#d92d20' };
+  function visibleInputByName(name) {
+    var list = document.querySelectorAll('input[name="' + name + '"]');
+    for (var i = 0; i < list.length; i++) if (isVisibleInput(list[i])) return list[i];
+    return list.length ? list[0] : null;
+  }
+  // level: 'ok' | 'warn' | 'err' | '' (clear)
+  function showChk(field, level, text) {
+    try {
+      var old = document.querySelectorAll('[data-awchk="' + field + '"]');
+      for (var i = 0; i < old.length; i++) if (old[i].parentNode) old[i].parentNode.removeChild(old[i]);
+      var input = visibleInputByName(NAME_BY_FIELD[field]);
+      if (!input) return;
+      if (!level) { input.style.removeProperty('border'); return; }
+      var c = CHK_COLOR[level];
+      input.style.setProperty('border', '2px solid ' + c, 'important');
+      var d = document.createElement('div');
+      d.setAttribute('data-awchk', field);
+      d.style.cssText = 'font-size:13px;line-height:1.3;margin-top:2px;font-weight:600;color:' + c;
+      d.textContent = text;
+      if (input.parentNode) input.parentNode.insertBefore(d, input.nextSibling);
+    } catch (e) {}
+  }
+  function evalMeterField(vm, field) {
+    try {
+      if (!__isTester()) return;
+      var row = vm && vm.mainList && vm.mainList.currentRow;
+      var v = row ? String(row[field] == null ? '' : row[field]).replace(/[\s\-]/g, '').toUpperCase() : '';
+      if (v.length < 11) { showChk(field, '', ''); return; }       // silent until 11 chars
+      if (!/^[0-9A-Z]{2}[0-9]{9}$/.test(v)) { showChk(field, 'err', '계기번호 형식 오류'); rec({ stage: 'meter-chk', f: field, v: v, r: 'law' }); return; }
+      loadMeterIndex(function () {
+        var cur = vm.mainList.currentRow;
+        var now = cur ? String(cur[field] == null ? '' : cur[field]).replace(/[\s\-]/g, '').toUpperCase() : '';
+        if (now !== v) return;                                    // value changed while loading
+        var codes = __meterIdx[v];
+        if (codes) {
+          var names = [];
+          for (var i = 0; i < codes.length; i++) names.push(LIST_NAMES[codes.charAt(i)] || codes.charAt(i));
+          showChk(field, 'ok', names.join(' · '));
+        } else showChk(field, 'warn', '지도 리스트에 없음');
+        rec({ stage: 'meter-chk', f: field, v: v, r: codes || '-' });
+      });
+    } catch (e) {}
+  }
+  var __macChkSeq = 0;
+  function macOwnerCheck(vm, mac) {
+    try {
+      if (!__isTester()) return;
+      var row = vm && vm.mainList && vm.mainList.currentRow;
+      var wd = row ? String(row.WORK_DIV || '') : '';
+      if (wd === 'M1030') { showChk('MAC_MODEM', '', ''); return; }   // 기설: 합류 모뎀이라 검사 안 함
+      var m = String(mac || '').toUpperCase();
+      if (!/^\d{11}$/.test(m)) { showChk('MAC_MODEM', '', ''); return; }   // 측정으로 확인된 11자리 모뎀 번호만
+      var seq = ++__macChkSeq;
+      var s = vm.session || (vm.$root && vm.$root.session) || {};
+      var me = String(s.USER_ID || '');
+      fetch('/ami/mob/mtl/mobMtl4000/selectBarcdQr?vFclCl=M&vUnitCode=10&vBarcdQr=' + encodeURIComponent(m),
+        { credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (seq !== __macChkSeq) return;                         // newer value in flight
+          var cur = vm.mainList.currentRow;
+          if (!cur || String(cur.MAC_MODEM || '').replace(/[\s:\-*]/g, '').toUpperCase() !== m) return;
+          var it = (j && j.length) ? j[0] : (j && !j.length && typeof j === 'object' && j.MTRL_USER_ID !== undefined ? j : null);
+          var owner = it ? String(it.MTRL_USER_ID || '') : '';
+          var code = it ? String(it.WRHSG_SHP_CL_CD || '') : '';
+          if (!owner) showChk('MAC_MODEM', 'err', '자재 기록 없음');
+          else if (code === '50') showChk('MAC_MODEM', 'warn', owner === me ? '이미 시공된 자재' : '이미 시공된 자재 · ' + owner);
+          else if (owner === me) showChk('MAC_MODEM', 'ok', '내 자재');
+          else showChk('MAC_MODEM', 'warn', '다른 사람 자재 · ' + owner);
+          rec({ stage: 'mac-owner', mac: m, owner: owner, code: code, sts: it ? it.MTRL_STS_CL_CD : '', wd: wd });
+        })
+        .catch(function (e) { rec({ stage: 'mac-owner-fail', msg: String(e) }); });
+    } catch (e) {}
+  }
+  function installInputChecks(vm) {
+    var f = function (field) {
+      return function () { setTimeout(function () { evalMeterField(vm, field); }, 120); };
+    };
+    vm.$watch('mainList.currentRow.INSTR_NUM', f('INSTR_NUM'));
+    vm.$watch('mainList.currentRow.MB_METER_ID', f('MB_METER_ID'));
+    vm.$watch('mainList.currentRow', function () {
+      setTimeout(function () {
+        if (!__isTester()) return;
+        ['INSTR_NUM', 'MB_METER_ID'].forEach(function (k) { evalMeterField(vm, k); });
+        var r = vm.mainList.currentRow;
+        if (r && r.MAC_MODEM) macOwnerCheck(vm, String(r.MAC_MODEM).replace(/[\s:\-*]/g, ''));
+        else showChk('MAC_MODEM', '', '');
+      }, 250);
+    });
+    vm.$watch('mainList.currentRow.MAC_MODEM', function (nv) {
+      if (!nv || String(nv).replace(/[\s:\-*]/g, '').length < 11) setTimeout(function () { if (__isTester()) showChk('MAC_MODEM', '', ''); }, 120);
+    });
+  }
 
   // [v86] Keyboard covers the bottom fields (비고): the helper app draws edge-to-edge and does not
   //   shrink the page for the keyboard, so the last fields cannot scroll above it. On focus, pad the
