@@ -26,7 +26,9 @@
   ★계정은 윤용운 반장(231918) — 이 화면은 그 계정으로만 열린다.
 """
 import json
+import subprocess
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -164,8 +166,23 @@ def load_session():
 def query(sid, params, timeout=120):
     url = BASE + "?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers={**HEADERS, "Cookie": f"JSESSIONID={sid}"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        body = r.read().decode("utf-8")
+    for attempt in range(4):  # awms resets connections now and then (2026-10-19 evening)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                body = r.read().decode("utf-8")
+            break
+        except (ConnectionResetError, TimeoutError, urllib.error.URLError) as e:
+            print(f"  [재시도 {attempt + 1}] {e}", file=sys.stderr)
+            if attempt >= 1:  # urllib keeps getting reset while curl gets through (2026-10-19)
+                hdr = sum((["-H", f"{k}: {v}"] for k, v in {**HEADERS, "Cookie": f"JSESSIONID={sid}"}.items()), [])
+                out = subprocess.run(["curl", "-s", "--fail", "--max-time", str(timeout), *hdr, url],
+                                     capture_output=True)
+                if out.returncode == 0:
+                    body = out.stdout.decode("utf-8")
+                    break
+                if attempt == 3:
+                    raise
+            time.sleep(3 * (attempt + 1))
     try:
         return json.loads(body)
     except json.JSONDecodeError:
