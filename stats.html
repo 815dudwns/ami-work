@@ -9,12 +9,12 @@
     <title>작업 현황 통계 - AMI</title>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-    <script src="js/auth.js?v=20261001a"></script>
-    <script src="js/config.js?v=20260601b"></script>
-    <script src="js/utils.js?v=20260601b"></script>
+    <script src="js/auth.js?v=20261020a"></script>
+    <script src="js/config.js?v=20261020a"></script>
+    <script src="js/utils.js?v=20261020a"></script>
     <!-- 상태키 규칙(네임스페이스 카테고리 목록)의 단일 출처. 지도와 같은 파일을 쓴다. -->
-    <script src="js/status-key.js?v=20260915b"></script>
-    <script src="js/datasets.js?v=20260915c"></script>
+    <script src="js/status-key.js?v=20261020a"></script>
+    <script src="js/datasets.js?v=20261020a"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 40px; color: #1f2937; }
@@ -117,8 +117,8 @@
 
     <div class="date-bar">
         <input type="date" id="dateInput">
-        <button onclick="setToday()">오늘</button>
-        <button class="btn-refresh" onclick="loadAndRender()">새로고침</button>
+        <button onclick="setToday(); loadAndRender()">오늘</button>
+        <button class="btn-refresh" onclick="loadAndRender(true)">새로고침</button>
     </div>
 
     <div id="errBox"></div>
@@ -157,6 +157,8 @@ setToday();
 let _firebaseInited = false;
 let _db = null;
 let _metersByAddr = null;  // site-data.json 캐시: { address: [meter, ...] }
+let _archiveByAddr = null; // 완료 아카이브 색인 — 현재 리스트에 없는 주소일 때만 쓴다
+let _wsSnap = null;        // workStatus 스냅샷 — 날짜를 바꿔도 다시 받지 않는다(새로고침 때만)
 let _fbSiteData = null;    // Firebase siteData(실제 작업대상 19,613) 캐시 — 전체(지사별) 탭 분모
 let _activeTab = 'worker'; // 'worker'(작업자별·날짜) | 'gu'(구별·날짜) | 'all'(지사별 누적)
 
@@ -206,6 +208,7 @@ async function loadSiteData() {
     if (_metersByAddr) return _metersByAddr;
     const idx = await loadFbSiteData();
     const map = {};
+    const arch = {};
     const push = (k, item) => { if (!k) return; (map[k] = map[k] || []).push(item); };
     for (const it of idx) {
         const addr = normAddr(it['주소']);
@@ -219,7 +222,10 @@ async function loadSiteData() {
         //   아파트처럼 한 주소에 수백 건이 쌓인 곳을 작업하면 그날 실적이 통째로 부풀려진다.
         //   ★전체(지사별) 탭은 이 표를 쓰지 않는다 — 거기는 누적 실적이라 아카이브가 분모에 필요하고
         //     loadFbSiteData() 를 직접 읽는다. 이 표는 작업자별·구별 탭 전용이다.
-        if (code === 'a') continue;
+        //   ★단 **현재 리스트에 없는 주소**는 아카이브로 폴백한다(2026-10-19 감사) — 완료돼 리스트에서
+        //     빠진 실효 주소(1.2만)는 이 표에 없어서 지난 날짜 실적이 계기 0 으로 잡혔고, 완료제거를
+        //     할 때마다 실적이 소급해서 줄었다. 그래서 별도 색인에 두고 metersOfStatusKey 가 폴백한다.
+        if (code === 'a') { (arch[addr] = arch[addr] || []).push(it); continue; }
         const cat = LIST_CATEGORY[code];
         // ★네임스페이스 카테고리는 '주소|카테고리' 키에만 넣는다. 맨주소에 함께 넣으면
         //   같은 주소의 실효 개소를 조회할 때 고압·합동 계기가 딸려 들어온다.
@@ -227,6 +233,7 @@ async function loadSiteData() {
         else push(addr, it);
     }
     _metersByAddr = map;
+    _archiveByAddr = arch;
     return map;
 }
 
@@ -236,7 +243,13 @@ async function loadSiteData() {
 function metersOfStatusKey(key) {
     if (!_metersByAddr) return [];
     const a = normAddr(decodeStatusKey(key));
-    return _metersByAddr[a] || _metersByAddr[a.split('|')[0]] || [];
+    const cur = _metersByAddr[a] || _metersByAddr[a.split('|')[0]];
+    if (cur && cur.length) return cur;
+    // 현재 리스트에 없을 때만 — 네임스페이스 키(합동·미청구 등)는 아카이브(실효 완료분)로 떨어뜨리지 않는다
+    const isNs = (typeof NAMESPACED_CATEGORIES !== 'undefined')
+        && NAMESPACED_CATEGORIES.some(c => a.split('|').includes(c));
+    if (!isNs && _archiveByAddr) return _archiveByAddr[a.split('|')[0]] || [];
+    return [];
 }
 
 // 전체(지사별) 탭 분모 = Firebase siteData 였으나, 매 조회마다 22MB 통째 다운로드가
@@ -265,10 +278,12 @@ document.getElementById('dateInput').addEventListener('change', loadAndRender);
 loadAndRender();
 
 // ── 유틸 ───────────────────────────────────────────────
+// ★날짜 키는 KST 로 만든다(전 프로젝트 규칙) — 기기 시간대를 따르면 해외 설정 폰에서 하루가 밀린다.
+function kstDateKey(d) {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+}
 function setToday() {
-    const d = new Date();
-    const p = n => String(n).padStart(2, '0');
-    document.getElementById('dateInput').value = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+    document.getElementById('dateInput').value = kstDateKey(new Date());
 }
 
 function getSelectedDate() {
@@ -279,9 +294,7 @@ function isSameLocalDay(iso, dateStr) {
     if (!iso) return false;
     const d = new Date(iso);
     if (isNaN(d)) return false;
-    const p = n => String(n).padStart(2, '0');
-    const local = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
-    return local === dateStr;
+    return kstDateKey(d) === dateStr;
 }
 
 function extractGu(address) {
@@ -295,7 +308,7 @@ function showErr(msg) {
 function clearErr() { document.getElementById('errBox').innerHTML = ''; }
 
 // ── 메인 로드 ──────────────────────────────────────────
-async function loadAndRender() {
+async function loadAndRender(forceFetch) {
     clearErr();
     const dateStr = getSelectedDate();
     if (!dateStr) { showErr('날짜를 선택하세요'); return; }
@@ -305,12 +318,16 @@ async function loadAndRender() {
     content.innerHTML = '<div class="loading">불러오는 중...</div>';
 
     try {
-        const [workStatusSnap, _, fbSiteData] = await Promise.all([
-            _db.ref('workStatus/charger4eleccar').once('value'),
+        // ★workStatus(2.7만 키)는 처음 한 번과 [새로고침] 때만 받는다. 전엔 날짜를 바꿀 때마다
+        //   통째로 다시 받았다 — RTDB 다운로드 비용 사고와 같은 종류의 낭비(2026-10-19 감사).
+        const wsPromise = (_wsSnap && forceFetch !== true)
+            ? Promise.resolve(_wsSnap)
+            : _db.ref('workStatus/charger4eleccar').once('value').then(s => (_wsSnap = s.val() || {}));
+        const [workStatus, _, fbSiteData] = await Promise.all([
+            wsPromise,
             loadSiteData(),
             loadFbSiteData()
         ]);
-        const workStatus = workStatusSnap.val() || {};
         render(fbSiteData, workStatus, dateStr);
     } catch (e) {
         console.error(e);
@@ -327,9 +344,12 @@ function emptyAgg() {
         types:  {} // 타입명 -> 계기수 (complete + hold + fail 합)
     };
 }
-function addAgg(agg, state, meters) {
+function addAgg(agg, state, meters, failed) {
     agg.sites[state] += 1;
-    agg.meters[state] += meters.length;
+    for (const m of meters) {
+        const id = String((m && m['계기번호']) || '');
+        agg.meters[(failed && id && failed.has(id)) ? 'fail' : state] += 1;
+    }
     for (const m of meters) {
         // 계기번호 기반(parseType)이 1순위, 실패 시 엑셀 원본 정규화
         const t = parseType(m['계기번호']) || normalizeType(m['계기타입']);
@@ -424,6 +444,33 @@ function aggByBranch(fbSiteData, workStatus) {
     //     그런 개소는 완료·불가여도 미착수로 세였다(2026-09-09 실측 30행).
     const wsNorm = {};
     for (const k in workStatus) { wsNorm[norm(decodeStatusKey(k))] = workStatus[k]; }
+    // ★갈린 상태키('주소|도로명…', 한 주소가 마커 여럿으로 갈린 실효·아카이브) 보조 색인 — 맨주소로 못 찾을 때만 쓴다.
+    //   전엔 맨주소만 봐서 그런 개소가 완료인데 미작업으로 잡혔다(2026-10-19 감사: 미청구 54·실효 10·아카이브 약 63행).
+    //   한 주소의 갈린 키가 여럿이면 상태를 합친다: 같으면 그 상태, 섞이면 미작업 > 불가 > 보류 > 완료 순(부풀리지 않는다).
+    const wsSplit = {};
+    for (const k in wsNorm) {
+        const parts = k.split('|');
+        if (parts.length < 2) continue;
+        if (typeof NAMESPACED_CATEGORIES !== 'undefined' && parts.some(x => NAMESPACED_CATEGORIES.includes(x))) continue;
+        (wsSplit[parts[0]] = wsSplit[parts[0]] || []).push(wsNorm[k]);
+    }
+    for (const a in wsSplit) {
+        if (wsNorm[a]) { delete wsSplit[a]; continue; }
+        const list = wsSplit[a];
+        const states = new Set(list.map(w => (w && ['complete', 'hold', 'fail'].includes(w.state)) ? w.state : 'pending'));
+        const st = states.size === 1 ? [...states][0]
+            : states.has('pending') ? 'pending' : states.has('fail') ? 'fail' : states.has('hold') ? 'hold' : 'complete';
+        const fm = {};
+        list.forEach(w => Object.assign(fm, (w && w.failedMeters) || {}));
+        wsSplit[a] = { state: st, failedMeters: fm };
+    }
+    const findWsAny = (addr, l) => {
+        const w = findWs(wsNorm, addr, l);
+        if (w) return w;
+        const cat = LIST_CATEGORY[l || 's'];
+        if (cat && isNamespacedCat(cat)) return undefined;
+        return wsSplit[addr];
+    };
 
     // 개소(sites) 집계: 주소 단위 — 개소 state 그대로
     // 계기(meters) 집계: 계기 단위 — failedMeters에 있으면 fail, 없으면 개소 state
@@ -440,7 +487,7 @@ function aggByBranch(fbSiteData, workStatus) {
     for (const it of fbSiteData) {
         const gu   = it['지사'] || '미상';
         const addr = norm(it['주소']);
-        const ws = findWs(wsNorm, addr, it.l);
+        const ws = findWsAny(addr, it.l);
         let st = (ws && ws.state) ? ws.state : 'pending';
         if (st !== 'complete' && st !== 'hold' && st !== 'fail') st = 'pending';
         const sKey = siteKeyOf(it, addr);
@@ -463,7 +510,7 @@ function aggByBranch(fbSiteData, workStatus) {
         const gu   = it['지사'] || '미상';
         const addr = norm(it['주소']);
         const meterNo = String(it['계기번호'] || '');
-        const ws = findWs(wsNorm, addr, it.l);
+        const ws = findWsAny(addr, it.l);
         let st = (ws && ws.state) ? ws.state : 'pending';
         if (st !== 'complete' && st !== 'hold' && st !== 'fail') st = 'pending';
         if (ws && ws.failedMeters && meterNo in ws.failedMeters) st = 'fail';
@@ -559,10 +606,12 @@ function render(fbSiteData, workStatus, dateStr) {
         let slot = siteMap.get(sKey);
         if (!slot) {
             slot = { address: bare, states: [], worker: ws.updatedByName || ws.updatedBy || '(미상)',
-                     gu: extractGu(bare), meters: [], seen: new Set() };
+                     gu: extractGu(bare), meters: [], seen: new Set(), failed: new Set() };
             siteMap.set(sKey, slot);
         }
         slot.states.push(ws.state);
+        // 개별불가 계기 — 계기 집계에서 불가로 센다(전체 탭과 같은 규칙, 2026-10-19 감사)
+        if (ws.failedMeters) Object.keys(ws.failedMeters).forEach(k => slot.failed.add(decodeStatusKey(k)));
         // 같은 계기가 두 키에 걸쳐 들어오는 일은 없어야 하지만, 들어와도 두 번 세지 않는다.
         for (const m of metersOfStatusKey(addr)) {
             const id = String((m && m.계기번호) || '');
@@ -579,17 +628,18 @@ function render(fbSiteData, workStatus, dateStr) {
         worker: s.worker,
         gu: s.gu,
         meters: s.meters,
+        failed: s.failed,
     }));
 
     const dayTotal = emptyAgg();
     const byGu = {};
     const byWorker = {};
     for (const it of items) {
-        addAgg(dayTotal, it.state, it.meters);
+        addAgg(dayTotal, it.state, it.meters, it.failed);
         if (!byGu[it.gu]) byGu[it.gu] = emptyAgg();
-        addAgg(byGu[it.gu], it.state, it.meters);
+        addAgg(byGu[it.gu], it.state, it.meters, it.failed);
         if (!byWorker[it.worker]) byWorker[it.worker] = emptyAgg();
-        addAgg(byWorker[it.worker], it.state, it.meters);
+        addAgg(byWorker[it.worker], it.state, it.meters, it.failed);
     }
     const guRows = Object.entries(byGu).sort((a, b) => sumMeters(b[1].meters) - sumMeters(a[1].meters));
     const workerRows = Object.entries(byWorker).sort((a, b) => sumMeters(b[1].meters) - sumMeters(a[1].meters));

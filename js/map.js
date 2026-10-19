@@ -93,13 +93,21 @@ async function loadSiteDataCached(file) {
 
     const r = await fetch(file, { cache: 'no-cache' });
     const text = r.ok ? await r.text() : '[]';
+    // ★정상 응답이고 해석에 성공한 **배열**일 때만 캐시한다. 실패 응답의 '[]' 를 캐시하면
+    //   다음 데이터 배포 전까지 그 폰에서 실효 리스트가 통째로 사라졌다(2026-10-19 감사).
+    let parsed;
+    try { parsed = JSON.parse(text); } catch (e) { parsed = null; }
+    if (!r.ok || !Array.isArray(parsed) || !parsed.length) {
+        console.warn('[siteData] 비정상 응답 — 캐시 안 함', r.status, file);
+        return Array.isArray(parsed) ? parsed : [];
+    }
     if (ver) {
         try {
             await idbSet('site-data', { version: ver, text });
             console.log('[siteData] 풀 fetch + IDB 캐시 갱신, ver', ver);
         } catch (e) { console.warn('[siteData] IDB 저장 실패(무시, 동작엔 영향 없음):', e); }
     }
-    return JSON.parse(text);
+    return parsed;
 }
 
 // 지도 초기화 (카카오맵 생성 + 마커 로드)

@@ -7,6 +7,15 @@ let currentAddresses = [];
 // 이 패널이 읽고 쓰는 workStatus 키. 한 주소가 마커 여러 개로 갈리면 주소와 다르다.
 //   ★workStatus 접근은 반드시 이쪽을 쓴다. currentAddress는 화면 표시 전용.
 let currentStatusKey = '';
+
+// HTML 이스케이프 — Firebase 에서 온 값(작업자 이름·추가계기·사유)은 누구나 쓸 수 있는 경로라
+//   innerHTML 에 넣기 전에 반드시 거친다(2026-10-19 감사: 저장형 스크립트 주입).
+function escHtml(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+// 계기번호 법칙 — 11자리, 1~2번째만 영문 가능(CLAUDE.md 데이터 규칙)
+const METER_NO_RE = /^[0-9A-Z]{2}[0-9]{9}$/;
 let currentStatusKeys = [];
 
 // 현재 정렬 모드: 'none' | 'dup' | 'maker'
@@ -429,37 +438,36 @@ function showDetail(address, meters, addresses, statusKeys) {
     failInput.placeholder = status.state === 'hold' ? '보류 사유'
                           : status.state === 'fail' ? '불가 사유'
                           : '불가 / 보류 사유';
+    // 열었을 때의 사유 — 실제로 바뀌었는지 판단하는 기준
+    failInput.dataset.orig = status.reason || '';
     failInput.oninput = (e) => {
         if (e.target.value.trim()) e.target.style.borderColor = '';
-        // 입력 중: 로컬만 저장
+        // 입력 중: 로컬만 저장. ★완료(complete) 건은 이 칸이 사유 칸이 아니므로 로컬도 건드리지 않는다.
         if (!workStatus[currentStatusKey]) {
             workStatus[currentStatusKey] = { state: 'pending', checkedMeters: [], reason: '' };
         }
+        if (workStatus[currentStatusKey].state === 'complete') return;
         workStatus[currentStatusKey].reason = e.target.value;
-        // ★보관은 persistStatus 로 맡긴다(IndexedDB + 디바운스).
-        //   전에는 여기서 localStorage 에 workStatus 전체를 직접 썼다. 미러가 4MB 를 넘은
-        //   지금은 **글자 하나 칠 때마다 quota 예외**가 났다(2026-09-10 실측:
-        //   "Setting the value of 'ami_work_status' exceeded the quota").
-        //   보류에도 사유를 받게 되면서 이 칸을 치는 일이 늘어 그대로 둘 수 없다.
-        //   persistStatus 는 IndexedDB 를 쓰고 실패해도 조용히 폴백한다([[amimap_localstorage_quota_fix]]).
+        // ★보관은 persistStatus 로 맡긴다(IndexedDB + 디바운스). localStorage 직접 쓰기 금지(quota).
         persistStatus();
     };
-    // blur/Enter 시 이벤트 큐에 추가
+    // blur/Enter — ★불가·보류이면서 사유가 실제로 바뀐 경우에만, **reason 필드만** 저장한다.
+    //   전엔 (1) 패널을 열 때마다 addEventListener 로 리스너가 누적돼 N번 열면 N번 썼고
+    //   (2) 완료 건에서도 saveStateEvent 로 state·updatedBy 를 다시 써서, 사유칸을 스친 사람에게
+    //   남의 과거 완료 실적이 옮겨갔다(2026-10-19 감사). on* 속성 대입이라 리스너는 늘 1개다.
     const flushFailReason = () => {
-        const session = authGetSession();
-        const state = workStatus[currentStatusKey]?.state || 'pending';
-        if (state !== 'pending') {
-            saveStateEvent(
-                currentStatusKey,
-                state,
-                failInput.value.trim(),
-                session ? session.id   : '',
-                session ? session.name : ''
-            );
-        }
+        const v = failInput.value.trim();
+        if (v === String(failInput.dataset.orig || '').trim()) return;
+        const targets = (currentStatusKeys && currentStatusKeys.length) ? currentStatusKeys : [currentStatusKey];
+        let saved = false;
+        targets.forEach(k => {
+            const st = workStatus[k] && workStatus[k].state;
+            if (st === 'fail' || st === 'hold') { saveReasonEvent(k, v); saved = true; }
+        });
+        if (saved) failInput.dataset.orig = v;
     };
-    failInput.addEventListener('blur', flushFailReason);
-    failInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { flushFailReason(); failInput.blur(); } });
+    failInput.onblur = flushFailReason;
+    failInput.onkeydown = (e) => { if (e.key === 'Enter') { flushFailReason(); failInput.blur(); } };
 
     // 작업자 정보 표시 (기능 4)
     // 디버그: showDetail에서 읽어온 status 확인
@@ -567,7 +575,7 @@ function showDetail(address, meters, addresses, statusKeys) {
                     prevDate = kstDayLabel(d);
                 } catch (e) { prevDate = prevAt; }
             }
-            reworkEl.innerHTML = `재작업 — 이전 완료: ${prevName} ${prevDate}`;
+            reworkEl.textContent = `재작업 — 이전 완료: ${prevName} ${prevDate}`;
             reworkEl.style.display = 'block';
         } else {
             reworkEl.style.display = 'none';
@@ -682,6 +690,7 @@ function getSortedMeters() {
 
 // 계기 개별 불가 토글 — 저장·전송은 firebase.js saveMeterFailEvent 한 곳에서(체크와 같은 길)
 function toggleMeterFail(meterNumber) {
+    if (!String(meterNumber || '').trim()) { console.warn('[meterFail] 빈 계기번호 — 저장 거부'); return; }
     const status = workStatus[currentStatusKey] || {};
     const isFailed = !!(status.failedMeters && status.failedMeters[meterNumber] !== undefined);
     if (isFailed) {
@@ -709,6 +718,9 @@ function saveMeterFailReason(meterNumber, reason, addr) {
     if (pend) { clearTimeout(pend.timer); _meterFailPending.delete(meterNumber); }
     const st = workStatus[a];
     if (!st || !st.failedMeters || st.failedMeters[meterNumber] === undefined) return;   // 그 사이 해제됨
+    // 바뀐 게 없으면 보내지 않는다 — 같은 값을 또 쓰면 서버 응답으로 목록이 다시 그려져
+    //   바로 이어 누른 '불가해제' 클릭이 사라졌다(2026-10-19 야간 검증에서 재현).
+    if (!pend && st.failedMeters[meterNumber] === reason) return;
     saveMeterFailEvent(a, meterNumber, true, reason);
 }
 
@@ -732,7 +744,12 @@ function getMetersWithAdded() {
     const base = currentMeters || [];
     const status = workStatus[currentStatusKey] || {};
     const added = status.added_meters || {};
-    const addedList = Object.values(added).map(a => ({
+    // ★추가계기는 Firebase 에서 온다 — 형식이 아닌 값(문자열 아님·스크립트)은 그리지 않는다.
+    const addedList = Object.values(added).filter(a => {
+        const ok = a && typeof a.meter_id === 'string' && METER_NO_RE.test(a.meter_id);
+        if (!ok) console.warn('[added_meters] 형식 아닌 값 무시:', a && a.meter_id);
+        return ok;
+    }).map(a => ({
         계기번호: a.meter_id,
         계기타입: parseType(a.meter_id) || '?',
         주소: currentAddress,
@@ -743,6 +760,62 @@ function getMetersWithAdded() {
         __added_meta: a,
     }));
     return base.concat(addedList);
+}
+
+function bindMetersListOnce(metersList) {
+    if (!metersList || metersList.dataset.bound === '1') return;
+    metersList.dataset.bound = '1';
+    metersList.addEventListener('change', (e) => {
+        const cb = e.target.closest('.meter-checkbox');
+        if (cb && metersList.contains(cb)) toggleMeterCheck(cb.dataset.meter);
+    });
+    metersList.addEventListener('click', async (e) => {
+        const t = e.target;
+        // 장애 트리 — MAC 그룹 전체선택/해제. 한 함체 계기를 하나씩 누르면 20번 눌러야 한다.
+        const all = t.closest('.jangae-all');
+        if (all) {
+            e.stopPropagation();
+            const box = all.closest('.jangae-group');
+            if (!box) return;
+            const cbs = [...box.querySelectorAll('.meter-checkbox')];
+            const turnOn = cbs.some(c => !c.checked);   // 하나라도 꺼져 있으면 전체 켜기
+            cbs.forEach(c => {
+                if (c.checked !== turnOn) { c.checked = turnOn; toggleMeterCheck(c.dataset.meter); }
+            });
+            return;
+        }
+        const copy = t.closest('.copy-btn');
+        if (copy) { e.stopPropagation(); copyMeterNo(copy.dataset.copy); return; }
+        const fail = t.closest('.meter-fail-btn');
+        if (fail) { e.stopPropagation(); toggleMeterFail(fail.dataset.meter); return; }
+        const rm = t.closest('.meter-add-remove-btn');
+        if (rm) {
+            e.stopPropagation();
+            const m = rm.dataset.meter;
+            if (!confirm(`추가 계기 ${m}를 삭제할까요?`)) return;
+            try {
+                await removeAddedMeter(currentStatusKey, m);
+                renderMetersList();
+                if (typeof updateMarkerColor === 'function') updateMarkerColor(currentStatusKey);
+            } catch (err) {
+                alert('삭제 실패: ' + err.message);
+            }
+        }
+    });
+    // 불가 사유 입력창 — 엔터·포커스아웃 즉시 저장, 입력 중엔 1초 디바운스
+    metersList.addEventListener('keydown', (e) => {
+        const inp = e.target.closest('.meter-fail-input');
+        if (inp && e.key === 'Enter') { saveMeterFailReason(inp.dataset.meter, inp.value.trim()); inp.blur(); }
+    });
+    metersList.addEventListener('focusout', (e) => {
+        const inp = e.target.closest('.meter-fail-input');
+        if (inp) window.__meterInputLeftAt = Date.now();   // 직후 다시 그리기를 잠깐 미룬다(firebase.js)
+        if (inp) saveMeterFailReason(inp.dataset.meter, inp.value.trim());
+    });
+    metersList.addEventListener('input', (e) => {
+        const inp = e.target.closest('.meter-fail-input');
+        if (inp) queueMeterFailReason(inp.dataset.meter, inp.value.trim());
+    });
 }
 
 // 계기 목록 HTML 생성 및 렌더링
@@ -1146,7 +1219,7 @@ function renderMetersList() {
                  <input type="text" class="meter-fail-input"
                         data-meter="${meter.계기번호}"
                         placeholder="불가 사유 입력 후 엔터"
-                        value="${failReason.replace(/"/g, '&quot;')}">
+                        value="${escHtml(failReason)}">
                </div>`
             : '';
 
@@ -1160,7 +1233,7 @@ function renderMetersList() {
             ? `<button class="meter-add-remove-btn" data-meter="${meter.계기번호}" title="추가 계기 삭제" style="margin-left:6px;background:#fee2e2;color:#b91c1c;border:none;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;cursor:pointer;">삭제</button>`
             : '';
         const addedInfo = isAdded
-            ? `<div class="meter-sub-details" style="color:#7c3aed;">추가: ${(addedMeta.added_by_name || addedMeta.added_by || '?')}${addedMeta.mfg_ym ? ' · 제조 ' + addedMeta.mfg_ym : ''}</div>`
+            ? `<div class="meter-sub-details" style="color:#7c3aed;">추가: ${escHtml(addedMeta.added_by_name || addedMeta.added_by || '?')}${addedMeta.mfg_ym ? ' · 제조 ' + escHtml(addedMeta.mfg_ym) : ''}</div>`
             : '';
 
         // 불가 처리된 계기는 취소선 클래스 추가
@@ -1169,14 +1242,17 @@ function renderMetersList() {
             : `meter-item ${rowClass(s2)}`;
         if (isAdded) itemClass += ' meter-item-added';
 
+        // ★계기번호가 빈 행(합동 임시저장분 등)은 체크·불가를 그리지 않는다 — 빈 키로 쓰면
+        //   'meterChecks/' 경로가 되어 그 주소의 체크·불가 전체를 덮는다(2026-10-19 감사).
+        const hasNo = !!String(meter.계기번호 || '').trim();
         return `
             <div class="${itemClass}">
-                <input type="checkbox" class="meter-checkbox"
-                       data-meter="${meter.계기번호}" ${checked}>
+                ${hasNo ? `<input type="checkbox" class="meter-checkbox"
+                       data-meter="${meter.계기번호}" ${checked}>` : '<span style="display:inline-block;width:18px;"></span>'}
                 <div class="meter-info">
                     ${addedBadge}<span class="meter-type">${parsedType}</span>
                     ${noHtml}${copyBtn}${addedRemoveBtn}
-                    <button class="${failBtnClass}" data-meter="${meter.계기번호}">${failBtnLabel}</button>
+                    ${hasNo ? `<button class="${failBtnClass}" data-meter="${meter.계기번호}">${failBtnLabel}</button>` : '<span class="meter-sub-details" style="color:#9ca3af;">계기번호 없음</span>'}
                     ${details ? `<div class="meter-details">${details}</div>` : ''}
                     ${subDetails}
                     ${lpTable}
@@ -1190,73 +1266,12 @@ function renderMetersList() {
         ? macGroupsHtml(filtered, meterCards, macKeyOf)
         : meterCards.join('');
 
-    // 체크박스, 복사 버튼, 개별 불가 버튼/입력창 이벤트 바인딩
+    // 체크박스·복사·개별불가·장애 전체선택·추가계기 삭제·불가 사유 — 목록 컨테이너에 **한 번만** 위임한다.
+    //   ★전엔 그릴 때마다 setTimeout(100ms) 안에서 각 요소에 리스너를 붙였다. 100ms 안에 두 번
+    //     그리면(초기화 직후 등) 같은 요소에 리스너가 둘 붙어, 한 번 누르면 체크→해제가 연달아
+    //     저장됐다(2026-10-19 감사, 재현 확정). 위임은 innerHTML 을 몇 번 갈아도 1개다.
+    bindMetersListOnce(metersList);
     setTimeout(() => {
-        document.querySelectorAll('.meter-checkbox').forEach(checkbox => {
-            checkbox.addEventListener('change', (e) => {
-                toggleMeterCheck(e.target.dataset.meter);
-            });
-        });
-        // 장애 트리 — MAC 그룹 전체선택/해제. 한 함체 계기를 하나씩 누르면 20번 눌러야 한다.
-        document.querySelectorAll('.jangae-all').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const box = btn.closest('.jangae-group');
-                if (!box) return;
-                const cbs = [...box.querySelectorAll('.meter-checkbox')];
-                const turnOn = cbs.some(c => !c.checked);   // 하나라도 꺼져 있으면 전체 켜기
-                cbs.forEach(c => {
-                    if (c.checked !== turnOn) { c.checked = turnOn; toggleMeterCheck(c.dataset.meter); }
-                });
-            });
-        });
-        document.querySelectorAll('.copy-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                copyMeterNo(btn.dataset.copy);
-            });
-        });
-
-        // 개별 불가 버튼 클릭
-        document.querySelectorAll('.meter-fail-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                toggleMeterFail(btn.dataset.meter);
-            });
-        });
-
-        // 추가 계기 삭제 버튼
-        document.querySelectorAll('.meter-add-remove-btn').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                const m = btn.dataset.meter;
-                if (!confirm(`추가 계기 ${m}를 삭제할까요?`)) return;
-                try {
-                    await removeAddedMeter(currentStatusKey, m);
-                    renderMetersList();
-                    if (typeof updateMarkerColor === 'function') updateMarkerColor(currentStatusKey);
-                } catch (err) {
-                    alert('삭제 실패: ' + err.message);
-                }
-            });
-        });
-
-        // 불가 사유 입력창 — 엔터 또는 포커스아웃 시 저장
-        document.querySelectorAll('.meter-fail-input').forEach(input => {
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    saveMeterFailReason(input.dataset.meter, input.value.trim());
-                    input.blur();
-                }
-            });
-            input.addEventListener('blur', (e) => {
-                saveMeterFailReason(input.dataset.meter, input.value.trim());
-            });
-            input.addEventListener('input', () => {
-                queueMeterFailReason(input.dataset.meter, input.value.trim());
-            });
-        });
-
         // 계기 검색 — 입력 시 목록으로 자동 스크롤
         const searchInput = document.getElementById('meter-search');
         if (searchInput) {
@@ -1297,6 +1312,8 @@ function closeDetail() {
 function updateStatus(state) {
     const session = authGetSession();
     const reason = (document.getElementById('fail-reason')?.value || '').trim();
+    // 방금 상태와 함께 보낸 사유 — 칸에서 포커스가 빠질 때 같은 값을 또 보내지 않게 기준값을 맞춘다
+    { const fi = document.getElementById('fail-reason'); if (fi) fi.dataset.orig = reason; }
     // 합친 마커(같은 좌표 = 한 건물)는 완료/불가/보류를 구성 키 전부에 기록.
     //   ※ #2 결정점(영준님 확인 사안): 한 건물 한 번 작업 = 묶인 지번 다 처리.
     //   ★전파 범위는 '이 마커'로 한정된다. 같은 지번이라도 좌표가 갈려 다른 마커면
@@ -1346,6 +1363,7 @@ function resetStatus() {
 
 // 계기 체크 토글
 function toggleMeterCheck(meterNumber) {
+    if (!String(meterNumber || '').trim()) { console.warn('[check] 빈 계기번호 — 저장 거부'); return; }
     if (!workStatus[currentStatusKey]) {
         workStatus[currentStatusKey] = { state: 'pending', checkedMeters: [], reason: '' };
     }

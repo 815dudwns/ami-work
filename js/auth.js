@@ -42,7 +42,7 @@ const AUTH_KEY = 'ami_auth';
 // 강제 로그아웃 버전 — ★긴급(보안/중대버그)시에만 값을 올린다. 평소 배포에는 절대 건드리지 않는다.
 // 값을 올리면, 이전 값을 저장해둔 사용자만 1회 로그아웃된다.
 // 저장값이 없으면(신규 설치 / WebView 저장소 휘발) 로그아웃하지 않는다 — 불필요한 재로그인 방지.
-const FORCE_LOGOUT_VERSION = '20260616a';
+const FORCE_LOGOUT_VERSION = '20261019a';   // 2026-10-19 야간 일괄 수정 — 새 버전을 확실히 받게(영준님 지시)
 const FORCE_LOGOUT_VERSION_KEY = 'ami_force_logout_version';
 
 // 강력 업데이트(강제 로그아웃)시에만 함께 리셋할 화면상태 키 — 지사/필터/지도위치.
@@ -119,16 +119,50 @@ function authLogout() {
  * 저장값이 없으면(신규 / WebView 저장소 휘발) 로그아웃하지 않는다 — "배포 안 했는데 자꾸 초기화" 방지.
  * 평소 배포는 이 버전을 건드리지 않으므로 세션·캐시·이벤트큐가 모두 보존된다.
  */
+// 강제 로그아웃 실행 — 세션 + 화면상태(지사/필터/지도위치)만 지운다.
+//   ★작업 데이터·이벤트 큐(ami_work_status·ami_checked_meters·ami_event_queue)·IndexedDB 는 절대 안 지운다.
+function authForceLogoutNow() {
+    localStorage.removeItem(AUTH_KEY);
+    localStorage.removeItem(FORCE_LOGOUT_VERSION_KEY);
+    UI_STATE_KEYS.forEach(k => localStorage.removeItem(k));
+    sessionStorage.clear();
+    window.location.replace('login.html');
+}
+
+function _authQueueLength() {
+    try {
+        const q = JSON.parse(localStorage.getItem('ami_event_queue') || '[]');
+        return Array.isArray(q) ? q.length : 0;
+    } catch (_) { return 0; }
+}
+
+// 미전송 큐가 있으면 강제 로그아웃을 **미룬다** — 지도가 떠서 큐를 서버로 보낸 뒤에 한다
+//   (firebase.js 가 초기 전송 직후 authCompletePendingLogout 을 부른다). 옛 초기화 사고처럼
+//   로그아웃이 미전송 작업을 날리는 일을 막는다. 페이지가 지도가 아니면(통계 등) 바로 한다 —
+//   큐는 지워지지 않으니 다음 지도 진입 때 보내진다.
+let _authPendingForceLogout = false;
+function authCompletePendingLogout() {
+    if (!_authPendingForceLogout) return;
+    _authPendingForceLogout = false;
+    const n = _authQueueLength();
+    if (n) console.warn('[auth] 미전송 큐', n, '건이 남은 채 로그아웃 — 큐는 보존되어 다음 로그인 때 보낸다');
+    authForceLogoutNow();
+}
+
 function authRequire() {
     const localVer = localStorage.getItem(FORCE_LOGOUT_VERSION_KEY);
     if (localVer && localVer !== FORCE_LOGOUT_VERSION) {
-        // 긴급 강제 로그아웃 — 세션 + 화면상태(지사/필터/지도위치) 리셋.
-        // 단 작업 데이터·이벤트큐(EVENTS_KEY)는 보존(미전송 작업 유실 방지, 다음 로그인 후 flush)
-        localStorage.removeItem(AUTH_KEY);
-        localStorage.removeItem(FORCE_LOGOUT_VERSION_KEY);
-        UI_STATE_KEYS.forEach(k => localStorage.removeItem(k));
-        sessionStorage.clear();
-        window.location.replace('login.html');
+        const onMap = /map\.html$/.test(location.pathname) || location.pathname.endsWith('/');
+        // ※큐가 있을 때 로그아웃을 미루는 경로는 2026-10-19 야간 배포에서 검증이 안 끝나 꺼 두었다(false).
+        //   큐는 지우지 않으므로 다시 로그인하면 지도가 시작하자마자 보낸다(기존 동작).
+        if (false && _authQueueLength() && onMap && authGetSession()) {
+            console.log('[auth] 강제 로그아웃 대기 — 미전송 큐부터 보낸다');
+            _authPendingForceLogout = true;
+            // 전송이 끝나지 않아도 20초 뒤엔 로그아웃한다(큐는 남는다)
+            setTimeout(authCompletePendingLogout, 20000);
+            return;
+        }
+        authForceLogoutNow();
         return;
     }
     if (!authGetSession()) {

@@ -136,16 +136,92 @@ function queueFallback(ev, label, flushMs) {
     return saved;
 }
 
+// ★큐 우선 전송 (2026-10-19 감사): 직접 전송만 하면 오프라인에서 누른 완료·체크는 SDK 메모리에만
+//   머물다 앱을 끄면 영영 사라졌다(지하 계량기실). 이제 **먼저 큐(localStorage)에 넣고** 직접 보내며,
+//   서버가 받았다고 답하면 그 건만 큐에서 뺀다. 못 보낸 건은 다음 시작·화면 복귀 때 flushEventQueue 가
+//   보낸다 — 그때 서버 최신값과 비교해 늦은 큐가 남의 새 기록을 덮지 않게 한다(_dropStaleQueued).
+function sendWithQueue(ev, label, sendFn) {
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2);
+    let queued = false;
+    try {
+        const q = loadEventQueue();
+        q.push({ ...ev, id });
+        queued = saveEventQueue(q);
+    } catch (e) { queued = false; }
+    if (!statusRef) {
+        if (queued) flushEventQueueDebounced(2500);
+        else notifySendProblem((label || '작업') + '이 저장되지 않았습니다. 다시 눌러 주세요.');
+        return;
+    }
+    sendFn().then(() => {
+        removeQueuedIds([id]);
+    }).catch(err => {
+        console.warn(`[${ev.type}] 직접 전송 실패 — 큐에 남김:`, err && err.message);
+        if (!queued) queueFallback(ev, label, 400);
+        else flushEventQueueDebounced(2500);
+    });
+}
+
+function removeQueuedIds(ids) {
+    const drop = new Set(ids);
+    const q = loadEventQueue();
+    const left = q.filter(e => !drop.has(e.id));
+    if (left.length !== q.length) saveEventQueue(left);
+}
+
+// 늦은 큐가 서버의 더 새 기록을 덮지 않게 거른다. 주소별로 서버 값을 한 번 읽어 비교한다.
+//   상태: 서버 updatedAt(누른 시각) > 이벤트 ts 면 버림 / 체크: 서버 meterChecks[m].ts > ts 면 버림
+//   개별불가·사유: 서버 syncAt(서버 시각) > ts 면 버림. 읽기 실패(오프라인)면 거르지 않고 보낸다.
+async function _dropStaleQueued(queue) {
+    if (!statusRef || !queue.length) return { keep: queue, dropped: [] };
+    const addrs = [...new Set(queue.map(e => e.address))];
+    const server = {};
+    await Promise.all(addrs.map(async a => {
+        try {
+            const snap = await Promise.race([
+                statusRef.child(encodeKey(a)).once('value'),
+                new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
+            ]);
+            server[a] = snap.val() || {};
+        } catch (e) { server[a] = undefined; }
+    }));
+    const keep = [], dropped = [];
+    for (const ev of queue) {
+        const sv = server[ev.address];
+        if (!sv) { keep.push(ev); continue; }
+        let newer = 0;
+        if (ev.type === 'state' || ev.type === 'reset') {
+            newer = sv.updatedAt ? (Date.parse(sv.updatedAt) || 0) : 0;
+        } else if (ev.type === 'check' || ev.type === 'uncheck') {
+            const mc = sv.meterChecks && sv.meterChecks[encodeKey(ev.meter)];
+            newer = mc && mc.ts ? mc.ts : 0;
+        } else {
+            newer = typeof sv.syncAt === 'number' ? sv.syncAt : 0;
+        }
+        if (newer > ev.ts) dropped.push(ev); else keep.push(ev);
+    }
+    if (dropped.length) {
+        console.warn('[Queue] 서버에 더 새 기록이 있어 버린 큐:', dropped.length,
+            dropped.map(e => `${e.type} ${e.address}${e.meter ? ' ' + e.meter : ''}`).slice(0, 10));
+    }
+    return { keep, dropped };
+}
+
 // 큐를 Firebase에 전송 (이벤트별 update, set 안 씀)
 async function flushEventQueue() {
     if (!statusRef) return;
-    const queue = loadEventQueue();
+    const rawQueue = loadEventQueue();
+    if (!rawQueue.length) return;
+    // 늦은 큐 거르기 — 버린 건도 큐에서 지운다(다시 볼 일이 없다)
+    const { keep: queue, dropped } = await _dropStaleQueued(rawQueue);
+    if (dropped.length) removeQueuedIds(dropped.map(e => e.id));
     if (!queue.length) return;
 
     // 같은 대상의 중복 이벤트는 ts 최신 것만 유지
     const stateMap = {};   // address → latest state event
     const checkMap = {};   // address+'||'+meter → latest check event
     const failMap  = {};   // address+'||'+meter → latest meterFail event
+    const reasonMap = {};  // address → latest reason-only event
 
     queue.forEach(ev => {
         if (ev.type === 'state' || ev.type === 'reset') {
@@ -155,6 +231,9 @@ async function flushEventQueue() {
             const key = ev.address + '||' + ev.meter;
             if (!checkMap[key] || ev.ts > checkMap[key].ts)
                 checkMap[key] = ev;
+        } else if (ev.type === 'reason') {
+            if (!reasonMap[ev.address] || ev.ts > reasonMap[ev.address].ts)
+                reasonMap[ev.address] = ev;
         } else if (ev.type === 'meterFail') {
             const key = ev.address + '||' + ev.meter;
             if (!failMap[key] || ev.ts > failMap[key].ts)
@@ -182,6 +261,12 @@ async function flushEventQueue() {
         updates[`${p}/meterChecks/${m}`] = { checked: ev.type === 'check', ts: ev.ts };
     });
 
+    Object.values(reasonMap).forEach(ev => {
+        // 같은 주소의 상태 이벤트가 더 새로우면 그쪽 reason 이 이긴다
+        if (stateMap[ev.address] && stateMap[ev.address].ts >= ev.ts) return;
+        updates[`${encodeKey(ev.address)}/reason`] = ev.reason || '';
+    });
+
     Object.values(failMap).forEach(ev => {
         const p = encodeKey(ev.address);
         const m = encodeKey(ev.meter);
@@ -198,6 +283,7 @@ async function flushEventQueue() {
     Object.values(stateMap).forEach(ev => touched.add(encodeKey(ev.address)));
     Object.values(checkMap).forEach(ev => touched.add(encodeKey(ev.address)));
     Object.values(failMap).forEach(ev  => touched.add(encodeKey(ev.address)));
+    Object.values(reasonMap).forEach(ev => touched.add(encodeKey(ev.address)));
     addSyncAtForPaths(updates, [...touched]);
 
     // 전송 전 큐 id 스냅샷 — await 중 추가된 이벤트를 삭제하지 않기 위한 race condition 방지
@@ -436,17 +522,15 @@ function saveStateEvent(address, state, reason, updatedBy, updatedByName) {
         upd[`${p}/updatedByName`] = updatedByName || '';
         if (state !== 'pending') upd[`${p}/rework`] = false;
         upd[`${p}/syncAt`] = _serverNow();   // 델타 동기화용 서버 시각
-        statusRef.update(upd).catch(err => {
-            console.warn('[state] 직접 전송 실패, 큐 폴백:', err && err.message);
-            queueFallback(ev, '완료·보류 기록');
-        });
+        sendWithQueue(ev, '완료·보류 기록', () => statusRef.update(upd));
     } else {
-        queueFallback(ev, '완료·보류 기록');
+        sendWithQueue(ev, '완료·보류 기록', null);
     }
 }
 
 // 체크 토글
 function saveCheckEvent(address, meter, checked) {
+    if (!String(meter || '').trim()) { console.warn('[check] 빈 계기번호 — 저장 거부'); return; }
     if (!workStatus[address]) {
         workStatus[address] = { state: 'pending', checkedMeters: [], reason: '' };
     }
@@ -464,8 +548,7 @@ function saveCheckEvent(address, meter, checked) {
 
     // ★완료와 같은 처리로 모은다(2026-08-19). 전엔 체크만 별도 폴백이라 실패 처리가 갈렸고,
     //   판단 지점이 둘이면 반드시 어긋난다(오늘 체크 버그가 그랬다).
-    const _fallback = () => queueFallback(
-        { address, type: checked ? 'check' : 'uncheck', meter, ts: _ts }, '계기 체크', 400);
+    const _ev = { address, type: checked ? 'check' : 'uncheck', meter, ts: _ts };
 
     // 체크도 Firebase 직접 전송 — quota로 큐가 막혀도 서버 반영 보장. 실패 시 큐 폴백.
     if (statusRef) {
@@ -476,10 +559,10 @@ function saveCheckEvent(address, meter, checked) {
         //   델타에 영영 안 잡혔다. 이게 과거에 델타를 접었던 실체다.
         //   ※state·updatedBy·updatedByName·updatedAt 은 건드리지 않는다 — 체크는 상태 변경이
         //     아니다. 통계(pending 건너뛰기·일자 집계)와 작업자 표시에 영향이 없다.
-        statusRef.child(p).update(withSyncAt({ [`meterChecks/${m}`]: { checked, ts: _ts } }))
-            .catch(err => { console.warn('[check] 직접 전송 실패, 큐 폴백:', err && err.message); _fallback(); });
+        sendWithQueue(_ev, '계기 체크',
+            () => statusRef.child(p).update(withSyncAt({ [`meterChecks/${m}`]: { checked, ts: _ts } })));
     } else {
-        _fallback();
+        sendWithQueue(_ev, '계기 체크', null);
     }
 
     // 체크 별도 localStorage 갱신 — quota-safe (STORAGE_KEY 저장이 실패해도 이건 작아서 산다)
@@ -504,12 +587,25 @@ function saveCheckEvent(address, meter, checked) {
     }
 }
 
+// 불가·보류 사유만 고친다 (2026-10-19) — state·updatedBy·updatedAt 은 건드리지 않는다.
+//   사유를 고친 사람에게 남의 불가·보류 기록이 옮겨가지 않게 하려는 것이다.
+function saveReasonEvent(address, reason) {
+    if (!workStatus[address]) return;
+    workStatus[address].reason = reason || '';
+    persistStatus(0);
+    const _ts = Date.now();
+    const ev = { type: 'reason', address, reason: reason || '', ts: _ts };
+    sendWithQueue(ev, '사유', statusRef
+        ? () => statusRef.child(encodeKey(address)).update(withSyncAt({ reason: reason || '' })) : null);
+}
+
 // 계기 개별 불가 — 켜기/끄기/사유 갱신 (2026-10-19)
 //   ★전엔 detail.js 가 workStatus 전체(6MB)를 try 없이 localStorage 에 썼다. quota 예외가 나면
 //     이벤트 큐·전송까지 못 가서 9/21 이후 Firebase 에 불가 기록이 0건이었고, 매 클릭 6MB 직렬화라 느렸다.
 //     체크와 같은 길로 모은다: 로컬 미러는 persistStatus(IDB), 서버는 직접 update, 실패 시만 큐.
 //   failed=false 면 노드를 지운다(null). reason 은 빈 문자열 허용(사유 입력 전).
 function saveMeterFailEvent(address, meter, failed, reason) {
+    if (!String(meter || '').trim()) { console.warn('[meterFail] 빈 계기번호 — 저장 거부'); return; }
     if (!workStatus[address]) {
         workStatus[address] = { state: 'pending', checkedMeters: [], reason: '' };
     }
@@ -523,16 +619,10 @@ function saveMeterFailEvent(address, meter, failed, reason) {
     const ev = failed
         ? { type: 'meterFail', address, meter, reason: reason || '', failed: true, ts: _ts }
         : { type: 'meterFail', address, meter, failed: false, ts: _ts };
-    const _fallback = () => queueFallback(ev, '계기 불가', 400);
-
-    if (statusRef) {
-        const p = encodeKey(address);
-        const m = encodeKey(meter);
-        statusRef.child(p).update(withSyncAt({ [`failedMeters/${m}`]: failed ? (reason || '') : null }))
-            .catch(err => { console.warn('[meterFail] 직접 전송 실패, 큐 폴백:', err && err.message); _fallback(); });
-    } else {
-        _fallback();
-    }
+    const p = encodeKey(address);
+    const m = encodeKey(meter);
+    sendWithQueue(ev, '계기 불가', statusRef
+        ? () => statusRef.child(p).update(withSyncAt({ [`failedMeters/${m}`]: failed ? (reason || '') : null })) : null);
 }
 
 // ── Firebase 데이터 → 내부 형식 변환 ─────────────────────────
@@ -768,9 +858,26 @@ function persistAndPaint(addr) {
     try {
         const overlay = document.getElementById('fullpage-overlay');
         const detailOpen = overlay && overlay.classList.contains('active');
+        // ※상태키 비교(currentStatusKeys.includes)는 2026-10-19 야간 배포에서 검증이 안 끝나 보류했다.
         const inView = (typeof currentAddress !== 'undefined' && currentAddress === addr)
             || (typeof currentAddresses !== 'undefined' && Array.isArray(currentAddresses) && currentAddresses.includes(addr));
-        if (detailOpen && inView && typeof renderMetersList === 'function') renderMetersList();
+        // 불가 사유를 치는 중이면 다시 그리지 않는다(입력칸이 갈려 글자가 날아간다)
+        //   입력칸에서 막 빠져나온 직후(0.6초)도 미룬다 — 그 순간 다시 그리면 이어서 누른 버튼의 클릭이 사라진다.
+        const typing = (document.activeElement && document.activeElement.classList
+            && document.activeElement.classList.contains('meter-fail-input'))
+            || (Date.now() - (window.__meterInputLeftAt || 0) < 600);
+        if (detailOpen && inView && typeof renderMetersList === 'function') {
+            if (!typing) renderMetersList();
+            else {
+                clearTimeout(window.__deferredRender);
+                window.__deferredRender = setTimeout(() => {
+                    const ae = document.activeElement;
+                    const still = ae && ae.classList && ae.classList.contains('meter-fail-input');
+                    const ov = document.getElementById('fullpage-overlay');
+                    if (!still && ov && ov.classList.contains('active')) renderMetersList();
+                }, 800);
+            }
+        }
     } catch (e) {}
     persistAllDebounced();
 }
@@ -895,8 +1002,15 @@ async function decideSyncMode() {
         console.log('[Delta] 로컬이 비었다 — 전량 수신');
         return { delta: false, from: 0 };
     }
+    // ★로컬 데이터에 syncAt 이 하나도 없으면(=0) 저장된 시작점을 믿지 않고 전량 받는다.
+    //   iOS 저장소 읽기가 한 번 실패해 로컬이 반쯤 빈 채로 저장값만 남으면, 그 시작점부터의
+    //   델타로는 빠진 완료 1만여 건을 영영 못 받는다(2026-10-19 감사).
+    if (!local) {
+        console.log('[Delta] 로컬 syncAt 0 — 전량 수신');
+        return { delta: false, from: 0 };
+    }
     // 저장된 값과 실제 데이터 중 작은 쪽에서 시작한다(저장이 앞서 있으면 구멍이 생긴다).
-    const from = Math.min(stored || local, local || stored);
+    const from = Math.min(stored || local, local);
     if (!from) {
         console.log('[Delta] syncAt 을 가진 레코드가 없다 — 전량 수신(1단계 배포 이전 데이터)');
         return { delta: false, from: 0 };
@@ -1153,6 +1267,8 @@ async function initFirebase() {
     if (firebaseOk) {
         // 미전송 이벤트 큐 먼저 전송
         await flushEventQueue();
+        // 강제 로그아웃이 큐 때문에 미뤄져 있었다면 이제 한다(js/auth.js)
+        if (typeof authCompletePendingLogout === 'function') authCompletePendingLogout();
 
         // 델타냐 전량이냐 결정 — 로컬이 비었거나 스키마가 바뀌었으면 전량으로 간다
         const mode = await decideSyncMode();

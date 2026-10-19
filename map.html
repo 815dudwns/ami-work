@@ -18,9 +18,9 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-    <link rel="stylesheet" href="css/common.css?v=20260821b">
-    <link rel="stylesheet" href="css/marker.css?v=20260915b">
-    <link rel="stylesheet" href="css/panel.css?v=20260922b">
+    <link rel="stylesheet" href="css/common.css?v=20261020a">
+    <link rel="stylesheet" href="css/marker.css?v=20261020a">
+    <link rel="stylesheet" href="css/panel.css?v=20261020a">
 </head>
 <body>
     <div id="map"></div>
@@ -93,6 +93,15 @@
             <span class="am-txt">새로고침</span>
         </button>
 
+        <!-- 공지 — 내용은 data/notices.json (다음 공지부터 그 파일만 고친다). 안 읽은 공지가 있으면 점 표시 -->
+        <button class="am-row" id="notice-btn" type="button" onclick="openNotices()">
+            <span class="am-ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="13" y2="16"/></svg>
+            </span>
+            <span class="am-txt">공지</span>
+            <span class="notice-dot" id="notice-dot-row" style="display:none;width:8px;height:8px;border-radius:50%;background:#ef4444;flex-shrink:0;"></span>
+        </button>
+
         <div class="am-sep"></div>
 
         <!-- 통계 (권한 있을 때만 표시) -->
@@ -143,7 +152,7 @@
             <span class="am-txt">로그아웃</span>
         </button>
 
-        <div style="padding:8px 16px 12px;text-align:right;font-size:10px;color:#888;opacity:0.6;letter-spacing:0.03em;">v20261019.4</div>
+        <div style="padding:8px 16px 12px;text-align:right;font-size:10px;color:#888;opacity:0.6;letter-spacing:0.03em;">v20261020.1</div>
     </div>
 
     <!-- 검색 모달 -->
@@ -262,7 +271,7 @@
         </div>
     </div>
 
-    <script src="js/auth.js?v=20261001a"></script>
+    <script src="js/auth.js?v=20261020a"></script>
     <script>
         // 로그인 체크 — 미인증이면 login.html로 이동
         authRequire();
@@ -284,17 +293,19 @@
             }
         })();
     </script>
-    <script src="js/config.js?v=20260622a"></script>
-    <script src="js/utils.js?v=20260622a"></script>
-    <script src="js/status-key.js?v=20260921b"></script>
-    <script src="js/datasets.js?v=20260915c"></script>
-    <script src="js/firebase.js?v=20261019c"></script>
-    <script src="js/awms-parseValue.js?v=20260622a"></script>
-    <script src="js/qr-scanner.js?v=20260622a"></script>
-    <script src="js/detail.js?v=20261019c"></script>
-    <script src="js/idb.js?v=20260622a"></script>
-    <script src="js/local-ws-override.js?v=20260802a"></script>
-    <script src="js/map.js?v=20261019d"></script>
+    <script src="js/config.js?v=20261020a"></script>
+    <script src="js/utils.js?v=20261020a"></script>
+    <script src="js/status-key.js?v=20261020a"></script>
+    <script src="js/datasets.js?v=20261020a"></script>
+    <script src="js/firebase.js?v=20261020a"></script>
+    <script src="js/awms-parseValue.js?v=20261020a"></script>
+    <script src="js/qr-scanner.js?v=20261020a"></script>
+    <script src="js/detail.js?v=20261020a"></script>
+    <script src="js/idb.js?v=20261020a"></script>
+    <script src="js/local-ws-override.js?v=20261020a"></script>
+    <script src="js/map.js?v=20261020a"></script>
+    <script src="js/app-version.js?v=20261020a"></script>
+    <script src="js/notice.js?v=20261020a"></script>
     <script>
         // 앱 메뉴 토글
         (function () {
