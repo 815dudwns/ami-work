@@ -174,7 +174,9 @@ async function initMap() {
     });
 
     const _first = DATASETS.filter(d => !DEFERRED_CATEGORIES.includes(d.category));
-    const _later = DATASETS.filter(d => DEFERRED_CATEGORIES.includes(d.category));
+    // 큰 리스트는 **켜져 있을 때만** 받는다 — 꺼진 리스트의 14MB 파싱이 버벅임의 원인이었다(2026-10-20)
+    const _selNow = getSelectedCategories();
+    const _later = DATASETS.filter(d => DEFERRED_CATEGORIES.includes(d.category) && _selNow.has(d.category));
     try {
         const loaded = await Promise.all(_first.map(loadDataset));
         sampleData = loaded.flat();
@@ -201,8 +203,11 @@ async function initMap() {
     await _laterDone;
 }
 
+const _deferredLoaded = new Set();
 async function loadDeferredLists(list) {
-    if (!list || !list.length) return;
+    list = (list || []).filter(d => !_deferredLoaded.has(d.category));
+    if (!list.length) return;
+    list.forEach(d => _deferredLoaded.add(d.category));
     try {
         const loaded = await Promise.all(list.map(loadDataset));
         const rows = loaded.flat();
@@ -216,7 +221,15 @@ async function loadDeferredLists(list) {
         console.log('[siteData] 큰 리스트 뒤늦게 반영:', rows.length, '개');
     } catch (e) {
         console.warn('[siteData] 큰 리스트 로드 실패:', e);
+        list.forEach(d => _deferredLoaded.delete(d.category));
     }
+}
+
+// 꺼져 있던 큰 리스트를 켜면 그때 받는다
+function ensureDeferredForSelection() {
+    const sel = getSelectedCategories();
+    const need = DATASETS.filter(d => DEFERRED_CATEGORIES.includes(d.category) && sel.has(d.category) && !_deferredLoaded.has(d.category));
+    if (need.length) loadDeferredLists(need);
 }
 
 // 지사 드롭다운 옵션 채우기 (JISA_TO_GU 7개 키 기준 + localStorage 복원)
@@ -372,6 +385,7 @@ function onCategoryChange(e) {
         e.target.indeterminate = false;
     }
     rebuildMarkers();
+    ensureDeferredForSelection();
 }
 
 // 날짜(자식) 체크박스 변경 — 선택 저장 + 부모 상태 동기화
@@ -484,20 +498,19 @@ function getSelectedCategories() {
     const saved = localStorage.getItem('ami_selected_categories');
     if (saved) try {
         const set = new Set(JSON.parse(saved));
-        // 새 카테고리가 추가된 경우 default로 켬 (한 번만)
+        // 새 카테고리는 **꺼진 채로** 둔다(2026-10-20 영준님 — 기본값 전부 끔). 본 것으로만 기록한다.
         const seenKey = 'ami_seen_categories';
         const seen = new Set(JSON.parse(localStorage.getItem(seenKey) || '[]'));
         let changed = false;
-        ALL.forEach(c => { if (!seen.has(c)) { set.add(c); seen.add(c); changed = true; } });
-        if (changed) {
-            localStorage.setItem(seenKey, JSON.stringify([...seen]));
-            localStorage.setItem('ami_selected_categories', JSON.stringify([...set]));
-        }
+        ALL.forEach(c => { if (!seen.has(c)) { seen.add(c); changed = true; } });
+        if (changed) localStorage.setItem(seenKey, JSON.stringify([...seen]));
         return set;
     } catch {}
-    // 첫 진입 — 전부 켬
+    // 첫 진입 — **전부 끔**(2026-10-20 영준님). 전부 켜면 25미청구·불가까지 받아 느려지고 마커가 폭증한다.
+    //   작업자가 메뉴 > 리스트에서 필요한 것만 켠다. 저장된 선택이 있는 사람은 위에서 그대로 쓴다.
     localStorage.setItem('ami_seen_categories', JSON.stringify(ALL));
-    return new Set(ALL);
+    localStorage.setItem('ami_selected_categories', '[]');
+    return new Set();
 }
 function setSelectedCategories(setObj) {
     localStorage.setItem('ami_selected_categories', JSON.stringify([...setObj]));
@@ -617,6 +630,23 @@ function loadMarkers() {
         // 분산된 마커는 줌이 바뀔 때 픽셀 간격을 다시 맞춘다(relayoutSpreadMarkers)
         if (data.spread) markers[markers.length - 1].spread = data.spread;
     });
+    showNoListHint(selectedCats.size === 0);
+}
+
+// 리스트가 하나도 안 켜져 있으면 지도 위에 한 줄 안내
+function showNoListHint(on) {
+    let el = document.getElementById('no-list-hint');
+    if (!on) { if (el) el.style.display = 'none'; return; }
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'no-list-hint';
+        el.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:900;'
+            + 'background:rgba(17,24,39,0.85);color:#fff;font-size:13px;font-weight:700;padding:8px 14px;'
+            + 'border-radius:999px;pointer-events:none;white-space:nowrap;';
+        el.textContent = '메뉴 > 리스트에서 볼 리스트 선택';
+        document.body.appendChild(el);
+    }
+    el.style.display = '';
 }
 
 // 합친 마커의 구성 상태 집계 — 보수적(하나라도 미완이면 미완색).
