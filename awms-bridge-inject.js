@@ -6,7 +6,8 @@
 
 (function () {
   'use strict';
-  var VER = 'v88'; // v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v89'; // v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var FEAT_RELEASED = true;   // [v89] released input checks on for every helper user (see __featOn)
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
   // RTDB는 awms.kdn.com CORS 열림(확인됨). 시공전 디버깅용. 사용자 소수 + 무한 배포 전제.
@@ -1029,7 +1030,7 @@ function parseValue(text) {
         var ld = localStorage.getItem('helper_last_dept');
         var lw = localStorage.getItem('helper_last_with');
         // [v87] 헬퍼 설정 화면의 지사·동행이 있으면 마지막 저장값보다 우선 (테스터 전용, 밤에 전체 적용 예정)
-        if (__isTester()) {
+        if (__featOn()) {
           if (window.__helperDept) ld = window.__helperDept;
           if (window.__helperWith) lw = window.__helperWith;
           // [v88] awms fills DEPT2 on a new row itself (서대문은평), so the empty-only setRow never
@@ -1844,12 +1845,15 @@ function parseValue(text) {
     return __testerState;
   }
   window.__isTester = __isTester;
+  // [v89] v86~v88 checks released to every helper user (영준님 2026-10-20). New experiments stay
+  //   behind __isTester() directly; __featOn() = released features.
+  function __featOn() { return FEAT_RELEASED || __isTester(); }
 
 
   // ===== [v87] Tester-only input checks =====
   //   meter number: law check + membership in the map lists (data/meter-list-index.json)
   //   modem MAC: own-material check against awms (GET selectBarcdQr, read only)
-  //   Never blocks saving. Everything is behind __isTester().
+  //   Never blocks saving. Everything is behind __featOn().
   var LIST_NAMES = { s: '실효', h: '합동', m: '25미청구', u: '25불가', j: '장애', g: '고압', k: 'SKT' };
   var __meterIdx = null, __meterIdxLoading = false, __meterIdxFail = false;
   function loadMeterIndex(cb) {
@@ -1905,7 +1909,7 @@ function parseValue(text) {
   }
   function evalMeterField(vm, field) {
     try {
-      if (!__isTester()) return;
+      if (!__featOn()) return;
       var row = vm && vm.mainList && vm.mainList.currentRow;
       var v = row ? String(row[field] == null ? '' : row[field]).replace(/[\s\-]/g, '').toUpperCase() : '';
       if (v.length < 11) { showChk(field, '', ''); return; }       // silent until 11 chars
@@ -1928,7 +1932,7 @@ function parseValue(text) {
   var __macChkSeq = 0;
   function macOwnerCheck(vm, mac) {
     try {
-      if (!__isTester()) return;
+      if (!__featOn()) return;
       var row = vm && vm.mainList && vm.mainList.currentRow;
       var wd = row ? String(row.WORK_DIV || '') : '';
       if (wd === 'M1030') { showChk('MAC_MODEM', '', ''); return; }   // 기설: 합류 모뎀이라 검사 안 함
@@ -1964,7 +1968,7 @@ function parseValue(text) {
     vm.$watch('mainList.currentRow.MB_METER_ID', f('MB_METER_ID'));
     vm.$watch('mainList.currentRow', function () {
       setTimeout(function () {
-        if (!__isTester()) return;
+        if (!__featOn()) return;
         ['INSTR_NUM', 'MB_METER_ID'].forEach(function (k) { evalMeterField(vm, k); });
         var r = vm.mainList.currentRow;
         if (r && r.MAC_MODEM) macOwnerCheck(vm, String(r.MAC_MODEM).replace(/[\s:\-*]/g, ''));
@@ -1972,7 +1976,7 @@ function parseValue(text) {
       }, 250);
     });
     vm.$watch('mainList.currentRow.MAC_MODEM', function (nv) {
-      if (!nv || String(nv).replace(/[\s:\-*]/g, '').length < 11) setTimeout(function () { if (__isTester()) showChk('MAC_MODEM', '', ''); }, 120);
+      if (!nv || String(nv).replace(/[\s:\-*]/g, '').length < 11) setTimeout(function () { if (__featOn()) showChk('MAC_MODEM', '', ''); }, 120);
     });
   }
 
@@ -1998,7 +2002,7 @@ function parseValue(text) {
           var t = e.target;
           if (!t || !/^(INPUT|TEXTAREA)$/.test(t.tagName) || t.readOnly) return;
           if (/^(checkbox|radio|button|submit|file|hidden)$/i.test(t.type || '')) return;
-          if (!__isTester()) return;
+          if (!__featOn()) return;
           var sp = scrollParent(t);
           if (__padded !== sp) { unpad(); __padded = sp; __padOrig = sp.style.paddingBottom; }
           sp.style.paddingBottom = '60vh';
