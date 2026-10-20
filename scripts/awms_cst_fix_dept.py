@@ -11,6 +11,8 @@
   python3 scripts/awms_cst_fix_dept.py --date 20261007 --from 7793 --to 3600 --with N           # 미리보기
   python3 scripts/awms_cst_fix_dept.py --date 20261007 --from 7793 --to 3600 --with N --meter X --go
   python3 scripts/awms_cst_fix_dept.py --date 20261007 --from 7793 --to 3600 --with N --all --go
+
+★순서: 그날 아미큐 전송 순서대로 묶음마다 마스터 -> 슬레이브, 3초 간격(영준님 2026-10-20).
 """
 import argparse
 import json
@@ -26,6 +28,17 @@ import awms_cst_detail as A  # noqa: E402
 DROP = {"INST_M_NM", "INST_S_NM", "MODEM_DIV_NM", "REG_DATE", "WORK_REG_ID", "WORK_STEP_NM"}
 SEALS = ("ENCL_SEAL_VAL", "METR_SEAL_VAL", "OTSD_SEAL_VAL")
 BACKUP = Path("/tmp/relay/awms_fix_dept_backup")
+ARCHIVE = Path.home() / ".ami-cst-archive"
+GAP_SEC = 3   # 영준님 2026-10-20: 묶음마다 마스터 -> 슬레이브 순서로, 3초 간격. 뒤섞어 올리지 마라
+
+
+def archive_order(day):
+    """그날 아미큐 전송 순서 그대로 — 묶음(잡)마다 마스터, 그 뒤 슬레이브."""
+    out = []
+    for f in sorted(ARCHIVE.glob(f"{day}/*/job.json")):
+        j = json.loads(f.read_text(encoding="utf-8"))
+        out += [j["master"]["meterNo"]] + [s["meterNo"] for s in j.get("slaves", [])]
+    return out
 
 
 def rows_of(day, dept, h):
@@ -74,8 +87,11 @@ def main():
     if a.meter:
         targets = [a.meter]
     elif a.all:
-        # 마스터(MODEM_DIV 10) 먼저, 슬레이브 나중
-        targets = sorted(src, key=lambda m: (str(src[m].get("MODEM_DIV")) != "10", m))
+        # 아미큐 전송 순서(묶음별 마스터 -> 슬레이브). 아카이브에 없는 계기는 MB_METER_ID 묶음으로 뒤에 붙인다
+        targets = [m for m in archive_order(a.date) if m in src]
+        rest = [m for m in src if m not in targets]
+        targets += sorted(rest, key=lambda m: (str(src[m].get("MB_METER_ID") or m),
+                                               str(src[m].get("MODEM_DIV")) != "10", m))
     else:
         sys.exit("--meter 또는 --all")
 
@@ -98,7 +114,7 @@ def main():
         print(f"    → {res}")
         if str(res.get("result")) != "1":
             sys.exit("  ★result!=1 — 중단")
-        time.sleep(0.5)
+        time.sleep(GAP_SEC)
         after = A.detail(row | {"DEPT2": a.dst}, h) or A.detail(row, h) or {}
         bad = [k for k in ("ATCH_FILE_ID_3", "ATCH_FILE_ID_4", "ATCH_FILE_ID_5", "ATCH_FILE_ID_6",
                            "WORK_STEP", "ETC1", "MB_REG_CNT") if str(after.get(k) or "") != str(det.get(k) or "")]

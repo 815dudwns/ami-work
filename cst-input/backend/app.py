@@ -1432,6 +1432,64 @@ def _archive_photos(jd, role, files: dict):
 _archive_cleanup()   # 기동 시 보관기간(30일) 지난 전송 아카이브 정리
 
 
+# ── 지사 = 리스트 지사 (영준님 2026-10-20) ─────────────────────────────────────
+#   "리스트가 마지막에 마용이면 마용으로 저장해놓고 직할이면 직할로 저장해놔. 마지막값으로 항상.
+#    동행은 내가 건들기전엔 x"
+#   사고: 10/20 직할 작업 22건이 설정에 남아 있던 마포용산(3600)으로 올라갔다(리스트는 전부 서울본부직할).
+#   규칙: 전송할 계기(마스터 -> 슬레이브 순)가 지도 리스트에 있으면 그 지사로 올리고, 그 값을 CONFIG 에
+#     저장해 다음 전송의 기본값으로 둔다. 리스트에 없으면 마지막 값을 그대로 쓴다.
+#   ★동행(WITH_YN)은 건드리지 않는다 — 설정화면에서 작업자가 직접 바꿀 때만 바뀐다.
+#   출처 = data/stats-site-index.json(실효 s·미청구 m·불가 u·합동 h·장애 j). 옛 완료 아카이브 'a' 는 뺀다.
+_LIST_INDEX = ROOT / "data" / "stats-site-index.json"
+_LIST_PRIO = ("s", "m", "u", "h", "j")
+DEPT_CODE_BY_NAME = {"마포용산": "3600", "서대문은평": "3500", "서울본부직할": "7793", "광진성동": "3100",
+                     "노원도봉": "3400", "강북성북": "4080", "동대문중랑": "3000"}
+_list_dept_cache = {"mtime": None, "map": {}}
+
+
+def _list_dept_map() -> dict:
+    """계기번호(norm) -> {리스트코드: 지사코드}. 파일이 바뀔 때만 다시 만든다(mtime)."""
+    try:
+        mtime = os.path.getmtime(_LIST_INDEX)
+    except OSError:
+        return {}
+    if _list_dept_cache["mtime"] != mtime:
+        mp = {}
+        for r in _load_sd(_LIST_INDEX):
+            lc = r.get("l")
+            if lc not in _LIST_PRIO:
+                continue
+            code = DEPT_CODE_BY_NAME.get(str(r.get("지사") or "").replace("지사", "").strip())
+            if code:
+                mp.setdefault(norm_meter(r.get("계기번호")), {}).setdefault(lc, code)
+        _list_dept_cache.update(mtime=mtime, map=mp)
+        print(f"[dept] 리스트 지사 색인 {len(mp)}계기 mtime={mtime}", flush=True)
+    return _list_dept_cache["map"]
+
+
+def _apply_list_dept(body: dict, plan: dict):
+    """마스터부터 리스트에 있는 첫 계기의 지사로 CONFIG.DEPT2 를 맞추고 저장한다."""
+    try:
+        mp = _list_dept_map()
+        meters = [(body.get("master") or {}).get("meterNo", "")] + \
+                 [s.get("meterNo", "") for s in body.get("slaves", [])]
+        for mid in meters:
+            hit = mp.get(norm_meter(mid))
+            if not hit:
+                continue
+            code = next(hit[lc] for lc in _LIST_PRIO if lc in hit)
+            if CONFIG.get("DEPT2") != code:
+                old = CONFIG.get("DEPT2")
+                CONFIG["DEPT2"] = code
+                _save_config()
+                _config_log({"src": "list", "meter": mid, "changed": {"DEPT2": [old, code]}})
+                nm = {v: k for k, v in DEPT_CODE_BY_NAME.items()}
+                plan["warnings"].append(f"지사를 리스트 따라 {nm.get(code, code)}로 올린다(설정도 바꿈, 계기 {mid})")
+            return
+    except Exception as e:   # 색인 문제로 전송을 막지 않는다 — 마지막 설정값으로 간다
+        print(f"[dept] 리스트 지사 조회 실패 — 설정값 유지: {type(e).__name__}: {e}", flush=True)
+
+
 def _saveact_precheck():
     """전송 전 게이트(세션·공사설정). 두 엔드포인트(classic/stream) 공용. 실패 시 HTTPException."""
     if not session_alive():
@@ -1802,6 +1860,7 @@ def api_saveact(body: dict = Body(...)):
     ★진행표시가 필요한 프론트는 /api/saveact/stream을 먼저 시도하고, 실패 시 이 경로로 폴백."""
     _saveact_precheck()
     plan = _saveact_prepare(body)   # 입력 단일 게이트 — 틀리면 전송 전에 400
+    _apply_list_dept(body, plan)    # 지사 = 리스트 지사(마지막 값 저장). 동행은 안 건드린다
     results = []
     for ev in _saveact_core(body, plan):
         if ev.get("type") == "done":
@@ -1820,6 +1879,7 @@ def api_saveact_stream(body: dict = Body(...)):
     ★터널(cloudflare) 버퍼링 대비: X-Accel-Buffering:no + content-length 없이 chunked."""
     _saveact_precheck()
     plan = _saveact_prepare(body)   # 입력 단일 게이트 — 스트림 시작 전이라 정상 400 으로 나간다
+    _apply_list_dept(body, plan)    # 지사 = 리스트 지사(마지막 값 저장). 동행은 안 건드린다
 
     def _gen():
         try:
