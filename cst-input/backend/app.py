@@ -1655,6 +1655,11 @@ def _saveact_core(body, plan=None):
     arch = None
     try:
         arch = _archive_begin(body)   # ★큐/사진 30일 보관 — 전송 성공해도 지우지 않음
+        # ★슬레이브 사진도 전송 전에 먼저 보관한다(영준님 2026-10-20). 마스터가 실패하면 슬레이브는
+        #   건너뛰어 사진이 폰 큐에만 남았다 — 대표계기로 따로 올리려 해도 맥에서 꺼낼 수 없었다.
+        for i, s in enumerate(body.get("slaves", [])):
+            (tmpd / f"in{i + 1}").mkdir(exist_ok=True)
+            _archive_photos(arch, f"slave{i + 1}_in", _photos_to_files(s.get("photos", {}), tmpd / f"in{i + 1}"))
         yield from _saveact_run(body, plan, tmpd, arch)
     except GeneratorExit:
         _archive_write(arch, patch={"error": "클라이언트 연결 끊김 — 중단"}, status="aborted")
