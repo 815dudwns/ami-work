@@ -354,7 +354,7 @@ def _mac_raw_suffix(mac: str) -> str:
     if m.startswith('44B433') or m.startswith('0014B0'):
         return '20'                                              # hpgp
     if m.startswith('AC5E8C'):
-        return 'SKIP'                                            # 혼재 → 자동 안 함, 직접선택
+        return '90'                                              # k-dcu (영준님 2026-10-20: AC 모뎀은 전부 k-dcu)
     return ''
 
 

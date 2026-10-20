@@ -74,7 +74,7 @@
 | **종로맵**(meter care solution) | `jongno-combined/map.html` `APP_VERSION` / 메뉴라벨 | `20260813.3` / `v20260813.3` (계기팀 디테일에 DCU ID + 통신방식 표시. detail.js ?v=20260813c) | 2026-08-13 |
 | **종로 보조앱**(jongno-snap) | `snap.html` `APP_VER` + 라벨 / snap-version.json / APK | `v20260707.7` (사진 재촬영 덮어쓰기 / 실시간QR / 카메라선택. ★범프 시 3곳 APP_VER+라벨2 갱신) | 2026-07-07 |
 | **아미맵**(ami-work 작업지도) | `ami-work/js/auth.js` `FORCE_LOGOUT_VERSION` · 앱버전 `js/app-version.js` `APP_VERSION` = `app-version.json` | `20261019a` / 앱 `v20261020.5` (야간 일괄 수정 + 켜 둔 페이지 자동 새로고침 장치. ★배포마다 라벨·모든 ?v=·APP_VERSION·app-version.json 같은 값) | 2026-10-20 |
-| **헬퍼**(awms-helper) | `versionName` / inject | `1.0.79` (영준님 폰만 1.0.79.1 시험판 — 키보드 높이 반영) / inject `v90` (전 작업자 공개 — 새 실험만 __isTester 게이트: 키보드에 가린 칸 끌어올리기 · 계기번호 형식·리스트 소속 라벨 · 모뎀맥 내 자재 라벨 · 새 행 지사·동행을 헬퍼 설정값으로 강제 · 25미청구 계기면 비고에 25) | 2026-10-20 |
+| **헬퍼**(awms-helper) | `versionName` / inject | `1.0.79` (영준님 폰만 1.0.79.1 시험판 — 키보드 높이 반영) / inject `v91` (AC5E8C 모뎀 통신방식 자동 k-dcu · 전 작업자 공개 — 새 실험만 __isTester 게이트: 키보드에 가린 칸 끌어올리기 · 계기번호 형식·리스트 소속 라벨 · 모뎀맥 내 자재 라벨 · 새 행 지사·동행을 헬퍼 설정값으로 강제 · 25미청구 계기면 비고에 25) | 2026-10-20 |
 | **OTP수집기**(awms-otp-collector) | `versionName` | `1.0.1` (카톡 백그라운드만 정리. ★네이티브 자동배포X, APK수동설치) | 2026-07-03 |
 | **awms-bridge-inject**(리모컨 공용) | `awms-bridge-inject.js` `VER` | `v80` | 2026-06-20 |
 | **명륜 팀배분**(myungroon) | `jongno-combined/myungroon.html` `myungroon_app_version` / 메뉴라벨 | `20260624.1` | 2026-06-24 |
