@@ -160,3 +160,9 @@ if shrunk:
     print("  ※--allow-shrink 로 줄어듦을 허용했다:",
           ", ".join(f"{c} {w:,}->{n:,}" for c, w, n in shrunk))
 print(f"  생성시각(KST): {datetime.now(ZoneInfo('Asia/Seoul')).isoformat()}")
+
+# 헬퍼 계기 리스트 라벨(data/meter-list-index.json)은 이 인덱스에서 파생된다 — 같이 만들어야 헬퍼가 따라온다.
+# (2026-10-21: 합동을 올리고 통계만 다시 만들어서 헬퍼 라벨이 10/20 아침 상태에 멈춰 있었다)
+sys.path.insert(0, str(ROOT / "scripts"))
+import gen_meter_list_index
+gen_meter_list_index.main()
