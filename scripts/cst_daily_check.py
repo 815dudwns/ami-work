@@ -8,10 +8,12 @@
 Needs a live awms session (아미큐 맥세션). Everything is fetched fresh on every run — a morning
 snapshot misses the afternoon's registrations (2026-10-16: A0550069275 looked unregistered).
 
-1. App check — every job in ~/.ami-cst-archive/<day>/ against live awms getMainList:
-   sent ok, awms row exists with the same MAC, meter number format, duplicate meters,
-   new-install MAC is in my 출고 ledger and owned, MAC not used by another meter this year,
-   Amigo meter <-> Amigo MAC, PLC new install has DCU_ID, master has 4 photos, 지사 matches list.
+1. awms check — ★the base is the day's awms rows (getMainList), grouped by modem MAC. The
+   아미큐 archive (~/.ami-cst-archive/<day>/) only tags the source: rows entered via the helper or
+   the awms screen count too, and archive sends that never reached awms are listed separately.
+   Checks: meter number format, duplicate meters, new-install MAC in my 출고 ledger or the
+   off-book ledger and owned, MAC not used by another master this year, Amigo meter <-> Amigo MAC,
+   PLC new install has DCU_ID, master has 4 photos (아미큐 rows), 지사 matches list.
 2. Map check — places I marked complete on the map that day vs awms. Only the meters of the
    SAME list as the workStatus key (namespace -> list code). Mixing in other lists (the old
    completed archive, 25년 미청구) flagged false omissions on 2026-10-16: an old 플러스-app typo
@@ -43,6 +45,7 @@ BACKEND = "http://127.0.0.1:8766"
 WS_URL = ("https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app"
           "/workStatus/charger4eleccar.json")
 TOKEN = Path.home() / ".google-tokens/token.pickle"
+OFFBOOK = ROOT / "cst-input/backend/offbook_stock.json"
 ME = "우영준"
 DEPT_NM = {"3600": "마포용산", "3500": "서대문은평", "7793": "서울본부직할", "3100": "광진성동",
            "3400": "노원도봉", "4080": "강북성북", "3000": "동대문중랑"}
@@ -75,69 +78,124 @@ def fetch(day):
     return rows, ship, ws, idx
 
 
+def offbook():
+    """MAC -> batch label, from the off-book ledger (awms-unregistered stock, gitignored)."""
+    try:
+        out = {}
+        for bt in json.loads(OFFBOOK.read_text()).get("batches", []):
+            for m in bt.get("macs", []):
+                out[re.sub(r"[\s:\-*]", "", m).upper()] = bt.get("label", "")
+        return out
+    except Exception:
+        return {}
+
+
 def app_check(day, jobs, rows, ship, idx):
-    today = {r["INSTR_NUM"]: r for r in rows if r.get("WORK_DATE") == day}
+    """★The base set is awms itself (영준님 2026-10-21: always check against awms values).
+    The 아미큐 archive only says which rows came from 아미큐 — rows registered through the helper or
+    the awms screen are in awms but not in the archive, and a failed send is in the archive but not
+    in awms. Counting archive jobs reported 22 when awms had 21 places / 29 meters."""
+    today = [r for r in rows if r.get("WORK_DATE") == day]
+    ob = offbook()
     macuse = defaultdict(set)
     for r in rows:
         if r.get("MODEM_DIV") == "10" and r.get("MAC_MODEM"):
             macuse[r["MAC_MODEM"].upper()].add(r["INSTR_NUM"])
-    seen, bad, meters_n = set(), 0, 0
-    print(f"== 1. 앱 작성 검사 ({len(jobs)}건)")
+    via = {}                       # meter -> archive job dir (sent ok)
     for f, j in jobs:
-        m = j["master"]
-        mac = (m.get("mac") or "").upper()
-        meters = [m["meterNo"]] + [s["meterNo"] for s in j.get("slaves", [])]
-        sent0 = (j.get("sent") or [{}])[0]
-        div = sent0.get("fields", {}).get("WORK_DIV", "")
-        iss = [f"전송실패 {s.get('meterNo')} {s.get('resp')}" for s in j.get("sent", []) if not s.get("ok")]
-        r = today.get(m["meterNo"])
-        if not r:
-            iss.append("awms 에 등록 없음 (삭제했으면 정상)")
-        elif (r.get("MAC_MODEM") or "").upper() != mac:
-            iss.append(f"awms MAC 다름 {r.get('MAC_MODEM')}")
-        for no in meters:
+        for s in j.get("sent", []):
+            if s.get("ok"):
+                via[s.get("meterNo")] = f
+    groups = defaultdict(list)     # MAC -> rows (master MODEM_DIV 10 + slaves 20)
+    for r in sorted(today, key=lambda r: r.get("REG_DATE") or 0):
+        groups[(r.get("MAC_MODEM") or "").upper()].append(r)
+    cnt = defaultdict(int)
+    for r in today:
+        cnt[r["INSTR_NUM"]] += 1
+    n_m = n_s = bad = 0
+    div_n = defaultdict(int)
+    print(f"== 1. awms 등록 검사 (오늘 awms {len(today)}행 · 모뎀 {len(groups)}개)")
+    for mac, rs in sorted(groups.items(), key=lambda x: min(r.get("REG_DATE") or 0 for r in x[1])):
+        ms = [r for r in rs if r.get("MODEM_DIV") == "10"]
+        ss = [r for r in rs if r.get("MODEM_DIV") != "10"]
+        n_m += len(ms); n_s += len(ss)
+        head = ms[0] if ms else rs[0]
+        div = head.get("WORK_DIV", "")
+        if ms:
+            div_n[div] += 1
+        iss = []
+        if len(ms) > 1:
+            iss.append(f"같은 맥 마스터 {len(ms)}개 {[r['INSTR_NUM'] for r in ms]}")
+        note = ""
+        if not ms:   # joined an existing modem — normal; its master is older or another worker's
+            older = sorted(macuse.get(mac, set()))
+            note = f"기존 모뎀 합류 — 마스터 {older[0] if older else '올해 내 기록 밖(작년·남의 것)'}"
+        for r in rs:
+            no = r["INSTR_NUM"]
             if not re.fullmatch(r"[0-9A-Z]{2}[0-9]{9}", no):
                 iss.append(f"계기번호 형식 {no}")
-            if no in seen:
+            if cnt[no] > 1:
                 iss.append(f"오늘 중복 계기 {no}")
-            seen.add(no)
-            if r and no != m["meterNo"] and no not in today:
-                iss.append(f"슬레이브 awms 없음 {no}")
-        if div in ("M1010", "M1020"):
+        if ms and div in ("M1010", "M1020"):
             sr = ship.get(mac)
-            if not sr:
-                iss.append("출고장부에 없는 맥")
-            elif not sr.get("owned"):
+            if not sr and mac not in ob:
+                iss.append("출고장부·따로장부 둘 다 없는 맥")
+            elif sr and not sr.get("owned"):
                 iss.append("내 소유 아닌 맥")
-            if not mac.startswith("012") and not sent0.get("fields", {}).get("DCU_ID"):
+            if not mac.startswith("012") and not head.get("DCU_ID"):
                 iss.append("PLC 신설인데 DCU_ID 빈값")
-        if r:
-            others = macuse.get(mac, set()) - {m["meterNo"]}
+        if ms:
+            others = macuse.get(mac, set()) - {r["INSTR_NUM"] for r in ms}
             if others:
-                iss.append(f"같은 맥 다른 계기 {sorted(others)}")
-        if mac.startswith("012"):
-            k, mt = kind(mac), meter_kind(m["meterNo"])
+                iss.append(f"같은 맥 다른 계기(올해) {sorted(others)}")
+        if mac.startswith("012") and ms:
+            k, mt = kind(mac), meter_kind(head["INSTR_NUM"])
             if (mt == "AMIGO") != ("AMIGO" in k):
                 iss.append(f"{mt} 계기인데 {k}")
-        if len(sent0.get("photos", {})) < 4:
-            iss.append("마스터 사진 4장 미만")
-        dept = j["config"]["DEPT2"]
+        dept = head.get("DEPT2", "")
         lists = []
-        for no in meters:
-            for x in idx.get(no, []):
+        for r in rs:
+            for x in idx.get(r["INSTR_NUM"], []):
                 if x["l"] == "a":
                     continue
                 lists.append(x["l"])
                 if dept in DEPT_NM and not x["지사"].startswith(DEPT_NM[dept]):
-                    iss.append(f"지사 불일치 {no}: 작성 {DEPT_NM[dept]} / 리스트 {x['지사']}")
-        tm = f.name[:4]
-        print(f"{tm[:2]}:{tm[2:]} {m['meterNo']} {div} {j.get('ham')} 슬{len(meters) - 1} {mac} "
-              f"{DEPT_NM.get(dept, dept)} 리스트[{','.join(sorted(set(lists))) or '없음'}]")
+                    iss.append(f"지사 불일치 {r['INSTR_NUM']}: awms {DEPT_NM[dept]} / 리스트 {x['지사']}")
+        src = sorted({"아미큐" if r["INSTR_NUM"] in via else "아미큐 외(헬퍼·화면)" for r in rs})
+        if ms and head["INSTR_NUM"] in via:
+            sent0 = next((s for s in json.load(open(via[head["INSTR_NUM"]] / "job.json")).get("sent", [])
+                          if s.get("meterNo") == head["INSTR_NUM"]), {})
+            if len(sent0.get("photos", {})) < 4:
+                iss.append("마스터 사진 4장 미만")
+        tm = datetime.datetime.fromtimestamp((head.get("REG_DATE") or 0) / 1000, ZoneInfo("Asia/Seoul"))
+        role = "마스터" if ms else "슬레이브"
+        print(f"{tm:%H:%M} {head['INSTR_NUM']} {div} {role} 슬{len(ss) if ms else len(ss) - 1} {mac} {DEPT_NM.get(dept, dept)} "
+              f"리스트[{','.join(sorted(set(lists))) or '없음'}] [{'/'.join(src)}]")
+        if note:
+            print(f"        ({note})")
+        for r in (ss if ms else ss[1:]):
+            print(f"        └ 슬레이브 {r['INSTR_NUM']} {r.get('WORK_DIV')}")
         for i in iss:
             print("     ★", i)
         bad += bool(iss)
-        meters_n += len(meters) if r else 0
-    print(f"   작성 {len(jobs)}건 (awms 에 있는 계기 {meters_n}) · 문제 있는 건 {bad}\n")
+    lost = []                      # in the 아미큐 archive but never reached awms
+    aw = {r["INSTR_NUM"] for r in today}
+    for f, j in jobs:
+        for s in j.get("sent", []):
+            if s.get("meterNo") not in aw:
+                lost.append((f.name, s.get("meterNo"), "ok" if s.get("ok") else str(s.get("resp"))[:90]))
+    for f, j in jobs:
+        for no in j.get("skippedSlaves") or []:
+            if no not in aw:
+                lost.append((f.name, no, "슬레이브 건너뜀"))
+    if lost:
+        print("   -- 아미큐 전송 기록은 있는데 오늘 awms 에 없는 계기 (이미 있던 건이면 정상)")
+        for name, no, why in lost:
+            print(f"     {name[:2]}:{name[2:4]} {no} {why}")
+    dv = " · ".join(f"{ {'M1010': '신설', 'M1020': '교체', 'M1030': '기설'}.get(k, k)} {v}"
+                    for k, v in sorted(div_n.items()))
+    print(f"   awms 오늘 계기 {len(today)} = 마스터 {n_m} ({dv}) + 슬레이브 {n_s} · "
+          f"아미큐 전송 {len(jobs)}회 · 문제 있는 모뎀 {bad}\n")
 
 
 def map_check(day, rows, ws, idx):
