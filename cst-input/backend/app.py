@@ -1977,6 +1977,24 @@ _SHIPPED_LOCK = threading.Lock()
 _SHIPPED_BUSY = threading.Event()
 
 
+# 따로 장부 — awms 자재에 없어 출고목록에 안 잡히는 내 실물 모뎀(IoT PLC 등, 영준님 2026-10-21).
+# {batches:[{label, date YYYY-MM-DD, macs[], inBaseline}]}. inBaseline=true 는 10/16 실물 카운트에 이미 든 것.
+OFFBOOK_FILE = Path(__file__).resolve().parent / "offbook_stock.json"   # .gitignore
+
+
+def offbook_macs() -> dict:
+    """MAC → {label, date, inBaseline}. 파일이 없거나 깨지면 빈 dict."""
+    out = {}
+    try:
+        for bt in json.loads(OFFBOOK_FILE.read_text(encoding="utf-8")).get("batches", []):
+            for m in bt.get("macs", []):
+                out[shipped_norm(m)] = {"label": bt.get("label", ""), "date": bt.get("date", ""),
+                                        "inBaseline": bool(bt.get("inBaseline"))}
+    except Exception:
+        pass
+    return out
+
+
 def shipped_norm(mac) -> str:
     """출고목록·시공목록·폰 입력 MAC 을 같은 모양으로. 구분자 제거 + 대문자, 자릿수 그대로."""
     return re.sub(r"[\s:\-*]", "", str(mac or "")).upper()
@@ -2101,9 +2119,14 @@ def api_shipped_check(mac: str = ""):
     if not SHIPPED.get("rows"):
         return {"available": False, "mac": mac, "norm": k, "error": SHIPPED.get("err", "")}
     row = SHIPPED["rows"].get(k)
+    if not row:
+        ob = offbook_macs().get(k)
+        if ob:   # awms 에 없지만 내 실물 — [출고] 로 그리고 '따로 장부' 라고 적는다(신설 경고 안 뜸)
+            row = {"ymd": ob["date"].replace("-", ""), "sts": "OFFBOOK", "owned": True}
     return {"available": True, "mac": mac, "norm": k, "shipped": bool(row),
             "ymd": (row or {}).get("ymd", ""), "sts": (row or {}).get("sts", ""),
-            "stsNm": SHIPPED_STS_NM.get((row or {}).get("sts", ""), ""),
+            "stsNm": "awms 미등록 · 따로 장부" if (row or {}).get("sts") == "OFFBOOK"
+                     else SHIPPED_STS_NM.get((row or {}).get("sts", ""), ""),
             "owned": bool(row and row.get("owned")),
             "used": k in set(SHIPPED.get("used") or []),
             "total": len(SHIPPED["rows"]), "ts": SHIPPED.get("ts", 0), "usedTs": SHIPPED.get("usedTs", 0)}
@@ -2270,6 +2293,14 @@ def stock_compute(why: str = ""):
                 k = stock_kind(r["mac"])
                 stock[stock_bucket(k)] += 1
                 got.append({"mac": r["mac"], "kind": k, "regTs": r["regTs"], "src": "출고" if r["src"] == "20" else "인계"})
+        # 따로 장부(awms 미등록 실물) — 출고목록에 영영 안 나오므로 여기서 더한다. 기준점에 든 묶음은 빼고.
+        gotm = {g["mac"] for g in got}
+        for m, ob in offbook_macs().items():
+            if ob["inBaseline"] or m in gotm or m in excl:
+                continue
+            k = stock_kind(m)
+            stock[stock_bucket(k)] += 1
+            got.append({"mac": m, "kind": k, "regTs": 0, "src": "따로 장부"})
         d0 = datetime.fromtimestamp(int(b["ts"]), KST).strftime("%Y%m%d")
         today = datetime.now(KST).strftime("%Y%m%d")
         p = {"FLAG": "M10", "DEPT1": CONFIG["DEPT1"], "DEPT2": "", "searchKeyword": "", "sortKey": "0",

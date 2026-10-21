@@ -47,6 +47,7 @@ FORMAT_B = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE·E타입)", "LTE 모뎀(G타입)
             "HPGP모뎀(AE타입)", "HPGP모뎀(G타입)"]
 
 
+OFFBOOK = ROOT / "cst-input/backend/offbook_stock.json"   # awms 미등록 실물(따로 장부)
 TYPE_OVERRIDE = Path(__file__).resolve().parent.parent / "cst-input/backend/stock_type_override.json"
 
 
@@ -220,6 +221,17 @@ def from_baseline(a):
                 got.append((x.get("FCTY_ID") or "").upper())
     for m in got:
         stock[bucket(kind(m))] += 1
+    # off-book receipts: physical modems awms material does not know (IoT PLC, 영준님 2026-10-21).
+    # They never reach the 출고 ledger, so they are added here from the separate ledger.
+    off = 0
+    if OFFBOOK.exists():
+        for bt in json.loads(OFFBOOK.read_text()).get("batches", []):
+            if bt.get("inBaseline"):
+                continue
+            for m in bt.get("macs", []):
+                if m.upper() not in got:
+                    stock[bucket(kind(m.upper()))] += 1
+                    off += 1
     # installs after the baseline: master rows that consumed a new modem (신설·교체), one per meter
     h = A.headers()
     d0 = datetime.datetime.fromtimestamp(b["ts"]).strftime("%Y%m%d")
@@ -247,7 +259,7 @@ def from_baseline(a):
         stock[bucket(kind(m))] -= 1
     _c = json.loads(CACHE.read_text())
     ledger = set(_c.get("ledger") or _c["rows"]) | set(handovers())  # backend now strips self-handover/excluded from rows
-    print(f"이후 수령 {len(got)} · 이후 시공 {len(used)}")
+    print(f"이후 수령 {len(got)} (awms 미등록 따로 장부 {off}) · 이후 시공 {len(used)}")
     print(f"\n현재 재고 {sum(stock.values())}개")
     for k in FORMAT_B + sorted(set(stock) - set(FORMAT_B)):
         if stock.get(k):
