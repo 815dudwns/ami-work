@@ -176,3 +176,8 @@
 .jangae-all { float: right; margin-left: 6px; font-size: 11px; padding: 1px 6px; cursor: pointer;
               border: 1px solid #cbd5e1; background: #fff; border-radius: 4px; color: #475569; }
 .jangae-all:hover { background: #f1f5f9; }
+
+/* Recall-suspect band (js/recall.js) — full row width, must stand out */
+.recall-band { display: block; width: 100%; box-sizing: border-box; margin: 6px 0 2px; padding: 6px 10px;
+  background: #fb923c; color: #431407; font-weight: 800; font-size: 13px; line-height: 1.35;
+  border-left: 5px solid #c2410c; border-radius: 6px; }

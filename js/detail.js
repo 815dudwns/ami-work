@@ -1253,6 +1253,7 @@ function renderMetersList() {
                     ${addedBadge}<span class="meter-type">${parsedType}</span>
                     ${noHtml}${copyBtn}${addedRemoveBtn}
                     ${hasNo ? `<button class="${failBtnClass}" data-meter="${meter.계기번호}">${failBtnLabel}</button>` : '<span class="meter-sub-details" style="color:#9ca3af;">계기번호 없음</span>'}
+                    ${typeof recallBandHtml === 'function' ? recallBandHtml(meter.계기번호) : ''}
                     ${details ? `<div class="meter-details">${details}</div>` : ''}
                     ${subDetails}
                     ${lpTable}
@@ -1557,6 +1558,7 @@ function jangaeTreeHtml(g, idx = 0, tot = 1, checkedList = []) {
                 <button class="copy-btn" data-copy="${esc(m.계기번호)}" title="계기번호 복사">${COPY}</button>
                 ${hoHtml}
                 <span style="color:${stColor};font-weight:700;margin-left:4px;">${st}</span>
+                ${typeof recallBandHtml === 'function' ? recallBandHtml(no) : ''}
                 <div class="jangae-meter-sub">${sub.join(' · ')}</div>
             </div>`;
     }).join('');
