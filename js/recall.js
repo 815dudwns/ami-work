@@ -15,5 +15,5 @@ function recallBandHtml(meterNo) {
     const no = String(meterNo || '').replace(/[\s-]/g, '').toUpperCase();
     const sufs = RECALL_SUSPECT[no.slice(0, 4)];
     if (!sufs || !sufs.length) return '';
-    return `<div class="recall-band">리콜 의심 — 명판 끝 4자리 ${sufs.join('·')}면 개통금지</div>`;
+    return `<div class="recall-band">제조년도 ${sufs.join("·")} 작업불가</div>`;
 }
