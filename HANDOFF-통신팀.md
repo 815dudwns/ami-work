@@ -6,10 +6,14 @@
 > 앱 통칭 [[app_naming_convention]]. 배포 시 APP_VERSION 갱신 [[jongno_app_version_deploy]]. 종로맵=Naver Maps.
 > **awms API 모를 때 = `research/awms-poc/awms_API_레퍼런스.md`. 통신팀(mob/cst)/계기팀(mob/mtr) 별개 — 항상 구별.**
 
-## 현재 상태 (2026-10-02)
+## 현재 상태 (2026-10-25)
 
-- **배포 상태**: tongsin = main = `11a51f7` 이후. 아미맵 **v20261001.3** · 아미큐 **2.2.21**.
-  10/1 구간까지 전부 커밋·푸시·main 머지 완료, 게이트 전부 통과.
+- **배포 상태**: tongsin = main = `ef6d69b`. 아미맵 **v20261023.3** · 아미큐 2.2.24(adb, 자동업뎃 기준 2.2.23).
+  ★tongsin 은 main 과 갈라져 있었다(같은 내용 커밋 중복) — reset/rebase 는 권한 차단이라 **origin/main 병합**으로 맞췄다.
+  세션 시작 시 `git log HEAD..origin/main` 부터 확인.
+- **리콜 의심 계기 띠 (10/23 배포, 진행 중 트랙)**: 아미맵 상세 모달(일반 카드·장애 트리)에
+  `제조년도 2603·2604 작업불가` 주황 띠. 표 하나 = `js/recall.js` `RECALL_SUSPECT`(9419·4719·9319, 0246·아미고 제외).
+  표시 전용(데이터·workStatus 무변경). **KDN 해제 공지가 오면 표를 비우고 버전 올려 배포.**
   ★통계 인덱스는 **PM 이 main 에서 돌린다**(`04674f6` 이 10/1 반영분 재생성).
     워크트리에서 돌리지 마라 — glob 분모 파일 하나가 git 에 없어 24,128행이 조용히 깎인다
     [[stats_index_main_worktree_only]].
