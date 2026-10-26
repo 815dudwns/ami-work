@@ -489,6 +489,54 @@ def michunggu_bulga_set() -> set:
     return _load_meter_set(_bulga, MICHUNGGU_BULGA_FILE, "25불가리스트")
 
 
+# ── 합동 리스트 표시 (영준님 2026-10-26 "아미큐는 합동리스트 표시가 안되네, 25미청구처럼") ──
+#   ★화면 표시 전용이다. awms 비고(ETC1)·저장·전송에는 아무것도 붙이지 않는다.
+#   원천 = 지도 최근분 `hapdong-data.json` + 백업분 `hapdong-data-archive.json`.
+#   키 = 신설 `계기번호` + 철거 `계기번호_전` 둘 다(현장에서 옛 명판을 찍을 수도 있다).
+#   같은 계기가 여럿이면 지도분 > 백업분, 그다음 작업일 최신을 쓴다.
+HAPDONG_FILES = ((ROOT / "data" / "hapdong-data.json", False),
+                 (ROOT / "data" / "hapdong-data-archive.json", True))
+_hapdong = {"mtime": None, "map": {}}
+
+
+def hapdong_map() -> dict:
+    """계기번호(norm) -> {"day","dept","archived"}. 두 파일 mtime 이 바뀔 때만 다시 읽는다."""
+    try:
+        mt = tuple(f.stat().st_mtime if f.exists() else 0 for f, _ in HAPDONG_FILES)
+    except OSError:
+        return _hapdong["map"]
+    if _hapdong["mtime"] != mt:
+        mp, n = {}, 0
+        try:
+            for f, archived in HAPDONG_FILES:
+                if not f.exists():
+                    continue
+                rows = json.loads(f.read_text(encoding="utf-8"))
+                n += len(rows)
+                for r in rows:
+                    info = {"day": str(r.get("작업일") or ""),
+                            "dept": str(r.get("지사") or "").replace("지사", "").strip(),
+                            "archived": archived}
+                    for k in (r.get("계기번호"), r.get("계기번호_전")):
+                        nk = norm_meter(k)
+                        if not nk:
+                            continue
+                        cur = mp.get(nk)
+                        if (cur is None or (cur["archived"], ) > (archived, )
+                                or (cur["archived"] == archived and info["day"] > cur["day"])):
+                            mp[nk] = info
+            _hapdong.update(mtime=mt, map=mp)
+            print(f"[합동리스트] {n:,}행 -> 계기 {len(mp):,}개", flush=True)
+        except Exception as e:
+            print(f"[합동리스트] 읽기 실패(표시 생략): {e}", flush=True)
+    return _hapdong["map"]
+
+
+def hapdong_info(meter_no):
+    n = norm_meter(meter_no)
+    return hapdong_map().get(n) if n else None
+
+
 def is_michunggu(meter_no) -> bool:
     n = norm_meter(meter_no)
     return bool(n) and n in michunggu_set()
@@ -1912,7 +1960,9 @@ def api_michunggu(meterNo: str = ""):
     return {"meterNo": meterNo, "norm": norm_meter(meterNo),
             "in25": is_michunggu(meterNo), "in25bulga": is_michunggu_bulga(meterNo),
             "total": len(michunggu_set()), "totalBulga": len(michunggu_bulga_set()),
-            "memoField": MICHUNGGU_FIELD, "memoOnlyFor": "in25"}
+            "memoField": MICHUNGGU_FIELD, "memoOnlyFor": "in25",
+            # 합동 리스트 — 화면 표시 전용(비고 안 나감). 옛 폰은 이 두 필드를 무시한다.
+            "inHapdong": hapdong_info(meterNo) is not None, "hapdong": hapdong_info(meterNo)}
 
 
 @app.post("/api/michunggu/check")
@@ -1925,7 +1975,11 @@ def api_michunggu_check(body: dict = Body(...)):
     meters = [str(x or "").strip() for x in (body.get("meters") or [])]
     res = {m: is_michunggu(m) for m in meters if m}
     resb = {m: is_michunggu_bulga(m) for m in meters if m}
+    resh = {m: hapdong_info(m) for m in meters if m}
     return {"in25": res, "in25bulga": resb,
+            "inHapdong": {m: v is not None for m, v in resh.items()},
+            "hapdong": {m: v for m, v in resh.items() if v},
+            "hitsHapdong": sorted(k for k, v in resh.items() if v),
             "hits": sorted(k for k, v in res.items() if v),
             "hitsBulga": sorted(k for k, v in resb.items() if v),
             "total": len(michunggu_set()), "totalBulga": len(michunggu_bulga_set()),
