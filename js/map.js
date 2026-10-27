@@ -31,9 +31,17 @@ function guOf(addr) {
     if (dm && DONG_TO_GU[dm[1]]) return DONG_TO_GU[dm[1]];
     return null;
 }
+// 항목의 구 — '주소' 에 구가 없으면 도로명주소 -> 지번주소 순으로 본다(영준님 2026-10-27).
+//   25미청구 72건이 '옥인6가길 46(누상동 166-19,...)' 처럼 구 없이 와서 '미분류' 로 떨어졌고,
+//   구 필터를 켜면 사라졌다가 풀면 보였다. 도로명주소에는 '서울특별시 종로구 ...' 로 구가 있다.
+//   ★'주소' 자체는 고치지 않는다 — workStatus 키다(바꾸면 기록이 고아가 된다).
+function itemGuOf(item) {
+    if (!item) return null;
+    return guOf(item.주소) || guOf(item.도로명주소) || guOf(item.지번주소);
+}
 // 항목의 보정된 지사 (item.지사 대신 이걸로 분류 — 기타 흡수)
 function jisaOf(item) {
-    const j = GU_TO_JISA[guOf(item.주소)];
+    const j = GU_TO_JISA[itemGuOf(item)];
     if (j) return j;
     // 주소의 구로 못 잡으면 데이터의 지사 필드로 편입 (영준님 2026-08-10).
     //   지하철 고압처럼 소재지 구와 관리 지사가 다른 건이 있다 — 회사 소속 지사가 관리해서다.
@@ -581,7 +589,7 @@ function loadMarkers() {
 
     const grouped = {};
     sampleData.forEach(item => {
-        const g = guOf(item.주소);
+        const g = itemGuOf(item);
         if (selectedJisa && jisaOf(item) !== selectedJisa) return;
         const dsel = selectedDates[item.category];
         if (dsel && !dsel.set.has(String(item[dsel.field] || ''))) return;
