@@ -2185,6 +2185,17 @@ def main():
     #     규명 문서: research/날짜축_정의_20260921.md §5
     # ── 주소 접두 정규화 + 같은 지번 좌표 통합 (영준님 2026-09-21) ──────────
     #   ★저장 직전에 한다. 좌표 파이프라인이 끝난 뒤라야 '이미 있는 좌표 중에서' 고를 수 있다.
+    # ★주소 체계 정규화 (영준님 2026-10-27) — 한전 원문 형식('옥인6가길 46(누상동  166-19,…)',
+    #   시·구 없음)을 다른 행과 같은 '서울특별시 <구> <동> <지번>' 으로. 좌표 통합보다 **먼저** 해야
+    #   같은 지번 행끼리 좌표가 맞춰진다(안 그러면 같은 주소에 좌표가 둘이라 상태키가 갈린다).
+    #   ★다시 만들면 원문 형식으로 되돌아가던 것을 막는 장치다. 보류 계기는 모듈의 HOLD_METERS.
+    import importlib.util as _iu
+    _sp = _iu.spec_from_file_location('mich_addr_norm', str(ROOT / 'scripts/michunggu_addr_norm.py'))
+    _AN = _iu.module_from_spec(_sp)
+    _sp.loader.exec_module(_AN)
+    _an = _AN.normalize_rows(map_rows + pend_rows)
+    log(f"주소 체계 정규화 {_an['정규화']} · 빈 주소에 도로명 {_an['빈주소_도로명']} · 보류 {_an['보류']}"
+        f" · 실패 {len(_an['실패'])}")
     _ust = unify_addr_coords(map_rows + pend_rows, '25미청구')
     if _ust['보류목록']:
         (ROOT / 'research/좌표통합_보류_20260921.json').write_text(json.dumps(
