@@ -12,7 +12,7 @@
 //
 // 배포 규칙: map.html 의 버전 라벨 · 모든 ?v= · 이 파일의 APP_VERSION · app-version.json 을
 //   **같은 값**으로 올린다. 하나라도 어긋나면 새로고침 뒤에도 버전이 달라 계속 미뤄진다(1회 제한이 막는다).
-const APP_VERSION = 'v20261027.3';
+const APP_VERSION = 'v20261028.1';
 const APP_VERSION_URL = 'app-version.json';
 const APP_VERSION_POLL_MS = 10 * 60 * 1000;
 const APP_RELOAD_GUARD_KEY = 'ami_reloaded_for_version';
