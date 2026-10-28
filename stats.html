@@ -91,6 +91,11 @@
         td.types span { display: inline-block; margin-right: 6px; }
         td.types b { color: #1f2937; font-weight: 700; }
         tr.total-row { background: #f9fafb; }
+        tr.br-row { background: #eef2ff; cursor: pointer; }
+        tr.br-row td { font-weight: 700; border-top: 1px solid #c7d2fe; }
+        tr.br-row td.name .tg { display: inline-block; width: 12px; color: #6366f1; }
+        tr.gu-row td.name { padding-left: 26px; font-weight: 500; color: #374151; }
+        tr.gu-row.hidden { display: none; }
         tr.total-row td { border-top: 2px solid #d1d5db; font-weight: 700; }
 
         .empty { text-align: center; color: #9ca3af; padding: 24px 8px; font-size: 13px; }
@@ -359,7 +364,7 @@ function addAgg(agg, state, meters, failed) {
 function sumSites(s) { return s.complete + s.hold + s.fail; }
 function sumMeters(m) { return m.complete + m.hold + m.fail; }
 
-// ── 구별 누적 집계 (전체 탭) ─────────────────────────
+// ── 지사 > 구 누적 집계 (전체 탭) ─────────────────────────
 // 분모 = data/stats-site-index.json + workStatus(주소단위 진척). 날짜 무관 전체 누적.
 // ★묶음 축 = 구(영준님 2026-10-28 "통계 전체 구별로 고쳐"). 전엔 행의 '지사' 로 묶었다.
 //   구 = 주소에서 '…구' 로 끝나는 첫 토큰 — js/map.js guOf 와 같은 규칙(면목동 보정 포함).
@@ -373,6 +378,24 @@ function guOfStatsItem(it) {
     const dm = a.match(/([가-힣]+[동읍면])/);
     if (dm && STATS_DONG_TO_GU[dm[1]]) return STATS_DONG_TO_GU[dm[1]];
     return '미분류';
+}
+// 전체 탭 집계 키 = 지사 + 구 (영준님 2026-10-28 "지사 밑의 구 트리형태로").
+//   한 패스에서 (지사, 구) 쌍으로만 센다 — 지사 행은 그 자식 구 행들의 합으로 만든다(renderBranchTable).
+//   그래서 지사 소계와 구 합이 항상 맞는다. 개소(지번)는 첫 행의 쌍 하나에만 들어간다.
+const BR_SEP = '\u0001';
+function branchGuKeyOf(it) {
+    return (String((it && it['지사']) || '').trim() || '지사 미상') + BR_SEP + guOfStatsItem(it);
+}
+const _brCollapsed = new Set();   // 접힌 지사 — 리스트 전환·새로고침으로 다시 그려도 유지
+function toggleBranch(br) {
+    if (_brCollapsed.has(br)) _brCollapsed.delete(br); else _brCollapsed.add(br);
+    const open = !_brCollapsed.has(br);
+    document.querySelectorAll('tr.gu-row').forEach(tr => {
+        if (tr.dataset.br === br) tr.classList.toggle('hidden', !open);
+    });
+    document.querySelectorAll('tr.br-row').forEach(tr => {
+        if (tr.dataset.br === br) tr.querySelector('.tg').textContent = open ? '▾' : '▸';
+    });
 }
 function emptyBranch() {
     return {
@@ -498,7 +521,7 @@ function aggByBranch(fbSiteData, workStatus) {
     const siteState = {};   // 개소키 -> {gu, states:Set}
     const byGu = {};
     for (const it of fbSiteData) {
-        const gu   = guOfStatsItem(it);
+        const gu   = branchGuKeyOf(it);
         const addr = norm(it['주소']);
         const ws = findWsAny(addr, it.l);
         let st = (ws && ws.state) ? ws.state : 'pending';
@@ -520,7 +543,7 @@ function aggByBranch(fbSiteData, workStatus) {
 
     // 2패스: 계기는 종전대로 주소 단위 상태를 따른다(failedMeters 는 계기별 불가).
     for (const it of fbSiteData) {
-        const gu   = guOfStatsItem(it);
+        const gu   = branchGuKeyOf(it);
         const addr = norm(it['주소']);
         const meterNo = String(it['계기번호'] || '');
         const ws = findWsAny(addr, it.l);
@@ -729,6 +752,21 @@ function renderBranchSummary(t) {
 }
 
 function renderBranchTable(rows, total) {
+    // rows = [['지사\u0001구', agg], ...] -> 지사 > 구 트리. 지사 행 = 자식 구 행의 합.
+    const tree = new Map();
+    for (const [k, agg] of rows) {
+        const [br, gu] = k.split(BR_SEP);
+        if (!tree.has(br)) tree.set(br, { agg: emptyBranch(), gus: [] });
+        const node = tree.get(br);
+        node.gus.push([gu, agg]);
+        for (const st of ['complete', 'hold', 'fail', 'pending']) {
+            node.agg.sites[st]  += agg.sites[st];
+            node.agg.meters[st] += agg.meters[st];
+        }
+    }
+    const branches = [...tree.entries()].sort((a, b) => allMeters(b[1].agg.meters) - allMeters(a[1].agg.meters));
+    branches.forEach(([, n]) => n.gus.sort((a, b) => allMeters(b[1].meters) - allMeters(a[1].meters)));
+    const nGu = new Set(rows.map(([k]) => k.split(BR_SEP)[1])).size;
     if (rows.length === 0) {
         return `<div class="card"><div class="empty">구 데이터 없음</div></div>`;
     }
@@ -740,9 +778,15 @@ function renderBranchTable(rows, total) {
     const rateCell = m => `<b style="color:#1d4ed8;">${rateNetOf(m)}%</b>`
         + `<div style="font-size:10px;color:#9ca3af;font-weight:500;">불가포함 ${rateOf(m)}%</div>`;
     const cell = (s, m) => `${s ? s.toLocaleString() : '<span style="color:#d1d5db">-</span>'}${s ? `<div style="font-size:10px;color:#9ca3af;font-weight:500;">${m.toLocaleString()}</div>` : ''}`;
-    const bodyRow = (name, agg) => `
-        <tr>
-            <td class="name">${escHtml(name)}</td>
+    const bodyRow = (name, agg, cls, br) => {
+        const open = !_brCollapsed.has(br);
+        const attr = cls === 'br-row'
+            ? ` class="br-row" data-br="${escHtml(br)}" onclick="toggleBranch(this.dataset.br)"`
+            : ` class="gu-row${open ? '' : ' hidden'}" data-br="${escHtml(br)}"`;
+        const label = cls === 'br-row' ? `<span class="tg">${open ? '▾' : '▸'}</span>${escHtml(name)}` : escHtml(name);
+        return `
+        <tr${attr}>
+            <td class="name">${label}</td>
             <td class="num sites">${allSites(agg.sites).toLocaleString()}</td>
             <td class="num meters">${allMeters(agg.meters).toLocaleString()}</td>
             <td class="num complete">${cell(agg.sites.complete, agg.meters.complete)}</td>
@@ -751,14 +795,15 @@ function renderBranchTable(rows, total) {
             <td class="num" style="color:#6b7280;">${cell(agg.sites.pending, agg.meters.pending)}</td>
             <td class="num">${rateCell(agg.meters)}</td>
         </tr>`;
+    };
     return `
         <div class="card">
-            <div class="card-title">구별 작업 현황 <span class="count">(${rows.length}개 구 · 누적)</span></div>
+            <div class="card-title">지사·구별 작업 현황 <span class="count">(${branches.length}개 지사 · ${nGu}개 구 · 누적)</span></div>
             <div class="table-wrap">
             <table>
                 <thead>
                     <tr>
-                        <th>구</th>
+                        <th>지사 / 구</th>
                         <th>개소</th>
                         <th>계기</th>
                         <th>완료<br><span style="font-weight:500;color:#9ca3af;">개소/계기</span></th>
@@ -769,7 +814,7 @@ function renderBranchTable(rows, total) {
                     </tr>
                 </thead>
                 <tbody>
-                    ${rows.map(([name, agg]) => bodyRow(name, agg)).join('')}
+                    ${branches.map(([br, n]) => bodyRow(br, n.agg, 'br-row', br) + n.gus.map(([gu, agg]) => bodyRow(gu, agg, 'gu-row', br)).join('')).join('')}
                     <tr class="total-row">
                         <td class="name">합계</td>
                         <td class="num sites">${allSites(total.sites).toLocaleString()}</td>
