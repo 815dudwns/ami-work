@@ -159,8 +159,8 @@ let _db = null;
 let _metersByAddr = null;  // site-data.json 캐시: { address: [meter, ...] }
 let _archiveByAddr = null; // 완료 아카이브 색인 — 현재 리스트에 없는 주소일 때만 쓴다
 let _wsSnap = null;        // workStatus 스냅샷 — 날짜를 바꿔도 다시 받지 않는다(새로고침 때만)
-let _fbSiteData = null;    // Firebase siteData(실제 작업대상 19,613) 캐시 — 전체(지사별) 탭 분모
-let _activeTab = 'worker'; // 'worker'(작업자별·날짜) | 'gu'(구별·날짜) | 'all'(지사별 누적)
+let _fbSiteData = null;    // Firebase siteData(실제 작업대상 19,613) 캐시 — 전체(구별) 탭 분모
+let _activeTab = 'worker'; // 'worker'(작업자별·날짜) | 'gu'(구별·날짜) | 'all'(구별 누적)
 
 function initFB() {
     if (_firebaseInited) return true;
@@ -183,7 +183,7 @@ const normAddr = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 //   ★2026-09-09 수정: 여기 표가 실제 encodeKey 와 달랐다 — `/`·`[`·`]` 를
 //     `_slash_`·`_lbr_`·`_rbr_` 로 적어 두었는데 진짜 값은 `_sl_`·`_lb_`·`_rb_` 다.
 //     그래서 그 문자가 든 주소는 되돌리기가 안 됐다.
-//   ★그리고 전체(지사별) 탭은 이 함수를 아예 안 쓰고 **인코딩된 키 그대로** 대조하고 있었다.
+//   ★그리고 전체(구별) 탭은 이 함수를 아예 안 쓰고 **인코딩된 키 그대로** 대조하고 있었다.
 //     주소에 `.` 이나 `/` 가 있으면 그 개소만 통째로 안 맞아 완료·불가인데 미착수로 세였다
 //     (실측 30행: 고압 4 = '미착수 4건' 오판의 정체 · 합동 26). aggByBranch 에서 함께 고쳤다.
 const decodeStatusKey = (k) => String(k)
@@ -220,7 +220,7 @@ async function loadSiteData() {
         //   실측 2026-09-07: 이용택 16개소가 계기 628 로 잡혔다 —
         //     공릉동 714 = 실효 10 + 아카이브 290 / 공릉동 708 = 실효 2 + 아카이브 282.
         //   아파트처럼 한 주소에 수백 건이 쌓인 곳을 작업하면 그날 실적이 통째로 부풀려진다.
-        //   ★전체(지사별) 탭은 이 표를 쓰지 않는다 — 거기는 누적 실적이라 아카이브가 분모에 필요하고
+        //   ★전체(구별) 탭은 이 표를 쓰지 않는다 — 거기는 누적 실적이라 아카이브가 분모에 필요하고
         //     loadFbSiteData() 를 직접 읽는다. 이 표는 작업자별·구별 탭 전용이다.
         //   ★단 **현재 리스트에 없는 주소**는 아카이브로 폴백한다(2026-10-19 감사) — 완료돼 리스트에서
         //     빠진 실효 주소(1.2만)는 이 표에 없어서 지난 날짜 실적이 계기 0 으로 잡혔고, 완료제거를
@@ -252,7 +252,7 @@ function metersOfStatusKey(key) {
     return [];
 }
 
-// 전체(지사별) 탭 분모 = Firebase siteData 였으나, 매 조회마다 22MB 통째 다운로드가
+// 전체(구별) 탭 분모 = Firebase siteData 였으나, 매 조회마다 22MB 통째 다운로드가
 // RTDB egress 폭증(하루 ~1.5GB)의 범인이라 경량 인덱스 정적파일로 교체(2026-07-01).
 // data/stats-site-index.json = Firebase siteData에서 지사·주소·계기번호 3필드만 추출
 // (aggByBranch가 쓰는 필드 전부). GitHub Pages 서빙이라 Firebase 비용 0.
@@ -359,8 +359,21 @@ function addAgg(agg, state, meters, failed) {
 function sumSites(s) { return s.complete + s.hold + s.fail; }
 function sumMeters(m) { return m.complete + m.hold + m.fail; }
 
-// ── 지사별 누적 집계 (전체 탭) ─────────────────────────
-// Firebase siteData(19,613) 분모 + workStatus(주소단위 진척). 날짜 무관 전체 누적.
+// ── 구별 누적 집계 (전체 탭) ─────────────────────────
+// 분모 = data/stats-site-index.json + workStatus(주소단위 진척). 날짜 무관 전체 누적.
+// ★묶음 축 = 구(영준님 2026-10-28 "통계 전체 구별로 고쳐"). 전엔 행의 '지사' 로 묶었다.
+//   구 = 주소에서 '…구' 로 끝나는 첫 토큰 — js/map.js guOf 와 같은 규칙(면목동 보정 포함).
+//   stats.html 은 map.js 를 안 읽으므로 규칙을 그대로 옮겨 둔다. 바꿀 때는 두 곳을 같이 고쳐라.
+//   구가 없으면 '미분류'(인덱스에 도로명주소가 없어 주소 하나로만 판단한다).
+const STATS_DONG_TO_GU = { '면목동': '중랑구' };
+function guOfStatsItem(it) {
+    const a = String((it && it['주소']) || '');
+    const m = a.match(/(\S+구)(\s|$)/);
+    if (m) return m[1];
+    const dm = a.match(/([가-힣]+[동읍면])/);
+    if (dm && STATS_DONG_TO_GU[dm[1]]) return STATS_DONG_TO_GU[dm[1]];
+    return '미분류';
+}
 function emptyBranch() {
     return {
         sites:  { complete: 0, hold: 0, fail: 0, pending: 0 },
@@ -485,7 +498,7 @@ function aggByBranch(fbSiteData, workStatus) {
     const siteState = {};   // 개소키 -> {gu, states:Set}
     const byGu = {};
     for (const it of fbSiteData) {
-        const gu   = it['지사'] || '미상';
+        const gu   = guOfStatsItem(it);
         const addr = norm(it['주소']);
         const ws = findWsAny(addr, it.l);
         let st = (ws && ws.state) ? ws.state : 'pending';
@@ -507,7 +520,7 @@ function aggByBranch(fbSiteData, workStatus) {
 
     // 2패스: 계기는 종전대로 주소 단위 상태를 따른다(failedMeters 는 계기별 불가).
     for (const it of fbSiteData) {
-        const gu   = it['지사'] || '미상';
+        const gu   = guOfStatsItem(it);
         const addr = norm(it['주소']);
         const meterNo = String(it['계기번호'] || '');
         const ws = findWsAny(addr, it.l);
@@ -562,7 +575,7 @@ let _lastRender = null;   // [fbSiteData, workStatus, dateStr] — 리스트 전
 // ── 렌더 ───────────────────────────────────────────────
 function render(fbSiteData, workStatus, dateStr) {
     _lastRender = [fbSiteData, workStatus, dateStr];
-    // ── 전체(지사별) 탭: 날짜 무관 누적 ──
+    // ── 전체(구별) 탭: 날짜 무관 누적 ──
     const listRows = filterByList(fbSiteData);
     const byBranch = aggByBranch(listRows, workStatus);
     const branchRows = Object.entries(byBranch).sort((a, b) => allMeters(b[1].meters) - allMeters(a[1].meters));
@@ -580,7 +593,7 @@ function render(fbSiteData, workStatus, dateStr) {
     //   그대로 세서 **개소 = 키 개수**였다. 합동 주소는 awms 가 동호수까지 붙이므로
     //   한 건물이 세대 수만큼 부풀려졌다(실측: 안지홍 9/15 키 56 -> 지번 개소 32,
     //   방학동531 한 건물에만 8건).
-    // ★지사별 누적 탭(aggByBranch)이 쓰는 규칙을 **그대로 재사용**한다 — siteKeyOf/jibunOf.
+    // ★구별 누적 탭(aggByBranch)이 쓰는 규칙을 **그대로 재사용**한다 — siteKeyOf/jibunOf.
     //   새로 짜면 두 탭이 다른 수를 내게 된다.
     // ★카테고리를 키에 넣는다(siteKeyOf 와 동일). 빼면 같은 지번의 실효와 합동이 한 개소로 합쳐진다.
     // ★계기 수는 합산한다 — 지번으로 묶어도 계기는 줄면 안 된다(안지홍 57 유지).
@@ -717,7 +730,7 @@ function renderBranchSummary(t) {
 
 function renderBranchTable(rows, total) {
     if (rows.length === 0) {
-        return `<div class="card"><div class="empty">지사 데이터 없음</div></div>`;
+        return `<div class="card"><div class="empty">구 데이터 없음</div></div>`;
     }
     // 완료율 두 벌 (영준님 2026-09-18): 실질 = 불가를 분모에서 뺀 값, 괄호 = 불가 포함.
     //   불가는 우리가 더 할 수 없는 것이라 분모에 두면 실적이 실제보다 낮게 보인다.
@@ -740,12 +753,12 @@ function renderBranchTable(rows, total) {
         </tr>`;
     return `
         <div class="card">
-            <div class="card-title">지사별 작업 현황 <span class="count">(${rows.length}개 지사 · 누적)</span></div>
+            <div class="card-title">구별 작업 현황 <span class="count">(${rows.length}개 구 · 누적)</span></div>
             <div class="table-wrap">
             <table>
                 <thead>
                     <tr>
-                        <th>지사</th>
+                        <th>구</th>
                         <th>개소</th>
                         <th>계기</th>
                         <th>완료<br><span style="font-weight:500;color:#9ca3af;">개소/계기</span></th>
