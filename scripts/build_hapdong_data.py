@@ -789,11 +789,18 @@ def enrich_jongno(recs):
     problems = []
 
     for e in recs:
-        if e.get('지사') != '서울본부직할' or not str(e.get('공사번호') or '').endswith('383'):
+        # ★대상 = 서울본부직할 + 대장 두 키 정확일치. 공사번호 383 조건은 2026-10-29 PM 승인으로 뺐다 —
+        #   다른 공사번호(397820263577) 조가 종로구 창신동을 해 대장과 두 키가 다 맞는데도 빈칸으로 남았다.
+        #   383 행은 예전처럼 매칭 실패를 '미매칭' 으로 세고, 그 밖의 행은 맞을 때만 대상으로 센다(중구 등은 대장에 없다).
+        if e.get('지사') != '서울본부직할':
+            continue
+        is383 = str(e.get('공사번호') or '').endswith('383')
+        hit = idx.get((norm_id(e.get('고객번호')), norm_id(e.get('계기번호_전'))))
+        if not hit and not is383:
             continue
         stat['대상'] += 1
-
-        hit = idx.get((norm_id(e.get('고객번호')), norm_id(e.get('계기번호_전'))))
+        if not is383:
+            stat['대상_383외'] = stat.get('대상_383외', 0) + 1
         if not hit:
             stat['미매칭'] += 1
             continue
@@ -1059,7 +1066,8 @@ def main():
     print()
     ez = enrich_jongno(merged)
     print(f"종로 보강: 대상 {ez['대상']} / 채움 {ez['채움']} / 원천빈값 {ez.get('원천빈값', 0)}"
-          f" / 미매칭 {ez.get('미매칭', 0)} / 규칙위반 {ez.get('규칙위반', 0)} / 모호 {ez.get('모호', 0)}")
+          f" / 미매칭 {ez.get('미매칭', 0)} / 규칙위반 {ez.get('규칙위반', 0)} / 모호 {ez.get('모호', 0)}"
+          f" (공사번호 383 외 대장일치 {ez.get('대상_383외', 0)})")
     print(f"종로 좌표: 종로맵 값으로 교체 {ez.get('좌표교체', 0)}"
           f" / 멀어서 기존 유지 {ez.get('좌표보류', 0)} (기준 {COORD_SWAP_MAX_M}m)"
           f" / 원천에 좌표 없음 {ez.get('좌표없음', 0)}")
