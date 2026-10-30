@@ -22,23 +22,30 @@
 /* 작업자 정보 (기능 4) — 지도앱 버튼 아래, 작은 회색 글씨 */
 .worker-info { padding: 4px 16px 8px; font-size: 12px; color: #6b7280; flex-shrink: 0; }
 
-.overlay-header { padding: 16px; border-bottom: 1px solid #e5e7eb; background: #f9fafb; display: flex; justify-content: space-between; align-items: flex-start; flex-shrink: 0; }
+.overlay-header { padding: 16px 16px 10px; background: #f9fafb; display: flex; justify-content: space-between; align-items: flex-start; flex-shrink: 0; }
 .overlay-address { flex: 1; }
 .overlay-address h3 { font-size: 18px; margin-bottom: 6px; color: #111827; font-weight: 700; }
 .overlay-address p { font-size: 13px; color: #6b7280; line-height: 1.4; }
 .header-buttons { display: flex; gap: 8px; }
-/* 지도 앱 버튼 3개 묶음 */
-.map-app-btns { display: flex; gap: 4px; }
-.map-app-btn { padding: 4px 7px; background: #3b82f6; color: white; border: none; border-radius: 4px; font-size: 11px; cursor: pointer; white-space: nowrap; font-weight: 600; }
+/* 길찾기 줄 — 주소 아래. 티맵·네이버·카카오 글자 마크(평면 브랜드색), 누르는 칸 40px */
+.nav-row { padding: 0 16px 12px; display: flex; gap: 8px; align-items: center; background: #f9fafb; border-bottom: 1px solid #e5e7eb; flex-shrink: 0; }
+.nav-row-label { font-size: 12px; color: #6b7280; font-weight: 600; margin-right: 2px; }
+.nav-btn { width: 40px; height: 40px; padding: 0; border-radius: 10px; border: 1px solid #e5e7eb; background: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.nav-mark { width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; color: #fff; line-height: 1; }
+.nav-t .nav-mark { background: #e5484d; }
+.nav-n .nav-mark { background: #03c75a; }
+.nav-k .nav-mark { background: #fee500; color: #3c1e1e; }
+/* 주소 줄 앞 작은 회색 글자 표시(도로명/지번) */
+.addr-tag { font-size: 11px; font-weight: 700; color: #6b7280; background: #eef0f3; border-radius: 4px; padding: 1px 5px; margin-right: 6px; vertical-align: 1px; }
 .close-btn { width: 32px; height: 32px; border: none; background: #e5e7eb; border-radius: 6px; cursor: pointer; font-size: 20px; line-height: 1; color: #374151; font-weight: 600; }
 
 .overlay-actions { padding: 12px 16px; border-bottom: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 8px; background: white; flex-shrink: 0; }
-.action-btn-row { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; }
+.action-btn-row { display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; }
 .action-btn-row .action-btn { flex: 1; min-width: 0; }
 .fail-reason-row { display: flex; }
 .fail-reason-row .fail-reason { flex: 1; }
 .search-row { display: flex; gap: 6px; align-items: center; }
-.action-btn { padding: 10px 16px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px; cursor: pointer; background: white; transition: all 0.2s; font-weight: 600; }
+.action-btn { height: 46px; padding: 0 16px; border: 2px solid #e5e7eb; border-radius: 10px; font-size: 15px; cursor: pointer; background: white; transition: all 0.2s; font-weight: 600; }
 .action-btn.complete { border-color: #10b981; color: #10b981; }
 .action-btn.complete.active { background: #10b981; color: white; }
 .action-btn.reset { border-color: #6b7280; color: #6b7280; }

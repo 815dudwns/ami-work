@@ -332,7 +332,7 @@ function showDetail(address, meters, addresses, statusKeys) {
     // 도로명/지번 라인 — 헤더와 다를 때만 노출 (중복 표시 방지)
     let roadLine = '';
     if (roadAddr && roadAddr !== headerAddr) {
-        roadLine = `📍 <span>${esc(roadAddr)}</span>` +
+        roadLine = `<span class="addr-tag">도로명</span><span>${esc(roadAddr)}</span>` +
             `<button class="copy-btn" data-copy="${esc(roadAddr)}" title="도로명 복사" style="margin-left:6px;vertical-align:middle;">${COPY_ICON_SVG}</button>` +
             errorTag;
     } else if (hasApproximate) {
@@ -341,7 +341,7 @@ function showDetail(address, meters, addresses, statusKeys) {
     let jibunLine = '';
     if (jibunAddr && jibunAddr !== headerAddr) {
         const br = roadLine ? '<br>' : '';
-        jibunLine = `${br}<span style="color:#9ca3af;">🏠 ${esc(jibunAddr)}</span>` +
+        jibunLine = `${br}<span class="addr-tag">지번</span><span style="color:#9ca3af;">${esc(jibunAddr)}</span>` +
             `<button class="copy-btn" data-copy="${esc(jibunAddr)}" title="지번 복사" style="margin-left:6px;vertical-align:middle;">${COPY_ICON_SVG}</button>`;
     }
     document.getElementById('detail-road-address').innerHTML = roadLine + jibunLine;
@@ -375,22 +375,22 @@ function showDetail(address, meters, addresses, statusKeys) {
 
     // 완료 상태면 초기화 버튼으로 전환
     if (status.state === 'complete') {
-        btnComplete.textContent = '🔄 초기화';
+        btnComplete.textContent = '초기화';
         btnComplete.className = 'action-btn reset';
         btnComplete.onclick = () => resetStatus();
     } else {
-        btnComplete.textContent = '✅ 완료';
+        btnComplete.textContent = '완료';
         btnComplete.className = 'action-btn complete';
         btnComplete.onclick = () => { updateStatus('complete'); closeDetail(); };
     }
 
     // 보류 상태면 초기화 버튼으로 전환
     if (status.state === 'hold') {
-        btnHold.textContent = '🔄 초기화';
+        btnHold.textContent = '초기화';
         btnHold.className = 'action-btn reset';
         btnHold.onclick = () => resetStatus();
     } else {
-        btnHold.textContent = '⏸️ 보류';
+        btnHold.textContent = '보류';
         btnHold.className = 'action-btn hold';
         // 보류도 같은 칸(#fail-reason)의 값을 사유로 싣는다 — updateStatus 가 읽는다.
         //   ★불가와 달리 **사유를 강제하지 않는다**. 지시는 "남길 수 있게" 였고, 현장에서
@@ -405,11 +405,11 @@ function showDetail(address, meters, addresses, statusKeys) {
 
     // 불가 상태면 초기화 버튼으로 전환
     if (status.state === 'fail') {
-        btnFail.textContent = '🔄 초기화';
+        btnFail.textContent = '초기화';
         btnFail.className = 'action-btn reset';
         btnFail.onclick = () => resetStatus();
     } else {
-        btnFail.textContent = '❌ 불가';
+        btnFail.textContent = '불가';
         btnFail.className = 'action-btn fail';
         btnFail.onclick = () => {
             const failInput = document.getElementById('fail-reason');
@@ -983,7 +983,11 @@ function renderMetersList() {
         if (meter['통신방식_전']) subParts.push(`이전통신 ${meter['통신방식_전']}`);
         if (meter['계기타입_전'] && meter['계기타입_전'] !== meter.계기타입) subParts.push(`이전계기 ${meter['계기타입_전']}`);
         // 4) 고객번호
-        if (meter.고객번호) subParts.push(`고객 ${meter.고객번호}`);
+        if (meter.고객번호) {
+            // 고객번호 복사 — 계기번호·주소와 같은 copy-btn + data-copy (목록 위임 핸들러가 받는다)
+            const cust = String(meter.고객번호);
+            subParts.push(`고객 ${cust}<button class="copy-btn" data-copy="${cust}" title="고객번호 복사" style="margin-left:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`);
+        }
         // 5) 실효 미사용 컬럼 살리기 (값 있고 의미 있을 때만)
         if (meter.검기만료년월) subParts.push(`검기만료 ${meter.검기만료년월}`);
         // 합동은 교체사유가 전 건 '합동시공' 고정이라, 아래 10)의 '합동시공·모뎀미시공' 과

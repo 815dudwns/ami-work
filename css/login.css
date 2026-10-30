@@ -3,7 +3,7 @@
 /* 로그인 페이지는 overflow 허용 (common.css 덮어쓰기) */
 body.login-page {
     overflow: auto;
-    background: #f0f4f8;
+    background: #ffffff;
     min-height: 100vh;
     display: flex;
     align-items: center;
@@ -23,36 +23,27 @@ body.login-page #map {
 }
 
 /* 카드 */
+/* 카드 상자 없이 흰 화면에 글자 로고 하나 (2026-10-30 단순화) */
 .login-card {
     background: #ffffff;
-    border-radius: 16px;
-    padding: 36px 28px 32px;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.10);
+    padding: 36px 12px 32px;
 }
 
 /* 헤더 영역 */
 .login-header {
     text-align: center;
-    margin-bottom: 32px;
-}
-
-.login-icon {
-    font-size: 40px;
-    margin-bottom: 10px;
-    line-height: 1;
+    margin-bottom: 36px;
 }
 
 .login-title {
-    font-size: 22px;
-    font-weight: 700;
+    font-size: 28px;
+    font-weight: 800;
     color: #111827;
-    letter-spacing: -0.3px;
+    letter-spacing: -0.6px;
 }
 
-.login-subtitle {
-    margin-top: 4px;
-    font-size: 13px;
-    color: #6b7280;
+.login-title span {
+    color: #0C9266;
 }
 
 /* 폼 */
@@ -75,10 +66,11 @@ body.login-page #map {
 }
 
 .form-group input {
-    padding: 12px 14px;
-    border: 1.5px solid #d1d5db;
-    border-radius: 8px;
-    font-size: 15px;
+    height: 50px;
+    padding: 0 14px;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    font-size: 16px;
     font-family: inherit;
     color: #111827;
     background: #fafafa;
@@ -88,9 +80,9 @@ body.login-page #map {
 }
 
 .form-group input:focus {
-    border-color: #3b82f6;
+    border-color: #0C9266;
     background: #fff;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+    box-shadow: 0 0 0 3px rgba(12, 146, 102, 0.12);
 }
 
 /* 에러 메시지 */
@@ -105,13 +97,14 @@ body.login-page #map {
 /* 로그인 버튼 */
 .login-btn {
     margin-top: 4px;
-    padding: 13px;
-    background: #3b82f6;
+    height: 52px;
+    padding: 0;
+    background: #0C9266;
     color: #fff;
     border: none;
-    border-radius: 8px;
-    font-size: 15px;
-    font-weight: 600;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 700;
     font-family: inherit;
     cursor: pointer;
     transition: background 0.15s, opacity 0.15s;
@@ -119,7 +112,7 @@ body.login-page #map {
 }
 
 .login-btn:hover:not(:disabled) {
-    background: #2563eb;
+    background: #0a7a55;
 }
 
 .login-btn:disabled {
@@ -130,10 +123,9 @@ body.login-page #map {
 /* 모바일 최적화 */
 @media (max-width: 400px) {
     .login-card {
-        padding: 28px 20px 24px;
-        border-radius: 12px;
+        padding: 28px 8px 24px;
     }
     .login-title {
-        font-size: 20px;
+        font-size: 26px;
     }
 }
