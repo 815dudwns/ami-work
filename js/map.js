@@ -39,23 +39,6 @@ function itemGuOf(item) {
     if (!item) return null;
     return guOf(item.주소) || guOf(item.도로명주소) || guOf(item.지번주소);
 }
-// ── 지역(시·구·동) 필터를 쓰는 지사 — 구 체계가 아닌 다른 회사 리스트(광명, 2026-10-30) ──
-//   광명시는 구가 없어 구 체크박스를 못 쓴다. 대신 데이터의 '지역' 필드(시·구·동, 예 '광명시 광명동' ·
-//   '부천시 소사구 옥길동' · '금천구 독산동')로 체크박스를 만든다. ★동 이름만으로 묶지 않는다 —
-//   옥길동은 광명시와 부천시 소사구에 둘 다 있다.
-//   우리 작업자 데이터에는 이 지사가 없으므로 기존 지사·구 필터는 그대로다.
-const AREA_JISA = ['광명지사'];
-const AREA_HOME_CITY = { '광명지사': '광명시' };
-function isAreaJisa(j) { return AREA_JISA.includes(j); }
-function areaLabel(area, jisa) {
-    const t = String(area || '').split(' ').filter(Boolean);
-    if (!t.length) return '미분류';
-    const dong = t[t.length - 1];
-    if (t[0] === AREA_HOME_CITY[jisa]) return dong;
-    const where = t[0].endsWith('시') ? t[0].slice(0, -1) : t[0];
-    return `${dong}(${where})`;
-}
-
 // 선택값 저장 키 — 전용 그룹 계정(kmtest)은 키를 따로 쓴다.
 //   한 폰에서 관리자와 kmtest 를 번갈아 로그인해도 서로의 지사·구·리스트 선택을 덮지 않게.
 //   일반 계정은 키가 그대로라 기존 저장값이 유지된다.
@@ -64,8 +47,6 @@ function lsKey(k) { return _LS_NS ? `${k}__${_LS_NS}` : k; }
 
 // 항목의 보정된 지사 (item.지사 대신 이걸로 분류 — 기타 흡수)
 function jisaOf(item) {
-    const raw0 = (item && item.지사 || '').trim();
-    if (isAreaJisa(raw0)) return raw0;
     const j = GU_TO_JISA[itemGuOf(item)];
     if (j) return j;
     // 주소의 구로 못 잡으면 데이터의 지사 필드로 편입 (영준님 2026-08-10).
@@ -271,11 +252,10 @@ function populateJisaOptions() {
     if (!select) return;
 
     // 옵션은 JISA_TO_GU 키 7개 (데이터 raw 지사 아님 — 기타 오염 무시)
-    let jisaList = Object.keys(JISA_TO_GU);
-    // 지역 필터 지사(광명)는 데이터에 있을 때만 옵션이 된다. 전용 그룹 계정이면 그것만 남긴다.
-    const areaJisas = AREA_JISA.filter(j => sampleData.some(item => jisaOf(item) === j));
-    if (_LS_NS) jisaList = areaJisas;
-    else jisaList = jisaList.concat(areaJisas);
+    // ★전용 그룹 계정(광명 kmtest)은 지사·구 필터를 쓰지 않는다 — 리스트 밑 묶음 체크박스로 고른다
+    //   (영준님 2026-10-30 "지사가 아니라 리스트에서 동 묶어야 함"). 화면은 view-only.js 가 숨긴다.
+    if (_LS_NS) return;
+    const jisaList = Object.keys(JISA_TO_GU);
 
     // 실제 데이터에 미분류 항목이 있으면 옵션 끝에 추가 + 경고
     const hasMibunryu = sampleData.some(item => jisaOf(item) === '미분류');
@@ -313,19 +293,7 @@ function renderGuCheckboxes(jisa) {
     if (!container) return;
     container.innerHTML = '';
 
-    // 지역 필터 지사: 데이터의 '지역'(시·구·동) 값으로 체크박스를 만든다. 계기 많은 순.
-    //   체크박스 값 = 지역 전체 문자열(동 이름만 쓰면 광명 옥길동과 부천 옥길동이 합쳐진다).
-    const areaMode = isAreaJisa(jisa);
-    let labels = {};
-    let gus;
-    if (areaMode) {
-        const cnt = {};
-        sampleData.forEach(it => { if (jisaOf(it) === jisa) { const a = it.지역 || '미분류'; cnt[a] = (cnt[a] || 0) + 1; } });
-        gus = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]);
-        gus.forEach(a => { labels[a] = areaLabel(a, jisa); });
-    } else {
-        gus = JISA_TO_GU[jisa] || (jisa === '미분류' ? ['미분류'] : []);
-    }
+    const gus = JISA_TO_GU[jisa] || (jisa === '미분류' ? ['미분류'] : []);
     if (gus.length === 0) return;
 
     // localStorage 복원: ami_selected_gu 없으면 전체 ON (마이그레이션 안전)
@@ -354,7 +322,7 @@ function renderGuCheckboxes(jisa) {
         cb.checked = savedSet ? savedSet.has(g) : true; // null이면 전체 ON
         cb.addEventListener('change', onGuChange);
         label.appendChild(cb);
-        label.appendChild(document.createTextNode(labels[g] || g));
+        label.appendChild(document.createTextNode(g));
         container.appendChild(label);
     });
 }
@@ -511,7 +479,10 @@ function populateCategoryFilter() {
             scb.checked = cb.checked && selDates.has(v);
             scb.addEventListener('change', () => onDateChange(d.category));
             sub.appendChild(scb);
-            sub.appendChild(document.createTextNode(formatWorkDay(v)));
+            // 묶음 트리는 이름 + 계기 수, 날짜 트리는 '0819' 형식
+            sub.appendChild(document.createTextNode(d.groupOrder
+                ? `${v} ${sampleData.filter(r => r.category === d.category && String(r[d.dateField] || '') === v).length.toLocaleString()}`
+                : formatWorkDay(v)));
             box.appendChild(sub);
         });
         panel.appendChild(box);
@@ -579,7 +550,10 @@ function collectDatasetDates() {
             const v = r[d.dateField];
             if (v) set.add(String(v));
         });
-        datasetDates[d.category] = [...set].sort().reverse();   // 최신이 위
+        // 묶음 트리(groupOrder 지정 — 광명)는 정한 순서, 날짜 트리는 최신이 위
+        datasetDates[d.category] = d.groupOrder
+            ? d.groupOrder.filter(v => set.has(v)).concat([...set].filter(v => !d.groupOrder.includes(v)).sort())
+            : [...set].sort().reverse();
     });
 }
 
@@ -587,20 +561,25 @@ function collectDatasetDates() {
 //   (매일 늘어나므로 하드코딩 금지. 카테고리 신규 자동ON과 같은 방식).
 function getSelectedDates(cat) {
     const all = datasetDates[cat] || [];
-    const selKey = 'ami_selected_dates_' + cat;
-    const seenKey = 'ami_seen_dates_' + cat;
+    const selKey = lsKey('ami_selected_dates_' + cat);
+    const seenKey = lsKey('ami_seen_dates_' + cat);
+    // ★defaultOff(광명 묶음) — 첫 진입은 전부 끔, 새로 생긴 값도 자동으로 켜지 않는다(영준님 2026-10-30
+    //   "항상 리스트는 모두 선택이 아닌 모두 해제로"). 날짜 트리(합동)는 예전대로 전부 켬.
+    const ds = DATASETS.find(x => x.category === cat);
+    const defaultOff = !!(ds && ds.defaultOff);
     const raw = localStorage.getItem(selKey);
     let set = null;
     if (raw) { try { set = new Set(JSON.parse(raw)); } catch { set = null; } }
     if (!set) {
+        const init = defaultOff ? [] : all;
         localStorage.setItem(seenKey, JSON.stringify(all));
-        localStorage.setItem(selKey, JSON.stringify(all));
-        return new Set(all);
+        localStorage.setItem(selKey, JSON.stringify(init));
+        return new Set(init);
     }
     let seen;
     try { seen = new Set(JSON.parse(localStorage.getItem(seenKey) || '[]')); } catch { seen = new Set(); }
     let changed = false;
-    all.forEach(v => { if (!seen.has(v)) { set.add(v); seen.add(v); changed = true; } });
+    all.forEach(v => { if (!seen.has(v)) { if (!defaultOff) set.add(v); seen.add(v); changed = true; } });
     if (changed) {
         localStorage.setItem(seenKey, JSON.stringify([...seen]));
         localStorage.setItem(selKey, JSON.stringify([...set]));
@@ -608,15 +587,16 @@ function getSelectedDates(cat) {
     return set;
 }
 function setSelectedDates(cat, setObj) {
-    localStorage.setItem('ami_selected_dates_' + cat, JSON.stringify([...setObj]));
+    localStorage.setItem(lsKey('ami_selected_dates_' + cat), JSON.stringify([...setObj]));
 }
 
 // 전체 마커 생성 (카테고리||주소 기준 그룹핑) — 지사·구·카테고리 필터링
 function loadMarkers() {
     // 화면에 선택된 지사를 따른다 — 저장값이 무효라 화면만 임시 선택된 경우에도 둘이 어긋나지 않게
     const _jsel = document.getElementById('jisa-select');
-    const selectedJisa = (_jsel && _jsel.value) || localStorage.getItem(lsKey('ami_selected_jisa')) || '';
-    const selectedGuRaw = localStorage.getItem(lsKey('ami_selected_gu'));
+    // 전용 그룹 계정은 지사·구로 거르지 않는다(위 populateJisaOptions 참고 — 옛 저장값도 무시).
+    const selectedJisa = _LS_NS ? '' : ((_jsel && _jsel.value) || localStorage.getItem(lsKey('ami_selected_jisa')) || '');
+    const selectedGuRaw = _LS_NS ? null : localStorage.getItem(lsKey('ami_selected_gu'));
     // ami_selected_gu 없으면(null) 선택 지사 전체 구 표시, 있으면 배열로 파싱
     const selectedGu = selectedGuRaw ? new Set(JSON.parse(selectedGuRaw)) : null;
     const selectedCats = getSelectedCategories();
@@ -630,8 +610,7 @@ function loadMarkers() {
 
     const grouped = {};
     sampleData.forEach(item => {
-        // 지역 필터 지사(광명)는 구 대신 '지역' 값으로 거른다(renderGuCheckboxes 와 같은 값).
-        const g = isAreaJisa(selectedJisa) ? (item.지역 || '미분류') : itemGuOf(item);
+        const g = itemGuOf(item);
         if (selectedJisa && jisaOf(item) !== selectedJisa) return;
         const dsel = selectedDates[item.category];
         if (dsel && !dsel.set.has(String(item[dsel.field] || ''))) return;

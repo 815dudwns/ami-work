@@ -101,10 +101,12 @@ const DATASET_REGISTRY = [
     // 광명지사 — 다른 회사 작업분(2026-10-30 영준님 지시). kmtest 계정에만 보인다(전용 그룹).
     //   ★우리 작업과 섞이지 않는다: 지도(allowGroup) · 상태키('주소|광명' 네임스페이스) ·
     //     통계(allowGroup 이고 statsEvenIfGroup 없음 -> 분모·선택지 제외).
-    //   지도 필터는 구 대신 '지역'(시·구·동) 체크박스를 쓴다 — js/map.js AREA_JISA.
-    //   생성 scripts/build_gwangmyeong_data.py
+    //   지사·구 필터 대신 리스트 밑 '묶음' 체크박스(합동 날짜 트리와 같은 장치, dateField 재사용).
+    //   묶음 표는 빌더 GROUP_BY_AREA 하나 — groupOrder 는 그 순서와 같아야 한다.
+    //   defaultOff — 첫 진입 전부 끔(영준님 2026-10-30). 생성 scripts/build_gwangmyeong_data.py
     { code: 'w', file: './data/gwangmyeong-data.json', category: '광명', label: '광',
-      uiLabel: '광명지사', allowGroup: 'kmtest' },
+      uiLabel: '광명지사', allowGroup: 'kmtest', dateField: '묶음', defaultOff: true,
+      groupOrder: ['광명동', '철산·하안', '소하·일직', '학온·옥길'] },
     // TOU 는 내려둔 상태다(2026-08-02). 되살리려면 아래 줄을 되돌리고
     //   getSelectedCategories 의 ALL 에도 다시 넣어야 한다.
     // { code: 't', file: './data/tou-data.json', category: 'tou', label: 'TOU', uiLabel: 'TOU' },

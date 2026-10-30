@@ -46,6 +46,21 @@ JISA = '광명지사'
 TYPE_BY_CODE = {'17': 'E', '19': 'AE', '25': 'G', '26': 'G', '27': 'G',
                 '45': 'G', '46': 'G', '47': 'G', '53': 'Amigo', '55': 'Amigo'}
 
+# 지역(시·구·동) -> 묶음. 지도 리스트 밑 체크박스(합동 날짜 트리와 같은 모양)가 이 값을 읽는다.
+#   ★영준님 2026-10-30 "지사가 아니라 리스트에서 동 묶어야 함". 표는 여기 하나뿐이다.
+#   ★표에 없는 지역이 나오면 빌드를 멈춘다 — 조용히 빼거나 추측해 넣지 않는다.
+#   순서 = 지도 체크박스 순서(js/datasets.js 광명 groupOrder 와 같아야 한다).
+GROUP_ORDER = ['광명동', '철산·하안', '소하·일직', '학온·옥길']
+GROUP_BY_AREA = {
+    '광명시 광명동': '광명동',
+    '광명시 철산동': '철산·하안', '광명시 하안동': '철산·하안', '금천구 독산동': '철산·하안',
+    '금천구 시흥동': '철산·하안', '구로구 구로동': '철산·하안',
+    '광명시 소하동': '소하·일직', '광명시 일직동': '소하·일직', '안양시 만안구 석수동': '소하·일직',
+    '광명시 노온사동': '학온·옥길', '광명시 가학동': '학온·옥길', '광명시 옥길동': '학온·옥길',
+    '부천시 소사구 옥길동': '학온·옥길', '시흥시 무지내동': '학온·옥길', '시흥시 과림동': '학온·옥길',
+    '구로구 천왕동': '학온·옥길', '구로구 항동': '학온·옥길',
+}
+
 # 474 빈칸 행을 다른 표에서 채울 필드(원천 열 이름 = 출력 열 이름)
 FILL_FIELDS = ['계기타입1', '부설일자', '실효년월', 'LP취득여부', '보강공사 대상/비대상', '제조년월',
                '변대주 기준 통신방식', 'DCU ID']
@@ -155,6 +170,7 @@ def main():
             '지번주소': jibun,
             '도로명주소': clean_road(r.get('도로명주소')),
             '지역': area_of(jibun),
+            '묶음': GROUP_BY_AREA.get(area_of(jibun), ''),
             '계기번호': no,
             '계기타입': mt,
             '고객번호': cust,
@@ -188,6 +204,10 @@ def main():
             '설치불가': clean(r.get('설치불가')),
             '검침원': clean(r.get('검침원_2')),
         })
+
+    unknown = Counter(x['지역'] for x in out if not x['묶음'])
+    if unknown:
+        sys.exit(f'★묶음 표(GROUP_BY_AREA)에 없는 지역 {dict(unknown)} — 표에 넣고 다시 돌려라')
 
     # ── 좌표 ──
     from geocode_cascade import resolve
@@ -233,6 +253,9 @@ def main():
     print(f'계기타입: {dict(Counter(x["계기타입"] or "(빈값)" for x in out))}')
     print(f'474 빈칸 행 {len(blank_rows)} — 다른 표에서 채움 {dict(fill_cnt) or 0} · 계기타입은 번호로 {sum(1 for r in blank_rows if meter_type(norm_meter(r["계기번호"])))}건')
     print(f'지역: {dict(Counter(x["지역"] for x in out).most_common())}')
+    for g in GROUP_ORDER:
+        rs = [x for x in out if x['묶음'] == g]
+        print(f'  묶음 {g}: 개소 {len({x["주소"] for x in rs}):,} · 계기 {len(rs):,}')
     print(f'DCU: DCUID(10자리) {sum(1 for x in out if x["DCUID"])} · 기타 형식(DCU기타ID) {sum(1 for x in out if x["DCU기타ID"])}'
           f' {dict(Counter(len(x["DCU기타ID"]) for x in out if x["DCU기타ID"]))}')
 

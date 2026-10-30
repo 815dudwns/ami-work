@@ -39,7 +39,7 @@ DATASETS = [
     # 광명지사 — 다른 회사 작업분, kmtest 전용(js/datasets.js 주석 참조).
     #   allowGroup 이고 statsEvenIfGroup 이 없어 stats_sources() 가 건너뛴다 = 통계 분모 제외.
     {"code": "w", "file": "data/gwangmyeong-data.json", "category": "광명", "uiLabel": "광명지사",
-     "allowGroup": "kmtest"},
+     "allowGroup": "kmtest", "dateField": "묶음"},
 ]
 
 MAP_DATASETS = [d for d in DATASETS if d.get("onMap", True) and d.get("file")]

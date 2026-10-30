@@ -46,6 +46,15 @@
         + '.view-only-label{font-size:13px;color:#6b7280;font-weight:600;padding:8px 4px}';
     document.head.appendChild(css);
     document.addEventListener('DOMContentLoaded', function () {
+        // 지사·구 필터 칸을 숨긴다 — 이 계정은 리스트 밑 묶음 체크박스로 고른다(map.js populateJisaOptions)
+        const jf = document.querySelector('.jisa-filter');
+        if (jf) {
+            jf.style.display = 'none';
+            const lab = jf.previousElementSibling;
+            if (lab && lab.classList.contains('am-section-label')) lab.style.display = 'none';
+            const sep = jf.nextElementSibling;
+            if (sep && sep.classList.contains('am-sep')) sep.style.display = 'none';
+        }
         const row = document.querySelector('.action-btn-row');
         if (row && !row.querySelector('.view-only-label')) {
             const s = document.createElement('span');
