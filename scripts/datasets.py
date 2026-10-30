@@ -25,6 +25,10 @@ DATASETS = [
     #   onMap=False 라 통계 분모에는 그대로 있다. js/datasets.js 주석 참조
     {"code": "j", "file": "data/jangae-data.json", "category": "장애", "uiLabel": "장애",
      "metersKey": "계기목록", "onMap": False},
+    # LP 무기록(확인용) — 관리자 혼자(allowGroup owner). js/datasets.js 주석 참조. 2026-10-30 복원.
+    #   ★allowGroup 이 걸린 리스트는 통계 분모에 넣지 않는다(실적이 아니다) — stats_sources() 가 건너뛴다.
+    {"code": "n", "file": "data/lpnoapp-data.json", "category": "LP무기록",
+     "uiLabel": "LP 무기록(확인용)", "allowGroup": "owner"},
     # 25년 미청구 — 주소 확보분 7,366만 지도에 올린다(결손 1,628 은 michunggu-pending.json).
     #   ★allowGroup 이 걸려 있어 stats_sources() 가 건너뛴다 = 통계 분모에 안 들어간다.
     #     작업 지시가 나가고 공개로 바꿀 때 그 점을 함께 판단해야 한다. js/datasets.js 주석 참조

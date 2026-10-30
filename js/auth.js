@@ -100,6 +100,9 @@ const AUTH_GROUPS = {
     staff: ['admin', 'user09'],   // 우영준(관리자) · 윤용운(작업자 총괄)
     // ★'admin' 을 넣지 않는다 — 관리자에게도 광명이 보이면 안 된다(영준님 2026-10-30).
     kmtest: ['kmtest'],           // 광명 샘플(다른 회사)
+    // 우영준(관리자) 혼자만 — LP 무기록(확인용) 리스트(영준님 2026-10-30 "무기록 리스트를 나만 보이게끔").
+    //   ★staff 와 달리 user09 를 넣지 않는다. 'admin' 은 role 이 admin 인 계정을 뜻한다(authAllowsGroup).
+    owner: ['admin'],
 };
 
 /** 전용(배타) 그룹 — 여기 든 그룹의 계정은 **그 그룹 리스트만** 본다(js/datasets.js datasetVisibleToUser).
