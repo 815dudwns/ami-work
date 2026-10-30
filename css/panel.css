@@ -22,19 +22,18 @@
 /* 작업자 정보 (기능 4) — 지도앱 버튼 아래, 작은 회색 글씨 */
 .worker-info { padding: 4px 16px 8px; font-size: 12px; color: #6b7280; flex-shrink: 0; }
 
-.overlay-header { padding: 16px 16px 10px; background: #f9fafb; display: flex; justify-content: space-between; align-items: flex-start; flex-shrink: 0; }
+.overlay-header { padding: 16px; border-bottom: 1px solid #e5e7eb; background: #f9fafb; display: flex; justify-content: space-between; align-items: flex-start; flex-shrink: 0; }
 .overlay-address { flex: 1; }
 .overlay-address h3 { font-size: 18px; margin-bottom: 6px; color: #111827; font-weight: 700; }
 .overlay-address p { font-size: 13px; color: #6b7280; line-height: 1.4; }
-.header-buttons { display: flex; gap: 8px; }
-/* 길찾기 줄 — 주소 아래. 티맵·네이버·카카오 글자 마크(평면 브랜드색), 누르는 칸 40px */
-.nav-row { padding: 0 16px 12px; display: flex; gap: 8px; align-items: center; background: #f9fafb; border-bottom: 1px solid #e5e7eb; flex-shrink: 0; }
-.nav-row-label { font-size: 12px; color: #6b7280; font-weight: 600; margin-right: 2px; }
-.nav-btn { width: 40px; height: 40px; padding: 0; border-radius: 10px; border: 1px solid #e5e7eb; background: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
-.nav-mark { width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; color: #fff; line-height: 1; }
-.nav-t .nav-mark { background: #e5484d; }
-.nav-n .nav-mark { background: #03c75a; }
-.nav-k .nav-mark { background: #fee500; color: #3c1e1e; }
+.header-buttons { display: flex; gap: 8px; align-items: center; }
+/* 길찾기 T/N/K — 종로맵과 같은 자리(주소 오른쪽, × 옆)·같은 크기(34px 버튼, 21px 마크). 색은 평면 브랜드색 */
+.map-app-btns { display: flex; gap: 6px; }
+.map-app-btn { width: 34px; height: 34px; padding: 0; border: 1px solid #e5e7eb; border-radius: 11px; cursor: pointer; background: #fff; display: flex; align-items: center; justify-content: center; }
+.map-app-btn .nb-mark { width: 21px; height: 21px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 900; color: #fff; line-height: 1; }
+.map-app-btn#tmap-btn  .nb-mark { background: #e5484d; }
+.map-app-btn#naver-btn .nb-mark { background: #03c75a; }
+.map-app-btn#kakao-btn .nb-mark { background: #fee500; color: #3c1e1e; }
 /* 주소 줄 앞 작은 회색 글자 표시(도로명/지번) */
 .addr-tag { font-size: 11px; font-weight: 700; color: #6b7280; background: #eef0f3; border-radius: 4px; padding: 1px 5px; margin-right: 6px; vertical-align: 1px; }
 .close-btn { width: 32px; height: 32px; border: none; background: #e5e7eb; border-radius: 6px; cursor: pointer; font-size: 20px; line-height: 1; color: #374151; font-weight: 600; }
