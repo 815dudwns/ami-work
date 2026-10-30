@@ -36,6 +36,11 @@ const ACCOUNTS = [
     // --- validator 계정 (데이터검증 사장님·직원용) ---
     // ★ 영준님이 실제 계정으로 교체할 것 (id/pw/name 모두)
     { id: 'validator01', pw: '9999', name: '검증담당자', role: 'validator' },
+    // ── 다른 회사(광명 샘플) — 2026-10-30 영준님 지시 ──
+    //   광명 작업은 다른 회사가 한다(그쪽 awms 계정으로 등록). 이 계정은 광명 리스트**만** 본다 —
+    //   AUTH_EXCLUSIVE 참고. 우리 리스트(실효·합동·25미청구·25년불가·SKT)는 안 보이고,
+    //   우리 계정(관리자 포함)에는 광명이 안 보인다.
+    { id: 'kmtest', pw: '1111', name: '광명', role: 'user' },
 ];
 
 const AUTH_KEY = 'ami_auth';
@@ -93,7 +98,25 @@ function authGetSession() {
  */
 const AUTH_GROUPS = {
     staff: ['admin', 'user09'],   // 우영준(관리자) · 윤용운(작업자 총괄)
+    // ★'admin' 을 넣지 않는다 — 관리자에게도 광명이 보이면 안 된다(영준님 2026-10-30).
+    kmtest: ['kmtest'],           // 광명 샘플(다른 회사)
 };
+
+/** 전용(배타) 그룹 — 여기 든 그룹의 계정은 **그 그룹 리스트만** 본다(js/datasets.js datasetVisibleToUser).
+ *   다른 회사 계정이 우리 리스트를 보지 않게 하는 장치다. 일반 allowGroup 은 '추가로 보인다' 이고
+ *   이것은 '그것만 보인다' 다.
+ */
+const AUTH_EXCLUSIVE = ['kmtest'];
+
+/** 이 세션이 속한 전용 그룹 이름, 없으면 null. */
+function authExclusiveGroup() {
+    const s = authGetSession();
+    if (!s) return null;
+    for (const g of AUTH_EXCLUSIVE) {
+        if (((AUTH_GROUPS && AUTH_GROUPS[g]) || []).includes(s.id)) return g;
+    }
+    return null;
+}
 
 /** 이 세션이 그 그룹에 드는가 — **단일 판정 지점**.
  *

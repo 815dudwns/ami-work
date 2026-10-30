@@ -98,6 +98,13 @@ const DATASET_REGISTRY = [
     //   파일이 날짜별로 늘어나므로 glob 으로 잡는다(archivesGlob).
     { code: 'a', category: '완료아카이브', onMap: false, statsLabel: '완료 아카이브',
       archivesGlob: 'data/site-data-completed-archive-*.json' },
+    // 광명지사 — 다른 회사 작업분(2026-10-30 영준님 지시). kmtest 계정에만 보인다(전용 그룹).
+    //   ★우리 작업과 섞이지 않는다: 지도(allowGroup) · 상태키('주소|광명' 네임스페이스) ·
+    //     통계(allowGroup 이고 statsEvenIfGroup 없음 -> 분모·선택지 제외).
+    //   지도 필터는 구 대신 '지역'(시·구·동) 체크박스를 쓴다 — js/map.js AREA_JISA.
+    //   생성 scripts/build_gwangmyeong_data.py
+    { code: 'w', file: './data/gwangmyeong-data.json', category: '광명', label: '광',
+      uiLabel: '광명지사', allowGroup: 'kmtest' },
     // TOU 는 내려둔 상태다(2026-08-02). 되살리려면 아래 줄을 되돌리고
     //   getSelectedCategories 의 ALL 에도 다시 넣어야 한다.
     // { code: 't', file: './data/tou-data.json', category: 'tou', label: 'TOU', uiLabel: 'TOU' },
@@ -116,12 +123,16 @@ const DATASET_REGISTRY = [
  * ★세션을 못 읽으면 **숨기는 쪽**으로 넘어진다 — 새는 것보다 안 보이는 편이 낫다.
  */
 function datasetVisibleToUser(d) {
-    if (!d.allowGroup) return true;
     // ★인증 계층이 아예 없는 곳(node 도구·검사 드라이버)은 '화면'이 아니다 — 전체를 본다.
     //   여기서 숨기면 scripts/test_status_key_parity.py 가 파이썬 거울과 어긋났다고 잡는다.
     //   브라우저 화면에는 auth.js 가 항상 먼저 실려 있으므로 이 갈래로 빠지지 않는다.
     if (typeof authAllowsGroup !== 'function') return true;
     try {
+        // ★전용 그룹 계정(다른 회사 — 광명 kmtest)은 **그 그룹 리스트만** 본다(2026-10-30).
+        //   allowGroup 없는 공개 리스트도 숨긴다. 판정 중 예외가 나면 아래 catch 로 숨긴다.
+        const ex = (typeof authExclusiveGroup === 'function') ? authExclusiveGroup() : null;
+        if (ex) return d.allowGroup === ex;
+        if (!d.allowGroup) return true;
         return authAllowsGroup(d.allowGroup);
     } catch (e) {
         return false;

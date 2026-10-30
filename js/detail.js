@@ -1191,6 +1191,24 @@ function renderMetersList() {
             if (meter.계약전력) subParts.push(`계약 ${meter.계약전력}kW`);
             if (meter.공사번호) subParts.push(`공사 ${meter.공사번호}`);
         }
+        // 11) 광명지사 전용 필드 (category=광명, 다른 회사 리스트 — 2026-10-30).
+        //   원본(광명지사.xlsx)의 현장용 칸을 그대로 보여 준다. 빈 값은 안 그린다(474행은 일부 칸이 비어 온다).
+        //   ★값은 가공하지 않는다 — 원본 표기 그대로다.
+        if (meter.category === '광명') {
+            if (meter.계기위치) subParts.push(`<span style="font-weight:700;">계기위치 ${meter.계기위치}</span>`);
+            if (meter.DCU통신방식) subParts.push(`DCU 통신 ${meter.DCU통신방식}`);
+            if (meter.DCU기타ID) subParts.push(`DCU ${meter.DCU기타ID}`);
+            if (meter['M/S']) subParts.push(`M/S ${meter['M/S']}`);
+            if (meter.가공지중) subParts.push(meter.가공지중);
+            if (meter.계약종별) subParts.push(`계약종별 ${meter.계약종별}`);
+            if (meter.계약전력) subParts.push(`계약 ${meter.계약전력}kW`);
+            if (meter.제작소) subParts.push(`제작 ${meter.제작소}`);
+            if (meter.제조년월) subParts.push(`제조 ${meter.제조년월}`);
+            if (meter.부설일자) subParts.push(`부설 ${meter.부설일자}`);
+            if (meter.실효년월) subParts.push(`실효 ${meter.실효년월}`);
+            if (meter.LP취득여부) subParts.push(`LP취득 ${meter.LP취득여부}`);
+            if (meter.보강대상) subParts.push(`보강 ${meter.보강대상}`);
+        }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
         // LP 7일치 표 — 값이 하나도 없으면 빈 문자열이라 아무것도 안 그린다.
         const lpTable = michungguLpTable(meter);
