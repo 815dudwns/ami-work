@@ -1217,6 +1217,20 @@ function renderMetersList() {
             if (meter.LP취득여부) subParts.push(`LP취득 ${meter.LP취득여부}`);
             if (meter.보강대상) subParts.push(`보강 ${meter.보강대상}`);
         }
+        // 12) 선조치 — KDN 보강공사 추가분(category=선조치, 2026-10-30). 이미 모뎀이 시설된 곳의 재시공이다.
+        //   '기시설 — 교체로 작성' 안내는 공지(data/notices.json)로 한다 — 상세 고정 문구는 넣지 않는다(영준님 2026-10-30).
+        //   비고는 출입 방법·연락처·방문 약속이라 원문 전부 그대로 보여 준다(전화번호 포함, HTML 만 막는다).
+        if (meter.category === '선조치') {
+            const req = [meter.요청일 ? `요청일 ${meter.요청일}` : '', meter.요청상태 || ''].filter(Boolean).join(' ');
+            if (req) subParts.push(escHtml(req));
+            if (meter.변대주) subParts.push(`변대주명 ${escHtml(meter.변대주)}`);
+            if (meter.LP1 || meter.LP2) subParts.push(`LP1 ${escHtml(meter.LP1 || '-')} · LP2 ${escHtml(meter.LP2 || '-')}`);
+            if (meter.이전시공일) {
+                subParts.push(`이전 시공 ${escHtml(meter.이전시공일)} ${escHtml(meter.이전작업자 || '')} ${escHtml(meter.이전작업구분 || '')}`.trim());
+            }
+            if (meter.동호수) subParts.push(escHtml(meter.동호수));
+            if (meter.비고) subParts.push(`<span style="font-weight:700;">비고 ${escHtml(meter.비고)}</span>`);
+        }
         const subDetails = subParts.length ? `<div class="meter-sub-details">${subParts.join(' · ')}</div>` : '';
         // LP 7일치 표 — 값이 하나도 없으면 빈 문자열이라 아무것도 안 그린다.
         const lpTable = michungguLpTable(meter);

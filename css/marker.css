@@ -14,6 +14,8 @@
 /* 25년 미청구불가 — SKT 와 같은 라벤더를 쓴다(영준님 2026-09-20). 리스트가 달라 겹쳐 뜰 일이
    거의 없고(계기 겹침 0), 미완 리스트라 **가운데 흰 원은 유지**한다 — 그 점이 SKT 와 구분된다. */
 .custom-marker.bulga  .pin-body { fill: #a78bfa; }   /* 25년 미청구불가 — 라벤더 */
+/* 선조치(KDN 보강 추가분, 2026-10-30) — 분홍. 다른 리스트 색(녹·노·빨·파·회·보라)과 겹치지 않는 색. 미완 리스트라 흰 원 유지 */
+.custom-marker.seonjochi   .pin-body { fill: #ec4899; }
 
 /* 리스트1(미완·폴백): 흰 원 표시 / 리스트2(완료·보류·불가): 꽉찬 핀 */
 .pin-circle { display: none; }
@@ -23,14 +25,16 @@
 .custom-marker.green .pin-circle,
 .custom-marker.yellow .pin-circle,
 .custom-marker.lpnoapp .pin-circle,
-.custom-marker.bulga .pin-circle { display: block; }
+.custom-marker.bulga .pin-circle,
+.custom-marker.seonjochi .pin-circle { display: block; }
 
 .marker-number { position: absolute; top: 3px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: bold; color: white; line-height: 1; pointer-events: none; }
 /* 흰 원 위에 숫자가 얹히므로 어두운 글자여야 읽힌다 — green/yellow 와 같은 규칙. */
 .custom-marker.green .marker-number,
 .custom-marker.yellow .marker-number,
 .custom-marker.lpnoapp .marker-number,
-.custom-marker.bulga .marker-number { color: #1f2937; }
+.custom-marker.bulga .marker-number,
+.custom-marker.seonjochi .marker-number { color: #1f2937; }
 .custom-marker.skt .marker-number { color: #ffffff; font-size: 9px; top: 4px; font-weight: 800; }
 .custom-marker.tou .marker-number { color: #ffffff; font-size: 9px; top: 4px; font-weight: 800; }
 /* 고압철거 — 숫자 대신 한글 한 글자('교'=철거+재설치 / '철'=철거). 숫자보다 굵게 */
@@ -52,6 +56,8 @@
 }
 /* 합동시공 뱃지 '합' — 재작업 '재'(빨강)와 구분되게 파랑. 같은 슬롯을 쓴다 */
 .marker-fraction.tag-hapdong { color: #2563eb; }
+/* 선조치 뱃지 '선' — 핀과 같은 분홍 계열(진하게) */
+.marker-fraction.tag-seonjochi { color: #be185d; }
 
 
 /* 장애 마커 — 숫자가 '실패 계기수'라 두 자리가 흔하다. 고압처럼 살짝 줄여 넘침을 막는다. */

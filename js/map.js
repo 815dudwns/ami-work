@@ -521,17 +521,28 @@ function getSelectedCategories() {
         // 새 카테고리는 **꺼진 채로** 둔다(2026-10-20 영준님 — 기본값 전부 끔). 본 것으로만 기록한다.
         const seenKey = lsKey('ami_seen_categories');
         const seen = new Set(JSON.parse(localStorage.getItem(seenKey) || '[]'));
-        let changed = false;
-        ALL.forEach(c => { if (!seen.has(c)) { seen.add(c); changed = true; } });
+        let changed = false, selChanged = false;
+        //   ★예외: 레지스트리에 defaultOn 이 걸린 리스트는 처음 보는 순간 **켜 준다**(선조치 — 영준님 2026-10-30
+        //     "업데이트 후 모두 체크"). 이미 본 뒤 작업자가 끈 것은 다시 켜지 않는다(seen 에 기록되므로).
+        ALL.forEach(c => {
+            if (seen.has(c)) return;
+            seen.add(c); changed = true;
+            if (DEFAULT_ON_CATEGORIES.includes(c) && !set.has(c)) { set.add(c); selChanged = true; }
+        });
         if (changed) localStorage.setItem(seenKey, JSON.stringify([...seen]));
+        if (selChanged) localStorage.setItem(lsKey('ami_selected_categories'), JSON.stringify([...set]));
         return set;
     } catch {}
     // 첫 진입 — **전부 끔**(2026-10-20 영준님). 전부 켜면 25미청구·불가까지 받아 느려지고 마커가 폭증한다.
     //   작업자가 메뉴 > 리스트에서 필요한 것만 켠다. 저장된 선택이 있는 사람은 위에서 그대로 쓴다.
+    //   ★defaultOn 리스트(선조치)만은 첫 진입에도 켠다.
+    const first = ALL.filter(c => DEFAULT_ON_CATEGORIES.includes(c));
     localStorage.setItem(lsKey('ami_seen_categories'), JSON.stringify(ALL));
-    localStorage.setItem(lsKey('ami_selected_categories'), '[]');
-    return new Set();
+    localStorage.setItem(lsKey('ami_selected_categories'), JSON.stringify(first));
+    return new Set(first);
 }
+// 레지스트리 defaultOn — 새로 올라오면 기존 선택이 있는 사람에게도 켜진 채로 보이는 리스트.
+const DEFAULT_ON_CATEGORIES = DATASETS.filter(d => d.defaultOn).map(d => d.category);
 function setSelectedCategories(setObj) {
     localStorage.setItem(lsKey('ami_selected_categories'), JSON.stringify([...setObj]));
 }
@@ -708,7 +719,8 @@ function aggregateRework(addresses) {
 //   ★두 군데서 쓴다: spreadOverlappingMarkers(중심 선점) · createMarker(zIndex).
 //     나선으로 밀어도 겹치는 부분이 남아 **나중에 그려진 마커가 가린다** — zIndex 가 있어야
 //     우선순위가 실제로 보인다(불가가 마지막에 그려져 미청구를 가리던 문제, 2026-09-20).
-const MARKER_PRIORITY = ['합동', '실효', 'skt', '미청구', '미청구불가'];
+//   ★선조치(KDN 보강 추가분, 2026-10-30)이 맨 앞 — 실효·합동과 같은 주소에 겹쳐도 가려지면 안 된다.
+const MARKER_PRIORITY = ['선조치', '합동', '실효', 'skt', '미청구', '미청구불가'];
 function markerPriority(category) {
     const i = MARKER_PRIORITY.indexOf(category);
     return i === -1 ? MARKER_PRIORITY.length : i;
@@ -876,6 +888,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const isJangae = category === '장애';
     const isLpNoApp = category === 'LP무기록';
     const isBulga = category === '미청구불가';
+    const isSeonjochi = category === '선조치';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
     let color = isApproximate ? 'yellow' : 'green';
@@ -887,6 +900,8 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     //   ★approximate(주소 부정확)는 노란색이 이긴다 — 리스트 색보다 '주소를 못 믿는다' 가
     //     먼저 보여야 한다(영준님 2026-09-20). 안 그러면 불가 56건이 라벤더에 묻힌다.
     if (isBulga && !isApproximate) color = 'bulga';
+    // 선조치 — 전용 분홍(영준님 지시 2026-10-30 '선조치' 리스트). 근사 좌표면 노랑이 이기는 것은 불가와 같다.
+    if (isSeonjochi && !isApproximate) color = 'seonjochi';
     // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
     if (state === 'complete') color = 'gray';
     else if (state === 'hold') color = 'blue';
@@ -907,6 +922,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const touHasRework = isTou && meters.some(m => m.tou_type === 'rework');
     const isRework = aggregateRework(keyList) || touHasRework;
     let tagText = markerTagText(isHapdong, isRework);
+    if (isSeonjochi) tagText = isRework ? '선재' : '선';   // 리스트 뱃지 '선' — 노랑(근사)이어도 리스트가 보이게
     // 개통 뱃지는 뺐다(영준님 2026-08-31 "개통은 표시 지워") — 개통 여부는 모달에서도 안 쓴다.
     if (isJangae) tagText = jangaeTechLabel(meters);   // 뱃지 = 모뎀 방식(PLC/KDCU/LTE/SMGW)
     if (isLpNoApp) tagText = lpTypeLabel(meters);      // 뱃지 = 아미고 아닌 계기타입(AE/G)
@@ -918,7 +934,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
                 <circle class="pin-circle" cx="10" cy="10" r="5.5" fill="white"/>
             </svg>
             <div class="marker-number">${markerLabel}</div>
-            ${tagText ? `<div class="marker-fraction${isHapdong ? ' tag-hapdong' : ''}">${tagText}</div>` : ''}
+            ${tagText ? `<div class="marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}">${tagText}</div>` : ''}
         </div>
     `;
 
@@ -967,6 +983,7 @@ function repaintMarker(marker) {
     const isJangae = marker.category === '장애';
     const isLpNoApp = marker.category === 'LP무기록';
     const isBulga = marker.category === '미청구불가';
+    const isSeonjochi = marker.category === '선조치';
 
     let color = isApproximate ? 'yellow' : 'green';
     if (isSkt) color = 'skt';
@@ -977,6 +994,8 @@ function repaintMarker(marker) {
     //   ★approximate(주소 부정확)는 노란색이 이긴다 — 리스트 색보다 '주소를 못 믿는다' 가
     //     먼저 보여야 한다(영준님 2026-09-20). 안 그러면 불가 56건이 라벤더에 묻힌다.
     if (isBulga && !isApproximate) color = 'bulga';
+    // 선조치 — 전용 분홍(영준님 지시 2026-10-30 '선조치' 리스트). 근사 좌표면 노랑이 이기는 것은 불가와 같다.
+    if (isSeonjochi && !isApproximate) color = 'seonjochi';
     // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
     if (state === 'complete') color = 'gray';
     else if (state === 'hold') color = 'blue';
@@ -1005,6 +1024,7 @@ function repaintMarker(marker) {
     const isRework = aggregateRework(addrList) || touHasRework;
     const tagText = isJangae ? jangaeTechLabel(marker.meters)
                   : isLpNoApp ? lpTypeLabel(marker.meters)
+                  : isSeonjochi ? (isRework ? '선재' : '선')   // createMarker 와 같은 규칙
                               : markerTagText(isHapdong, isRework);
     let fracEl = marker.element.querySelector('.marker-fraction');
     if (tagText) {
@@ -1012,7 +1032,7 @@ function repaintMarker(marker) {
             fracEl = document.createElement('div');
             el.appendChild(fracEl);
         }
-        fracEl.className = `marker-fraction${isHapdong ? ' tag-hapdong' : ''}`;
+        fracEl.className = `marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}`;
         fracEl.textContent = tagText;
     } else if (fracEl) {
         fracEl.remove();

@@ -20,11 +20,23 @@
 //   metersKey  한 레코드가 계기 묶음인 데이터셋의 계기 배열 필드명.
 //              지정하면 통계 인덱스가 계기 단위로 펼친다(안 펼치면 한 함체가 1계기로 잡힌다)
 //   onMap      false 면 지도에 안 올린다(통계 분모 전용)
+//   defaultOn  true 면 처음 보는 순간 켜진 채로(기존 선택이 있어도). js/map.js getSelectedCategories
+//   noStats    true 면 통계 분모·선택지에서 뺀다(scripts/datasets.py stats_sources 와 짝)
 //   allowGroup 지정하면 그 계정 그룹에만 보인다(js/auth.js AUTH_GROUPS). 통계 분모에서도 빠진다
 //              ★2026-09-20 현재 쓰는 리스트가 없다 — 25미청구·미청구불가는 전 작업자 공개다
 const DATASET_REGISTRY = [
     { code: 's', file: './data/site-data.json', category: '실효', label: null, uiLabel: '실효계기',
       statsLabel: '실효' },
+    // 선조치 — KDN 보강공사 추가분(주덕기 과장 2026-10-30). 이미 모뎀이 시설된 곳을 한전이 LP 실패로
+    //   재시공 요청한 개소다. ★현장 앱 작성은 신규가 아니라 **교체**(상세 모달에 고정 문구).
+    //   ★상태키는 '주소|선조치' 네임스페이스 — 예전에 우리가 작업한 주소가 많아서 맨 주소 키면
+    //     옛 완료를 물려받아 회색으로 뜬다(js/status-key.js NAMESPACED_CATEGORIES).
+    //   ★noStats — 통계 분모·선택지에 넣지 않는다(이미 다른 리스트로 실적이 잡힌 개소의 재방문이다).
+    //   ★마커는 전용색(분홍) + '선' 뱃지, 겹치면 맨 위(js/map.js MARKER_PRIORITY 첫째).
+    //   생성 scripts/build_seonjochi_data.py
+    //   ★defaultOn — 업데이트 후 모두에게 켜진 채로(기존 선택 저장된 작업자 포함, 영준님 2026-10-30).
+    { code: 'p', file: './data/seonjochi-data.json', category: '선조치', label: '선', uiLabel: '선조치',
+      noStats: true, defaultOn: true },
     // 재방문은 2026-09-09 리스트업에서 폐기했다. 주소 단위 workStatus 로 '재' 를 붙이던 목록이라
     //   한 계기 완료가 그 주소 전체에 '재' 를 씌웠다(창천동 5-49 20계기 전건 오탐). 계기 단위로 다시
     //   세니 127건 중 재방문으로 남을 것이 하나도 없었다 — 82건은 애초에 미착수(실효), 43건은 이미 처리됨.
@@ -172,7 +184,7 @@ const DATASET_CATEGORY_BY_CODE = Object.fromEntries(
 //   ★계정 제한이 걸린 리스트는 통계 선택지에서도 뺀다(확인용이라 실적 분모가 아니다).
 //     단 statsEvenIfGroup 이 걸린 것은 실적이라 남긴다 — scripts/datasets.py stats_sources() 와 짝이다.
 const DATASET_STATS_OPTS = DATASET_REGISTRY
-    .filter(d => datasetVisibleToUser(d) && (!d.allowGroup || d.statsEvenIfGroup))
+    .filter(d => datasetVisibleToUser(d) && !d.noStats && (!d.allowGroup || d.statsEvenIfGroup))
     .map(d => ({
         key: d.code, label: d.statsLabel || d.uiLabel || d.category,
         done: d.onMap === false,

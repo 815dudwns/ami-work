@@ -12,6 +12,9 @@ ROOT = Path(__file__).resolve().parent.parent
 DATASETS = [
     {"code": "s", "file": "data/site-data.json", "category": "실효",
      "uiLabel": "실효계기", "statsLabel": "실효"},
+    # 선조치 — KDN 보강공사 추가분(2026-10-30). 상태키 '주소|선조치'. noStats = 통계 분모 제외.
+    {"code": "p", "file": "data/seonjochi-data.json", "category": "선조치", "uiLabel": "선조치",
+     "noStats": True},
     # 재방문 폐기(2026-09-09) — js/datasets.js 주석 참조
     # 고압철거 지도 내림(2026-09-09) — 남은 할 일 0건. "미착수 4건" 은 키 이스케이프 오판이었다.
     #   파일·workStatus 는 남기고 onMap=False 라 통계 분모에는 그대로 있다. js/datasets.js 주석 참조
@@ -59,6 +62,8 @@ def stats_sources():
         #   ★예외: statsEvenIfGroup 이 True 면 넣는다. 지도는 아직 일부 계정에만 열어두고
         #     통계에는 실적으로 잡아야 하는 리스트가 있다(25년 미청구 — 영준님 2026-09-18).
         if d.get("allowGroup") and not d.get("statsEvenIfGroup"):
+            continue
+        if d.get("noStats"):
             continue
         paths = []
         if d.get("file"):

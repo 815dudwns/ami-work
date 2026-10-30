@@ -62,7 +62,7 @@ def _norm(d, keys):
 def main():
     js = _js_objects()
     py = PY_DATASETS
-    keys = ("code", "category", "file", "metersKey", "archives", "archivesGlob", "onMap")
+    keys = ("code", "category", "file", "metersKey", "archives", "archivesGlob", "onMap", "noStats")
     problems = []
 
     jc = [d["code"] for d in js]
