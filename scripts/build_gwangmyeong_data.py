@@ -111,6 +111,122 @@ def area_of(jibun):
     return ' '.join(t[1:-1]) if len(t) >= 3 else jibun
 
 
+# ── '?' 줄이기 (영준님 2026-10-30 "?표가 너무 많음 해결해봐") ──────────────────────────────
+#   근사 좌표 개소는 대부분 도로명주소가 없는 도로·공원 시설(가로등·카메라·유량계)이다 — 도로명으로는 못 푼다.
+#   대신 같은 전주(인입주·변대주 전산화번호)에 붙은 **정확 좌표 개소**의 위치를 빌린다.
+#   ★측정(정확 개소끼리 홀드아웃, 2026-10-30): 같은 번호가 다른 동에 동시에 쓰여(6km 떨어진 예) 전역 매칭은
+#     p90 2km 다. 그래서 **같은 지역(시·구·동) 안에서만** 빌린다.
+#       같은 동·다른 정확 개소 1곳 이상(느슨)   인입주 중앙 31m / p90 474m · 변대주 52m / 360m
+#       같은 동·2곳 이상·서로 100m 이내(엄격)    인입주 중앙 22m / p90 112m · 변대주 34m / 132m
+#     엄격 = '?' 를 뗀다(좌표정확도 'pole'). 느슨 = p90 이 300m 를 넘어 '?' 를 유지하고, 위치를 전혀 모르는
+#     동 중심·0번지 행만 옮긴다(좌표출처 '…_근처').
+#   ★전산화번호 -> 좌표 공식(시트 격자 4자리 + 문자 4x4 칸 + 숫자)은 맞춰 봤으나 홀드아웃 중앙 406m 라 안 쓴다.
+#   그다음 남은 근사 행은 상호·공동주택명의 장소 이름(사거리·입구·교회 …)을 카카오 키워드로 찾아,
+#   **같은 동** 결과일 때만 쓴다(좌표정확도 'keyword').
+#   행(계기) 단위로 한다 — 0번지처럼 가짜 주소 하나에 묶인 계기들은 각자 전주 자리로 흩어진다(그게 맞다).
+POLE_FIELDS = (('인입주전산화', '인입주'), ('변대주번호', '변대주'))
+POLE_TIGHT_M = 100
+PLACE_HINT = ('사거리', '삼거리', '입구', '맞은편', '교회', '도서관', '시장', '공원', 'IC', '정류장', '육교',
+              '주차장', 'APT', '아파트', '단지', '성당', '복지관', '교 ')
+
+
+_TAIL_RE = re.compile(r'(가로등|공원등|공원안|분전함\d*|교통정보수집장치|계류|일원|\d+$|앞|뒤|옆|아래|맞은편)$')
+
+
+def _place_names(raw):
+    """'소하택지(19)/이마트정문소각장삼거리' -> ['이마트정문소각장삼거리', '이마트정문소각장'] 처럼 검색어 후보를 만든다."""
+    out = []
+    for part in re.split(r'[/,]', re.sub(r'\([^)]*\)', ' ', str(raw or ''))):
+        t = ws(part)
+        if len(t) < 3 or re.fullmatch(r'[A-Z0-9 .-]+', t) or t.endswith('과'):
+            continue
+        out.append(t)
+        for _ in range(3):
+            t2 = ws(_TAIL_RE.sub('', t))
+            if t2 == t or len(t2) < 3:
+                break
+            t = t2
+            out.append(t)
+    return list(dict.fromkeys(out))
+
+
+def _dist_m(a, b, c, d):
+    import math
+    R = 6371000.0
+    p1, p2 = math.radians(a), math.radians(c)
+    x = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(d - b) / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(x))
+
+
+def _median_pt(pts):
+    from statistics import median
+    return median(p[0] for p in pts), median(p[1] for p in pts)
+
+
+def relocate_approx(out, cache):
+    from geocode_cascade import kakao_keyword
+    exact_sites = {}
+    for x in out:
+        if x['좌표정확도'] == 'exact':
+            exact_sites.setdefault(x['주소'], x)
+    idx = {f: {} for f, _ in POLE_FIELDS}
+    for x in out:
+        if x['좌표정확도'] != 'exact':
+            continue
+        for f, _ in POLE_FIELDS:
+            if x.get(f):
+                idx[f].setdefault((x['지역'], x[f]), {})[x['주소']] = (x['lat'], x['lng'])
+    st = Counter()
+    for x in out:
+        x['좌표출처'] = ''
+        if x['좌표정확도'] != 'approximate':
+            continue
+        unknown = cache[x['주소']]['method'] == 'dong_center' or x['주소'].endswith(' 0번지')
+        done = False
+        for f, nm in POLE_FIELDS:                          # 엄격
+            pts = [p for a, p in idx[f].get((x['지역'], x.get(f)), {}).items() if a != x['주소']] if x.get(f) else []
+            if len(pts) >= 2:
+                c = _median_pt(pts)
+                if max(_dist_m(p[0], p[1], c[0], c[1]) for p in pts) <= POLE_TIGHT_M:
+                    x['lat'], x['lng'], x['좌표정확도'], x['좌표출처'] = c[0], c[1], 'pole', f'pole_{nm}'
+                    st[f'pole_{nm}'] += 1
+                    done = True
+                    break
+        if done:
+            continue
+        # 키워드 — 상호·공동주택명의 장소 이름, 같은 동일 때만
+        dong = x['지역'].split()[-1]
+        city = x['지역'].split()[0]
+        # 후보마다 장소 단서(사거리·입구·공원 …)가 들어 있어야 한다 — '소하택지' 같은 넓은 이름은 버린다
+        cands = [n for raw in (x.get('공동주택명'), x.get('상호')) for n in _place_names(raw)
+                 if any(h in n + ' ' for h in PLACE_HINT)]
+        for name in cands:
+            q = f"광명 {name}"
+            if q not in cache.setdefault('__keyword__', {}):
+                got = kakao_keyword(q)
+                cache['__keyword__'][q] = list(got) if got else None
+            got = cache['__keyword__'][q]
+            if got and dong in (got[1] or got[0]) and city in (got[1] or got[0]):
+                x['lat'], x['lng'], x['좌표정확도'], x['좌표출처'] = got[2], got[3], 'keyword', f'keyword:{name}'
+                st['keyword'] += 1
+                done = True
+                break
+        if done:
+            continue
+        if unknown:                                          # 느슨 — 위치를 전혀 모르는 행만 옮기고 '?' 유지
+            for f, nm in POLE_FIELDS:
+                pts = [p for a, p in idx[f].get((x['지역'], x.get(f)), {}).items() if a != x['주소']] if x.get(f) else []
+                if pts:
+                    c = _median_pt(pts)
+                    x['lat'], x['lng'], x['좌표출처'] = c[0], c[1], f'pole_{nm}_근처'
+                    st[f'pole_{nm}_근처'] += 1
+                    done = True
+                    break
+        if not done:
+            st['그대로'] += 1
+    return st
+
+
 def load_source():
     c = sqlite3.connect(str(DB))
     c.row_factory = sqlite3.Row
@@ -236,6 +352,10 @@ def main():
         x['lat'], x['lng'], x['좌표정확도'] = g['lat'], g['lng'], g['acc']
         if not x['도로명주소'] and g.get('road') and g['acc'] == 'exact':
             x['도로명주소'] = g['road']
+    n_ap = sum(1 for x in out if x['좌표정확도'] == 'approximate')
+    rst = relocate_approx(out, cache)
+    GEO_CACHE.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding='utf-8')
+    print(f"'?' 줄이기(근사 {n_ap}계기): {dict(rst)}")
 
     # ── 원본 대조 ──
     src_m = {norm_meter(r['계기번호']) for r in src}

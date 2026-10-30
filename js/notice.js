@@ -1,16 +1,22 @@
 // notice.js — 메뉴 '공지' (2026-10-20, 영준님 지시)
 //
-// 내용은 코드가 아니라 data/notices.json 에 둔다 — 다음 공지부터는 그 파일만 고친다.
+// 내용은 코드가 아니라 data/notices.json(우리) · data/notices-gwangmyeong.json(광명) 에 둔다 — 다음 공지부터는 그 파일만 고친다.
 //   형식: [{ id, date, title, body }] 최신이 앞. body 는 줄바꿈(\n) 포함 평문.
 // ★본문은 textContent 로만 넣는다(innerHTML 금지 — 공개 파일이라도 스크립트 주입 경로를 만들지 않는다).
 // 읽음 = localStorage 'ami_notice_seen' 에 최신 id. ★작업 데이터 키가 아니고, 강제 로그아웃
 //   UI_STATE_KEYS 에도 넣지 않는다 — 로그아웃 뒤 같은 공지가 다시 뜨면 안 된다.
 // 안 읽은 공지가 있으면 메뉴 버튼·공지 행에 점을 찍고, 지도를 처음 열 때 한 번 자동으로 띄운다.
-const NOTICE_URL = 'data/notices.json';
-const NOTICE_SEEN_KEY = 'ami_notice_seen';
+// ★광명(전용 그룹 kmtest)은 광명 공지만 본다 — data/notices-gwangmyeong.json (영준님 2026-10-30 "우리 공지랑 분리해").
+//   우리 계정은 data/notices.json 만. 서로 폴백하지 않는다(파일이 없으면 공지 없음).
+//   읽음 표시도 키를 따로 둔다(한 폰에서 두 계정을 써도 서로의 읽음을 덮지 않게).
+const _NOTICE_GROUP = (typeof authExclusiveGroup === 'function' && authExclusiveGroup()) || '';
+const NOTICE_FILES = { kmtest: 'data/notices-gwangmyeong.json' };
+const NOTICE_URL = _NOTICE_GROUP ? (NOTICE_FILES[_NOTICE_GROUP] || '') : 'data/notices.json';
+const NOTICE_SEEN_KEY = _NOTICE_GROUP ? `ami_notice_seen__${_NOTICE_GROUP}` : 'ami_notice_seen';
 let _notices = [];
 
 async function loadNotices() {
+    if (!NOTICE_URL) return [];          // 공지 파일이 정해지지 않은 전용 그룹 — 우리 공지로 폴백하지 않는다
     try {
         const r = await fetch(NOTICE_URL + '?t=' + Date.now(), { cache: 'no-store' });
         if (!r.ok) return [];

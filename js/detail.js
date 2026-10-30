@@ -1195,6 +1195,14 @@ function renderMetersList() {
         //   원본(광명지사.xlsx)의 현장용 칸을 그대로 보여 준다. 빈 값은 안 그린다(474행은 일부 칸이 비어 온다).
         //   ★값은 가공하지 않는다 — 원본 표기 그대로다.
         if (meter.category === '광명') {
+            // 위치 출처 — 주소로 못 찾아 전주·장소 이름으로 옮긴 계기(빌더 relocate_approx). 주소는 원본 그대로다.
+            const src = String(meter.좌표출처 || '');
+            if (src) {
+                const POLE_LABEL = { 'pole_인입주': '인입주 기준', 'pole_변대주': '변대주 기준',
+                    'pole_인입주_근처': '인입주 기준(근처, 확인 필요)', 'pole_변대주_근처': '변대주 기준(근처, 확인 필요)' };
+                const t = src.startsWith('keyword:') ? `장소 검색 '${src.slice(8)}' 기준` : (POLE_LABEL[src] || src);
+                subParts.push(`<span style="color:#b45309;">위치: ${t.replace(/</g, '&lt;')}</span>`);
+            }
             if (meter.계기위치) subParts.push(`<span style="font-weight:700;">계기위치 ${meter.계기위치}</span>`);
             if (meter.DCU통신방식) subParts.push(`DCU 통신 ${meter.DCU통신방식}`);
             if (meter.DCU기타ID) subParts.push(`DCU ${meter.DCU기타ID}`);
