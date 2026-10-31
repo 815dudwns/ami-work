@@ -163,6 +163,7 @@ function _setBanner(text) {
 }
 
 function enterAddSiteMode() {
+    if (!ORG_CAN_ADD) return;                 // 강북 계정은 주소 추가 없음
     if (_addSiteMode) { exitAddSiteMode(); return; }
     if (!navigator.onLine || typeof statusRef === 'undefined' || !statusRef) {
         showAddSiteToast('인터넷 연결이 없어 주소를 추가할 수 없습니다');
@@ -455,6 +456,7 @@ function _hasHistory(rec) {
 }
 
 async function saveAddSite() {
+    if (!ORG_CAN_ADD) return;
     const p = _addSitePick;
     if (!p) return;
     const inp = document.getElementById('add-site-meter');
@@ -544,6 +546,8 @@ async function saveAddSite() {
 
 // map.js initMap 이 지도를 만든 직후 부른다
 function initAddSite() {
+    // 강북 계정 — 버튼도 지도 누르기 감지도 붙이지 않는다(이미 있는 추가 개소 표시는 map.js 가 따로 한다)
+    if (!ORG_CAN_ADD) return;
     const btn = document.getElementById('add-site-btn');
     if (btn) btn.style.display = '';
     kakao.maps.event.addListener(map, 'click', onMapClickForAddSite);

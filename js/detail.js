@@ -606,6 +606,7 @@ function currentAddedSiteRow() {
     return (currentMeters || []).find(m => m && m._addedSite && m._statusKey === currentStatusKey) || null;
 }
 function canDeleteAddedSite(site) {
+    if (!ORG_CAN_ADD) return false;           // 강북 계정은 보기만
     const s = (typeof authGetSession === 'function') ? (authGetSession() || {}) : {};
     return !!site && (s.role === 'admin' || (s.id && s.id === site.createdBy));
 }
@@ -614,8 +615,8 @@ function renderAddedSiteInfo() {
     const site = row && row._site;
     const el = document.getElementById('added-site-info');
     const addBtn = document.getElementById('add-meter-btn');
-    // ★계기 추가 버튼은 추가 개소에서만 연다(전 계정). 다른 개소는 예전대로 숨김.
-    if (addBtn) addBtn.style.display = (site || (typeof ORG_ADD_METER_ANY !== 'undefined' && ORG_ADD_METER_ANY)) ? '' : 'none';
+    // ★계기 추가 버튼은 광명(kmtest)만, 어느 개소에서나. 강북 계정은 추가 개소에서도 안 보인다.
+    if (addBtn) addBtn.style.display = ORG_CAN_ADD ? '' : 'none';
     if (!el) return;
     if (!site) { el.style.display = 'none'; el.innerHTML = ''; return; }
     let day = '';
@@ -630,6 +631,7 @@ function renderAddedSiteInfo() {
 
 // 개소 삭제 — 표시만(site.deleted). 완료·보류·불가가 찍혀 있으면 막는다(초기화 후 삭제).
 async function deleteAddedSite() {
+    if (!ORG_CAN_ADD) return;
     const row = currentAddedSiteRow();
     if (!row || !canDeleteAddedSite(row._site)) return;
     const key = currentStatusKey;
@@ -840,7 +842,7 @@ function bindMetersListOnce(metersList) {
         const fail = t.closest('.meter-fail-btn');
         if (fail) { e.stopPropagation(); toggleMeterFail(fail.dataset.meter); return; }
         const rm = t.closest('.meter-add-remove-btn');
-        if (rm) {
+        if (rm && ORG_CAN_ADD) {
             e.stopPropagation();
             const m = rm.dataset.meter;
             if (!confirm(`추가 계기 ${m}를 삭제할까요?`)) return;
@@ -1326,8 +1328,9 @@ function renderMetersList() {
             : '';
         // 추가 계기 삭제 = 관리자, 또는 지도에서 추가한 개소의 만든 사람
         const _me = ((typeof authGetSession === 'function' && authGetSession()) || {}).id;
-        const addedRemoveBtn = (isAdded && (isAdmin || canDeleteAddedSite((currentAddedSiteRow() || {})._site)
-                || (typeof ORG_ADD_METER_ANY !== 'undefined' && ORG_ADD_METER_ANY && addedMeta.added_by === _me)))
+        // 강북 계정은 추가 계기를 보기만 한다(삭제 버튼 없음)
+        const addedRemoveBtn = (isAdded && ORG_CAN_ADD && (isAdmin || canDeleteAddedSite((currentAddedSiteRow() || {})._site)
+                || addedMeta.added_by === _me))
             ? `<button class="meter-add-remove-btn" data-meter="${meter.계기번호}" title="추가 계기 삭제" style="margin-left:6px;background:#fee2e2;color:#b91c1c;border:none;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;cursor:pointer;">삭제</button>`
             : '';
         const addedInfo = isAdded
@@ -1473,6 +1476,7 @@ function toggleMeterCheck(meterNumber) {
 
 // ── 계기 추가 모달 (admin 전용) ───────────────────────────────
 function openAddMeterModal() {
+    if (!ORG_CAN_ADD) return;                 // 강북 계정은 계기 추가 없음
     if (!currentAddress) return;
     document.getElementById('add-meter-addr').textContent = currentAddress;
     document.getElementById('add-meter-input').value = '';
@@ -1527,6 +1531,7 @@ function openAddMeterQr() {
 }
 
 async function saveNewMeter() {
+    if (!ORG_CAN_ADD) return;
     const input = document.getElementById('add-meter-input');
     const meterId = (input.value || '').trim().toUpperCase();
 

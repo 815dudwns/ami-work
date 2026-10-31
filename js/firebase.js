@@ -682,6 +682,7 @@ function buildWorkStatusFromFirebase(data) {
 // ── 사용자 추가 계기 (admin 등) ────────────────────────────────
 // added_meters/{meter_id}: { meter_id, added_by, added_by_name, added_at, mfg_ym, source }
 async function saveAddedMeter(address, meterId, extra) {
+    if (typeof ORG_CAN_ADD === 'undefined' || !ORG_CAN_ADD) throw new Error('이 계정은 추가·삭제할 수 없습니다');
     if (!statusRef) throw new Error('Firebase 미초기화');
     const session = (typeof authGetSession === 'function') ? authGetSession() : null;
     const data = {
@@ -710,6 +711,7 @@ async function saveAddedMeter(address, meterId, extra) {
 //   ★한 번의 update 로 site + 첫 계기(added_meters) + syncAt 을 쓴다 — set 금지(같은 키에 남이 쓴 것을 지운다).
 //   ★이벤트 큐에 넣지 않는다 — 개소 생성은 한 번에 끝나야 한다. 실패하면 화면에 알리고 끝(오프라인은 진입부터 막는다).
 async function saveAddedSite(key, site, meterId) {
+    if (typeof ORG_CAN_ADD === 'undefined' || !ORG_CAN_ADD) throw new Error('이 계정은 추가·삭제할 수 없습니다');
     if (!statusRef) throw new Error('Firebase 미초기화');
     const session = (typeof authGetSession === 'function') ? authGetSession() : null;
     const meter = {
@@ -734,6 +736,7 @@ async function saveAddedSite(key, site, meterId) {
 
 // 개소 삭제 = 표시만(site.deleted). 레코드·계기 기록은 지우지 않는다(되살리기·이력 보존, 통째 삭제 없음).
 async function markAddedSiteDeleted(key) {
+    if (typeof ORG_CAN_ADD === 'undefined' || !ORG_CAN_ADD) throw new Error('이 계정은 추가·삭제할 수 없습니다');
     if (!statusRef) throw new Error('Firebase 미초기화');
     const session = (typeof authGetSession === 'function') ? authGetSession() : null;
     const del = { by: session ? session.id : '', byName: session ? session.name : '', at: Date.now() };
@@ -743,6 +746,7 @@ async function markAddedSiteDeleted(key) {
 }
 
 async function removeAddedMeter(address, meterId) {
+    if (typeof ORG_CAN_ADD === 'undefined' || !ORG_CAN_ADD) throw new Error('이 계정은 추가·삭제할 수 없습니다');
     if (!statusRef) throw new Error('Firebase 미초기화');
     const p = encodeKey(address);
     // 삭제도 변경이다 — null 로 지우면서 syncAt 을 올려 델타에 태운다.

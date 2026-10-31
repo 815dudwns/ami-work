@@ -19,9 +19,12 @@ const WS_DATASET_BY_GROUP = { kmtest: 'gwangmyeong' };
 const _WS_GROUP = (typeof authExclusiveGroup === 'function' && authExclusiveGroup()) || '';
 const WS_DATASET = WS_DATASET_BY_GROUP[_WS_GROUP] || 'charger4eleccar';
 const WS_KEY_SUFFIX = _WS_GROUP ? '__' + _WS_GROUP : '';
-// 소속 경로를 따로 쓰는 계정은 어느 개소에나 '+ 계기 추가'를 쓴다(광명 — 영준님 2026-10-31 "계기추가 다 가능하도록").
-//   강북은 예전대로 지도에서 추가한 개소에서만.
-const ORG_ADD_METER_ANY = !!_WS_GROUP;
+// 계기·주소 추가는 소속 경로를 따로 쓰는 계정(광명 kmtest)만 한다.
+//   강북 계정(관리자·윤용운·작업자)은 추가 길이 전부 없다(영준님 2026-10-31 "계기추가 관한 사항 모든상황 강북에는 없애").
+//   이미 들어간 추가 계기·추가 개소는 지우지 않고 보기만 한다(삭제 버튼도 없음).
+//   ★화면 숨김만이 아니라 add-site.js·detail.js·firebase.js 의 추가·삭제 함수가 이 값으로 먼저 거절한다.
+const ORG_CAN_ADD = !!_WS_GROUP;
+const ORG_ADD_METER_ANY = ORG_CAN_ADD;
 
 const STORAGE_KEY = 'ami_work_status' + WS_KEY_SUFFIX;
 const CHECKED_KEY = 'ami_checked_meters' + WS_KEY_SUFFIX;
