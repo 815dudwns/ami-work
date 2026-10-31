@@ -272,7 +272,18 @@ function populateJisaOptions() {
     // 옵션은 JISA_TO_GU 키 7개 (데이터 raw 지사 아님 — 기타 오염 무시)
     // ★전용 그룹 계정(광명 kmtest)은 지사·구 필터를 쓰지 않는다 — 리스트 밑 묶음 체크박스로 고른다
     //   (영준님 2026-10-30 "지사가 아니라 리스트에서 동 묶어야 함"). 화면은 view-only.js 가 숨긴다.
-    if (_LS_NS) return;
+    if (_LS_NS) {
+        // 지사 칸·제목·구분선을 숨긴다(예전 view-only.js 가 하던 일 — 2026-10-31 보기 전용을 풀며 여기로)
+        const jf = document.querySelector('.jisa-filter');
+        if (jf) {
+            jf.style.display = 'none';
+            const lab = jf.previousElementSibling;
+            if (lab && lab.classList.contains('am-section-label')) lab.style.display = 'none';
+            const sep = jf.nextElementSibling;
+            if (sep && sep.classList.contains('am-sep')) sep.style.display = 'none';
+        }
+        return;
+    }
     const jisaList = Object.keys(JISA_TO_GU);
 
     // 실제 데이터에 미분류 항목이 있으면 옵션 끝에 추가 + 경고

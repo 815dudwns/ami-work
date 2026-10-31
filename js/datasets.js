@@ -164,7 +164,9 @@ function datasetVisibleToUser(d) {
         // ★전용 그룹 계정(다른 회사 — 광명 kmtest)은 **그 그룹 리스트만** 본다(2026-10-30).
         //   allowGroup 없는 공개 리스트도 숨긴다. 판정 중 예외가 나면 아래 catch 로 숨긴다.
         const ex = (typeof authExclusiveGroup === 'function') ? authExclusiveGroup() : null;
-        if (ex) return d.allowGroup === ex;
+        // ★단 '추가'(source:'workStatus')는 파일이 없고 기록이 소속 경로(js/config.js WS_DATASET)에 따로 쌓이므로
+        //   전용 그룹에도 보인다 — 광명이 추가한 개소는 workStatus/gwangmyeong 에만 있다(2026-10-31).
+        if (ex) return d.allowGroup === ex || d.source === 'workStatus';
         if (!d.allowGroup) return true;
         return authAllowsGroup(d.allowGroup);
     } catch (e) {

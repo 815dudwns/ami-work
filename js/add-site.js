@@ -81,7 +81,7 @@ function scheduleAddedSiteSync() {
 //   비교 키 = 시 이름·'번지'·공백을 뗀 '구+동+번지' 또는 '구+도로명+번호'. 괄호 안 지번도 후보로 넣는다.
 function _addrKeys(s) {
     const out = new Set();
-    let t = String(s || '').replace(/서울특별시|서울시|^\s*서울\s/g, ' ').replace(/번지/g, '');
+    let t = String(s || '').replace(/서울특별시|서울시|^\s*서울\s|경기도|^\s*경기\s|인천광역시|^\s*인천\s/g, ' ').replace(/번지/g, '');
     const gu = (t.match(/(\S+구)(\s|$)/) || [])[1] || '';
     const paren = t.match(/\(([^)]*)\)/);
     const main = t.replace(/\([^)]*\)/g, ' ').split(',')[0];
@@ -129,7 +129,12 @@ function _listLabel(cat) {
 // 상태키로 상세 열기 — 지도에 그 마커가 있으면 그것으로, 없으면(필터에 가림) 행으로 직접
 function openDetailForStatusKey(key) {
     const m = (markers || []).find(x => (x.statusKeys || []).includes(key));
-    if (m) { showDetail(m.address, m.meters, m.addresses, m.statusKeys); return true; }
+    if (m) {
+        // 합친 마커(같은 좌표에 다른 지번)면 그 키의 지번으로 연다 — 상세가 그 키를 대표로 잡게
+        const own = (m.meters || []).find(r => statusKeyOf(r, statusKeyIndex) === key);
+        showDetail((own && own.주소) || m.address, m.meters, m.addresses, m.statusKeys);
+        return true;
+    }
     const rows = (sampleData || []).filter(r => statusKeyOf(r, statusKeyIndex) === key);
     if (!rows.length) return false;
     const addrs = [...new Set(rows.map(r => r.주소).filter(Boolean))];
@@ -158,7 +163,6 @@ function _setBanner(text) {
 }
 
 function enterAddSiteMode() {
-    if (window.AMI_VIEW_ONLY) return;
     if (_addSiteMode) { exitAddSiteMode(); return; }
     if (!navigator.onLine || typeof statusRef === 'undefined' || !statusRef) {
         showAddSiteToast('인터넷 연결이 없어 주소를 추가할 수 없습니다');
@@ -168,10 +172,15 @@ function enterAddSiteMode() {
         showAddSiteToast('주소 변환을 불러오지 못했습니다. 새로고침 후 다시 해 주세요');
         return;
     }
-    const jisa = _currentJisa();
-    if (!jisa || !JISA_TO_GU[jisa]) {
-        showAddSiteToast('메뉴에서 지사를 먼저 고르세요');
-        return;
+    if (_isGroupOrg()) {
+        // 광명 — 지사 대신 리스트 밑 묶음이 구역이다. 하나도 안 켰으면 받을 구역이 없다.
+        if (!_activeGroups().size) { showAddSiteToast('메뉴 > 리스트에서 묶음을 먼저 켜세요'); return; }
+    } else {
+        const jisa = _currentJisa();
+        if (!jisa || !JISA_TO_GU[jisa]) {
+            showAddSiteToast('메뉴에서 지사를 먼저 고르세요');
+            return;
+        }
     }
     if (!_addSiteGeocoder) _addSiteGeocoder = new kakao.maps.services.Geocoder();
     _addSiteMode = true;
@@ -212,6 +221,35 @@ function _showTemp(lat, lng) {
     _addSiteTemp.setMap(map);
 }
 
+// ── 광명(전용 그룹 · 묶음 구역) ──────────────────────────────────
+//   전용 그룹 계정은 지사·구 필터가 없고 리스트 밑 '묶음'(dateField 재사용)으로 구역을 고른다.
+//   켜진 구역 = 켜진 묶음. 찍은 곳의 '시 동'(카카오 region_2·3)이 데이터의 '지역' 과 같으면 그 묶음이다.
+function _isGroupOrg() {
+    return typeof _LS_NS !== 'undefined' && !!_LS_NS;
+}
+function _groupDataset() {
+    return DATASETS.find(d => d.dateField && d.source !== 'workStatus' && d.allowGroup) || null;
+}
+function _activeGroups() {
+    const d = _groupDataset();
+    return d ? getSelectedDates(d.category) : new Set();
+}
+// '지역'(예: '광명시 광명동') -> 묶음 — 데이터에서 만든다(빌더 GROUP_BY_AREA 와 같은 결과)
+function _groupOfArea(area) {
+    const d = _groupDataset();
+    if (!d) return '';
+    const hit = (sampleData || []).find(r => r.category === d.category && r.지역 === area);
+    return hit ? String(hit[d.dateField] || '') : '';
+}
+// 시도 줄임말 -> 정식 이름. 데이터 주소가 정식 이름으로 시작한다('서울특별시 …', '경기도 …')
+const _SIDO_FULL = { '서울': '서울특별시', '경기': '경기도', '인천': '인천광역시' };
+function _fullAddr(name, r1) {
+    const t = String(name || '').trim();
+    const short = String(r1 || '').trim();
+    const full = _SIDO_FULL[short] || short;
+    return short && t.startsWith(short + ' ') ? full + t.slice(short.length) : t;
+}
+
 function _strip서울(s) {
     return String(s || '').replace(/^\s*서울(특별시)?\s*/, '').trim();
 }
@@ -241,18 +279,32 @@ async function handleGeocodeResult(lat, lng, result, status) {
     }
     const a = r0.address;
     const gu = a.region_2depth_name || '';
-    const isSeoul = /^서울/.test(a.region_1depth_name || '');
-    const jisa = isSeoul ? (GU_TO_JISA[gu] || '') : '';
-    // ★켜진 지사 구역 밖은 막는다(영준님 2026-10-31). 서울 밖·지사표에 없는 구도 여기서 걸린다.
-    if (!jisa || jisa !== _currentJisa()) {
-        showAddSiteToast('지금 켜진 지사 구역 밖입니다');
-        return;
+    let jisa = '', group = '';
+    if (_isGroupOrg()) {
+        // 광명 — 켜진 묶음 구역 밖은 막는다(지사 규칙과 같은 뜻)
+        group = _groupOfArea(`${gu} ${a.region_3depth_name || ''}`.trim());
+        if (!group || !_activeGroups().has(group)) {
+            showAddSiteToast('지금 켜진 묶음 구역 밖입니다');
+            return;
+        }
+        const ds = _groupDataset();
+        const any = ds && (sampleData || []).find(r => r.category === ds.category && r.지사);
+        jisa = (any && any.지사) || '';
+    } else {
+        const isSeoul = /^서울/.test(a.region_1depth_name || '');
+        jisa = isSeoul ? (GU_TO_JISA[gu] || '') : '';
+        // ★켜진 지사 구역 밖은 막는다(영준님 2026-10-31). 서울 밖·지사표에 없는 구도 여기서 걸린다.
+        if (!jisa || jisa !== _currentJisa()) {
+            showAddSiteToast('지금 켜진 지사 구역 밖입니다');
+            return;
+        }
     }
-    const jibun = '서울특별시 ' + _strip서울(a.address_name);
+    const r1 = a.region_1depth_name || '';
+    const jibun = _fullAddr(a.address_name, r1);
     const road = r0.road_address && r0.road_address.address_name
-        ? '서울특별시 ' + _strip서울(r0.road_address.address_name) : '';
+        ? _fullAddr(r0.road_address.address_name, r0.road_address.region_1depth_name || r1) : '';
     const building = (r0.road_address && r0.road_address.building_name) || '';
-    _addSitePick = { lat, lng, jibun, road, building, gu, jisa, dong: a.region_3depth_name || '' };
+    _addSitePick = { lat, lng, jibun, road, building, gu, jisa, group, dong: a.region_3depth_name || '' };
     _showTemp(lat, lng);
     // 큰 리스트(25미청구·불가)를 받는 중이면 끝날 때까지 기다린다 — 안 기다리면 '이미 있는 주소'를 놓친다
     if (typeof _deferredLoading !== 'undefined' && _deferredLoading) {
@@ -280,7 +332,7 @@ function openAddSiteModal() {
     document.getElementById('add-site-addr').innerHTML =
         `<div><span class="addr-tag">지번</span>${esc(p.jibun)}</div>`
         + (p.road ? `<div><span class="addr-tag">도로명</span>${esc(p.road)}${p.building ? ' (' + esc(p.building) + ')' : ''}</div>` : '')
-        + `<div class="add-site-sub">${esc(p.jisa)} · ${esc(p.gu)}</div>`;
+        + `<div class="add-site-sub">${esc(p.jisa)} · ${esc(p.group || p.gu)}</div>`;
 
     const listBox = document.getElementById('add-site-lists');
     const matchBox = document.getElementById('add-site-matches');
@@ -462,6 +514,7 @@ async function saveAddSite() {
             const site = {
                 list: cat, jibunAddr: p.jibun, roadAddr: p.road, buildingName: p.building,
                 lat: +p.lat.toFixed(7), lng: +p.lng.toFixed(7), jisa: p.jisa, gu: p.gu,
+                ...(p.group ? { group: p.group } : {}),
                 createdBy: s.id || '', createdByName: s.name || '', createdAt: Date.now(),
             };
             await saveAddedSite(key, site, id);
@@ -480,7 +533,7 @@ async function saveAddSite() {
         // 구 필터에 가려지면 알려 준다(지사는 위에서 막았다)
         const guRaw = localStorage.getItem(lsKey('ami_selected_gu'));
         let guHidden = false;
-        try { guHidden = !!guRaw && !JSON.parse(guRaw).includes(p.gu); } catch (e) {}
+        try { guHidden = !_isGroupOrg() && !!guRaw && !JSON.parse(guRaw).includes(p.gu); } catch (e) {}
         showAddSiteToast(guHidden ? `저장했습니다. 구 선택에서 ${p.gu}이 꺼져 있어 지도에는 안 보입니다` : '저장했습니다');
     } catch (e) {
         _addSiteErr('저장 실패: ' + e.message);
@@ -492,7 +545,6 @@ async function saveAddSite() {
 // map.js initMap 이 지도를 만든 직후 부른다
 function initAddSite() {
     const btn = document.getElementById('add-site-btn');
-    if (window.AMI_VIEW_ONLY) { if (btn) btn.style.display = 'none'; return; }
     if (btn) btn.style.display = '';
     kakao.maps.event.addListener(map, 'click', onMapClickForAddSite);
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && _addSiteMode) exitAddSiteMode(); });

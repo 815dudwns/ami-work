@@ -615,7 +615,7 @@ function renderAddedSiteInfo() {
     const el = document.getElementById('added-site-info');
     const addBtn = document.getElementById('add-meter-btn');
     // ★계기 추가 버튼은 추가 개소에서만 연다(전 계정). 다른 개소는 예전대로 숨김.
-    if (addBtn) addBtn.style.display = site ? '' : 'none';
+    if (addBtn) addBtn.style.display = (site || (typeof ORG_ADD_METER_ANY !== 'undefined' && ORG_ADD_METER_ANY)) ? '' : 'none';
     if (!el) return;
     if (!site) { el.style.display = 'none'; el.innerHTML = ''; return; }
     let day = '';
@@ -1325,7 +1325,9 @@ function renderMetersList() {
             ? `<span style="background:#ede9fe;color:#6d28d9;font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;margin-right:6px;">추가</span>`
             : '';
         // 추가 계기 삭제 = 관리자, 또는 지도에서 추가한 개소의 만든 사람
-        const addedRemoveBtn = (isAdded && (isAdmin || canDeleteAddedSite((currentAddedSiteRow() || {})._site)))
+        const _me = ((typeof authGetSession === 'function' && authGetSession()) || {}).id;
+        const addedRemoveBtn = (isAdded && (isAdmin || canDeleteAddedSite((currentAddedSiteRow() || {})._site)
+                || (typeof ORG_ADD_METER_ANY !== 'undefined' && ORG_ADD_METER_ANY && addedMeta.added_by === _me)))
             ? `<button class="meter-add-remove-btn" data-meter="${meter.계기번호}" title="추가 계기 삭제" style="margin-left:6px;background:#fee2e2;color:#b91c1c;border:none;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;cursor:pointer;">삭제</button>`
             : '';
         const addedInfo = isAdded

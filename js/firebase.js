@@ -318,7 +318,7 @@ function initFirebaseApp() {
             ? firebase.app()
             : firebase.initializeApp(firebaseConfig);
         db = firebase.database(app);
-        statusRef = db.ref('workStatus/charger4eleccar');
+        statusRef = db.ref('workStatus/' + WS_DATASET);   // 소속별 경로(js/config.js) — 광명은 gwangmyeong
         console.log('[Firebase] 초기화 완료');
         return true;
     } catch (e) {
@@ -341,7 +341,7 @@ function loadStatusLocal() {
 //   끝날 때까지 빈 화면이 된다 — 영준님이 보신 "처음 열면 완료가 하나도 없다"가 이것이다.
 //   게다가 미러가 자리를 다 먹으면 작은 이벤트 큐 저장까지 밀려 완료가 통째 유실된다.
 // IndexedDB 는 이 한도가 사실상 없고, site-data 16MB 캐시가 이미 같은 경로로 돌고 있다.
-const WS_IDB_KEY = 'ami_work_status_v2';
+const WS_IDB_KEY = 'ami_work_status_v2' + WS_KEY_SUFFIX;   // 소속별 보관소(js/config.js)
 
 async function loadStatusStored() {
     // 1순위 IndexedDB
@@ -1003,11 +1003,11 @@ function schedulePaint(statusKey) {
 //
 // ★rules 에 workStatus/$dataset .indexOn "syncAt" 이 있어야 한다(2026-08-19 적용 완료).
 //   없으면 서버가 전건을 훑어 오히려 느려진다.
-const WS_SYNCAT_KEY = 'ami_work_status_syncAt';   // 마지막으로 받은 syncAt (IndexedDB)
+const WS_SYNCAT_KEY = 'ami_work_status_syncAt' + WS_KEY_SUFFIX;   // 마지막으로 받은 syncAt (IndexedDB)
 const WS_SCHEMA_VERSION = 2;                       // 구조가 바뀌면 올린다 -> 전량 재수신
-const WS_SCHEMA_KEY = 'ami_work_status_schema';
+const WS_SCHEMA_KEY = 'ami_work_status_schema' + WS_KEY_SUFFIX;
 const FULL_RESYNC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;   // 주 1회 키 대조
-const WS_AUDIT_KEY = 'ami_work_status_audit_at';
+const WS_AUDIT_KEY = 'ami_work_status_audit_at' + WS_KEY_SUFFIX;
 
 let _lastSyncAt = 0;
 let _isDeltaMode = false;
@@ -1081,7 +1081,7 @@ async function auditDeletions(force) {
         //   once('value', null, {shallow:true}) 로 부르면 세 번째 인자를 조용히 무시하고
         //   전량(2.4MB)을 내려받는다 — 아끼려고 넣은 대조가 되레 제일 비싼 호출이 된다.
         //   (2026-08-19 실측으로 잡았다. 키만 받으면 634KB, 전량의 20.8%다.)
-        const url = firebaseConfig.databaseURL + '/workStatus/charger4eleccar.json?shallow=true';
+        const url = firebaseConfig.databaseURL + '/workStatus/' + WS_DATASET + '.json?shallow=true';
         const res = await fetch(url);
         if (!res.ok) return;
         const serverKeys = await res.json();
@@ -1117,7 +1117,7 @@ async function auditDeletions(force) {
 //   ★버전으로 잠근다 — 폰마다 한 번만 돈다. 앞으로 같은 일이 생기면 이 숫자를 올린다.
 //   ※앞으로 서버에서 필드를 지울 때는 syncAt 을 함께 올려야 델타에 실린다
 //     (removeAddedMeter 가 이미 그렇게 한다: "삭제도 변경이다").
-const WS_SANITIZE_KEY = 'ami_work_status_sanitized';
+const WS_SANITIZE_KEY = 'ami_work_status_sanitized' + WS_KEY_SUFFIX;
 const WS_SANITIZE_VERSION = 1;
 
 async function sanitizeStoredMirror() {
@@ -1286,8 +1286,9 @@ async function initFirebase() {
     if (local && Object.keys(local).length > 0) {
         workStatus = local;
     } else {
-        // 2순위: data/work-status.json
+        // 2순위: data/work-status.json — 강북 기록의 옛 정적 사본이라 강북 경로일 때만
         try {
+            if (WS_DATASET !== 'charger4eleccar') throw new Error('소속 경로(' + WS_DATASET + ') — 강북 정적 사본 안 씀');
             const res = await fetch('./data/work-status.json');
             if (!res.ok) throw new Error('fetch 실패: ' + res.status);
             const data = await res.json();
