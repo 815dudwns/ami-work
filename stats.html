@@ -9,12 +9,12 @@
     <title>작업 현황 통계 - AMI</title>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-    <script src="js/auth.js?v=20261031c"></script>
-    <script src="js/config.js?v=20261031c"></script>
-    <script src="js/utils.js?v=20261031c"></script>
+    <script src="js/auth.js?v=20261031d"></script>
+    <script src="js/config.js?v=20261031d"></script>
+    <script src="js/utils.js?v=20261031d"></script>
     <!-- 상태키 규칙(네임스페이스 카테고리 목록)의 단일 출처. 지도와 같은 파일을 쓴다. -->
-    <script src="js/status-key.js?v=20261031c"></script>
-    <script src="js/datasets.js?v=20261031c"></script>
+    <script src="js/status-key.js?v=20261031d"></script>
+    <script src="js/datasets.js?v=20261031d"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 40px; color: #1f2937; }
@@ -132,12 +132,21 @@
 </div>
 
 <script>
+// ── 광명(전용 그룹 kmtest) 통계 모드 (2026-10-31, 영준님 '테스트가 통계로 볼 수 있도록') ──
+//   작업기록은 소속 경로(js/config.js WS_DATASET = gwangmyeong), 분모는 광명 개소 목록(data/gwangmyeong-data.json).
+//   ★이 모드에서는 강북 기록(charger4eleccar)·통계 인덱스(stats-site-index.json)를 하나도 받지 않는다.
+//   지사·구 대신 묶음·지역(시 동)으로 묶는다.
+const GM_STATS = (typeof WS_DATASET !== 'undefined') && WS_DATASET !== 'charger4eleccar';
+const GM_LIST_CODE = 'w';
+const GM_SITE_FILE = 'data/gwangmyeong-data.json';
+
 // ── 어드민 전용 게이트 (절대 우회 금지) ───────────────────
 (function statsGate() {
     // 통계 접근 허용 = 관리자 + 윤용운(user09, 작업자 총괄)
     // ★계정 목록·판정은 js/auth.js 의 AUTH_GROUPS/authAllowsGroup 이 단일 출처다(2026-09-15).
     const session = (typeof authGetSession === 'function') ? authGetSession() : null;
-    const allowed = (typeof authAllowsGroup === 'function') && authAllowsGroup('staff');
+    // 광명 시험 계정은 자기 소속 통계만(아래 GM_STATS 경로) — 강북 통계는 여전히 staff 만
+    const allowed = ((typeof authAllowsGroup === 'function') && authAllowsGroup('staff')) || GM_STATS;
     if (!allowed) {
         try { document.body.innerHTML = ''; } catch (_) {}
         if (!session) {
@@ -150,8 +159,15 @@
     }
 })();
 
+// 광명 모드 화면 이름 — 구 대신 지역
+if (GM_STATS) {
+    document.querySelector('.header h1').textContent = '광명 작업 현황 통계';
+    const gb = document.querySelector('#tabBar .tab-btn[data-tab="gu"]');
+    if (gb) gb.textContent = '지역별';
+}
+
 authRequire();
-if (!authAllowsGroup('staff')) {
+if (!authAllowsGroup('staff') && !GM_STATS) {
     document.body.innerHTML = '';
     window.location.replace('map.html');
     throw new Error('forbidden: stats access');
@@ -269,6 +285,15 @@ async function loadFbSiteData() {
     //   같은 파일을 두 번 받게 된다.
     if (!_fbSiteDataPromise) {
         _fbSiteDataPromise = (async () => {
+            if (GM_STATS) {
+                // 광명 — 개소 목록을 인덱스 형식으로(지사 자리 = 묶음, 구 자리 = 지역)
+                const r = await fetch(GM_SITE_FILE, { cache: 'no-cache' });
+                if (!r.ok) throw new Error('광명 개소 목록 로드 실패');
+                _fbSiteData = (await r.json()).map(x => ({
+                    지사: x.묶음 || '묶음 미상', 주소: x.주소, 계기번호: x.계기번호, l: GM_LIST_CODE, 지역: x.지역 || '',
+                }));
+                return _fbSiteData;
+            }
             const resp = await fetch('data/stats-site-index.json', { cache: 'no-cache' });
             if (!resp.ok) throw new Error('stats-site-index.json 로드 실패 (scripts/gen_stats_index.py 실행 필요)');
             _fbSiteData = await resp.json();
@@ -304,7 +329,10 @@ function isSameLocalDay(iso, dateStr) {
 
 function extractGu(address) {
     const m = /\s([^\s]+구)(?:\s|$)/.exec(address || '');
-    return m ? m[1] : '미상';
+    if (m) return m[1];
+    // 구가 없는 시(광명 등) — '광명시 광명동' 처럼 시 + 동
+    const c = /([^\s]+시)\s([^\s]+[동읍면리])(?:\s|$)/.exec(address || '');
+    return c ? `${c[1]} ${c[2]}` : '미상';
 }
 
 function showErr(msg) {
@@ -327,7 +355,7 @@ async function loadAndRender(forceFetch) {
         //   통째로 다시 받았다 — RTDB 다운로드 비용 사고와 같은 종류의 낭비(2026-10-19 감사).
         const wsPromise = (_wsSnap && forceFetch !== true)
             ? Promise.resolve(_wsSnap)
-            : _db.ref('workStatus/charger4eleccar').once('value').then(s => (_wsSnap = s.val() || {}));
+            : _db.ref('workStatus/' + (GM_STATS ? WS_DATASET : 'charger4eleccar')).once('value').then(s => (_wsSnap = s.val() || {}));
         const [workStatus, _, fbSiteData] = await Promise.all([
             wsPromise,
             loadSiteData(),
@@ -372,6 +400,7 @@ function sumMeters(m) { return m.complete + m.hold + m.fail; }
 //   구가 없으면 '미분류'(인덱스에 도로명주소가 없어 주소 하나로만 판단한다).
 const STATS_DONG_TO_GU = { '면목동': '중랑구' };
 function guOfStatsItem(it) {
+    if (it && it['지역']) return it['지역'];          // 광명 — 시 동
     const a = String((it && it['주소']) || '');
     const m = a.match(/(\S+구)(\s|$)/);
     if (m) return m[1];
@@ -563,8 +592,10 @@ function aggByBranch(fbSiteData, workStatus) {
 //   기본값은 '실효'다 — 지금 작업 대상이 실효 리스트이고, 아카이브까지 합치면
 //   과거 완료분이 섞여 현재 진척이 흐려진다. 예전 누적치는 '전체 누적'으로 볼 수 있다.
 // ★레지스트리에서 만든다. '전체 누적'만 코드가 아니라 모드라 뒤에 붙인다.
-const LIST_OPTS = DATASET_STATS_OPTS.concat([{ key: 'all', label: '전체 누적' }]);
-let _listSel = 's';
+const LIST_OPTS = GM_STATS
+    ? [{ key: GM_LIST_CODE, label: '광명지사' }]
+    : DATASET_STATS_OPTS.concat([{ key: 'all', label: '전체 누적' }]);
+let _listSel = GM_STATS ? GM_LIST_CODE : 's';
 
 function filterByList(fbSiteData) {
     if (_listSel === 'all') return fbSiteData;
@@ -704,7 +735,7 @@ function render(fbSiteData, workStatus, dateStr) {
             ${dayBody || (renderSummary(dayTotal) + renderTable('작업자', workerRows, dayTotal))}
         </div>
         <div class="tab-panel ${_activeTab === 'gu' ? 'active' : ''}" id="tab-gu">
-            ${dayBody || (renderSummary(dayTotal) + renderTable('구', guRows, dayTotal))}
+            ${dayBody || (renderSummary(dayTotal) + renderTable(GM_STATS ? '지역' : '구', guRows, dayTotal))}
         </div>
         <div class="tab-panel ${_activeTab === 'all' ? 'active' : ''}" id="tab-all">
             ${renderListPicker(listRows.length, fbSiteData.length)}
@@ -809,12 +840,12 @@ function renderBranchTable(rows, total) {
     };
     return `
         <div class="card">
-            <div class="card-title">지사·구별 작업 현황 <span class="count">(${branches.length}개 지사 · ${nGu}개 구 · 누적)</span></div>
+            <div class="card-title">${GM_STATS ? '묶음·지역별' : '지사·구별'} 작업 현황 <span class="count">(${branches.length}개 ${GM_STATS ? '묶음' : '지사'} · ${nGu}개 ${GM_STATS ? '지역' : '구'} · 누적)</span></div>
             <div class="table-wrap">
             <table>
                 <thead>
                     <tr>
-                        <th>지사 / 구</th>
+                        <th>${GM_STATS ? '묶음 / 지역' : '지사 / 구'}</th>
                         <th>개소</th>
                         <th>계기</th>
                         <th>완료<br><span style="font-weight:500;color:#9ca3af;">개소/계기</span></th>
@@ -893,7 +924,7 @@ function renderTable(label, rows, total) {
     }
     return `
         <div class="card">
-            <div class="card-title">${escHtml(label)}별 작업 현황 <span class="count">(${rows.length}${label === '구' ? '개 구' : '명'})</span></div>
+            <div class="card-title">${escHtml(label)}별 작업 현황 <span class="count">(${rows.length}${label === '구' ? '개 구' : label === '지역' ? '개 지역' : '명'})</span></div>
             <div class="table-wrap">
             <table>
                 <thead>
