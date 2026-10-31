@@ -39,7 +39,9 @@ function poleIdOf(m) {
     return `${poleNoOf(m)}|${(m && m.DCUID) || ''}`;
 }
 function isPoleCommon(meters) {
-    if (!meters || !meters.length) return false;
+    // 지도에서 추가한 개소의 자리 행(_addedSite)은 계기가 아니다 — 판정에서 뺀다
+    meters = (meters || []).filter(m => m && !m._addedSite);
+    if (!meters.length) return false;
     if (!(poleNoOf(meters[0]) || meters[0].DCUID)) return false;
     return meters.every(m => poleIdOf(m) === poleIdOf(meters[0]));
 }
@@ -590,10 +592,58 @@ function showDetail(address, meters, addresses, statusKeys) {
     currentSortMode = 'none';
     updateSortBtnUI();
 
+    // 지도에서 직접 추가한 개소(js/add-site.js) — '추가함' 줄 + 계기 추가 + (만든 사람·관리자) 개소 삭제
+    renderAddedSiteInfo(meters);
+
     // 계기 목록 렌더링
     renderMetersList();
 
     document.getElementById('fullpage-overlay').classList.add('active');
+}
+
+// 지금 열린 개소가 지도에서 직접 추가한 개소면 그 자리 행(_addedSite)을 돌려준다.
+function currentAddedSiteRow() {
+    return (currentMeters || []).find(m => m && m._addedSite && m._statusKey === currentStatusKey) || null;
+}
+function canDeleteAddedSite(site) {
+    const s = (typeof authGetSession === 'function') ? (authGetSession() || {}) : {};
+    return !!site && (s.role === 'admin' || (s.id && s.id === site.createdBy));
+}
+function renderAddedSiteInfo() {
+    const row = currentAddedSiteRow();
+    const site = row && row._site;
+    const el = document.getElementById('added-site-info');
+    const addBtn = document.getElementById('add-meter-btn');
+    // ★계기 추가 버튼은 추가 개소에서만 연다(전 계정). 다른 개소는 예전대로 숨김.
+    if (addBtn) addBtn.style.display = site ? '' : 'none';
+    if (!el) return;
+    if (!site) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    let day = '';
+    try { day = site.createdAt ? kstDayLabel(new Date(site.createdAt)) : ''; } catch (e) { day = ''; }
+    const who = site.createdByName || site.createdBy || '';
+    el.innerHTML = `<span class="added-site-tag">추가함</span>`
+        + `<span>${escHtml([who, day].filter(Boolean).join(' · '))}</span>`
+        + (canDeleteAddedSite(site)
+            ? `<button type="button" class="added-site-del" onclick="deleteAddedSite()">개소 삭제</button>` : '');
+    el.style.display = 'flex';
+}
+
+// 개소 삭제 — 표시만(site.deleted). 완료·보류·불가가 찍혀 있으면 막는다(초기화 후 삭제).
+async function deleteAddedSite() {
+    const row = currentAddedSiteRow();
+    if (!row || !canDeleteAddedSite(row._site)) return;
+    const key = currentStatusKey;
+    const st = (workStatus[key] && workStatus[key].state) || 'pending';
+    if (st !== 'pending') { alert('완료·보류·불가가 찍혀 있습니다. 초기화한 뒤 삭제하세요.'); return; }
+    if (!confirm('이 개소를 지도에서 지울까요?')) return;
+    try {
+        await markAddedSiteDeleted(key);
+    } catch (e) {
+        alert('삭제 실패: ' + e.message);
+        return;
+    }
+    closeDetail();
+    if (typeof syncAddedSiteRows === 'function') syncAddedSiteRows();
 }
 
 // 상태 색상 바 업데이트 (기능 3)
@@ -741,7 +791,8 @@ function flushMeterFailReasons() {
 
 // 추가된 계기(added_meters)를 currentMeters에 가짜 객체로 합쳐서 함께 표시
 function getMetersWithAdded() {
-    const base = currentMeters || [];
+    // 지도에서 추가한 개소의 자리 행(_addedSite)은 계기가 아니다 — 목록에 그리지 않는다
+    const base = (currentMeters || []).filter(m => m && !m._addedSite);
     const status = workStatus[currentStatusKey] || {};
     const added = status.added_meters || {};
     // ★추가계기는 Firebase 에서 온다 — 형식이 아닌 값(문자열 아님·스크립트)은 그리지 않는다.
@@ -753,9 +804,9 @@ function getMetersWithAdded() {
         계기번호: a.meter_id,
         계기타입: parseType(a.meter_id) || '?',
         주소: currentAddress,
-        도로명주소: base[0]?.도로명주소 || '',
+        도로명주소: base[0]?.도로명주소 || (currentMeters || [])[0]?.도로명주소 || '',
         DCUID: '',
-        category: base[0]?.category || '실효',
+        category: base[0]?.category || (currentMeters || [])[0]?.category || '실효',
         __added: true,
         __added_meta: a,
     }));
@@ -1273,7 +1324,8 @@ function renderMetersList() {
         const addedBadge = isAdded
             ? `<span style="background:#ede9fe;color:#6d28d9;font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;margin-right:6px;">추가</span>`
             : '';
-        const addedRemoveBtn = (isAdded && isAdmin)
+        // 추가 계기 삭제 = 관리자, 또는 지도에서 추가한 개소의 만든 사람
+        const addedRemoveBtn = (isAdded && (isAdmin || canDeleteAddedSite((currentAddedSiteRow() || {})._site)))
             ? `<button class="meter-add-remove-btn" data-meter="${meter.계기번호}" title="추가 계기 삭제" style="margin-left:6px;background:#fee2e2;color:#b91c1c;border:none;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;cursor:pointer;">삭제</button>`
             : '';
         const addedInfo = isAdded
@@ -1476,8 +1528,9 @@ async function saveNewMeter() {
     const input = document.getElementById('add-meter-input');
     const meterId = (input.value || '').trim().toUpperCase();
 
-    if (!meterId || meterId.length !== 11) {
-        return showAddMeterToast('계기번호 11자리 확인');
+    // 계기번호 법칙 — 11자리, 앞 2자리만 영문 가능(METER_NO_RE)
+    if (!METER_NO_RE.test(meterId)) {
+        return showAddMeterToast('계기번호 확인 — 11자리, 앞 2자리만 영문');
     }
     // 중복 체크 (기존 + 추가)
     const allMeters = getMetersWithAdded();

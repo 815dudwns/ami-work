@@ -665,6 +665,8 @@ function buildOneFromFirebase(val) {
         meterChecks,  // 원본 보관 (ts 비교용)
         added_meters: val.added_meters || {},   // 사용자 추가 계기 (admin 등)
         failedMeters,  // 계기 개별 불가: { 계기번호: 사유 }
+        // 지도에서 직접 추가한 개소 정보(js/add-site.js). 없는 레코드에는 칸을 안 만든다(미러 크기).
+        ...((val.site && typeof val.site === 'object') ? { site: val.site } : {}),
     };
 }
 
@@ -703,6 +705,43 @@ async function saveAddedMeter(address, meterId, extra) {
     return data;
 }
 
+// ── 지도에서 직접 추가한 개소 (2026-10-31, js/add-site.js) ─────────────────
+// workStatus/<키>/site = { list, jibunAddr, roadAddr, lat, lng, jisa, gu, createdBy, createdByName, createdAt, deleted? }
+//   ★한 번의 update 로 site + 첫 계기(added_meters) + syncAt 을 쓴다 — set 금지(같은 키에 남이 쓴 것을 지운다).
+//   ★이벤트 큐에 넣지 않는다 — 개소 생성은 한 번에 끝나야 한다. 실패하면 화면에 알리고 끝(오프라인은 진입부터 막는다).
+async function saveAddedSite(key, site, meterId) {
+    if (!statusRef) throw new Error('Firebase 미초기화');
+    const session = (typeof authGetSession === 'function') ? authGetSession() : null;
+    const meter = {
+        meter_id: meterId,
+        added_by: session ? session.id : '',
+        added_by_name: session ? session.name : '',
+        added_at: Date.now(),
+        source: 'add_site',
+    };
+    const patch = { site: site };
+    if (meterId) patch[`added_meters/${meterId}`] = meter;
+    // ★site 를 통째로 쓴다 — 지웠던 개소(deleted)를 다시 살릴 때 deleted 표시가 함께 지워진다.
+    await statusRef.child(encodeKey(key)).update(withSyncAt(patch));
+    if (!workStatus[key]) workStatus[key] = { state: 'pending', checkedMeters: [], reason: '', added_meters: {} };
+    workStatus[key].site = site;
+    if (meterId) {
+        if (!workStatus[key].added_meters) workStatus[key].added_meters = {};
+        workStatus[key].added_meters[meterId] = meter;
+    }
+    persistStatus(0);
+}
+
+// 개소 삭제 = 표시만(site.deleted). 레코드·계기 기록은 지우지 않는다(되살리기·이력 보존, 통째 삭제 없음).
+async function markAddedSiteDeleted(key) {
+    if (!statusRef) throw new Error('Firebase 미초기화');
+    const session = (typeof authGetSession === 'function') ? authGetSession() : null;
+    const del = { by: session ? session.id : '', byName: session ? session.name : '', at: Date.now() };
+    await statusRef.child(encodeKey(key)).update(withSyncAt({ 'site/deleted': del }));
+    if (workStatus[key] && workStatus[key].site) workStatus[key].site = { ...workStatus[key].site, deleted: del };
+    persistStatus(0);
+}
+
 async function removeAddedMeter(address, meterId) {
     if (!statusRef) throw new Error('Firebase 미초기화');
     const p = encodeKey(address);
@@ -733,6 +772,8 @@ function refreshPendingAddrs() {
 function mergeOneAddress(addr, rawVal) {
     const fb    = buildOneFromFirebase(rawVal);
     const local = workStatus[addr];
+    // 추가 개소(site)가 걸린 레코드가 바뀌면 지도의 '추가' 행을 다시 만든다(js/add-site.js, 묶어서 1회)
+    if ((fb.site || (local && local.site)) && typeof scheduleAddedSiteSync === 'function') scheduleAddedSiteSync();
 
     if (!local) {
         workStatus[addr] = fb;
@@ -780,6 +821,8 @@ function mergeOneAddress(addr, rawVal) {
         local.failedMeters  = { ...(fb.failedMeters || {}) };
         local.meterChecks   = mc;
         local.checkedMeters = mergedChecked;
+        // 추가 개소 정보는 서버 권위 — 폰은 쓸 때 서버에 바로 쓰고(saveAddedSite) 큐에 넣지 않는다
+        if (fb.site) local.site = fb.site;
         // ★서버에서 지워진 필드는 병합으로는 사라지지 않는다 (2026-09-09 실측으로 잡음).
         //   PM 이 rework 414키와 previousComplete* 482필드를 서버에서 지웠는데, 폰에는 '재'
         //   마커와 '이전 완료' 가 그대로 남았다. 서버는 REST 로 재확인해도 깨끗했다.
@@ -1046,6 +1089,7 @@ async function auditDeletions(force) {
         const alive = new Set(Object.keys(serverKeys).map(decodeKey));
         const ghosts = Object.keys(workStatus).filter(a => !alive.has(a));
         if (ghosts.length) {
+            if (ghosts.some(a => workStatus[a] && workStatus[a].site) && typeof scheduleAddedSiteSync === 'function') scheduleAddedSiteSync();
             ghosts.forEach(a => { delete workStatus[a]; });
             console.log('[Delta] 서버에 없는 로컬 레코드 정리:', ghosts.length, '건');
             persistStatus(0);
@@ -1191,6 +1235,7 @@ function attachStatusListeners() {
 
     src.on('child_removed', snap => {
         const addr = decodeKey(snap.key);
+        if (workStatus[addr] && workStatus[addr].site && typeof scheduleAddedSiteSync === 'function') scheduleAddedSiteSync();
         delete workStatus[addr];
         if (_initialLoadDone) {
             persistAll();

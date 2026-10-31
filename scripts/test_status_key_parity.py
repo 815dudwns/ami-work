@@ -55,7 +55,8 @@ def app_datasets():
     drv = ("const m=require(process.argv[1]);"
            "const p=require('path');"
            "process.stdout.write(JSON.stringify("
-           "m.DATASETS.map(d=>[p.basename(d.file), d.category])));")
+           "m.DATASETS.filter(d=>d.file).map(d=>[p.basename(d.file), d.category])));")
+    # ★파일 없는 리스트(source:'workStatus' — 추가)는 대조 대상이 아니다(파이썬 MAP_DATASETS 도 file 있는 것만).
     r = subprocess.run(["node", "-e", drv, src], capture_output=True, text=True)
     if r.returncode != 0:
         return None

@@ -216,7 +216,10 @@ def map_check(day, rows, ws, idx):
         done += 1
         addr, _, ns = k.partition("|")
         ms = []
-        for code in NS_LIST.get(ns, ("s",)):
+        if isinstance(v.get("site"), dict):
+            # site added from the map (js/add-site.js): its meters live only in added_meters, not in the index
+            ms = sorted((v.get("added_meters") or {}).keys())
+        for code in (() if ms else NS_LIST.get(ns, ("s",))):
             ms = by_addr.get((addr, code), [])
             if ms:
                 break

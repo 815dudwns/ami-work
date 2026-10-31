@@ -22,6 +22,7 @@
 //   onMap      false 면 지도에 안 올린다(통계 분모 전용)
 //   defaultOn  true 면 처음 보는 순간 켜진 채로(기존 선택이 있어도). js/map.js getSelectedCategories
 //   noStats    true 면 통계 분모·선택지에서 뺀다(scripts/datasets.py stats_sources 와 짝)
+//   source     'workStatus' 면 파일 없이 workStatus 의 site 기록으로 행을 만든다(추가 리스트, js/add-site.js)
 //   allowGroup 지정하면 그 계정 그룹에만 보인다(js/auth.js AUTH_GROUPS). 통계 분모에서도 빠진다
 //              ★2026-09-20 현재 쓰는 리스트가 없다 — 25미청구·미청구불가는 전 작업자 공개다
 const DATASET_REGISTRY = [
@@ -129,6 +130,14 @@ const DATASET_REGISTRY = [
     { code: 'w', file: './data/gwangmyeong-data.json', category: '광명', label: '광',
       uiLabel: '광명지사', allowGroup: 'kmtest', dateField: '묶음', defaultOff: true,
       groupOrder: ['광명동', '철산·하안', '소하·일직', '학온·옥길'] },
+    // 추가 — 작업자가 지도에서 직접 찍어 넣은 개소(영준님 2026-10-31). **파일이 없다** — workStatus 에서 만든다.
+    //   기록 = workStatus/<'지번주소|추가'> 의 site 하위 + added_meters(계기). js/add-site.js 가 행을 만든다.
+    //   ★다른 리스트를 골라 넣은 개소(합동·실효 등)도 같은 방식이고, 그 리스트의 마커로 그려진다 — 이 항목은
+    //     '추가' 를 고른 개소의 자리다. source:'workStatus' = 파일 대신 workStatus 에서 온다는 표시.
+    //   ★noStats — 통계 분모 제외(일별 실적에는 그 리스트로 잡힌다, stats.html). defaultOn — 켜진 채로.
+    //   마커 = 청록 + '추' 뱃지(js/map.js). kmtest(전용 그룹)에는 안 보인다(allowGroup 없는 공개 리스트).
+    { code: 'x', category: '추가', label: null, uiLabel: '추가', source: 'workStatus',
+      noStats: true, defaultOn: true },
     // TOU 는 내려둔 상태다(2026-08-02). 되살리려면 아래 줄을 되돌리고
     //   getSelectedCategories 의 ALL 에도 다시 넣어야 한다.
     // { code: 't', file: './data/tou-data.json', category: 'tou', label: 'TOU', uiLabel: 'TOU' },
@@ -166,8 +175,9 @@ function datasetVisibleToUser(d) {
 // 지도에 올리는 데이터셋만. ★이름이 `DATASETS` 인 이유: js/map.js 가 이 이름을 쓴다.
 //   ★map.js 에서 다시 선언하면 안 된다 — 클래식 스크립트는 전역을 공유해서 const 중복선언이
 //     SyntaxError 를 내고 map.js 가 통째로 안 돈다(2026-09-03 지도 먹통 사고).
+//   source:'workStatus'(추가)는 파일이 없지만 지도에 올린다.
 const DATASETS = DATASET_REGISTRY.filter(
-    d => d.onMap !== false && d.file && datasetVisibleToUser(d));
+    d => d.onMap !== false && (d.file || d.source === 'workStatus') && datasetVisibleToUser(d));
 const MAP_DATASETS = DATASETS;
 
 /** 통계 인덱스 코드 -> 상태키 카테고리. 네임스페이스 판정에 쓴다. */

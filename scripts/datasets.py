@@ -47,6 +47,8 @@ DATASETS = [
     #   allowGroup 이고 statsEvenIfGroup 이 없어 stats_sources() 가 건너뛴다 = 통계 분모 제외.
     {"code": "w", "file": "data/gwangmyeong-data.json", "category": "광명", "uiLabel": "광명지사",
      "allowGroup": "kmtest", "dateField": "묶음"},
+    # 추가 — 지도에서 직접 찍어 넣은 개소(2026-10-31). 파일 없음(workStatus site 기록). noStats = 통계 분모 제외.
+    {"code": "x", "category": "추가", "uiLabel": "추가", "source": "workStatus", "noStats": True},
 ]
 
 MAP_DATASETS = [d for d in DATASETS if d.get("onMap", True) and d.get("file")]

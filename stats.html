@@ -9,12 +9,12 @@
     <title>작업 현황 통계 - AMI</title>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-    <script src="js/auth.js?v=20261031a"></script>
-    <script src="js/config.js?v=20261031a"></script>
-    <script src="js/utils.js?v=20261031a"></script>
+    <script src="js/auth.js?v=20261031b"></script>
+    <script src="js/config.js?v=20261031b"></script>
+    <script src="js/utils.js?v=20261031b"></script>
     <!-- 상태키 규칙(네임스페이스 카테고리 목록)의 단일 출처. 지도와 같은 파일을 쓴다. -->
-    <script src="js/status-key.js?v=20261031a"></script>
-    <script src="js/datasets.js?v=20261031a"></script>
+    <script src="js/status-key.js?v=20261031b"></script>
+    <script src="js/datasets.js?v=20261031b"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #f3f4f6; min-height: 100vh; padding-bottom: 40px; color: #1f2937; }
@@ -654,6 +654,17 @@ function render(fbSiteData, workStatus, dateStr) {
             if (id && slot.seen.has(id)) continue;
             if (id) slot.seen.add(id);
             slot.meters.push(m);
+        }
+        // 지도에서 직접 추가한 개소(site, js/add-site.js) — 계기가 리스트 파일에 없고 added_meters 에만 있다.
+        //   ★분모(전체 탭·인덱스)에는 안 들어가고, 일별 실적에만 그 리스트로 잡힌다(영준님 2026-10-31 '추천대로').
+        //   ★site 가 있는 레코드에서만 센다 — 다른 레코드의 added_meters 는 예전처럼 안 센다(기존 실적 불변).
+        if (ws.site && ws.added_meters) {
+            for (const am of Object.values(ws.added_meters)) {
+                const id = String((am && am.meter_id) || '');
+                if (!id || slot.seen.has(id)) continue;
+                slot.seen.add(id);
+                slot.meters.push({ 계기번호: id, 주소: bare });
+            }
         }
     }
     const items = [...siteMap.values()].map(s => ({

@@ -56,7 +56,8 @@ DATASETS = [(os.path.basename(d["file"]), d["category"]) for d in _MAP_DATASETS]
 
 # 자기 이름을 상태키에 박는 카테고리 — 다른 리스트와 상태를 절대 공유하지 않는다.
 #   성격이 다른 리스트가 또 들어오면 여기에 한 줄 추가하면 된다.
-NAMESPACED_CATEGORIES = ("고압", "합동", "skt", "장애", "LP무기록", "미청구", "미청구불가", "광명", "선조치")
+# 추가(2026-10-31) = 지도에서 직접 찍어 넣은 개소. 기록은 workStatus '주소|추가' 의 site.
+NAMESPACED_CATEGORIES = ("고압", "합동", "skt", "장애", "LP무기록", "미청구", "미청구불가", "광명", "선조치", "추가")
 
 
 def marker_key_of(item):
@@ -137,6 +138,8 @@ def build_status_key_index(rows):
     # ── 1) 일반 카테고리 — 기존 사다리 ──────────────────────────
     #   ★네임스페이스 카테고리는 여기서 빠진다. 고압이 끼어든 주소 때문에
     #     실효·재방문 키가 갈려 옛 기록과 끊기는 일을 막는다.
+    # 지도에서 직접 추가한 개소(_addedSite)는 키가 저장돼 있다 — 사다리에서 뺀다(js/status-key.js 와 같다)
+    rows = [r for r in rows if r and not r.get("_addedSite")]
     plain = [r for r in rows if r.get("category") not in NAMESPACED_CATEGORIES]
 
     for addr, slot in _collect_by_address(plain).items():
@@ -233,6 +236,8 @@ def status_key_of(item, by_marker):
 
     주소가 비면 빈 키를 내지 않고 레코드 고유값으로 대체한다([[fallback_key_of]]).
     """
+    if item.get("_addedSite") and item.get("_statusKey"):
+        return item["_statusKey"]
     addr = item.get("주소")
     key = by_marker.get(_lookup_key(marker_key_of(item), addr), addr)
     if not str(key or "").strip():

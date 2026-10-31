@@ -29,6 +29,8 @@
     saveMeterFailEvent = function () {};
     saveAddedMeter = async function () {};
     removeAddedMeter = async function () {};
+    saveAddedSite = async function () {};          // 지도에서 주소 추가(js/add-site.js) — + 버튼도 숨김
+    markAddedSiteDeleted = async function () {};
     // 작업상태 보관소(IndexedDB·localStorage): 읽지도 쓰지도 않는다.
     //   ★한 폰을 우리 계정과 같이 쓰면 거기 우리 기록 미러가 있다 — 이 계정 화면에 끌어오지 않는다.
     loadStatusStored = async function () { return {}; };
@@ -41,7 +43,7 @@
 
     // 화면: 완료·보류·불가·사유·계기 체크·개별 불가·계기 추가·큐 보내기를 숨기고 '보기 전용' 표시
     const css = document.createElement('style');
-    css.textContent = '#btn-complete,#btn-hold,#btn-fail,.fail-reason-row,#add-meter-btn,#awms-collect-btn,'
+    css.textContent = '#btn-complete,#btn-hold,#btn-fail,.fail-reason-row,#add-meter-btn,#awms-collect-btn,#add-site-btn,'
         + '#admin-upload-btn,.meter-checkbox,.meter-fail-btn,.meter-fail-input-wrap{display:none!important}'
         + '.view-only-label{font-size:13px;color:#6b7280;font-weight:600;padding:8px 4px}';
     document.head.appendChild(css);

@@ -69,6 +69,8 @@ let locationActive = false;
 
 // 데이터셋 1개 로드 — 실효(16MB)는 캐시-우선(IndexedDB), skt/tou(작음)는 직접 fetch.
 async function loadDataset(d) {
+    // 파일 없는 리스트(추가 — workStatus 에서 만든다, js/add-site.js)는 받을 것이 없다
+    if (!d.file) return [];
     try {
         let rows;
         if (d.category === '실효') {
@@ -178,6 +180,9 @@ async function initMap() {
     };
     map = new kakao.maps.Map(container, options);
 
+    // 지도에서 주소 추가(js/add-site.js) — + 버튼·지도 누르기
+    if (typeof initAddSite === 'function') initAddSite();
+
     // 근접 마커 분산은 픽셀 간격이라 줌마다 위치를 다시 잡는다(spreadOverlappingMarkers)
     kakao.maps.event.addListener(map, 'zoom_changed', relayoutSpreadMarkers);
 
@@ -205,6 +210,10 @@ async function initMap() {
     //   화면 필터에 따라 키가 달라져 같은 마커가 다른 기록을 읽는다.
     statusKeyIndex = buildStatusKeyIndex(sampleData);
     console.log('[statusKey] 마커 여러 개로 갈린 주소:', statusKeyIndex.splitAddresses.length, '건');
+    // 지도에서 직접 추가한 개소 — 보관된 workStatus 에서 행을 만든다(js/add-site.js). 키 인덱스와 무관하다.
+    if (typeof addedSiteRowsFromStatus === 'function') {
+        sampleData = sampleData.concat(addedSiteRowsFromStatus());
+    }
 
     collectDatasetDates();   // 날짜 트리 목록 — populateCategoryFilter/loadMarkers 보다 먼저
     populateJisaOptions();
@@ -214,11 +223,20 @@ async function initMap() {
     const _laterDone = loadDeferredLists(_later);
     await initFirebase();
     markers.forEach(m => repaintMarker(m));
+    if (typeof syncAddedSiteRows === 'function') syncAddedSiteRows();
     await _laterDone;
 }
 
 const _deferredLoaded = new Set();
-async function loadDeferredLists(list) {
+// 큰 리스트를 받는 중이면 그 약속 — 주소 추가가 '이미 있는 주소' 판정 전에 기다린다(js/add-site.js)
+let _deferredLoading = null;
+function loadDeferredLists(list) {
+    const p = _loadDeferredLists(list);
+    _deferredLoading = p;
+    p.finally(() => { if (_deferredLoading === p) _deferredLoading = null; });
+    return p;
+}
+async function _loadDeferredLists(list) {
     list = (list || []).filter(d => !_deferredLoaded.has(d.category));
     if (!list.length) return;
     list.forEach(d => _deferredLoaded.add(d.category));
@@ -624,7 +642,8 @@ function loadMarkers() {
         const g = itemGuOf(item);
         if (selectedJisa && jisaOf(item) !== selectedJisa) return;
         const dsel = selectedDates[item.category];
-        if (dsel && !dsel.set.has(String(item[dsel.field] || ''))) return;
+        // 지도에서 직접 추가한 개소는 작업일이 없다 — 날짜 트리로 거르지 않는다
+        if (dsel && !item._addedSite && !dsel.set.has(String(item[dsel.field] || ''))) return;
         // selectedGu가 null이면(미설정) 전체 구 표시, Set이면 체크된 구만 (빈 Set=전부 해제=아무것도 안 보임)
         if (selectedGu && !selectedGu.has(g === null ? '미분류' : g)) return;
         if (item.lat == null || item.lng == null) return;
@@ -720,7 +739,7 @@ function aggregateRework(addresses) {
 //     나선으로 밀어도 겹치는 부분이 남아 **나중에 그려진 마커가 가린다** — zIndex 가 있어야
 //     우선순위가 실제로 보인다(불가가 마지막에 그려져 미청구를 가리던 문제, 2026-09-20).
 //   ★선조치(KDN 보강 추가분, 2026-10-30)이 맨 앞 — 실효·합동과 같은 주소에 겹쳐도 가려지면 안 된다.
-const MARKER_PRIORITY = ['선조치', '합동', '실효', 'skt', '미청구', '미청구불가'];
+const MARKER_PRIORITY = ['선조치', '합동', '실효', 'skt', '미청구', '미청구불가', '추가'];
 function markerPriority(category) {
     const i = MARKER_PRIORITY.indexOf(category);
     return i === -1 ? MARKER_PRIORITY.length : i;
@@ -880,7 +899,8 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const keyList = (statusKeys && statusKeys.length) ? statusKeys : addrList;
     const state = aggregateState(keyList);
     const addedCount = aggregateAddedCount(keyList);
-    const meterCount = meters.length + addedCount;
+    // 지도에서 추가한 개소의 자리 행(_addedSite)은 계기가 아니다 — 계기 수는 added_meters 로 센다
+    const meterCount = meters.filter(m => !m._addedSite).length + addedCount;
     const isSkt = category === 'skt';
     const isTou = category === 'tou';
     const isGapap = category === '고압';
@@ -889,9 +909,11 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const isLpNoApp = category === 'LP무기록';
     const isBulga = category === '미청구불가';
     const isSeonjochi = category === '선조치';
+    const isAddedList = category === '추가';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
     let color = isApproximate ? 'yellow' : 'green';
+    if (isAddedList) color = 'added';   // 추가 리스트 — 청록(2026-10-31)
     if (isSkt) color = 'skt';
     if (isTou) color = 'tou';
     if (isLpNoApp) color = 'lpnoapp';   // 확인용 리스트 — 진보라(영준님 2026-09-15)
@@ -923,6 +945,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const isRework = aggregateRework(keyList) || touHasRework;
     let tagText = markerTagText(isHapdong, isRework);
     if (isSeonjochi) tagText = isRework ? '선재' : '선';   // 리스트 뱃지 '선' — 노랑(근사)이어도 리스트가 보이게
+    if (isAddedList) tagText = '추';
     // 개통 뱃지는 뺐다(영준님 2026-08-31 "개통은 표시 지워") — 개통 여부는 모달에서도 안 쓴다.
     if (isJangae) tagText = jangaeTechLabel(meters);   // 뱃지 = 모뎀 방식(PLC/KDCU/LTE/SMGW)
     if (isLpNoApp) tagText = lpTypeLabel(meters);      // 뱃지 = 아미고 아닌 계기타입(AE/G)
@@ -934,7 +957,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
                 <circle class="pin-circle" cx="10" cy="10" r="5.5" fill="white"/>
             </svg>
             <div class="marker-number">${markerLabel}</div>
-            ${tagText ? `<div class="marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}">${tagText}</div>` : ''}
+            ${tagText ? `<div class="marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}${isAddedList ? ' tag-added' : ''}">${tagText}</div>` : ''}
         </div>
     `;
 
@@ -984,8 +1007,10 @@ function repaintMarker(marker) {
     const isLpNoApp = marker.category === 'LP무기록';
     const isBulga = marker.category === '미청구불가';
     const isSeonjochi = marker.category === '선조치';
+    const isAddedList = marker.category === '추가';
 
     let color = isApproximate ? 'yellow' : 'green';
+    if (isAddedList) color = 'added';
     if (isSkt) color = 'skt';
     if (isTou) color = 'tou';
     if (isLpNoApp) color = 'lpnoapp';   // 확인용 리스트 — 진보라(영준님 2026-09-15)
@@ -1006,7 +1031,7 @@ function repaintMarker(marker) {
     if (el) el.className = `custom-marker ${color}${isGapap ? ' gapap' : ''}${isJangae ? ' jangae' : ''}`;
 
     const addedCount = aggregateAddedCount(addrList);
-    const totalCount = marker.meters.length + addedCount;
+    const totalCount = marker.meters.filter(m => !m._addedSite).length + addedCount;
     const labelEl = marker.element.querySelector('.marker-number');
     const isUnknownSpot = isApproximate && state === 'pending';   // 고압 포함 — '?' 가 교/철보다 먼저
     if (labelEl) {
@@ -1025,6 +1050,7 @@ function repaintMarker(marker) {
     const tagText = isJangae ? jangaeTechLabel(marker.meters)
                   : isLpNoApp ? lpTypeLabel(marker.meters)
                   : isSeonjochi ? (isRework ? '선재' : '선')   // createMarker 와 같은 규칙
+                  : isAddedList ? '추'
                               : markerTagText(isHapdong, isRework);
     let fracEl = marker.element.querySelector('.marker-fraction');
     if (tagText) {
@@ -1032,7 +1058,7 @@ function repaintMarker(marker) {
             fracEl = document.createElement('div');
             el.appendChild(fracEl);
         }
-        fracEl.className = `marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}`;
+        fracEl.className = `marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}${isAddedList ? ' tag-added' : ''}`;
         fracEl.textContent = tagText;
     } else if (fracEl) {
         fracEl.remove();

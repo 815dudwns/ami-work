@@ -48,7 +48,8 @@ const STATUS_KEY_SEP = '|';
 //   ★장애(2026-08-31 추가): 원천이 awms 모뎀작업리스트라 실효·합동과 주소가 대량으로
 //     겹친다. 네임스페이스가 없으면 이미 완료된 주소의 기록을 그대로 물려받아 회색(완료)로
 //     떠서 할 일이 묻힌다(영준님 "장애는 완료표시하면 안된다 · pending").
-const NAMESPACED_CATEGORIES = ['고압', '합동', 'skt', '장애', 'LP무기록', '미청구', '미청구불가', '광명', '선조치'];
+//   ★추가(2026-10-31): 작업자가 지도에서 직접 찍어 넣은 개소('추가' 리스트). 기록 = workStatus '주소|추가' 의 site.
+const NAMESPACED_CATEGORIES = ['고압', '합동', 'skt', '장애', 'LP무기록', '미청구', '미청구불가', '광명', '선조치', '추가'];
 
 // 마커 식별자 — map.js loadMarkers()의 그룹핑 키와 같은 형식이어야 한다.
 function markerKeyOf(item) {
@@ -100,7 +101,10 @@ function buildStatusKeyIndex(rows) {
     // ── 1) 일반 카테고리 — 기존 사다리 ──────────────────────────
     //   ★네임스페이스 카테고리는 여기서 빠진다. 고압이 끼어든 주소 때문에
     //     실효·재방문 키가 갈려 옛 기록과 끊기는 일을 막는다.
-    const plain = (rows || []).filter(r => r && !NAMESPACED_CATEGORIES.includes(r.category));
+    // ★지도에서 직접 추가한 개소(_addedSite)는 키가 이미 정해져 저장돼 있다(_statusKey).
+    //   사다리에 넣으면 같은 주소의 기존 개소 키가 흔들린다 — 처음부터 뺀다.
+    rows = (rows || []).filter(r => r && !r._addedSite);
+    const plain = rows.filter(r => !NAMESPACED_CATEGORIES.includes(r.category));
 
     _collectByAddress(plain).forEach((slot, addr) => {
         if (slot.size <= 1) {
@@ -191,6 +195,8 @@ function fallbackKeyOf(item) {
 }
 
 function statusKeyOf(item, index) {
+    // 지도에서 직접 추가한 개소 — 저장된 키 그대로(js/add-site.js)
+    if (item && item._addedSite && item._statusKey) return item._statusKey;
     const addr = item.주소;
     const key = index
         ? (index.byMarker.get(_lookupKey(markerKeyOf(item), addr)) || addr)
