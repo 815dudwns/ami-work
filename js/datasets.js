@@ -167,6 +167,10 @@ function datasetVisibleToUser(d) {
         // ★단 '추가'(source:'workStatus')는 파일이 없고 기록이 소속 경로(js/config.js WS_DATASET)에 따로 쌓이므로
         //   전용 그룹에도 보인다 — 광명이 추가한 개소는 workStatus/gwangmyeong 에만 있다(2026-10-31).
         if (ex) return d.allowGroup === ex || d.source === 'workStatus';
+        // ★강북 계정은 '추가' 리스트 자체가 없다(영준님 2026-11-01 "추가는 강북에 없애야지?").
+        //   추가 길을 다 막았으니(js/config.js ORG_CAN_ADD) 줄도 없앤다. 7월 관리자 추가 계기는
+        //   기존 개소 상세 안 '추가' 표시(added_meters)로 보이고 이 리스트와 무관하다.
+        if (d.source === 'workStatus') return typeof ORG_CAN_ADD !== 'undefined' && ORG_CAN_ADD;
         if (!d.allowGroup) return true;
         return authAllowsGroup(d.allowGroup);
     } catch (e) {
