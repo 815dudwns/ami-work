@@ -99,9 +99,20 @@ def _round6(v):
     return None if v is None else round(float(v), 6)
 
 
+# 지사 이름 맞추기 — 선조치(seonjochi-data.json)는 '노원도봉' 처럼 '지사' 없이 적혀 있다(2026-11-02).
+#   다른 리스트는 '노원도봉지사' 라서 그대로 두면 통계 지사 트리가 둘로 갈린다.
+#   ★'X지사' 가 이미 다른 행에 있는 이름일 때만 붙인다 — 이미 맞게 적힌 행·서울본부직할·기타는 그대로.
+_known_jisa = {str(it.get("지사") or "") for _, it in items if str(it.get("지사") or "").endswith("지사")}
+
+
+def _norm_jisa(v):
+    v = str(v or "").strip()
+    return v + "지사" if v and not v.endswith("지사") and (v + "지사") in _known_jisa else v
+
+
 index = [
     {
-        "지사": it.get("지사", "") or "",
+        "지사": _norm_jisa(it.get("지사", "")),
         "주소": it.get("주소", "") or "",
         "계기번호": str(it.get("계기번호", "") or ""),
         "l": code,

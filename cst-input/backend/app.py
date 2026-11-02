@@ -537,6 +537,46 @@ def hapdong_info(meter_no):
     return hapdong_map().get(n) if n else None
 
 
+# ── 지도 리스트 소속 배지 (영준님 2026-11-02 "리스트 올릴 때마다 … 아미큐 헬퍼에 리스트 띄우는 것은 안 하니?") ──
+#   ★화면 표시 전용이다. awms 비고·저장·전송에는 아무것도 붙이지 않는다.
+#   원천 = 헬퍼와 같은 `data/meter-list-index.json`(scripts/gen_meter_list_index.py, 레지스트리에서 만든다).
+#   그래서 새 리스트를 올리고 인덱스를 다시 만들면 백엔드·앱을 안 고쳐도 배지가 따라온다.
+#   이름표는 인덱스의 `__names`. 배지에서 빼는 것:
+#     실효(s) = 본 리스트라 거의 모든 계기에 붙어 소음 · 합동(h)·25미청구(m)·25불가(u) = 이미 자기 배지가 있다.
+METER_LIST_INDEX = ROOT / "data" / "meter-list-index.json"
+LIST_BADGE_SKIP = set("shmu")
+# 이름표가 없는 옛 인덱스용 기본값(인덱스 __names 가 있으면 그쪽이 우선)
+LIST_NAMES_DEFAULT = {"s": "실효", "h": "합동", "m": "25미청구", "u": "25불가", "j": "장애",
+                      "g": "고압", "k": "SKT", "p": "선조치"}
+_mli = {"mtime": None, "idx": {}, "names": {}}
+
+
+def meter_list_index():
+    try:
+        mt = METER_LIST_INDEX.stat().st_mtime
+    except OSError:
+        return _mli
+    if _mli["mtime"] != mt:
+        try:
+            j = json.loads(METER_LIST_INDEX.read_text(encoding="utf-8"))
+            names = j.pop("__names", None) or {}
+            _mli.update(mtime=mt, idx=j, names=names)
+            print(f"[리스트배지] 계기 {len(j):,}개 · 리스트 {''.join(names) or '(이름표 없음)'}", flush=True)
+        except Exception as e:
+            print(f"[리스트배지] 읽기 실패(표시 생략): {e}", flush=True)
+    return _mli
+
+
+def meter_lists(meter_no) -> dict:
+    """{"lists": [모든 리스트 이름], "badges": [배지로 보일 이름]}. 인덱스에 없으면 둘 다 빈 목록."""
+    n = norm_meter(meter_no)
+    m = meter_list_index()
+    codes = m["idx"].get(n, "") if n else ""
+    nm = lambda c: m["names"].get(c) or LIST_NAMES_DEFAULT.get(c) or c
+    return {"lists": [nm(c) for c in codes],
+            "badges": [nm(c) for c in codes if c not in LIST_BADGE_SKIP]}
+
+
 def is_michunggu(meter_no) -> bool:
     n = norm_meter(meter_no)
     return bool(n) and n in michunggu_set()
@@ -1962,7 +2002,9 @@ def api_michunggu(meterNo: str = ""):
             "total": len(michunggu_set()), "totalBulga": len(michunggu_bulga_set()),
             "memoField": MICHUNGGU_FIELD, "memoOnlyFor": "in25",
             # 합동 리스트 — 화면 표시 전용(비고 안 나감). 옛 폰은 이 두 필드를 무시한다.
-            "inHapdong": hapdong_info(meterNo) is not None, "hapdong": hapdong_info(meterNo)}
+            "inHapdong": hapdong_info(meterNo) is not None, "hapdong": hapdong_info(meterNo),
+            # 지도 리스트 소속(화면 전용) — 옛 폰은 무시한다
+            **meter_lists(meterNo)}
 
 
 @app.post("/api/michunggu/check")
@@ -1976,7 +2018,10 @@ def api_michunggu_check(body: dict = Body(...)):
     res = {m: is_michunggu(m) for m in meters if m}
     resb = {m: is_michunggu_bulga(m) for m in meters if m}
     resh = {m: hapdong_info(m) for m in meters if m}
+    resl = {m: meter_lists(m) for m in meters if m}
     return {"in25": res, "in25bulga": resb,
+            "lists": {m: v["lists"] for m, v in resl.items()},
+            "badges": {m: v["badges"] for m, v in resl.items()},
             "inHapdong": {m: v is not None for m, v in resh.items()},
             "hapdong": {m: v for m, v in resh.items() if v},
             "hitsHapdong": sorted(k for k, v in resh.items() if v),

@@ -12,9 +12,10 @@ ROOT = Path(__file__).resolve().parent.parent
 DATASETS = [
     {"code": "s", "file": "data/site-data.json", "category": "실효",
      "uiLabel": "실효계기", "statsLabel": "실효"},
-    # 선조치 — KDN 보강공사 추가분(2026-10-30). 상태키 '주소|선조치'. noStats = 통계 분모 제외.
+    # 선조치 — KDN 보강공사 추가분(2026-10-30). 상태키 '주소|선조치'.
+    #   2026-11-02 통계에 자기 리스트로 넣음(noStats 뺌, 영준님 "통계도 선조치 안 해 놨네").
     {"code": "p", "file": "data/seonjochi-data.json", "category": "선조치", "uiLabel": "선조치",
-     "noStats": True},
+     "statsLabel": "선조치"},
     # 재방문 폐기(2026-09-09) — js/datasets.js 주석 참조
     # 고압철거 지도 내림(2026-09-09) — 남은 할 일 0건. "미착수 4건" 은 키 이스케이프 오판이었다.
     #   파일·workStatus 는 남기고 onMap=False 라 통계 분모에는 그대로 있다. js/datasets.js 주석 참조
