@@ -664,6 +664,17 @@ def _common(meter_no, mac, inst_m, mb_meter_id, mb_cnt, inst_s, bungi=""):
     return d
 
 
+def _with_yn_of(body) -> str:
+    """동행시공여부 — 전송 건(body)의 withYn 이 있으면 그 값, 없으면 CONFIG(종전).
+    아미큐 2.2.27부터 동행은 맥 화면에서 고르고 큐 항목마다 담긴다(영준님 2026-11-02). 담아 둔 뒤
+    다른 값으로 바꾸고 나중에 올려도 그 건은 담을 때 고른 값으로 나가야 해서 건별 값이 우선이다.
+    옛 앱(2.2.26 이하)은 withYn 을 안 보내므로 CONFIG 로 떨어진다(동작 동일)."""
+    w = str((body or {}).get("withYn", "")).strip().upper()
+    if w in ("Y", "N"):
+        return w
+    return "Y" if str(CONFIG.get("WITH_YN", "")).strip() == "Y" else "N"
+
+
 def saveact_post(fields: dict, photos: dict):
     """awms saveAct FormData 전송. photos = {'ATCH_FILE_ID_3_SRC': filepath, ...} 또는
     {'ATCH_FILE_ID_3': fileId(공유)}. 사진 바이너리는 (path) → open.
@@ -1460,7 +1471,7 @@ def _archive_begin(body):
         jd.mkdir(parents=True, exist_ok=True)
         _archive_write(jd, patch={
             "ts": now.isoformat(),
-            "mode": body.get("mode", ""), "ham": body.get("ham", ""),
+            "mode": body.get("mode", ""), "ham": body.get("ham", ""), "withYn": body.get("withYn", ""),
             "extMac": body.get("extMac", ""), "replaceReason": body.get("replaceReason", ""),
             "bdju": body.get("bdju", ""), "commSuffix": body.get("commSuffix", ""),
             "config": {k: CONFIG.get(k, "") for k in
@@ -1736,7 +1747,7 @@ def _saveact_core(body, plan=None):
     #   "폰이 안 보냄"과 "백엔드가 무시함"을 가르는 유일한 증거. 사진 base64는 찍지 않는다.
     print(f"[saveact:raw] keys={sorted(body.keys())} "
           f"extConn={body.get('extConn')!r} addl={body.get('addl')!r} "
-          f"ham={body.get('ham')!r} mode={body.get('mode')!r} "
+          f"ham={body.get('ham')!r} mode={body.get('mode')!r} withYn={body.get('withYn')!r} "
           f"extMac={body.get('extMac')!r} replaceReason={body.get('replaceReason')!r} "
           f"master.meterNo={(body.get('master') or {}).get('meterNo')!r}", flush=True)
     tmpd = Path(tempfile.mkdtemp(prefix="cstsave_"))
@@ -1800,6 +1811,7 @@ def _saveact_run(body, plan, tmpd, arch):
     ext_conn = "Y" if (m_instM == "HW4040" and str(body.get("extConn", "")).strip().upper() == "Y") else "N"
     # 마스터
     mf = _common(mb, mac, m_instM, mb, n, m_inst_s, bungi="")
+    with_yn = _with_yn_of(body); mf["MTR_WITH_YN"] = with_yn   # 건별 동행(없으면 CONFIG)
     mf["MODEM_DIV"] = "10"; mf["WORK_DIV"] = work_div; mf["FCLTY_DIV"] = fclty
     mf["EXT_CONN_DEV"] = ext_conn   # 항상 싣는다(미체크=N). 화면 기본값과 동일
     if is_replace:
@@ -1901,6 +1913,7 @@ def _saveact_run(body, plan, tmpd, arch):
             print(f"[saveact] slave {s['meterNo']} 분기 직접선택 {s_bungi_pick!r} 무시 "
                   f"({why}) → 강제 {s_bungi_auto}", flush=True)
         sf = _common(s["meterNo"], mac, s_instM, mb, n, s_inst_s, bungi=s_bungi)
+        sf["MTR_WITH_YN"] = with_yn   # 슬레이브도 마스터와 같은 동행값
         # 슬레이브 작업구분: 기설(M1030)은 마스터만 — 슬레이브는 신설로 둔다(종전 동작 유지).
         #   교체(M1020)는 다르다. 모뎀을 갈면 그 함체 계기가 통째로 새 모뎀에 붙으므로 슬레이브도 교체다
         #   (awms 실측: 7793 20260722 그룹 마스터1+슬레이브3 전건 M1020 + 동일 EXT_FCTY_ID).
