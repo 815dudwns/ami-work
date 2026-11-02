@@ -139,6 +139,7 @@ APK(debug 키 서명, 배포본과 서명 동일)를 `cst-input/amiqueue.apk` �
 5. **★ `python3 scripts/gen_site_version.py`** — site-data.version.json 재생성 (안 하면 작업자 폰이 옛 IndexedDB 캐시 사용. site-data.json 바꾸면 무조건)
 6. ~~Firebase 업로드: upload_sitedata.py → siteData/charger4eleccar~~ **폐지(2026-08-02)**. Firebase `siteData` 노드를 읽는 곳이 이제 없다 — 지도는 `js/map.js`가 `./data/site-data.json`을 GitHub Pages에서 직접 읽고, 통계는 `data/stats-site-index.json`(정적)을 읽는다(RTDB 22MB 반복 다운로드 제거 조치). 올릴 필요 없고, `scripts/upload_new_data.py`는 workStatus를 통째 교체(`ref.set`)하므로 **실행 금지**(완료 1만여 건 유실 위험)
 6.5. **★ `python3 scripts/gen_stats_index.py`** — data/stats-site-index.json 재생성 (stats 지사별 분모 = site-data + 완료 아카이브 + 재방문. **로컬 파일 기준**이며 Firebase를 안 읽는다. site-data.json 바꾸면 무조건)
+6.6. **★새 리스트를 올리면 헬퍼·아미큐 라벨도 확인**(영준님 2026-11-02 "통계는 하면서 헬퍼·아미큐 리스트 띄우는 건 왜 안 하니"). 레지스트리(js/datasets.js + scripts/datasets.py)에 한 줄 넣고 6.5 를 main 에서 돌리면 끝에서 `data/meter-list-index.json` 이 **레지스트리 기준**으로 같이 만들어진다(통계 noStats 와 무관). 로그 마지막 줄 `lists ...` 에 새 코드가 있는지 보고 두 파일 함께 커밋. 헬퍼 inject(v93~)·아미큐(2.2.26~, 백엔드 /api/michunggu badges)는 인덱스 `__names` 를 읽어 코드 수정 없이 따라온다. 확인: 헬퍼 계기번호 칸 라벨, 아미큐 계기 입력 배지. 라벨에서도 빼야 하면 `allowGroup`
 7. 작업상태 업로드: scripts/upload_work_status.py → workStatus/charger4eleccar
 8. git commit & push
 9. 브라우저 확인
