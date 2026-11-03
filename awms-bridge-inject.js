@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v93'; // v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v94'; // v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
   var FEAT_RELEASED = true;   // [v89] released input checks on for every helper user (see __featOn)
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
@@ -776,6 +776,23 @@ function parseValue(text) {
       } catch (e) {}
     }, true); // 캡처 단계
 
+    // [v94] Enter 키 로그인 — awms login.html 은 #id·#pw·#authorization keypress(13)로 onLogin() 을 바로 부른다.
+    //   click/submit 이 안 생겨 위 마킹이 빠지고 카톡 OTP 캡쳐가 '요청자 아님'으로 스킵됐다. 마킹은 cred 저장보다 먼저.
+    document.addEventListener('keydown', function (e) {
+      try {
+        if (!(e.key === 'Enter' || e.keyCode === 13)) return;
+        var el = e.target;
+        if (!el) return;
+        var id3 = el.id || '';
+        var isLoginInput = /^(id|pw|authorization)$/.test(id3) || String(el.type || '').toLowerCase() === 'password';
+        if (!isLoginInput) return;
+        try {
+          if (window.__markOtpReq) { window.__markOtpReq(); rec({ stage: 'otp-req-mark', btn: 'enter', el: id3 }); }
+        } catch (e2) {}
+        try { if (detectLoginFields()) saveCurrentCred(); } catch (e3) {}
+      } catch (e) {}
+    }, true); // 캡처 단계, preventDefault 절대 없음
+
     // submit 이벤트도 후킹 (엔터 제출 대비)
     document.addEventListener('submit', function (e) {
       try {
@@ -1461,9 +1478,20 @@ function parseValue(text) {
       function HookedXHR() {
         var x = new PrevXHR();
         var oOpen = x.open;
-        x.open = function (m, u) { x.__u = u; if (String(u).indexOf('saveAct') > -1) rec({ stage: 'xhr-open' }); return oOpen.apply(x, arguments); };
+        x.open = function (m, u) { x.__u = u; x.__m = String(m || '').toUpperCase(); if (String(u).indexOf('saveAct') > -1) rec({ stage: 'xhr-open' }); return oOpen.apply(x, arguments); };
         var oSend = x.send;
-        x.send = function () {
+        x.send = function (body) {
+          // [v94] OTP 발송 = POST /login (authorization 빈 값 → 서버가 카톡 OTP 발송 + 401 OTP_REQUIRED).
+          //   버튼·Enter 등 UI 경로와 무관하게 요청이 나가는 순간 '내가 요청자' 마킹.
+          try {
+            var pu = String(x.__u || '').split('?')[0];
+            if (x.__m === 'POST' && /(^|\/)login$/.test(pu) && window.__markOtpReq) {
+              var bs = (typeof body === 'string') ? body : '';
+              if (!bs || /(^|&)authorization=(&|$)/.test(bs)) {
+                window.__markOtpReq(); rec({ stage: 'otp-req-mark', btn: 'xhr-login' });
+              }
+            }
+          } catch (eM) {}
           if (String(x.__u || '').indexOf('saveAct') > -1) {
             rec({ stage: 'xhr-saveact' });
             x.addEventListener('loadend', function () {
