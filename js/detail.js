@@ -743,14 +743,16 @@ function getSortedMeters() {
 // 계기 개별 불가 토글 — 저장·전송은 firebase.js saveMeterFailEvent 한 곳에서(체크와 같은 길)
 function toggleMeterFail(meterNumber) {
     if (!String(meterNumber || '').trim()) { console.warn('[meterFail] 빈 계기번호 — 저장 거부'); return; }
-    const status = workStatus[currentStatusKey] || {};
-    const isFailed = !!(status.failedMeters && status.failedMeters[meterNumber] !== undefined);
-    if (isFailed) {
+    // 자기 키에 쓴다. 해제는 마커 안 모든 키에서(하위호환, meterOwnKey 설명)
+    const own = meterOwnKeyByNo(meterNumber);
+    if (isMeterFailed(meterNumber)) {
+        const pend = _meterFailPending.get(meterNumber);
+        if (pend) clearTimeout(pend.timer);
         _meterFailPending.delete(meterNumber);
-        saveMeterFailEvent(currentStatusKey, meterNumber, false);
+        markerKeys().forEach(k => { if (_failedAt(k, meterNumber)) saveMeterFailEvent(k, meterNumber, false); });
         renderMetersList();
     } else {
-        saveMeterFailEvent(currentStatusKey, meterNumber, true, '');
+        saveMeterFailEvent(own, meterNumber, true, '');
         renderMetersList();
         // 렌더링 후 해당 입력창에 포커스
         setTimeout(() => {
@@ -765,7 +767,7 @@ const _meterFailPending = new Map();   // meter → { addr, reason, timer }
 const METER_FAIL_DEBOUNCE_MS = 1000;
 
 function saveMeterFailReason(meterNumber, reason, addr) {
-    const a = addr || currentStatusKey;
+    const a = addr || meterFailKey(meterNumber);
     const pend = _meterFailPending.get(meterNumber);
     if (pend) { clearTimeout(pend.timer); _meterFailPending.delete(meterNumber); }
     const st = workStatus[a];
@@ -777,7 +779,7 @@ function saveMeterFailReason(meterNumber, reason, addr) {
 }
 
 function queueMeterFailReason(meterNumber, reason) {
-    const a = currentStatusKey;
+    const a = meterFailKey(meterNumber);
     const st = workStatus[a];
     if (!st || !st.failedMeters || st.failedMeters[meterNumber] === undefined) return;
     st.failedMeters[meterNumber] = reason;          // 로컬 즉시 반영(다시 그려도 입력값 유지)
@@ -939,9 +941,11 @@ function renderMetersList() {
             //   MAC 뒤 2자리에 색을 갈라 붙인다(영준님 지시 2026-09-01).
             const jIdx = filtered.filter(m => m.category === '장애').indexOf(meter);
             const jTot = filtered.filter(m => m.category === '장애').length;
-            return jangaeTreeHtml(meter, jIdx, jTot, status.checkedMeters || []);
+            const jChecked = [...new Set(markerKeys().flatMap(k => (workStatus[k] || {}).checkedMeters || []))];
+            return jangaeTreeHtml(meter, jIdx, jTot, jChecked);
         }
-        const checked = (status.checkedMeters || []).includes(meter.계기번호) ? 'checked' : '';
+        const ownKey = meterOwnKey(meter);
+        const checked = isMeterChecked(meter.계기번호) ? 'checked' : '';
         const parsedType = parseType(meter.계기번호) || meter.계기타입;
         const detailParts = [];
         // 변대주/DCU 큰 글씨 — 공통 표시 안 될 때만 개별 표시.
@@ -1307,8 +1311,9 @@ function renderMetersList() {
         const copyBtn = `<button class="copy-btn" data-copy="${meter.계기번호}" title="계기번호 복사"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
 
         // 개별 불가 처리 상태
-        const isFailed = failedMeters[meter.계기번호] !== undefined;
-        const failReason = failedMeters[meter.계기번호] || '';
+        const _fr = meterFailReasonOf(meter.계기번호, ownKey);
+        const isFailed = _fr !== undefined;
+        const failReason = _fr || '';
         const failBtnClass = isFailed ? 'meter-fail-btn active' : 'meter-fail-btn';
         const failBtnLabel = isFailed ? '불가해제' : '불가';
         const failInputHtml = isFailed
@@ -1463,15 +1468,70 @@ function resetStatus() {
     showDetail(currentAddress, currentMeters, currentAddresses, currentStatusKeys);
 }
 
-// 계기 체크 토글
+// ── 계기마다 자기 상태키 (2026-11-04, 영준님 "체크는 그 계기를 실제로 작업했다는 표시") ──
+//   합친 마커 = 한 건물의 계기 집합이다(호수별로 갈린 상태키는 저장 단위일 뿐 — 영준님 2026-11-04).
+//   체크·불가를 대표 키 하나에만 읽고 쓰면, 다른 키에 들어간 체크(complete_mine 이 계기마다 자기 키에
+//   넣는다)가 안 보이고 통계(stats.html — 계기마다 자기 키의 failedMeters 를 본다)와도 어긋난다. 그래서:
+//     읽기 = 마커 안 모든 상태키의 합집합(어느 키에든 있으면 체크/불가 — 예전 대표 키 기록 포함)
+//     쓰기 = 계기 자기 키(못 구하면 대표 키). 해제는 마커 안 모든 키에서 그 계기를 지운다.
+//   ★완료·보류·불가·초기화(상태)는 종전대로 currentStatusKeys 전부 — 여기와 무관.
+//   ★단일 키 마커는 자기 키 = 대표 키라 동작이 같다. 추가 계기(added_meters)는 대표 키 소속이라 대표 키.
+function meterOwnKey(meter) {
+    if (!meter || meter.__added) return currentStatusKey;
+    try {
+        const idx = (typeof statusKeyIndex !== 'undefined') ? statusKeyIndex : null;
+        const k = statusKeyOf(meter, idx);
+        if (k && (currentStatusKeys || []).includes(k)) return k;
+    } catch (e) {}
+    return currentStatusKey;
+}
+function meterOwnKeyByNo(meterNumber) {
+    const no = String(meterNumber || '');
+    const list = currentMeters || [];
+    const m = list.find(x => x && !x._addedSite && String(x.계기번호 || '') === no)
+        || list.find(x => x && Array.isArray(x.계기목록) && x.계기목록.some(y => y && String(y.계기번호 || '') === no));
+    return m ? meterOwnKey(m) : currentStatusKey;
+}
+function _checkedAt(key, no) {
+    const st = key && workStatus[key];
+    return !!(st && (st.checkedMeters || []).includes(no));
+}
+function _failedAt(key, no) {
+    const st = key && workStatus[key];
+    return !!(st && st.failedMeters && st.failedMeters[no] !== undefined);
+}
+// 마커 안 상태키 전부(대표 키 포함, 중복 없음)
+function markerKeys() {
+    const ks = (currentStatusKeys && currentStatusKeys.length) ? currentStatusKeys.slice() : [];
+    if (currentStatusKey && !ks.includes(currentStatusKey)) ks.push(currentStatusKey);
+    return ks;
+}
+function isMeterChecked(meterNumber) {
+    return markerKeys().some(k => _checkedAt(k, meterNumber));
+}
+function isMeterFailed(meterNumber) {
+    return markerKeys().some(k => _failedAt(k, meterNumber));
+}
+// 불가가 실제로 적힌 키 — 자기 키 우선, 없으면 마커 안 다른 키(예전 기록), 어디도 없으면 자기 키
+function meterFailKey(meterNumber, ownKey) {
+    const own = ownKey || meterOwnKeyByNo(meterNumber);
+    if (_failedAt(own, meterNumber)) return own;
+    return markerKeys().find(k => _failedAt(k, meterNumber)) || own;
+}
+function meterFailReasonOf(meterNumber, ownKey) {
+    const k = meterFailKey(meterNumber, ownKey);
+    const st = workStatus[k];
+    return (st && st.failedMeters && st.failedMeters[meterNumber] !== undefined) ? st.failedMeters[meterNumber] : undefined;
+}
+
+// 계기 체크 토글 — 자기 키에 쓴다. 해제는 마커 안 모든 키에서(안 그러면 해제가 안 먹는다)
 function toggleMeterCheck(meterNumber) {
     if (!String(meterNumber || '').trim()) { console.warn('[check] 빈 계기번호 — 저장 거부'); return; }
-    if (!workStatus[currentStatusKey]) {
-        workStatus[currentStatusKey] = { state: 'pending', checkedMeters: [], reason: '' };
+    if (!isMeterChecked(meterNumber)) {
+        saveCheckEvent(meterOwnKeyByNo(meterNumber), meterNumber, true);
+        return;
     }
-    const checkedMeters = workStatus[currentStatusKey].checkedMeters || [];
-    const isChecked = checkedMeters.includes(meterNumber);
-    saveCheckEvent(currentStatusKey, meterNumber, !isChecked);
+    markerKeys().forEach(k => { if (_checkedAt(k, meterNumber)) saveCheckEvent(k, meterNumber, false); });
 }
 
 // ── 계기 추가 모달 (admin 전용) ───────────────────────────────

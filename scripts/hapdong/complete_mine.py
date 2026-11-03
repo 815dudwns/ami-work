@@ -14,9 +14,19 @@ Flow
   3. Match = 합동 '계기번호' (the NEW meter) == INSTR_NUM, normalised (keep letter prefixes,
      zfill(11) only when purely numeric). '계기번호_전' is NOT a match key (the removed meter never
      reaches awms) — hits there are only reported.
-  4. Per status key: every 합동 meter of that key registered -> state complete.
-     Only some -> state untouched, only those meters get meterChecks checked. Keys whose state is
-     already something other than pending are left alone and only counted.
+  4. Decision unit = the MARKER (one building), not the status key (영준님 2026-11-04: a merged
+     marker is one place; per-unit status keys are only the storage unit).
+     Marker = S.marker_key_of (same grouping as js/map.js); rows without coordinates are their own unit.
+     - every 합동 meter of the marker registered -> every key of the marker whose state is pending
+       gets state complete, and the registered meters get meterChecks.
+     - only some -> state untouched everywhere, only the registered meters get meterChecks.
+     - keys already complete/hold/fail: state never touched, but the registered meters still get
+       meterChecks (a check = "this meter was actually worked"; it is not the same thing as state).
+     A meter already checked in ANY key of its marker is skipped (the app shows the union).
+     Each check is written to the meter's own status key.
+     Report-only extras (never written): meters still unchecked in matched markers, with
+     '오타 의심' when one of my unmatched awms meters differs by exactly one character; and
+     markers that are partial by marker but already have some keys complete (영준님 decides).
      Payload is a multi-path update (never a set) with the same fields the app writes
      (js/firebase.js flush): state / reason / updatedAt / updatedBy / updatedByName / rework /
      meterChecks/<m> {checked, ts} + syncAt (server timestamp — without it phones never get the delta).
@@ -141,19 +151,29 @@ def main():
             prev_hits.append(r)
     print(f"매칭 계기(신설 계기번호) {len(hit_meters):,}개")
 
-    # 4. per key decision
+    # 4. per marker decision
+    def unit_of(r):
+        if r.get("lat") is None or r.get("lng") is None:
+            return "nocoord||" + S.status_key_of(r, by_marker)
+        return S.marker_key_of(r)
+
+    marker_rows = defaultdict(list)
+    for r in hd:
+        marker_rows[unit_of(r)].append(r)
+    marker_keys = {mk: sorted({S.status_key_of(r, by_marker) for r in rs}) for mk, rs in marker_rows.items()}
+
     full, partial = {}, {}
-    for k, rs in key_rows.items():
+    for mk, rs in marker_rows.items():
         ms = [norm_meter(r.get("계기번호")) for r in rs]
         hits = [m for m in ms if m and m in hit_meters]
         if not hits:
             continue
         if len(hits) == len(ms):           # empty 계기번호 rows count against "all"
-            full[k] = rs
+            full[mk] = rs
         else:
-            partial[k] = rs
+            partial[mk] = rs
 
-    target_keys = list(full) + list(partial)
+    target_keys = sorted({k for mk in list(full) + list(partial) for k in marker_keys[mk]})
     db = fb_init()
     ref = db.reference(WS_PATH)
 
@@ -163,64 +183,120 @@ def main():
     with ThreadPoolExecutor(16) as ex:
         cur = dict(ex.map(fetch, target_keys))
 
-    def state_of(k):
-        v = cur.get(k) or {}
-        return (v.get("state") or "pending") if isinstance(v, dict) else "pending"
+    def val(k):
+        v = cur.get(k)
+        return v if isinstance(v, dict) else {}
 
-    already = {k: state_of(k) for k in target_keys if state_of(k) != "pending"}
-    do_full = [k for k in full if k not in already]
-    do_partial = [k for k in partial if k not in already]
+    def state_of(k):
+        return val(k).get("state") or "pending"
+
+    def checked_in_marker(mk, raw_meter):
+        em = S.encode_key(raw_meter)
+        for k in marker_keys[mk]:
+            c = (val(k).get("meterChecks") or {}).get(em)
+            if isinstance(c, dict) and c.get("checked"):
+                return True
+            if raw_meter in (val(k).get("checkedMeters") or []):   # legacy array
+                return True
+        return False
 
     now_ms = int(time.time() * 1000)
     now_iso = datetime.now(KST).isoformat(timespec="milliseconds")
     updates = {}
     n_checks = 0
-    for k in do_full + do_partial:
-        p = S.encode_key(k)
-        v = cur.get(k) if isinstance(cur.get(k), dict) else {}
-        mc = v.get("meterChecks") or {}
-        for r in key_rows[k]:
-            m = norm_meter(r.get("계기번호"))
+    complete_keys = []                         # keys whose state this run sets complete
+    checks_on_done = defaultdict(int)          # already-processed key -> checks added there
+    for mk in list(full) + list(partial):
+        for r in marker_rows[mk]:
+            raw = r.get("계기번호")
+            m = norm_meter(raw)
             if not (m and m in hit_meters):
                 continue
-            em = S.encode_key(r.get("계기번호"))   # same key the app uses (raw 계기번호)
-            if isinstance(mc.get(em), dict) and mc[em].get("checked"):
+            if checked_in_marker(mk, raw):
                 continue
-            updates[f"{p}/meterChecks/{em}"] = {"checked": True, "ts": now_ms}
+            k = S.status_key_of(r, by_marker)          # the meter's own key
+            updates[f"{S.encode_key(k)}/meterChecks/{S.encode_key(raw)}"] = {"checked": True, "ts": now_ms}
             n_checks += 1
-        if k in full:
-            updates[f"{p}/state"] = "complete"
-            updates[f"{p}/reason"] = ""
-            updates[f"{p}/updatedAt"] = now_iso
-            updates[f"{p}/updatedBy"] = "admin"
-            updates[f"{p}/updatedByName"] = ME_NAME
-            updates[f"{p}/rework"] = False
-        if any(u.startswith(p + "/") for u in updates):
-            updates[f"{p}/syncAt"] = {".sv": "timestamp"}
+            if state_of(k) != "pending":
+                checks_on_done[k] += 1
+        if mk in full:
+            for k in marker_keys[mk]:
+                if state_of(k) != "pending":
+                    continue
+                p = S.encode_key(k)
+                updates[f"{p}/state"] = "complete"
+                updates[f"{p}/reason"] = ""
+                updates[f"{p}/updatedAt"] = now_iso
+                updates[f"{p}/updatedBy"] = "admin"
+                updates[f"{p}/updatedByName"] = ME_NAME
+                updates[f"{p}/rework"] = False
+                complete_keys.append(k)
+    for p in {u.split("/", 1)[0] for u in updates}:
+        updates[f"{p}/syncAt"] = {".sv": "timestamp"}
 
     # 5. report
-    def dist(keys):
-        rs = [r for k in keys for r in key_rows[k]]
+    def dist_rows(rs):
         return (dict(sorted(Counter(r.get("작업일") for r in rs).items())),
                 dict(Counter(gu_of(r.get("주소")) for r in rs).most_common()))
 
+    def mlabel(mk):
+        rs = marker_rows[mk]
+        return f"{rs[0].get('도로명주소') or rs[0].get('주소')} (계기 {len(rs)} · 상태키 {len(marker_keys[mk])})"
+
     print()
-    print(f"완료 처리할 키 {len(do_full):,}개 (계기 {sum(len(key_rows[k]) for k in do_full):,})")
-    d, g = dist(do_full)
+    full_new = [mk for mk in full if any(state_of(k) == "pending" for k in marker_keys[mk])]
+    print(f"전부 등록된 마커 {len(full):,}개 — 완료 처리할 키 {len(complete_keys):,}개 "
+          f"(마커 {len(full_new):,}, 계기 {sum(len(full[mk]) for mk in full_new):,})")
+    d, g = dist_rows([r for mk in full_new for r in full[mk]])
     print(f"  작업일별(계기) {d}")
     print(f"  구별(계기)     {g}")
-    print(f"일부만 등록된 키 {len(do_partial):,}개 — state 그대로, 등록된 계기만 체크")
-    for k in do_partial:
-        rs = key_rows[k]
+    print(f"일부만 등록된 마커 {len(partial):,}개 — 상태 그대로, 등록된 계기만 체크")
+    for mk in partial:
+        rs = partial[mk]
         got = [r.get("계기번호") for r in rs if norm_meter(r.get("계기번호")) in hit_meters]
         miss = [r.get("계기번호") or "(계기번호 빈값)" for r in rs if norm_meter(r.get("계기번호")) not in hit_meters]
-        print(f"  - {k}  등록 {len(got)}/{len(rs)}  미등록 {miss}")
-    print(f"이미 처리된 키(건드리지 않음) {len(already):,}개 {dict(Counter(already.values()))}")
+        print(f"  - {mlabel(mk)}  등록 {len(got)}/{len(rs)}  미등록 {miss}")
+    print(f"이미 처리된 키에 체크만 추가: 키 {len(checks_on_done):,} · 계기 {sum(checks_on_done.values()):,}"
+          f"  (상태 {dict(Counter(state_of(k) for k in checks_on_done))})")
+
+    mixed = [mk for mk in partial if any(state_of(k) != "pending" for k in marker_keys[mk])]
+    if mixed:
+        print(f"★마커 기준이면 일부인데 키 일부가 이미 처리된 마커 {len(mixed)}개 — 건드리지 않음, 영준님 판단:")
+        for mk in mixed:
+            st = Counter(state_of(k) for k in marker_keys[mk])
+            miss = [r.get("계기번호") or "(빈값)" for r in partial[mk] if norm_meter(r.get("계기번호")) not in hit_meters]
+            print(f"  - {mlabel(mk)}  키 상태 {dict(st)}  미등록 {miss}")
+
+    # still unchecked after this run, inside matched markers (report only)
+    matched_norm = {norm_meter(r.get("계기번호")) for r in hd}
+    spare = [m for m in mine if m not in matched_norm]   # my awms meters no 합동 row claims
+
+    def one_off(a, b):
+        return len(a) == len(b) and sum(x != y for x, y in zip(a, b)) == 1
+
+    left = []
+    for mk in list(full) + list(partial):
+        for r in marker_rows[mk]:
+            raw = r.get("계기번호") or ""
+            m = norm_meter(raw)
+            if m and m in hit_meters:
+                continue
+            if raw and checked_in_marker(mk, raw):
+                continue
+            left.append((mk, r, [x for x in spare if m and one_off(m, x)]))
+    print(f"미체크 남음 {len(left)}계기 (매칭 마커 안, 자동 체크·교정 안 함):")
+    for mk, r, sus in left:
+        line = f"  - {r.get('작업일')} {r.get('지사')} {r.get('주소')} 계기 {r.get('계기번호') or '(빈값)'}"
+        for x in sus:
+            macs = sorted({str(a.get('MAC_MODEM') or '') for a in mine[x]})
+            line += f"\n      오타 의심 {r.get('계기번호')} ↔ {mine[x][0].get('INSTR_NUM')} MAC {','.join(macs)}"
+        print(line)
+
     if prev_hits:
         print(f"★철거 계기번호(계기번호_전)만 내 등록과 일치 {len(prev_hits)}건 — 매칭하지 않음, 확인용:")
         for r in prev_hits[:30]:
             print(f"  - {r.get('작업일')} {r.get('지사')} {r.get('주소')} 신설 {r.get('계기번호')} 철거 {r.get('계기번호_전')}")
-    print(f"쓰기 경로 {len(updates):,}개 (계기 체크 {n_checks:,})")
+    print(f"쓰기 경로 {len(updates):,}개 (계기 체크 {n_checks:,} · 완료 키 {len(complete_keys):,})")
 
     if not args.go:
         print("\n드라이런 — Firebase 는 쓰지 않았다. 쓰려면 --go")
