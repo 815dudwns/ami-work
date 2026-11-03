@@ -27,6 +27,19 @@ Flow
      Report-only extras (never written): meters still unchecked in matched markers, with
      '오타 의심' when one of my unmatched awms meters differs by exactly one character; and
      markers that are partial by marker but already have some keys complete (영준님 decides).
+  5. Typo pairs (영준님 2026-11-04 "누구 하나는 틀린 것이니 바로잡아야 한다"):
+     inside one marker, an unchecked list meter and one of my awms meters on the same modem MAC
+     (an awms meter no 합동 row claims) that differ by exactly one character = a pair, when the
+     list meter has exactly one such partner. Which side is right is decided by the PHOTO:
+     아미큐 archive ~/.ami-cst-archive/<day>/*/job.json (master_5 / slaveN_5) first, else the awms
+     slot-5 photo (getDetail ATCH_FILE_ID_5, singleFile.innorix), read by our OCR (아미큐 backend
+     /api/ocr = Apple Vision + E5 rules).
+     - photo == my awms number (계기팀 typo) -> --go writes failedMeters[<list no>] = <my awms no>
+       on the list meter's own key (영준님's existing manual format) and the meter counts as done
+       for the marker decision.
+     - photo == list number (my awms typo) -> printed only: '내 awms 정정 필요' (awms edit needs 영준님).
+     - no photo / OCR failed / two or more partners -> printed only.
+     A list meter whose failedMeters value is already a meter number (a correction) counts as done.
      Payload is a multi-path update (never a set) with the same fields the app writes
      (js/firebase.js flush): state / reason / updatedAt / updatedBy / updatedByName / rework /
      meterChecks/<m> {checked, ts} + syncAt (server timestamp — without it phones never get the delta).
@@ -37,7 +50,9 @@ Default is a dry run. Firebase is written only with --go.
     python3 scripts/hapdong/complete_mine.py --go       # write
 """
 import argparse
+import base64
 import json
+import re
 import sys
 import time
 import urllib.request
@@ -60,6 +75,62 @@ CAT = "합동"
 DB_URL = "https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app"
 WS_PATH = "workStatus/charger4eleccar"
 SA_KEY = ROOT / "ami-work-1c49a-firebase-adminsdk-fbsvc-8ce17a057a.json"
+
+
+METER_LAW = re.compile(r"^[0-9A-Z]{2}[0-9]{9}$")
+ARCHIVE = Path.home() / ".ami-cst-archive"
+OCR_URL = "http://127.0.0.1:8766/api/ocr"
+TOKEN_FILE = ROOT / "cst-input" / "backend" / "api_token.txt"
+MAIN_TOKEN_FILE = Path("/Users/woodelight/Projects/ami-work/cst-input/backend/api_token.txt")
+
+
+def archive_photo(meter):
+    """아미큐 보관함에서 그 계기 명판 사진(5번) — (bytes, 출처) 또는 (None, '')."""
+    for jp in sorted(ARCHIVE.glob("*/*/job.json"), reverse=True):
+        try:
+            j = json.loads(jp.read_text())
+        except Exception:
+            continue
+        cands = []
+        if norm_meter((j.get("master") or {}).get("meterNo")) == meter:
+            cands.append(jp.parent / "master_5.jpg")
+        for i, sl in enumerate(j.get("slaves") or []):
+            if norm_meter((sl or {}).get("meterNo")) == meter:
+                cands.append(jp.parent / f"slave{i + 1}_5.jpg")
+        for c in cands:
+            if c.exists():
+                return c.read_bytes(), f"보관함 {jp.parent.parent.name}/{jp.parent.name}/{c.name}"
+    return None, ""
+
+
+def awms_photo(row, h):
+    """awms 5번 사진(계기 명판) — (bytes, 출처) 또는 (None, 사유)."""
+    try:
+        d = A.detail(row, h)
+        d0 = d[0] if isinstance(d, list) and d else (d or {})
+        fid = (d0 or {}).get("ATCH_FILE_ID_5") or ""
+        if not fid:
+            return None, "awms 5번 사진 없음"
+        req = urllib.request.Request(f"https://awms.kdn.com/singleFile.innorix?atchFileId={fid}", headers=h)
+        with urllib.request.urlopen(req, timeout=60) as r:
+            b = r.read()
+        return (b, f"awms {fid}") if b[:2] == b"\xff\xd8" else (None, "awms 사진 형식 아님")
+    except Exception as e:
+        return None, f"awms 사진 실패 {e}"
+
+
+def ocr_meter(b):
+    tf = TOKEN_FILE if TOKEN_FILE.exists() else MAIN_TOKEN_FILE
+    try:
+        tok = tf.read_text().strip()
+        body = json.dumps({"images": [{"id": "x", "b64": "data:image/jpeg;base64," + base64.b64encode(b).decode()}]}).encode()
+        req = urllib.request.Request(OCR_URL, data=body,
+                                     headers={"Content-Type": "application/json", "X-Amiq-Token": tok})
+        with urllib.request.urlopen(req, timeout=200) as r:
+            res = json.loads(r.read()).get("results") or []
+        return norm_meter((res[0] if res else {}).get("meterNo"))
+    except Exception:
+        return ""
 
 
 def norm_meter(v):
@@ -162,18 +233,9 @@ def main():
         marker_rows[unit_of(r)].append(r)
     marker_keys = {mk: sorted({S.status_key_of(r, by_marker) for r in rs}) for mk, rs in marker_rows.items()}
 
-    full, partial = {}, {}
-    for mk, rs in marker_rows.items():
-        ms = [norm_meter(r.get("계기번호")) for r in rs]
-        hits = [m for m in ms if m and m in hit_meters]
-        if not hits:
-            continue
-        if len(hits) == len(ms):           # empty 계기번호 rows count against "all"
-            full[mk] = rs
-        else:
-            partial[mk] = rs
-
-    target_keys = sorted({k for mk in list(full) + list(partial) for k in marker_keys[mk]})
+    touched = [mk for mk, rs in marker_rows.items()
+               if any(norm_meter(r.get("계기번호")) in hit_meters for r in rs)]
+    target_keys = sorted({k for mk in touched for k in marker_keys[mk]})
     db = fb_init()
     ref = db.reference(WS_PATH)
 
@@ -190,6 +252,17 @@ def main():
     def state_of(k):
         return val(k).get("state") or "pending"
 
+    def correction_in_marker(mk, raw_meter):
+        """failedMeters[<list no>] = <meter number> (정정 기록) 이 마커 안 어느 키에든 있으면 그 번호."""
+        em = S.encode_key(raw_meter)
+        for k in marker_keys[mk]:
+            fm = val(k).get("failedMeters") or {}
+            for kk in (em, raw_meter):
+                v = fm.get(kk)
+                if isinstance(v, str) and METER_LAW.match(norm_meter(v)):
+                    return norm_meter(v)
+        return ""
+
     def checked_in_marker(mk, raw_meter):
         em = S.encode_key(raw_meter)
         for k in marker_keys[mk]:
@@ -199,6 +272,64 @@ def main():
             if raw_meter in (val(k).get("checkedMeters") or []):   # legacy array
                 return True
         return False
+
+    # typo pairs (step 5) — before the marker decision, because a confirmed 계기팀 typo counts as done
+    matched_norm = {norm_meter(r.get("계기번호")) for r in hd}
+    spare = [m for m in mine if m not in matched_norm]   # my awms meters no 합동 row claims
+
+    def one_off(a, b):
+        return len(a) == len(b) and sum(x != y for x, y in zip(a, b)) == 1
+
+    awms_h = A.headers()
+    pairs = []            # (mk, row, partners, verdict, photo_src, ocr)
+    fix_writes = {}       # norm list meter -> (own key, raw list no, awms no)
+    already_fixed = []    # (mk, row, corrected)
+    for mk in touched:
+        macs = {str(a.get("MAC_MODEM") or "").upper() for r in marker_rows[mk]
+                for a in mine.get(norm_meter(r.get("계기번호")), [])} - {""}
+        near = [x for x in spare if any(str(a.get("MAC_MODEM") or "").upper() in macs for a in mine[x])]
+        for r in marker_rows[mk]:
+            raw = r.get("계기번호") or ""
+            m = norm_meter(raw)
+            if not m or m in hit_meters:
+                continue
+            c = correction_in_marker(mk, raw)
+            if c:
+                already_fixed.append((mk, r, c))
+                continue
+            if checked_in_marker(mk, raw):
+                continue
+            partners = [x for x in near if one_off(m, x)]
+            if not partners:
+                continue
+            if len(partners) > 1:
+                pairs.append((mk, r, partners, "짝 둘 이상 — 출력만", "", ""))
+                continue
+            x = partners[0]
+            b, src = archive_photo(x)
+            if b is None:
+                b, src = awms_photo(mine[x][0], awms_h)
+            o = ocr_meter(b) if b else ""
+            if not b:
+                verdict = f"사진 없음({src}) — 출력만"
+            elif o == x:
+                verdict = "사진 = 내 awms 번호 → 계기팀 오타, --go 때 개별불가에 맞는 번호"
+                fix_writes[m] = (S.status_key_of(r, by_marker), raw, mine[x][0].get("INSTR_NUM") or x)
+            elif o == m:
+                verdict = f"사진 = 리스트 번호 → 내 awms 정정 필요: {mine[x][0].get('INSTR_NUM')} → {raw} — 쓰지 않음"
+            else:
+                verdict = f"OCR 판독 {o or '실패'} — 어느 쪽과도 다름, 출력만"
+            pairs.append((mk, r, partners, verdict, src, o))
+
+    done_extra = set(fix_writes) | {norm_meter(r.get("계기번호")) for _, r, _ in already_fixed}
+    full, partial = {}, {}
+    for mk in touched:
+        rs = marker_rows[mk]
+        ms = [norm_meter(r.get("계기번호")) for r in rs]
+        if all(m and (m in hit_meters or m in done_extra) for m in ms):   # empty 계기번호 rows count against "all"
+            full[mk] = rs
+        else:
+            partial[mk] = rs
 
     now_ms = int(time.time() * 1000)
     now_iso = datetime.now(KST).isoformat(timespec="milliseconds")
@@ -231,6 +362,8 @@ def main():
                 updates[f"{p}/updatedByName"] = ME_NAME
                 updates[f"{p}/rework"] = False
                 complete_keys.append(k)
+    for m, (k, raw, good) in fix_writes.items():
+        updates[f"{S.encode_key(k)}/failedMeters/{S.encode_key(raw)}"] = good
     for p in {u.split("/", 1)[0] for u in updates}:
         updates[f"{p}/syncAt"] = {".sv": "timestamp"}
 
@@ -267,19 +400,22 @@ def main():
             miss = [r.get("계기번호") or "(빈값)" for r in partial[mk] if norm_meter(r.get("계기번호")) not in hit_meters]
             print(f"  - {mlabel(mk)}  키 상태 {dict(st)}  미등록 {miss}")
 
-    # still unchecked after this run, inside matched markers (report only)
-    matched_norm = {norm_meter(r.get("계기번호")) for r in hd}
-    spare = [m for m in mine if m not in matched_norm]   # my awms meters no 합동 row claims
-
-    def one_off(a, b):
-        return len(a) == len(b) and sum(x != y for x, y in zip(a, b)) == 1
+    print(f"이미 오타 정정된 계기 {len(already_fixed)}개 (개별불가에 맞는 번호 — 처리됨으로 셈):")
+    for mk, r, c in already_fixed:
+        print(f"  - {r.get('작업일')} {r.get('지사')} {r.get('주소')} 리스트 {r.get('계기번호')} → {c}")
+    print(f"오타 짝 {len(pairs)}개 (같은 마커·같은 모뎀 MAC, 한 자리 차이):")
+    for mk, r, partners, verdict, src, o in pairs:
+        macs = sorted({str(a.get('MAC_MODEM') or '') for x in partners for a in mine[x]})
+        print(f"  - {r.get('주소')}  리스트 {r.get('계기번호')} ↔ 내 awms {','.join(mine[x][0].get('INSTR_NUM') or x for x in partners)}"
+              f"  MAC {','.join(macs)}")
+        print(f"      사진 {src or '-'} · 판독 {o or '-'} · {verdict}")
 
     left = []
     for mk in list(full) + list(partial):
         for r in marker_rows[mk]:
             raw = r.get("계기번호") or ""
             m = norm_meter(raw)
-            if m and m in hit_meters:
+            if m and (m in hit_meters or m in done_extra):
                 continue
             if raw and checked_in_marker(mk, raw):
                 continue
@@ -289,14 +425,14 @@ def main():
         line = f"  - {r.get('작업일')} {r.get('지사')} {r.get('주소')} 계기 {r.get('계기번호') or '(빈값)'}"
         for x in sus:
             macs = sorted({str(a.get('MAC_MODEM') or '') for a in mine[x]})
-            line += f"\n      오타 의심 {r.get('계기번호')} ↔ {mine[x][0].get('INSTR_NUM')} MAC {','.join(macs)}"
+            line += f"\n      오타 의심(다른 모뎀 포함) {r.get('계기번호')} ↔ {mine[x][0].get('INSTR_NUM')} MAC {','.join(macs)}"
         print(line)
 
     if prev_hits:
         print(f"★철거 계기번호(계기번호_전)만 내 등록과 일치 {len(prev_hits)}건 — 매칭하지 않음, 확인용:")
         for r in prev_hits[:30]:
             print(f"  - {r.get('작업일')} {r.get('지사')} {r.get('주소')} 신설 {r.get('계기번호')} 철거 {r.get('계기번호_전')}")
-    print(f"쓰기 경로 {len(updates):,}개 (계기 체크 {n_checks:,} · 완료 키 {len(complete_keys):,})")
+    print(f"쓰기 경로 {len(updates):,}개 (계기 체크 {n_checks:,} · 완료 키 {len(complete_keys):,} · 오타 개별불가 {len(fix_writes):,})")
 
     if not args.go:
         print("\n드라이런 — Firebase 는 쓰지 않았다. 쓰려면 --go")
