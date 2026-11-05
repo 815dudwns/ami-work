@@ -59,13 +59,38 @@ SEAL_EMPTY = {'9999999', '0000000', '000000', '9999999999'}
 LP_SUCCESS_GLOB = 'data/reference/bulga25_lp_success_*.json'
 
 
+# ★작업 기록이 있는 개소는 빼지 않는다(영준님 2026-11-05 "오늘 작업한곳은 남겨야지").
+#   빼면 기록은 Firebase 에 남아도 지도·통계에서 그 개소가 사라진다. 판정은 workStatus 를 읽어야
+#   하는데 빌더는 Firebase 를 안 읽는다 → 판정 결과를 유지 목록 파일로 두고 B10 이 먼저 본다.
+#   개소 단위(주소)다 — 그 개소의 LP 성공 계기도 같이 남는다.
+LP_KEEP_GLOB = 'data/reference/bulga25_lp_keep_worked_*.json'
+
+
+def lp_keep_addrs():
+    out = {}
+    for p in sorted(ROOT.glob(LP_KEEP_GLOB)):
+        for x in json.loads(p.read_text())['개소']:
+            for a in x['주소']:
+                out.setdefault(a, p.name)
+    return out
+
+
 def lp_success_hits(recs):
-    """recs 중 LP 성공 회신 목록에 있는 계기 -> [(rec, {'출처': 파일명})]"""
+    """recs 중 LP 성공 회신 목록에 있는 계기 -> [(rec, {'출처': 파일명})], 목록, 유지로 남긴 [(rec, 파일명)]"""
     src = {}
     for p in sorted(ROOT.glob(LP_SUCCESS_GLOB)):
         for t in json.loads(p.read_text())['계기']:
             src.setdefault(nm(t['계기번호']), p.name)
-    return [(r, {'출처': src[nm(r['계기번호'])]}) for r in recs if nm(r['계기번호']) in src], src
+    keep_a = lp_keep_addrs()
+    hits, kept = [], []
+    for r in recs:
+        if nm(r['계기번호']) not in src:
+            continue
+        if r.get('주소') in keep_a:
+            kept.append((r, keep_a[r['주소']]))
+        else:
+            hits.append((r, {'출처': src[nm(r['계기번호'])]}))
+    return hits, src, kept
 
 
 def stage_lp_success(hits):
@@ -457,8 +482,9 @@ def main():
         keep = [v for v in keep if v['_m'] not in _s9]
 
     # ── 제외축 B10: 한전 LP 성공 회신 (영준님 2026-11-05) ─────────────────────
-    _lp, _lpsrc = lp_success_hits(recs)
-    log(f'한전 LP 성공 회신 — 목록 {len(_lpsrc)} 중 {len(_lp)}건 **제외**')
+    _lp, _lpsrc, _lpkeep = lp_success_hits(recs)
+    log(f'한전 LP 성공 회신 — 목록 {len(_lpsrc)} 중 {len(_lp)}건 **제외**'
+        f' · 작업 기록 개소라 유지 {len(_lpkeep)}건')
     if _lp:
         _ls = {nm(r['계기번호']) for r, _ in _lp}
         stage_lp_success(_lp)
@@ -577,23 +603,31 @@ def lp_only():
 
     9/29 이후 원장(ami.db)이 계속 적재돼 빌더를 통째로 다시 돌리면 다른 축 결과까지
     움직인다. 회신 반영만 할 때는 이 모드로 지금 파일에서 같은 함수로 뺀다.
+    ★이미 뺀 계기는 되살리지 못한다. 유지 목록을 바꿨으면 B10 적용 전 파일
+    (git 에서 B10 커밋 직전 판)으로 되돌린 뒤 이 모드를 다시 돌려라.
     빌더를 다시 돌리면 main() 의 같은 단계가 같은 결과를 낸다.
     """
+    # 다시 돌려도 이력이 겹치지 않게 B10 몫만 비우고 새로 쌓는다
+    _st = [x for x in EX.stage_load(EX.L_BULGA) if x.get('축코드') != 'B10']
+    EX.stage_reset(EX.L_BULGA)
+    EX.stage(EX.L_BULGA, _st)
     before = {}
     total = 0
     for p in (OUT, OUT_PEND):
         rows = json.loads(p.read_text())
-        hits, src = lp_success_hits(rows)
+        hits, src, kept = lp_success_hits(rows)
+        if kept:
+            log(f'{p.name}: 작업 기록 개소라 유지 {len(kept)}건 ({len({r["주소"] for r, _ in kept})}곳)')
         hs = {nm(r['계기번호']) for r, _ in hits}
         if hits:
             stage_lp_success(hits)
             p.write_text(json.dumps([x for x in rows if nm(x['계기번호']) not in hs],
                                     ensure_ascii=False, indent=1))
         before[p.name] = (len(rows), len(hits))
-        total += len(hits)
+        total += len(hits) + len(kept)
     for k, (n, h) in before.items():
         log(f'{k}: {n:,} -> {n - h:,} (LP 성공 제외 {h})')
-    log(f'목록 {len(src)} · 뺀 것 {total} · 못 찾은 것 {len(src) - total}')
+    log(f'목록 {len(src)} · 뺀 것+유지 {total} · 못 찾은 것 {len(src) - total}')
     return 0 if total == len(src) else 1
 
 
