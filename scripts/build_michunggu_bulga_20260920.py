@@ -51,6 +51,30 @@ METER_TYPO_EXCLUDE = {
 SEAL_EMPTY = {'9999999', '0000000', '000000', '9999999999'}
 
 
+# ─── 제외축 B10: 한전 LP 성공 회신 (영준님 2026-11-05) ─────────────────────────
+# 과장이 25불가 미완료 리스트에 LP 결과를 적어 돌려줬다. '성공' = 통신이 이미 붙었다 → 뺀다.
+# 실패·#N/A 는 그대로 둔다. 목록 정본은 data/reference/bulga25_lp_success_*.json —
+# 회신이 또 오면 파일을 하나 더 두면 된다(전부 합쳐 읽는다).
+# ★빌더가 다시 돌아도 빠진 채로 남도록 파일로 둔다(손편집 금지).
+LP_SUCCESS_GLOB = 'data/reference/bulga25_lp_success_*.json'
+
+
+def lp_success_hits(recs):
+    """recs 중 LP 성공 회신 목록에 있는 계기 -> [(rec, {'출처': 파일명})]"""
+    src = {}
+    for p in sorted(ROOT.glob(LP_SUCCESS_GLOB)):
+        for t in json.loads(p.read_text())['계기']:
+            src.setdefault(nm(t['계기번호']), p.name)
+    return [(r, {'출처': src[nm(r['계기번호'])]}) for r in recs if nm(r['계기번호']) in src], src
+
+
+def stage_lp_success(hits):
+    EX.stage(EX.L_BULGA, [EX.row(EX.L_BULGA, 'B10', r,
+        f"한전KDN 이 25불가 미완료 리스트에 LP 결과 '성공' 으로 회신했다({ev['출처']})."
+        " 통신이 이미 붙어 우리가 갈 일이 없다.",
+        f"LP 성공 · {ev['출처']}") for r, ev in hits])
+
+
 def seal(v):
     """봉인 — '9999999|' 처럼 구분자로 이어 붙어 온다. 실값만 남긴다.
 
@@ -432,6 +456,15 @@ def main():
         recs = [x for x in recs if nm(x['계기번호']) not in _s9]
         keep = [v for v in keep if v['_m'] not in _s9]
 
+    # ── 제외축 B10: 한전 LP 성공 회신 (영준님 2026-11-05) ─────────────────────
+    _lp, _lpsrc = lp_success_hits(recs)
+    log(f'한전 LP 성공 회신 — 목록 {len(_lpsrc)} 중 {len(_lp)}건 **제외**')
+    if _lp:
+        _ls = {nm(r['계기번호']) for r, _ in _lp}
+        stage_lp_success(_lp)
+        recs = [x for x in recs if nm(x['계기번호']) not in _ls]
+        keep = [v for v in keep if v['_m'] not in _ls]
+
     # ── 좌표 ────────────────────────────────────────────────────────────────
     has = [x for x in recs if x['주소']]
     pend = [x for x in recs if not x['주소']]
@@ -539,5 +572,30 @@ def main():
     return 0 if ok else 1
 
 
+def lp_only():
+    """B10 만 지금 데이터 파일에 적용한다 (재생성 없이).
+
+    9/29 이후 원장(ami.db)이 계속 적재돼 빌더를 통째로 다시 돌리면 다른 축 결과까지
+    움직인다. 회신 반영만 할 때는 이 모드로 지금 파일에서 같은 함수로 뺀다.
+    빌더를 다시 돌리면 main() 의 같은 단계가 같은 결과를 낸다.
+    """
+    before = {}
+    total = 0
+    for p in (OUT, OUT_PEND):
+        rows = json.loads(p.read_text())
+        hits, src = lp_success_hits(rows)
+        hs = {nm(r['계기번호']) for r, _ in hits}
+        if hits:
+            stage_lp_success(hits)
+            p.write_text(json.dumps([x for x in rows if nm(x['계기번호']) not in hs],
+                                    ensure_ascii=False, indent=1))
+        before[p.name] = (len(rows), len(hits))
+        total += len(hits)
+    for k, (n, h) in before.items():
+        log(f'{k}: {n:,} -> {n - h:,} (LP 성공 제외 {h})')
+    log(f'목록 {len(src)} · 뺀 것 {total} · 못 찾은 것 {len(src) - total}')
+    return 0 if total == len(src) else 1
+
+
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(lp_only() if '--lp-only' in sys.argv else main())
