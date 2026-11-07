@@ -75,6 +75,11 @@ def lp_keep_addrs():
     return out
 
 
+def archived(norm):
+    from datasets import archived_meters
+    return archived_meters('u', norm)
+
+
 def lp_success_hits(recs):
     """recs 중 LP 성공 회신 목록에 있는 계기 -> [(rec, {'출처': 파일명})], 목록, 유지로 남긴 [(rec, 파일명)]"""
     src = {}
@@ -561,6 +566,16 @@ def main():
         _prev['25년불가'] = _ust['보류목록']
         _bp.write_text(json.dumps(_prev, ensure_ascii=False, indent=1))
 
+    # ── 완료·불가 아카이브 (2026-11-07) — 끝나서 옮긴 계기를 지도에 되살리지 않는다 ──
+    #   scripts/archive_done_sites.py 가 data/michunggu-bulga-completed-archive-*.json 으로 옮겼다.
+    _arch = archived(nm)
+    if _arch:
+        _na = len(has) + len(pend)
+        has = [x for x in has if nm(x['계기번호']) not in _arch]
+        pend = [x for x in pend if nm(x['계기번호']) not in _arch]
+        keep = [v for v in keep if v['_m'] not in _arch]      # 게이트 기대치도 같이 줄인다
+        log(f'완료·불가 아카이브 {len(_arch):,}계기 — 산출에서 {_na - len(has) - len(pend):,}건 뺌')
+
     OUT.write_text(json.dumps(has, ensure_ascii=False, indent=1))
     OUT_PEND.write_text(json.dumps(pend, ensure_ascii=False, indent=1))
     log(f'저장 {OUT} {len(has):,} · {OUT_PEND} {len(pend):,}')
@@ -619,14 +634,20 @@ def lp_only():
         if kept:
             log(f'{p.name}: 작업 기록 개소라 유지 {len(kept)}건 ({len({r["주소"] for r, _ in kept})}곳)')
         hs = {nm(r['계기번호']) for r, _ in hits}
-        if hits:
-            stage_lp_success(hits)
-            p.write_text(json.dumps([x for x in rows if nm(x['계기번호']) not in hs],
+        # 완료·불가 아카이브(2026-11-07)에 옮긴 계기는 B10 이전 판에서 다시 돌려도 지도에 되살리지 않는다
+        _arch = archived(nm)
+        _gone = sum(1 for x in rows if nm(x['계기번호']) in _arch and nm(x['계기번호']) not in hs)
+        if hits or _gone:
+            if hits:
+                stage_lp_success(hits)
+            p.write_text(json.dumps([x for x in rows if nm(x['계기번호']) not in hs | _arch],
                                     ensure_ascii=False, indent=1))
-        before[p.name] = (len(rows), len(hits))
+        if _gone:
+            log(f'{p.name}: 완료·불가 아카이브라 뺀 것 {_gone}')
+        before[p.name] = (len(rows), len(rows) - len(json.loads(p.read_text())) if (hits or _gone) else 0)
         total += len(hits) + len(kept)
     for k, (n, h) in before.items():
-        log(f'{k}: {n:,} -> {n - h:,} (LP 성공 제외 {h})')
+        log(f'{k}: {n:,} -> {n - h:,} (LP 성공 제외 + 아카이브 {h})')
     log(f'목록 {len(src)} · 뺀 것+유지 {total} · 못 찾은 것 {len(src) - total}')
     return 0 if total == len(src) else 1
 

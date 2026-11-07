@@ -446,6 +446,25 @@ MICHUNGGU_FIELD = "ETC1"
 #     9/29 작업분 07530158604·07530158064·02250033415·07530158657 가 전부 불가였고 미청구는 0건이라
 #     비고에 25 가 안 붙었는데, 작업자는 그것을 고장으로 오해했다. 배지가 그 오해를 막는 장치다.
 MICHUNGGU_BULGA_FILE = ROOT / "data" / "michunggu-bulga-data.json"
+
+# ★완료·불가 개소 아카이브 (2026-11-07, 영준님 "완료 및 불가건 백업해서 완료아카이브에 넣어").
+#   지도 파일에서 끝난 개소를 리스트별 아카이브 파일로 옮겼다(js/datasets.js archivesGlob).
+#   그 계기도 리스트 소속은 그대로다 — 불가 계기를 나중에 다시 작업하면 비고 25·배지·변대주가
+#   붙어야 한다. 그래서 지도 파일 + 같은 리스트의 아카이브를 **합쳐** 읽는다.
+LIST_ARCHIVE_GLOB = {
+    "site-data.json": "silhyo-completed-archive-*.json",
+    "michunggu-data.json": "michunggu-completed-archive-*.json",
+    "michunggu-bulga-data.json": "michunggu-bulga-completed-archive-*.json",
+}
+
+
+def list_files(path: Path) -> list:
+    """지도 파일 + 같은 리스트의 아카이브 파일들(있는 것만). 지도 파일이 먼저다."""
+    out = [path] if path.exists() else []
+    g = LIST_ARCHIVE_GLOB.get(path.name)
+    if g:
+        out += [Path(x) for x in sorted(glob.glob(str(path.parent / g)))]
+    return out
 _mich = {"mtime": None, "set": set()}
 _bulga = {"mtime": None, "set": set()}
 
@@ -469,17 +488,23 @@ def michunggu_set() -> set:
 
 
 def _load_meter_set(state: dict, path: Path, tag: str) -> set:
-    """계기번호 집합을 파일에서 읽는다. mtime 이 바뀌면 다시 읽는다(재기동 없이 반영)."""
+    """계기번호 집합을 파일에서 읽는다(지도 파일 + 아카이브). mtime 이 바뀌면 다시 읽는다(재기동 없이 반영)."""
     try:
-        mt = path.stat().st_mtime
+        files = list_files(path)
+        mt = tuple((str(f), f.stat().st_mtime) for f in files)
     except OSError:
+        return state["set"]
+    if not files:
         return state["set"]
     if state["mtime"] != mt:
         try:
-            rows = json.loads(path.read_text(encoding="utf-8"))
+            rows = []
+            for f in files:
+                rows += json.loads(f.read_text(encoding="utf-8"))
             state["set"] = {n for n in (norm_meter(x.get("계기번호")) for x in rows) if n}
             state["mtime"] = mt
-            print(f"[{tag}] {path.name} {len(rows):,}행 -> 계기 {len(state['set']):,}개", flush=True)
+            print(f"[{tag}] {path.name}+아카이브 {len(files) - 1} {len(rows):,}행 -> 계기 {len(state['set']):,}개",
+                  flush=True)
         except Exception as e:
             print(f"[{tag}] 읽기 실패(판정 생략): {e}", flush=True)
     return state["set"]
@@ -1002,14 +1027,19 @@ def _sd_cached(key: str, path):
       바뀐 게 없어도 매번 비용을 낸다. mtime 은 stat 한 번(마이크로초)이고, 파일이 바뀔
       때만 재파싱한다. 종로 workStatus 는 원격 URL 이라 mtime 이 없어 기존 3분 TTL 유지.
     """
+    # 지도 파일 + 같은 리스트 아카이브(2026-11-07). 지도 파일 행이 앞이라 첫 매칭은 지도분이 이긴다.
+    files = list_files(Path(path))
     try:
-        mtime = os.path.getmtime(path)
+        mtime = tuple((str(f), os.path.getmtime(f)) for f in files)
     except OSError:
         mtime = None
     if _bdju_cache[key] is None or _bdju_cache[key + "_mtime"] != mtime:
-        _bdju_cache[key] = _load_sd(path)
+        _rows = []
+        for f in files:
+            _rows += _load_sd(f)
+        _bdju_cache[key] = _rows
         _bdju_cache[key + "_mtime"] = mtime
-        print(f"[bdju] {key} 재적재: {len(_bdju_cache[key])}건 mtime={mtime}", flush=True)
+        print(f"[bdju] {key} 재적재: {len(_bdju_cache[key])}건 (파일 {len(files)}개)", flush=True)
     return _bdju_cache[key]
 
 

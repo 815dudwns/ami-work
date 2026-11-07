@@ -2201,6 +2201,19 @@ def main():
         (ROOT / 'research/좌표통합_보류_20260921.json').write_text(json.dumps(
             {'25미청구': _ust['보류목록']}, ensure_ascii=False, indent=1))
 
+    # ── 완료·불가 아카이브 (2026-11-07) — 끝나서 옮긴 계기를 지도에 되살리지 않는다 ──
+    #   scripts/archive_done_sites.py 가 data/michunggu-completed-archive-*.json 으로 옮긴 계기는
+    #   다시 빌드해도 빠진 채로 둔다. 게이트 기대치(pm)도 같이 줄인다.
+    from datasets import archived_meters
+    _arch = archived_meters('m', nm)
+    if _arch:
+        _na = len(map_rows) + len(pend_rows)
+        map_rows = [x for x in map_rows if nm(x['계기번호']) not in _arch]
+        pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _arch]
+        _fx = {nm(k): nm(v[0]) for k, v in METER_TYPO_FIX.items()}
+        pm = [m for m in pm if _fx.get(m, m) not in _arch]
+        log(f'완료·불가 아카이브 {len(_arch):,}계기 — 산출에서 {_na - len(map_rows) - len(pend_rows):,}건 뺌')
+
     OUT_MAP.write_text(json.dumps(map_rows, ensure_ascii=False, indent=1))
     OUT_PEND.write_text(json.dumps(pend_rows, ensure_ascii=False, indent=1))
     log(f'저장 {OUT_MAP}  {len(map_rows):,}건')

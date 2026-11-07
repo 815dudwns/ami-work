@@ -27,7 +27,10 @@
 //              ★2026-09-20 현재 쓰는 리스트가 없다 — 25미청구·미청구불가는 전 작업자 공개다
 const DATASET_REGISTRY = [
     { code: 's', file: './data/site-data.json', category: '실효', label: null, uiLabel: '실효계기',
-      statsLabel: '실효' },
+      statsLabel: '실효',
+      // 완료·불가 개소 아카이브(2026-11-07) — 통계 분모·리스트 라벨 전용, 지도에는 안 올린다.
+      //   'a'(완료아카이브) 글롭과 이름이 겹치지 않게 silhyo- 로 둔다.
+      archivesGlob: 'data/silhyo-completed-archive-*.json' },
     // 선조치 — KDN 보강공사 추가분(주덕기 과장 2026-10-30). 이미 모뎀이 시설된 곳을 한전이 LP 실패로
     //   재시공 요청한 개소다. ★현장 앱 작성은 신규가 아니라 **교체**(상세 모달에 고정 문구).
     //   ★상태키는 '주소|선조치' 네임스페이스 — 예전에 우리가 작업한 주소가 많아서 맨 주소 키면
@@ -38,7 +41,7 @@ const DATASET_REGISTRY = [
     //   생성 scripts/build_seonjochi_data.py
     //   ★defaultOn — 업데이트 후 모두에게 켜진 채로(기존 선택 저장된 작업자 포함, 영준님 2026-10-30).
     { code: 'p', file: './data/seonjochi-data.json', category: '선조치', label: '선', uiLabel: '선조치',
-      statsLabel: '선조치', defaultOn: true },
+      statsLabel: '선조치', defaultOn: true, archivesGlob: 'data/seonjochi-completed-archive-*.json' },
     // 재방문은 2026-09-09 리스트업에서 폐기했다. 주소 단위 workStatus 로 '재' 를 붙이던 목록이라
     //   한 계기 완료가 그 주소 전체에 '재' 를 씌웠다(창천동 5-49 20계기 전건 오탐). 계기 단위로 다시
     //   세니 127건 중 재방문으로 남을 것이 하나도 없었다 — 82건은 애초에 미착수(실효), 43건은 이미 처리됨.
@@ -107,7 +110,7 @@ const DATASET_REGISTRY = [
     //   ★statsEvenIfGroup — 지도는 staff 에만 열어두되 통계 분모·선택지에는 넣는다.
     //     확인용 리스트(LP무기록)와 달리 이건 실제 작업 대상이라 실적이다(영준님 2026-09-18).
     { code: 'm', file: './data/michunggu-data.json', category: '미청구', label: null,
-      uiLabel: '25미청구', statsLabel: '25미청구' },
+      uiLabel: '25미청구', statsLabel: '25미청구', archivesGlob: 'data/michunggu-completed-archive-*.json' },
     // 25년 미청구불가 — 25년 불가 중 '가서 다시 해볼 수 있는' 사유만 추린 것.
     //   판정 정본 research/불가사유_분류_확정_20260920.json (사유조합 945종 중 대상 505종).
     //   ★리스트에는 판정 메타(분류·판정자)를 싣지 않는다 — 대상으로 정해진 것만 올라온다.
@@ -117,7 +120,8 @@ const DATASET_REGISTRY = [
     //   ★화면 라벨은 '25년불가'(영준님 2026-09-20). category 는 workStatus 키라 그대로 둔다 —
     //   바꾸면 이미 쌓인 완료 기록이 끊긴다([[jongno_workstatus_address_key_partial]]).
     { code: 'u', file: './data/michunggu-bulga-data.json', category: '미청구불가', label: null,
-      uiLabel: '25년불가', statsLabel: '25년불가' },
+      uiLabel: '25년불가', statsLabel: '25년불가',
+      archivesGlob: 'data/michunggu-bulga-completed-archive-*.json' },
     // 완료 아카이브 — 실효에서 완료돼 빠진 건들. 지도에는 안 올라가고 통계 분모에만 들어간다.
     //   파일이 날짜별로 늘어나므로 glob 으로 잡는다(archivesGlob).
     { code: 'a', category: '완료아카이브', onMap: false, statsLabel: '완료 아카이브',
