@@ -49,7 +49,7 @@ const STATUS_KEY_SEP = '|';
 //     겹친다. 네임스페이스가 없으면 이미 완료된 주소의 기록을 그대로 물려받아 회색(완료)로
 //     떠서 할 일이 묻힌다(영준님 "장애는 완료표시하면 안된다 · pending").
 //   ★추가(2026-10-31): 작업자가 지도에서 직접 찍어 넣은 개소('추가' 리스트). 기록 = workStatus '주소|추가' 의 site.
-const NAMESPACED_CATEGORIES = ['고압', '합동', 'skt', '장애', 'LP무기록', '미청구', '미청구불가', '광명', '선조치', '추가'];
+const NAMESPACED_CATEGORIES = ['고압', '합동', 'skt', '장애', 'LP무기록', '미청구', '미청구불가', '광명', '선조치', '추가', '미조치'];
 
 // 마커 식별자 — map.js loadMarkers()의 그룹핑 키와 같은 형식이어야 한다.
 function markerKeyOf(item) {

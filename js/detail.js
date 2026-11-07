@@ -1151,6 +1151,20 @@ function renderMetersList() {
             subParts.push(`불가사유 ${meter.불가사유}${d ? ` / ${d}` : ''}`);
         }
 
+        // 6.7) 미조치(2026-11-07) — 미설치 고객 리스트 원본 칸. 값만 보여준다(판단 문구 없음).
+        //   LP 는 '아미고확인필요' 행에만 있다(하루 96회 중 수신 횟수). 나머지는 원본이 #N/A 라 빈칸.
+        if (meter.category === '미조치') {
+            if (meter.LP수신) subParts.push(`LP 하루 수신 ${meter.LP수신}`);
+            if (meter['대상여부'] && meter['대상여부'] !== '대상') subParts.push(meter['대상여부']);
+            if (meter['상 구분']) subParts.push(meter['상 구분']);
+            if (meter['계약종별']) subParts.push(meter['계약종별']);
+            if (meter['계약상태']) subParts.push(`계약상태 ${meter['계약상태']}`);
+            // 원본 열 '변대주 하위(미설치 개소)' — 데이터에서는 미설치개소(14만 행이라 열 이름을 줄였다)
+            if (meter.미설치개소) subParts.push(`변대주 미설치 개소 ${meter.미설치개소}`);
+            if (meter.계기타입_원본) subParts.push(`리스트 계기타입 ${meter.계기타입_원본}`);
+            if (meter.출처) subParts.push(meter.출처);
+        }
+
         // 7) TOU 전용 필드 (category=tou일 때)
         if (meter.category === 'tou') {
             if (meter.재 || meter.tou_type === 'rework')

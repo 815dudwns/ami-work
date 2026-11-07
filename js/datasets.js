@@ -23,11 +23,15 @@
 //   defaultOn  true 면 처음 보는 순간 켜진 채로(기존 선택이 있어도). js/map.js getSelectedCategories
 //   noStats    true 면 통계 분모·선택지에서 뺀다(scripts/datasets.py stats_sources 와 짝)
 //   source     'workStatus' 면 파일 없이 workStatus 의 site 기록으로 행을 만든다(추가 리스트, js/add-site.js)
+//   noLabel    true 면 헬퍼·아미큐 리스트 라벨 인덱스(data/meter-list-index.json)에서 뺀다(파일 크기 — 미조치)
 //   allowGroup 지정하면 그 계정 그룹에만 보인다(js/auth.js AUTH_GROUPS). 통계 분모에서도 빠진다
 //              ★2026-09-20 현재 쓰는 리스트가 없다 — 25미청구·미청구불가는 전 작업자 공개다
 const DATASET_REGISTRY = [
     { code: 's', file: './data/site-data.json', category: '실효', label: null, uiLabel: '실효계기',
       statsLabel: '실효',
+      // ★2026-11-07 지도 메뉴에서 내렸다(onMap:false). 남은 15계기는 미조치로 옮겼고(지도 파일은 빈 배열),
+      //   통계 분모·리스트 라벨은 아카이브로 그대로 남는다.
+      onMap: false,
       // 완료·불가 개소 아카이브(2026-11-07) — 통계 분모·리스트 라벨 전용, 지도에는 안 올린다.
       //   'a'(완료아카이브) 글롭과 이름이 겹치지 않게 silhyo- 로 둔다.
       archivesGlob: 'data/silhyo-completed-archive-*.json' },
@@ -41,7 +45,8 @@ const DATASET_REGISTRY = [
     //   생성 scripts/build_seonjochi_data.py
     //   ★defaultOn — 업데이트 후 모두에게 켜진 채로(기존 선택 저장된 작업자 포함, 영준님 2026-10-30).
     { code: 'p', file: './data/seonjochi-data.json', category: '선조치', label: '선', uiLabel: '선조치',
-      statsLabel: '선조치', defaultOn: true, archivesGlob: 'data/seonjochi-completed-archive-*.json' },
+      // ★2026-11-07 지도 메뉴에서 내렸다(onMap:false) — 남은 계기 0, 통계 줄은 아카이브로 남는다.
+      statsLabel: '선조치', defaultOn: true, onMap: false, archivesGlob: 'data/seonjochi-completed-archive-*.json' },
     // 재방문은 2026-09-09 리스트업에서 폐기했다. 주소 단위 workStatus 로 '재' 를 붙이던 목록이라
     //   한 계기 완료가 그 주소 전체에 '재' 를 씌웠다(창천동 5-49 20계기 전건 오탐). 계기 단위로 다시
     //   세니 127건 중 재방문으로 남을 것이 하나도 없었다 — 82건은 애초에 미착수(실효), 43건은 이미 처리됨.
@@ -122,6 +127,18 @@ const DATASET_REGISTRY = [
     { code: 'u', file: './data/michunggu-bulga-data.json', category: '미청구불가', label: null,
       uiLabel: '25년불가', statsLabel: '25년불가',
       archivesGlob: 'data/michunggu-bulga-completed-archive-*.json' },
+    // 미조치 — 주덕기 과장 미설치 고객 리스트(11/06) 중 AE·G·아미고(계기번호 3~4자리 기준), 이미 시공한 계기는
+    //   PM 이 뺐다 + 실효 잔여 15계기(2026-11-07, 영준님 이름 '미조치').
+    //   ★상태키 '주소|미조치' 네임스페이스 — 실효·합동·미청구의 옛 완료가 같은 주소에 많다.
+    //   ★14만 계기·5만 8천 개소라 기본 꺼짐이고(defaultOn 없음), 켤 때만 받는다(js/map.js DEFERRED_CATEGORIES).
+    //   마커 = 기본 초록 + '조' 뱃지(진한 주황, css/marker.css tag-michochi), 우선순위 맨 뒤.
+    //   상세에 LP 하루 수신 x/96(아미고확인필요 행만)·상 구분·계약종별·계약상태·미설치 개소 수.
+    //   생성 scripts/build_michochi_data.py (좌표 scripts/michochi_geocode.py)
+    { code: 'c', file: './data/michochi-data.json', category: '미조치', label: '조', uiLabel: '미조치',
+      statsLabel: '미조치', archivesGlob: 'data/michochi-completed-archive-*.json',
+      // ★noLabel — 헬퍼·아미큐 리스트 라벨 인덱스(data/meter-list-index.json)에서 뺀다. 넣으면 0.6MB -> 3.2MB 이고
+      //   헬퍼가 그 파일을 매번 받는다(2MB 넘으면 빼라 — PM 2026-11-07). scripts/gen_meter_list_index.py covered()
+      noLabel: true },
     // 완료 아카이브 — 실효에서 완료돼 빠진 건들. 지도에는 안 올라가고 통계 분모에만 들어간다.
     //   파일이 날짜별로 늘어나므로 glob 으로 잡는다(archivesGlob).
     { code: 'a', category: '완료아카이브', onMap: false, statsLabel: '완료 아카이브',

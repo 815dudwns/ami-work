@@ -17,6 +17,7 @@
 """
 import json
 import re
+from pathlib import Path
 import sys
 
 NAME = re.compile(r'[가-힣]')
@@ -126,6 +127,17 @@ def check_records(rows, label='산출물'):
         mark = 'OK ' if n == 0 else '★NG'
         msg.append(f'  {mark} {col:<8}(={want}) 어긋남 {n:,}'
                    + (f'  {wrong}' if wrong else ''))
+    # ── 좌표 구 일치(2026-11-07) — 주소의 구와 지오코딩 응답 주소(도로명주소·지번주소)의 구가 다르면 실패 ──
+    #   영준님 "08530322400 이 왜 이화여대로 찍힘?" — 마포구 주소가 서대문구 좌표로 exact 저장됐다.
+    #   역지오코딩까지 보려면 scripts/check_geo_gu.py --reverse.
+    import importlib.util as _iu
+    _gs = _iu.spec_from_file_location('cgg', str(Path(__file__).resolve().parent / 'check_geo_gu.py'))
+    _cg = _iu.module_from_spec(_gs)
+    _gs.loader.exec_module(_cg)
+    gm = _cg.text_mismatches(rows)
+    bad += len(gm)
+    msg.append(f'  {"OK " if not gm else "★NG"} 좌표 구    (주소 구 = 응답 주소 구) 어긋남 {len(gm):,}'
+               + (f'  {gm[:5]}' if gm else ''))
     # DCUID 앞 8자리 = 전산화번호 (대장 19,007건 예외 0 — 계산이지 조회가 아니다)
     if cnum and cd:
         both = [r for r in rows if str(r.get(cnum) or '').strip() and str(r.get(cd) or '').strip()]

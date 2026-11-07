@@ -39,12 +39,15 @@ from datasets import DATASETS  # noqa: E402
 
 WS_URL = ('https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app'
           '/workStatus/charger4eleccar.json')
-CODES = ['s', 'p', 'm', 'u']          # 실효 · 선조치 · 25미청구 · 25불가
+CODES = ['s', 'p', 'm', 'u', 'c']     # 실효 · 선조치 · 25미청구 · 25불가 · 미조치(2026-11-07)
 DONE = ('complete', 'fail')
 
 
-def dump(rows):
-    # same format as the builders (indent=1, no ascii escape, no trailing newline)
+def dump(rows, like=''):
+    # same format as the builders (indent=1, no ascii escape, no trailing newline).
+    # ★미조치(14만 행)는 한 줄에 한 행(compact) — 원래 파일이 그 꼴이면 그대로 쓴다(indent 면 수십 MB 가 는다).
+    if like.startswith('[\n{'):
+        return '[\n' + ',\n'.join(json.dumps(r, ensure_ascii=False, separators=(',', ':')) for r in rows) + '\n]'
     return json.dumps(rows, ensure_ascii=False, indent=1)
 
 
@@ -102,7 +105,8 @@ def main():
         d = reg[c]
         st, dn, n = per[c]
         f = ROOT / d['file']
-        arr = json.loads(f.read_text(encoding='utf-8'))
+        raw = f.read_text(encoding='utf-8')
+        arr = json.loads(raw)
         # load_rows keeps file order, so the k-th row of this category is arr[k]
         cat_rows = [r for r in rows if r['category'] == cat_of[c]]
         assert len(cat_rows) == len(arr), (c, len(cat_rows), len(arr))
@@ -113,8 +117,8 @@ def main():
         print(f"{c} {d['category']}: sites {dict(st)} · meters {n:,} -> archive {len(out_rows):,} · stay {len(stay):,}"
               f" · {ap.relative_to(ROOT)}" + (f' (append to {len(prev):,})' if prev else ''))
         if go and out_rows:
-            ap.write_text(dump(prev + out_rows), encoding='utf-8')
-            f.write_text(dump(stay), encoding='utf-8')
+            ap.write_text(dump(prev + out_rows, raw), encoding='utf-8')
+            f.write_text(dump(stay, raw), encoding='utf-8')
     if not go:
         print('dry run — add --go to write')
     else:

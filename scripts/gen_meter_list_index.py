@@ -14,6 +14,7 @@ Skipped:
   - 'a' 완료 아카이브 (old completed archive, not a list)
   - allowGroup lists without statsEvenIfGroup (LP무기록 = owner-only check list, 광명 = kmtest's other company)
   - source 'workStatus' (추가 — no file)
+  - noLabel lists (미조치 — 145k meters would grow the file 0.6MB -> 3.2MB; the helper fetches it every time)
 Kept the same as the old stats-derived index: 합동 rows whose 고객번호 is also in 실효 are counted as 실효
   only (gen_stats_index.py rule, 2026-09-18), so existing labels do not change.
 
@@ -43,6 +44,9 @@ def covered():
     out = []
     for d in DATASETS:
         if d['code'] == 'a' or d.get('source') == 'workStatus':
+            continue
+        # noLabel — 파일이 커서 라벨에서 뺀 리스트(미조치 14만 계기 = 인덱스 0.6MB -> 3.2MB, 2026-11-07)
+        if d.get('noLabel'):
             continue
         if d.get('allowGroup') and not d.get('statsEvenIfGroup'):
             continue

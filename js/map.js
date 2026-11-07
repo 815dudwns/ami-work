@@ -163,7 +163,8 @@ async function loadListCached(file) {
 
 // 큰 리스트 — 첫 화면을 먼저 그린 뒤 뒤에서 불러온다(25미청구 14.5MB · 불가 6.7MB).
 //   ★상태키가 안 흔들린다: 이 둘은 네임스페이스 카테고리라 실효·합동의 갈림 판정에 끼지 않는다(js/status-key.js).
-const DEFERRED_CATEGORIES = ['미청구', '미청구불가'];
+//   ★미조치(2026-11-07, 14만 계기)도 여기 — 기본 꺼짐이고, 켤 때만 받는다.
+const DEFERRED_CATEGORIES = ['미청구', '미청구불가', '미조치'];
 
 // 지도 초기화 (카카오맵 생성 + 마커 로드)
 async function initMap() {
@@ -750,7 +751,8 @@ function aggregateRework(addresses) {
 //     나선으로 밀어도 겹치는 부분이 남아 **나중에 그려진 마커가 가린다** — zIndex 가 있어야
 //     우선순위가 실제로 보인다(불가가 마지막에 그려져 미청구를 가리던 문제, 2026-09-20).
 //   ★선조치(KDN 보강 추가분, 2026-10-30)이 맨 앞 — 실효·합동과 같은 주소에 겹쳐도 가려지면 안 된다.
-const MARKER_PRIORITY = ['선조치', '합동', '실효', 'skt', '미청구', '미청구불가', '추가'];
+//   ★미조치(2026-11-07)는 맨 뒤 — 다른 리스트와 같은 주소가 많아 위에 그려지면 그쪽 마커를 가린다.
+const MARKER_PRIORITY = ['선조치', '합동', '실효', 'skt', '미청구', '미청구불가', '추가', '미조치'];
 function markerPriority(category) {
     const i = MARKER_PRIORITY.indexOf(category);
     return i === -1 ? MARKER_PRIORITY.length : i;
@@ -921,6 +923,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const isBulga = category === '미청구불가';
     const isSeonjochi = category === '선조치';
     const isAddedList = category === '추가';
+    const isMichochi = category === '미조치';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
     let color = isApproximate ? 'yellow' : 'green';
@@ -957,6 +960,8 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     let tagText = markerTagText(isHapdong, isRework);
     if (isSeonjochi) tagText = isRework ? '선재' : '선';   // 리스트 뱃지 '선' — 노랑(근사)이어도 리스트가 보이게
     if (isAddedList) tagText = '추';
+    // 미조치(2026-11-07) — 핀은 기본 초록, 리스트 뱃지 '조'(진한 주황)
+    if (isMichochi) tagText = isRework ? '조재' : '조';
     // 개통 뱃지는 뺐다(영준님 2026-08-31 "개통은 표시 지워") — 개통 여부는 모달에서도 안 쓴다.
     if (isJangae) tagText = jangaeTechLabel(meters);   // 뱃지 = 모뎀 방식(PLC/KDCU/LTE/SMGW)
     if (isLpNoApp) tagText = lpTypeLabel(meters);      // 뱃지 = 아미고 아닌 계기타입(AE/G)
@@ -968,7 +973,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
                 <circle class="pin-circle" cx="10" cy="10" r="5.5" fill="white"/>
             </svg>
             <div class="marker-number">${markerLabel}</div>
-            ${tagText ? `<div class="marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}${isAddedList ? ' tag-added' : ''}">${tagText}</div>` : ''}
+            ${tagText ? `<div class="marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}${isAddedList ? ' tag-added' : ''}${isMichochi ? ' tag-michochi' : ''}">${tagText}</div>` : ''}
         </div>
     `;
 
@@ -1019,6 +1024,7 @@ function repaintMarker(marker) {
     const isBulga = marker.category === '미청구불가';
     const isSeonjochi = marker.category === '선조치';
     const isAddedList = marker.category === '추가';
+    const isMichochi = marker.category === '미조치';
 
     let color = isApproximate ? 'yellow' : 'green';
     if (isAddedList) color = 'added';
@@ -1062,6 +1068,7 @@ function repaintMarker(marker) {
                   : isLpNoApp ? lpTypeLabel(marker.meters)
                   : isSeonjochi ? (isRework ? '선재' : '선')   // createMarker 와 같은 규칙
                   : isAddedList ? '추'
+                  : isMichochi ? (isRework ? '조재' : '조')   // createMarker 와 같은 규칙
                               : markerTagText(isHapdong, isRework);
     let fracEl = marker.element.querySelector('.marker-fraction');
     if (tagText) {
@@ -1069,7 +1076,7 @@ function repaintMarker(marker) {
             fracEl = document.createElement('div');
             el.appendChild(fracEl);
         }
-        fracEl.className = `marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}${isAddedList ? ' tag-added' : ''}`;
+        fracEl.className = `marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}${isAddedList ? ' tag-added' : ''}${isMichochi ? ' tag-michochi' : ''}`;
         fracEl.textContent = tagText;
     } else if (fracEl) {
         fracEl.remove();

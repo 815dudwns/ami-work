@@ -191,11 +191,63 @@ def naver_address(query):
 
 # ---------------- 캐스케이드 ----------------
 
+# ---------------- 구·동 일치 검사 (2026-11-07) ----------------
+#   ★응답이 물어본 곳의 구·동인지 본다. 안 맞으면 그 단계 응답을 버리고 다음 단계로 내려간다.
+#     실측(영준님 "08530322400 이 왜 이화여대로 찍힘?"): 마포구 현석동 90 을 카카오 주소검색이 못 찾자
+#     키워드검색이 서대문구 대현동 90-53(이화여대1안길) 을 돌려줬고, 그걸 exact 로 저장했다.
+#     같은 부류: 은평구 구산동 178-35 -> 서대문구 · 서대문구 창천동 56 -> 마포구.
+#   구 = 시·도 다음의 '…구' 토큰(없으면 '…시'·'…군' — 광명시처럼 구 없는 시). 동 = 법정동 토큰
+#   ('…동'·'…가'·'…읍'·'…면', 뒤에 붙은 번지 숫자는 뗀다. '당산동5가'·'명륜3가' 는 그대로).
+
+def _area_of(addr):
+    parts = trim_addr(addr).split()
+    for p in parts[1:]:
+        if p.endswith('구'):
+            return p
+    for p in parts[1:]:
+        if p.endswith(('시', '군')):
+            return p
+    return None
+
+
+def _dong_of(addr):
+    parts = trim_addr(addr).split()
+    for i, p in enumerate(parts):
+        if i == 0 or p.endswith(('시', '군', '구')):
+            continue
+        if re.search(r'(동|읍|면)\d*$', p) or re.search(r'\d가$', p):
+            if p.endswith('가'):
+                return p
+            p = re.sub(r'\d+$', '', p)                 # '제기동122' -> '제기동'
+            # 행정동 -> 법정동: '구의3동'·'창2동'·'이문1동' -> '구의동'·'창동'·'이문동'.
+            #   원본은 행정동으로 적는 일이 많고 카카오 응답은 법정동이라, 안 맞추면 맞는 응답을 버린다.
+            return re.sub(r'(\D)\d+동$', r'\1동', p)
+    return None
+
+
+def place_matches(query_area, query_dong, got, need_dong=True):
+    """응답 got(조회 함수 5튜플)이 물어본 구·동과 같은가. 응답 쪽 값이 없으면 같다고 보지 않는다."""
+    if not got:
+        return False
+    ans = got[1] or got[0]
+    ga, gd = _area_of(ans), _dong_of(ans)
+    if query_area and ga != query_area:
+        return False
+    if need_dong and query_dong and gd != query_dong:
+        return False
+    return True
+
+
 def resolve(jibun='', road=''):
-    """주소 -> Hit. 실패해도 fail 로 돌려준다 (호출부에서 행을 버리지 말 것)."""
+    """주소 -> Hit. 실패해도 fail 로 돌려준다 (호출부에서 행을 버리지 말 것).
+
+    ★모든 단계의 응답은 물어본 구·동과 맞아야 쓴다(place_matches). 안 맞으면 다음 단계로 간다.
+    """
     jibun = trim_addr(jibun)
     road = trim_addr(road)
     norm = normalize_jibun(jibun)
+    qa = _area_of(jibun) or _area_of(road)
+    qd = _dong_of(jibun)
 
     # 요청한 지번을 그대로 조회해서 잡히면 exact
     steps = [
@@ -209,14 +261,18 @@ def resolve(jibun='', road=''):
         if not q:
             continue
         got = fn(q)
-        if got:
+        if got and place_matches(qa, qd, got):
+            # 키워드검색은 비슷한 이름을 돌려준다 — 지번(동·본번)까지 같을 때만 exact
+            if method == 'kakao_keyword_jibun' and _jibun_key(jibun) != _jibun_key(got[1] or got[0]):
+                return Hit('approximate', got[0], got[2], got[3], 'kakao_keyword_nearby',
+                           got[4], got[1])
             return Hit('exact', got[0], got[2], got[3], method, got[4], got[1])
 
     # 네이버 — 카카오에 없는 지번을 갖고 있다. 단 근접응답 판별이 필요하다.
     # ★본번 검색(_parent_beonji)보다 반드시 먼저. 부번을 버리고 찾은 값보다
     #   네이버가 그 지번을 그대로 찾아주는 쪽이 정확하다(효창동 3-251 실측).
     got = naver_address(norm or road)
-    if got:
+    if got and place_matches(qa, qd, got):
         want = _jibun_key(jibun)
         have = _jibun_key(got[1] or got[0])
         exact = bool(want and have and want == have)
@@ -226,15 +282,18 @@ def resolve(jibun='', road=''):
     # 부번을 버린 본번 검색 — 요청한 지번이 아니므로 approximate
     parent = _parent_beonji(jibun)
     if parent:
-        got = kakao_address(parent) or kakao_keyword(parent)
-        if got:
-            return Hit('approximate', got[0], got[2], got[3], 'kakao_jibun_parent',
-                       got[4], got[1])
+        for fn in (kakao_address, kakao_keyword):
+            got = fn(parent)
+            if got and place_matches(qa, qd, got):
+                return Hit('approximate', got[0], got[2], got[3], 'kakao_jibun_parent',
+                           got[4], got[1])
 
+    # 동 중심 — 구만 맞으면 쓴다(행정동·법정동 표기 차이로 동 이름이 어긋나도 그 구 안이다)
     dong = extract_dong(jibun) or extract_dong(road)
     if dong:
-        got = kakao_address(dong) or kakao_keyword(dong) or naver_address(dong)
-        if got:
-            return Hit('approximate', got[0], got[2], got[3], 'dong_center', got[4], got[1])
+        for fn in (kakao_address, kakao_keyword, naver_address):
+            got = fn(dong)
+            if got and place_matches(qa, qd, got, need_dong=False):
+                return Hit('approximate', got[0], got[2], got[3], 'dong_center', got[4], got[1])
 
     return Hit('fail', road or jibun, None, None, 'none')
