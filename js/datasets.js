@@ -23,6 +23,7 @@
 //   defaultOn  true 면 처음 보는 순간 켜진 채로(기존 선택이 있어도). js/map.js getSelectedCategories
 //   noStats    true 면 통계 분모·선택지에서 뺀다(scripts/datasets.py stats_sources 와 짝)
 //   source     'workStatus' 면 파일 없이 workStatus 의 site 기록으로 행을 만든다(추가 리스트, js/add-site.js)
+//   menuOrder  리스트 메뉴 순서(작을수록 위, 없으면 0 = 레지스트리 순서). 마커 겹침 우선순위와는 무관
 //   noLabel    true 면 헬퍼·아미큐 리스트 라벨 인덱스(data/meter-list-index.json)에서 뺀다(파일 크기 — 미조치)
 //   allowGroup 지정하면 그 계정 그룹에만 보인다(js/auth.js AUTH_GROUPS). 통계 분모에서도 빠진다
 //              ★2026-09-20 현재 쓰는 리스트가 없다 — 25미청구·미청구불가는 전 작업자 공개다
@@ -131,10 +132,11 @@ const DATASET_REGISTRY = [
     //   PM 이 뺐다 + 실효 잔여 15계기(2026-11-07, 영준님 이름 '미조치').
     //   ★상태키 '주소|미조치' 네임스페이스 — 실효·합동·미청구의 옛 완료가 같은 주소에 많다.
     //   ★14만 계기·5만 8천 개소라 기본 꺼짐이고(defaultOn 없음), 켤 때만 받는다(js/map.js DEFERRED_CATEGORIES).
-    //   마커 = 기본 초록 + '조' 뱃지(진한 주황, css/marker.css tag-michochi), 우선순위 맨 뒤.
+    //   마커 = 기본 초록, 뱃지 없음(영준님 2026-11-07 "조 위에 글자 없애고"). 겹침 우선순위는 맨 뒤.
+    //   ★메뉴 맨 위(menuOrder -1) — 메인 리스트(영준님 2026-11-07). 메뉴 표시 순서만 바꾼다(js/map.js populateCategoryFilter).
     //   상세에 LP 하루 수신 x/96(아미고확인필요 행만)·상 구분·계약종별·계약상태·미설치 개소 수.
     //   생성 scripts/build_michochi_data.py (좌표 scripts/michochi_geocode.py)
-    { code: 'c', file: './data/michochi-data.json', category: '미조치', label: '조', uiLabel: '미조치',
+    { code: 'c', file: './data/michochi-data.json', category: '미조치', label: null, uiLabel: '미조치', menuOrder: -1,
       statsLabel: '미조치', archivesGlob: 'data/michochi-completed-archive-*.json',
       // ★noLabel — 헬퍼·아미큐 리스트 라벨 인덱스(data/meter-list-index.json)에서 뺀다. 넣으면 0.6MB -> 3.2MB 이고
       //   헬퍼가 그 파일을 매번 받는다(2MB 넘으면 빼라 — PM 2026-11-07). scripts/gen_meter_list_index.py covered()

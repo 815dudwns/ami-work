@@ -472,7 +472,12 @@ function populateCategoryFilter() {
 
     const saved = getSelectedCategories();
 
-    DATASETS.forEach(d => {
+    // 메뉴 순서 — 레지스트리 순서 그대로, menuOrder 가 작은 것이 위(미조치 = 메인 리스트라 맨 위, 영준님 2026-11-07).
+    //   ★메뉴 표시 순서만이다. 마커 겹침 우선순위(MARKER_PRIORITY)·로드 순서·통계 순서와는 무관하다.
+    const menuList = DATASETS.map((d, i) => [d, i])
+        .sort((a, b) => ((a[0].menuOrder || 0) - (b[0].menuOrder || 0)) || (a[1] - b[1]))
+        .map(x => x[0]);
+    menuList.forEach(d => {
         const lbl = document.createElement('label');
         const cb = document.createElement('input');
         cb.type = 'checkbox';
@@ -923,7 +928,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     const isBulga = category === '미청구불가';
     const isSeonjochi = category === '선조치';
     const isAddedList = category === '추가';
-    const isMichochi = category === '미조치';
+    const isMichunggu = category === '미청구';
 
     const isApproximate = meters.some(m => m.좌표정확도 === 'approximate');
     let color = isApproximate ? 'yellow' : 'green';
@@ -938,6 +943,9 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     if (isBulga && !isApproximate) color = 'bulga';
     // 선조치 — 전용 분홍(영준님 지시 2026-10-30 '선조치' 리스트). 근사 좌표면 노랑이 이기는 것은 불가와 같다.
     if (isSeonjochi && !isApproximate) color = 'seonjochi';
+    // 25미청구 — 분홍(영준님 2026-11-07 "25미청구를 다른 색으로" — 미조치가 기본 초록이라 둘이 같아 보였다).
+    //   선조치 분홍을 물려받는다(선조치는 지도에서 내렸다). 근사 좌표면 노랑이 이기는 것은 불가·선조치와 같다.
+    if (isMichunggu && !isApproximate) color = 'michunggu';
     // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
     if (state === 'complete') color = 'gray';
     else if (state === 'hold') color = 'blue';
@@ -960,8 +968,6 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     let tagText = markerTagText(isHapdong, isRework);
     if (isSeonjochi) tagText = isRework ? '선재' : '선';   // 리스트 뱃지 '선' — 노랑(근사)이어도 리스트가 보이게
     if (isAddedList) tagText = '추';
-    // 미조치(2026-11-07) — 핀은 기본 초록, 리스트 뱃지 '조'(진한 주황)
-    if (isMichochi) tagText = isRework ? '조재' : '조';
     // 개통 뱃지는 뺐다(영준님 2026-08-31 "개통은 표시 지워") — 개통 여부는 모달에서도 안 쓴다.
     if (isJangae) tagText = jangaeTechLabel(meters);   // 뱃지 = 모뎀 방식(PLC/KDCU/LTE/SMGW)
     if (isLpNoApp) tagText = lpTypeLabel(meters);      // 뱃지 = 아미고 아닌 계기타입(AE/G)
@@ -973,7 +979,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
                 <circle class="pin-circle" cx="10" cy="10" r="5.5" fill="white"/>
             </svg>
             <div class="marker-number">${markerLabel}</div>
-            ${tagText ? `<div class="marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}${isAddedList ? ' tag-added' : ''}${isMichochi ? ' tag-michochi' : ''}">${tagText}</div>` : ''}
+            ${tagText ? `<div class="marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}${isAddedList ? ' tag-added' : ''}">${tagText}</div>` : ''}
         </div>
     `;
 
@@ -1024,7 +1030,7 @@ function repaintMarker(marker) {
     const isBulga = marker.category === '미청구불가';
     const isSeonjochi = marker.category === '선조치';
     const isAddedList = marker.category === '추가';
-    const isMichochi = marker.category === '미조치';
+    const isMichunggu = marker.category === '미청구';
 
     let color = isApproximate ? 'yellow' : 'green';
     if (isAddedList) color = 'added';
@@ -1038,6 +1044,9 @@ function repaintMarker(marker) {
     if (isBulga && !isApproximate) color = 'bulga';
     // 선조치 — 전용 분홍(영준님 지시 2026-10-30 '선조치' 리스트). 근사 좌표면 노랑이 이기는 것은 불가와 같다.
     if (isSeonjochi && !isApproximate) color = 'seonjochi';
+    // 25미청구 — 분홍(영준님 2026-11-07 "25미청구를 다른 색으로" — 미조치가 기본 초록이라 둘이 같아 보였다).
+    //   선조치 분홍을 물려받는다(선조치는 지도에서 내렸다). 근사 좌표면 노랑이 이기는 것은 불가·선조치와 같다.
+    if (isMichunggu && !isApproximate) color = 'michunggu';
     // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
     if (state === 'complete') color = 'gray';
     else if (state === 'hold') color = 'blue';
@@ -1068,7 +1077,6 @@ function repaintMarker(marker) {
                   : isLpNoApp ? lpTypeLabel(marker.meters)
                   : isSeonjochi ? (isRework ? '선재' : '선')   // createMarker 와 같은 규칙
                   : isAddedList ? '추'
-                  : isMichochi ? (isRework ? '조재' : '조')   // createMarker 와 같은 규칙
                               : markerTagText(isHapdong, isRework);
     let fracEl = marker.element.querySelector('.marker-fraction');
     if (tagText) {
@@ -1076,7 +1084,7 @@ function repaintMarker(marker) {
             fracEl = document.createElement('div');
             el.appendChild(fracEl);
         }
-        fracEl.className = `marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}${isAddedList ? ' tag-added' : ''}${isMichochi ? ' tag-michochi' : ''}`;
+        fracEl.className = `marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}${isAddedList ? ' tag-added' : ''}`;
         fracEl.textContent = tagText;
     } else if (fracEl) {
         fracEl.remove();
