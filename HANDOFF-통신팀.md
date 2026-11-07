@@ -6,23 +6,32 @@
 > 앱 통칭 [[app_naming_convention]]. 배포 시 APP_VERSION 갱신 [[jongno_app_version_deploy]]. 종로맵=Naver Maps.
 > **awms API 모를 때 = `research/awms-poc/awms_API_레퍼런스.md`. 통신팀(mob/cst)/계기팀(mob/mtr) 별개 — 항상 구별.**
 
-## 현재 상태 (2026-11-02 22:05)
+## 현재 상태 (2026-11-07 마감)
 
-- **배포 상태**: tongsin = main = `97690ce`. 아미맵 **v20261102.3** · 아미큐 **2.2.27**(자동업뎃 배포) · 헬퍼 inject **v93**.
-  백엔드 재구동 21:58(git 999da45, stale False). 세션 시작 시 `git log HEAD..origin/main` 부터 확인 —
-  PM 이 main 에 인덱스 커밋을 직접 넣으므로 push 거절이 나면 `git rebase origin/main` 후 다시 push(겹치는 파일 없었음).
-- **11/02 하루 처리분** (전부 PM 발주·배포 승인):
-  - 아미큐 2.2.26 리스트 배지([선조치] 등, 백엔드 /api/michunggu badges) — 이름은 `data/meter-list-index.json` `__names`.
-  - 아미큐 2.2.27 동행시공: 설정에서 빼고 맥 화면 설비 옵션 맨 위로. 마지막 값 Prefs `with_yn` 유지, 큐 항목에 `withYn`
-    고정 → 백엔드 `_with_yn_of(body)` 가 건별 값 우선(없으면 CONFIG). 선택 시 CONFIG WITH_YN 도 맞춘다(헬퍼 자동입력·bdju 용).
-    **동행 값을 쓰는 곳은 맥 화면 하나뿐** — 설정 화면 syncDeptFrom 은 이제 동행을 안 건드린다.
-    cst-app 원본 백업: 스크래치패드 `cstapp_bak_1102b/`(세션 끝나면 사라짐 — 되돌릴 일 있으면 git 이 아니라 이 백업뿐, cst-app 은 gitignore).
-  - 합동 11/02 반영(v20261102.2) + 저녁 직할 +85 재반영(v20261102.3, 21:53 원본 그대로·재수집 금지 지시).
-    지도 = 11/02 365 · 10/30 375 · 10/29 544, 10/28 백업. 마지막 수집 `last_fetch.json` = 20261102 21:53.
-  - 선조치 통계 편입·리스트 라벨 인덱스 레지스트리화(`scripts/gen_meter_list_index.py`), 강북 계정 추가 기능 전부 막음(`ORG_CAN_ADD`).
-- **판단 대기(PM/영준님)**: 합동 GAETONG_YN(개통) 지도 표시 여부 · 지운 공지 20261031-1 닫은 사람에게 선조치 공지 재노출 건 ·
-  7월 추가계기 13곳 재표시 여부. 광명 분리(gm_split) 정지 유지.
-- **폰 시험 원칙**: adb 로 설치·확인할 때 영준님 실제 설정값을 바꿨으면 반드시 원래 값으로 되돌린다(2.2.27 때 동행 Y→N 복원).
+- **배포 상태**: tongsin = main(`8761ab3` 위, 내 마지막 커밋 `6c792d3`). 아미맵 **v20261105.3** · 아미큐 **2.2.27** · 헬퍼 inject **v94**.
+  세션 시작 시 `git fetch && git log HEAD..origin/main` 부터 — PM 이 main 에 인덱스 커밋을 직접 넣는다(ff-only 로 맞추고 시작).
+- **main 워크트리 미커밋 파일은 PM 것 — 손대지 마라**: `data/inbox_hapdong/last_fetch.json`(수집 표식, 11/03 에 한 번 덮었다 복구한 사고),
+  인덱스 작업 중이면 `data/stats-site-index.json`·`meter-list-index.json`. main fast-forward 는 `git merge --ff-only` 만, checkout/restore 금지.
+- **11/03~11/05 처리분** (전부 PM 발주·배포 승인):
+  - 헬퍼 inject v94: Enter 키 로그인·`POST /login`(빈 authorization) 에서도 OTP 요청 표시(`__markOtpReq`). 아미큐 카톡 OTP 스킵 원인.
+  - 아미맵 v20261104.1: 합친 마커 계기 체크·불가 = 마커 안 모든 상태키 합집합 표시, 쓰기는 계기 자기 키, 해제는 전부(`js/detail.js` meterOwnKey/markerKeys).
+    `scripts/hapdong/complete_mine.py` 판정 = 마커 단위, 오타 짝은 명판 사진 OCR(백엔드 /api/ocr)로 판정. **--go 는 PM 몫**(데스크는 드라이런만).
+  - 25불가 LP 제외(v20261105.1→.2): 한전 LP '성공' 회신 계기를 B10 축으로 뺌. 목록 `data/reference/bulga25_lp_success_*.json`,
+    작업 기록 있는 개소는 유지 `data/reference/bulga25_lp_keep_worked_*.json`(개소=주소 단위, 판정은 workStatus 읽어 파일로).
+    적용은 `build_michunggu_bulga_20260920.py --lp-only` — ★이미 뺀 계기는 못 되살린다: 유지 목록 바꾸면 B10 이전 판(`11cc70b`)으로 되돌린 뒤 다시 돌려라.
+    결과 4,373 → **4,152계기 · 2,825곳**. 전체 빌더 재실행은 9/29 이후 ami.db 변화로 다른 축까지 움직이니 피할 것.
+  - 합동 11/03·11/03밤·11/04·11/05 반영. 지도 = 11/05 292 · 11/04 475 · 11/03 523 (1,290), 11/02 까지 백업(archive 16,077).
+- **판단 대기(PM)**:
+  - 합동 계기번호 `A053032375`(10자리) — `validate_bdju.py` METER_PENDING 등록, 원본 유지. 정정 요청 여부.
+  - 합동 CONS_TGT_SEQNO **12**(노원도봉 11/05) 주소 빈값 → 좌표 없음·마커 없음. 채우려면 계기팀 고객조회 → `addr_fill_custinfo.json`.
+  - 제기로38길 38: 같은 계기 A0530328079 가 11/03·11/05 두 번 등재(완료 키 아래). 중복 처리 여부.
+  - 합동 11/03밤 새 계기 02550242990 이 이미 complete 인 키(토정로18길 11) 아래 들어감.
+  - 상세창 열린 채 `주소|합동` 키 실시간 재렌더 안 됨(10/19 보류분, inView 에 `currentStatusKeys.includes`). 고칠지.
+  - 이전부터: 합동 GAETONG_YN 표시 여부 · 7월 추가계기 13곳 재표시 · 광명 분리 정지 유지.
+- **합동 빌드 요령**: main 원본을 워크트리 `data/inbox_hapdong/` 로 복사 → 빌드 전 사본(hapdong-data·archive·geocode-cache)을 스크래치에 떠 두고
+  `python3 scripts/build_hapdong_data.py` → 사본과 CONS_TGT_SEQNO 단위 비교(새/빠짐/변화) → `validate_bdju.py` → 상태키 겹침(`status_key.py` load_rows+encode_key, workStatus shallow) → 버전 범프 → 로컬 Playwright → push.
+  좌표통일이 다시 돌면 기존 행 좌표가 소수 자리만 바뀌는 일이 있다(0.03m, 마커 키 불변 — 정상).
+- **폰 시험 원칙**: adb 로 확인할 때 영준님 실제 설정값을 바꿨으면 원래 값으로 되돌린다. btnLogin·btnAuthor·btnRetry 누르지 마라(OTP 발송).
   설정 화면 캡처는 백엔드 토큰이 평문으로 찍힌다 — 보고에 넣지 마라.
 - **리콜 의심 계기 띠 (10/23 배포, 진행 중 트랙)**: 아미맵 상세 모달(일반 카드·장애 트리)에
   `제조년도 2603·2604 작업불가` 주황 띠. 표 하나 = `js/recall.js` `RECALL_SUSPECT`(9419·4719·9319, 0246·아미고 제외).
