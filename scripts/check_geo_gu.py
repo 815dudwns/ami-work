@@ -159,8 +159,8 @@ def main():
     reverse = '--reverse' in args
     paths = [a for a in args if not a.startswith('--')]
     if '--all' in args:
-        from datasets import MAP_DATASETS
-        paths += [str(ROOT / d['file']) for d in MAP_DATASETS if (ROOT / d['file']).exists()]
+        from datasets import MAP_DATASETS, dataset_files
+        paths += [str(ROOT / f) for d in MAP_DATASETS for f in dataset_files(d) if (ROOT / f).exists()]
     bad, stat = check(paths, reverse)
     print(f'구 일치 검사: {dict(stat)} · 불일치 {len(bad)}')
     for b in bad[:60]:

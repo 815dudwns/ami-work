@@ -50,9 +50,12 @@ STATUS_KEY_SEP = "|"
 #     배치에는 없는 상태로 한동안 굴러갔고, parity 검사는 js/map.js 를 보도록 돼 있었는데
 #     2026-09-03 에 DATASETS 가 js/datasets.js 로 옮겨가며 "목록 대조 건너뜀" 경고만 내고
 #     그 어긋남을 못 잡았다. 사본을 없애는 것이 유일한 해법이다(2026-09-07).
-from datasets import MAP_DATASETS as _MAP_DATASETS  # noqa: E402
+from datasets import MAP_DATASETS as _MAP_DATASETS, dataset_files as _dataset_files  # noqa: E402
 
-DATASETS = [(os.path.basename(d["file"]), d["category"]) for d in _MAP_DATASETS]
+# (data/ 기준 상대경로, 카테고리) — 지사별로 나눈 리스트(미조치 data/michochi/*.json)는 파일마다 한 줄.
+#   ★예전엔 basename 이었다. 하위 폴더 파일이 생겨 data/ 기준 상대경로로 바꿨다(js 쪽 짝: test_status_key_parity).
+DATASETS = [(f[len("data/"):] if f.startswith("data/") else os.path.basename(f), d["category"])
+            for d in _MAP_DATASETS for f in _dataset_files(d)]
 
 # 자기 이름을 상태키에 박는 카테고리 — 다른 리스트와 상태를 절대 공유하지 않는다.
 #   성격이 다른 리스트가 또 들어오면 여기에 한 줄 추가하면 된다.

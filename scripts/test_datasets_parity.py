@@ -50,7 +50,7 @@ def _norm(d, keys):
     out = {}
     for k in keys:
         v = d.get(k)
-        if k in ("file",) and isinstance(v, str):
+        if k in ("file", "fileByJisa") and isinstance(v, str):
             v = v.lstrip("./")
         if k == "archives" and isinstance(v, list):
             v = [x.lstrip("./") for x in v]
@@ -62,7 +62,7 @@ def _norm(d, keys):
 def main():
     js = _js_objects()
     py = PY_DATASETS
-    keys = ("code", "category", "file", "metersKey", "archives", "archivesGlob", "onMap", "noStats", "noLabel")
+    keys = ("code", "category", "file", "fileByJisa", "metersKey", "archives", "archivesGlob", "onMap", "noStats", "noLabel")
     problems = []
 
     jc = [d["code"] for d in js]
@@ -74,6 +74,13 @@ def main():
         na, nb = _norm(a, keys), _norm(b, keys)
         if na != nb:
             problems.append(f"[{a['code']}] 항목이 다르다\n   js: {na}\n   py: {nb}")
+
+    # 지사 파일 이름 조각 — js JISA_FILE_SLUG == scripts/jisa_split.py JISA_SLUG
+    from jisa_split import JISA_SLUG
+    m = re.search(r"JISA_FILE_SLUG\s*=\s*\{([^}]*)\}", JS)
+    jslug = dict(re.findall(r"'([^']+)'\s*:\s*'([^']+)'", m.group(1))) if m else {}
+    if jslug != JISA_SLUG:
+        problems.append(f"지사 파일 이름이 다르다\n   js: {jslug}\n   py: {JISA_SLUG}")
 
     # 네임스페이스 카테고리 — status-key 와 대조(둘 다 카테고리 이름을 쓴다)
     sk = (ROOT / "js" / "status-key.js").read_text(encoding="utf-8")

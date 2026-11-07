@@ -30,7 +30,7 @@ from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE / 'scripts'))
-from datasets import DATASETS  # noqa: E402
+from datasets import DATASETS, dataset_files  # noqa: E402
 
 DST = BASE / 'data' / 'meter-list-index.json'
 # Code order inside a label. The old fixed order first (labels unchanged), then any newer list in registry order.
@@ -50,9 +50,7 @@ def covered():
             continue
         if d.get('allowGroup') and not d.get('statsEvenIfGroup'):
             continue
-        paths = []
-        if d.get('file'):
-            paths.append(BASE / d['file'])
+        paths = [BASE / f for f in dataset_files(d)]
         paths += [BASE / a for a in d.get('archives', [])]
         if d.get('archivesGlob'):
             paths += [Path(p) for p in sorted(glob.glob(str(BASE / d['archivesGlob'])))]

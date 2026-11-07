@@ -25,8 +25,25 @@
 //   source     'workStatus' 면 파일 없이 workStatus 의 site 기록으로 행을 만든다(추가 리스트, js/add-site.js)
 //   menuOrder  리스트 메뉴 순서(작을수록 위, 없으면 0 = 레지스트리 순서). 마커 겹침 우선순위와는 무관
 //   noLabel    true 면 헬퍼·아미큐 리스트 라벨 인덱스(data/meter-list-index.json)에서 뺀다(파일 크기 — 미조치)
+//   fileByJisa file 대신 지사별 파일 템플릿. '*' 자리에 JISA_FILE_SLUG(아래) 조각. 지도는 고른 지사 파일만 받는다
+//              (js/map.js loadDataset). 파일 목록은 datasetFiles(d) — 스크립트는 scripts/datasets.py dataset_files
 //   allowGroup 지정하면 그 계정 그룹에만 보인다(js/auth.js AUTH_GROUPS). 통계 분모에서도 빠진다
 //              ★2026-09-20 현재 쓰는 리스트가 없다 — 25미청구·미청구불가는 전 작업자 공개다
+// 지사 -> 파일 이름 조각. scripts/jisa_split.py JISA_SLUG 와 같아야 한다(test_datasets_parity 가 본다).
+//   영문인 이유: 한글 파일명은 맥 파일시스템·URL 에서 정규화(NFC/NFD)가 갈릴 수 있다.
+const JISA_FILE_SLUG = {
+    '강북성북지사': 'gangbuk', '광진성동지사': 'gwangjin', '노원도봉지사': 'nowon',
+    '동대문중랑지사': 'dongdaemun', '마포용산지사': 'mapo', '서대문은평지사': 'seodaemun',
+    '서울본부직할': 'jikhal', '미분류': 'unclassified',
+};
+/** 그 리스트의 지도 파일 — jisa 를 주면 그 지사 것만, 안 주면 전부. 지사별이 아닌 리스트는 file 하나. */
+function datasetFiles(d, jisa) {
+    if (d.file) return [d.file];
+    if (!d.fileByJisa) return [];
+    const js = jisa ? [jisa] : Object.keys(JISA_FILE_SLUG);
+    return js.filter(j => JISA_FILE_SLUG[j]).map(j => d.fileByJisa.replace('*', JISA_FILE_SLUG[j]));
+}
+
 const DATASET_REGISTRY = [
     { code: 's', file: './data/site-data.json', category: '실효', label: null, uiLabel: '실효계기',
       statsLabel: '실효',
@@ -136,7 +153,8 @@ const DATASET_REGISTRY = [
     //   ★메뉴 맨 위(menuOrder -1) — 메인 리스트(영준님 2026-11-07). 메뉴 표시 순서만 바꾼다(js/map.js populateCategoryFilter).
     //   상세에 LP 하루 수신 x/96(아미고확인필요 행만)·상 구분·계약종별·계약상태·미설치 개소 수.
     //   생성 scripts/build_michochi_data.py (좌표 scripts/michochi_geocode.py)
-    { code: 'c', file: './data/michochi-data.json', category: '미조치', label: null, uiLabel: '미조치', menuOrder: -1,
+    //   ★지사별 파일(2026-11-08) — 58MB 한 파일을 매번 통째로 해석하던 것이 첫 진입을 멈췄다. 고른 지사 파일만 받는다.
+    { code: 'c', fileByJisa: './data/michochi/*.json', category: '미조치', label: null, uiLabel: '미조치', menuOrder: -1,
       statsLabel: '미조치', archivesGlob: 'data/michochi-completed-archive-*.json',
       // ★noLabel — 헬퍼·아미큐 리스트 라벨 인덱스(data/meter-list-index.json)에서 뺀다. 넣으면 0.6MB -> 3.2MB 이고
       //   헬퍼가 그 파일을 매번 받는다(2MB 넘으면 빼라 — PM 2026-11-07). scripts/gen_meter_list_index.py covered()
@@ -207,7 +225,7 @@ function datasetVisibleToUser(d) {
 //     SyntaxError 를 내고 map.js 가 통째로 안 돈다(2026-09-03 지도 먹통 사고).
 //   source:'workStatus'(추가)는 파일이 없지만 지도에 올린다.
 const DATASETS = DATASET_REGISTRY.filter(
-    d => d.onMap !== false && (d.file || d.source === 'workStatus') && datasetVisibleToUser(d));
+    d => d.onMap !== false && (d.file || d.fileByJisa || d.source === 'workStatus') && datasetVisibleToUser(d));
 const MAP_DATASETS = DATASETS;
 
 /** 통계 인덱스 코드 -> 상태키 카테고리. 네임스페이스 판정에 쓴다. */
@@ -232,5 +250,5 @@ const DATASET_STATS_OPTS = DATASET_REGISTRY
 
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { DATASET_REGISTRY, DATASETS, MAP_DATASETS,
-                       DATASET_CATEGORY_BY_CODE, DATASET_STATS_OPTS };
+                       DATASET_CATEGORY_BY_CODE, DATASET_STATS_OPTS, JISA_FILE_SLUG, datasetFiles };
 }

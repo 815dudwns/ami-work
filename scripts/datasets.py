@@ -49,7 +49,9 @@ DATASETS = [
      "uiLabel": "25년 미청구불가", "statsLabel": "25년 미청구불가",
      "archivesGlob": "data/michunggu-bulga-completed-archive-*.json"},
     # 미조치 — 미설치 고객 리스트(11/06) AE·G·아미고 + 실효 잔여(2026-11-07). js/datasets.js 주석 참조
-    {"code": "c", "file": "data/michochi-data.json", "category": "미조치", "uiLabel": "미조치",
+    #   ★지사별 파일(2026-11-08) — 58MB 한 파일을 매번 통째로 해석하던 것이 지도 첫 진입을 멈췄다.
+    #     fileByJisa 의 "*" 자리에 넣는 조각은 scripts/jisa_split.py JISA_SLUG(= js/datasets.js JISA_FILE_SLUG).
+    {"code": "c", "fileByJisa": "data/michochi/*.json", "category": "미조치", "uiLabel": "미조치",
      "statsLabel": "미조치", "archivesGlob": "data/michochi-completed-archive-*.json",
      # 라벨 인덱스에서 뺀다 — 넣으면 0.6MB -> 3.2MB(헬퍼가 매번 받는다). gen_meter_list_index.covered()
      "noLabel": True},
@@ -64,7 +66,18 @@ DATASETS = [
     {"code": "x", "category": "추가", "uiLabel": "추가", "source": "workStatus", "noStats": True},
 ]
 
-MAP_DATASETS = [d for d in DATASETS if d.get("onMap", True) and d.get("file")]
+def dataset_files(d):
+    """그 리스트의 지도 파일 경로들(ROOT 기준 상대경로 문자열). file 하나거나, fileByJisa 면 지사마다 하나.
+    ★지도 파일을 읽는 스크립트는 d["file"] 대신 이걸 써라 — 지사별로 나눈 리스트(미조치)는 file 이 없다."""
+    if d.get("file"):
+        return [d["file"]]
+    if d.get("fileByJisa"):
+        from jisa_split import JISA_SLUG
+        return [d["fileByJisa"].replace("*", s) for s in JISA_SLUG.values()]
+    return []
+
+
+MAP_DATASETS = [d for d in DATASETS if d.get("onMap", True) and dataset_files(d)]
 CATEGORY_BY_CODE = {d["code"]: d["category"] for d in DATASETS if d.get("category")}
 
 
@@ -105,9 +118,7 @@ def stats_sources():
             continue
         if d.get("noStats"):
             continue
-        paths = []
-        if d.get("file"):
-            paths.append(ROOT / d["file"])
+        paths = [ROOT / f for f in dataset_files(d)]
         for a in d.get("archives", []):
             paths.append(ROOT / a)
         if d.get("archivesGlob"):

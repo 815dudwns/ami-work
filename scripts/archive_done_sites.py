@@ -35,7 +35,7 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'scripts'))
 import status_key as S  # noqa: E402
-from datasets import DATASETS  # noqa: E402
+from datasets import DATASETS, dataset_files  # noqa: E402
 
 WS_URL = ('https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app'
           '/workStatus/charger4eleccar.json')
@@ -104,21 +104,29 @@ def main():
     for c in CODES:
         d = reg[c]
         st, dn, n = per[c]
-        f = ROOT / d['file']
-        raw = f.read_text(encoding='utf-8')
-        arr = json.loads(raw)
-        # load_rows keeps file order, so the k-th row of this category is arr[k]
+        # load_rows reads the list's files in dataset_files() order and keeps row order, so the
+        #   category's rows line up with the files concatenated. 지사별 리스트(미조치)는 파일이 여럿이다.
         cat_rows = [r for r in rows if r['category'] == cat_of[c]]
-        assert len(cat_rows) == len(arr), (c, len(cat_rows), len(arr))
-        out_rows = [arr[k] for k, r in enumerate(cat_rows) if r['_i'] in dn]
-        stay = [arr[k] for k, r in enumerate(cat_rows) if r['_i'] not in dn]
+        files = [ROOT / p for p in dataset_files(d) if (ROOT / p).exists()]
+        out_rows, writes, pos, raw = [], [], 0, ''
+        for f in files:
+            raw = f.read_text(encoding='utf-8')
+            arr = json.loads(raw)
+            mine = cat_rows[pos:pos + len(arr)]
+            pos += len(arr)
+            out_rows += [arr[k] for k, r in enumerate(mine) if r['_i'] in dn]
+            stay = [arr[k] for k, r in enumerate(mine) if r['_i'] not in dn]
+            if len(stay) != len(arr):
+                writes.append((f, stay, raw))
+        assert pos == len(cat_rows), (c, pos, len(cat_rows))
         ap = ROOT / d['archivesGlob'].replace('*', day)
         prev = json.loads(ap.read_text(encoding='utf-8')) if ap.exists() else []
-        print(f"{c} {d['category']}: sites {dict(st)} · meters {n:,} -> archive {len(out_rows):,} · stay {len(stay):,}"
+        print(f"{c} {d['category']}: sites {dict(st)} · meters {n:,} -> archive {len(out_rows):,} · stay {pos - len(out_rows):,}"
               f" · {ap.relative_to(ROOT)}" + (f' (append to {len(prev):,})' if prev else ''))
         if go and out_rows:
             ap.write_text(dump(prev + out_rows, raw), encoding='utf-8')
-            f.write_text(dump(stay, raw), encoding='utf-8')
+            for f, stay, fraw in writes:
+                f.write_text(dump(stay, fraw), encoding='utf-8')
     if not go:
         print('dry run — add --go to write')
     else:

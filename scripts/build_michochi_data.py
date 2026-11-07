@@ -6,7 +6,7 @@ PM 이 거른 입력을 그대로 싣는다(다시 거르지 않는다):
   main data/reference/silhyo_remain_20261107.json   — 실효에 남은 15계기. 위 목록에 없는 것만 실효 필드째 더한다.
   제외 내역(영준님 검토용) = main data/outbox_jdg_20261107/미조치_제외내역_20261107.xlsx
 
-Output: data/michochi-data.json — 계기 1행. 상태키 '주소|미조치'(네임스페이스 — 실효·합동·미청구의 옛 완료를
+Output: data/michochi/<지사영문>.json (지사별 7개, 2026-11-08 — 지도는 고른 지사 파일만 받는다) — 계기 1행. 상태키 '주소|미조치'(네임스페이스 — 실효·합동·미청구의 옛 완료를
   물려받지 않게). js/datasets.js code 'c'.
   ★파일 서식 = 한 줄에 한 행(compact). 14만 행이라 indent 를 주면 수십 MB 가 늘어난다.
   ★값이 빈 칸은 싣지 않는다(지도·상세는 없는 필드를 빈칸으로 읽는다).
@@ -41,7 +41,8 @@ ROOT = Path(__file__).resolve().parent.parent
 MAIN = Path('/Users/woodelight/Projects/ami-work')
 SRC = MAIN / 'data/reference/michochi_rows_20261107.json'
 SILHYO = MAIN / 'data/reference/silhyo_remain_20261107.json'
-OUT = ROOT / 'data/michochi-data.json'
+# 지사별 파일(2026-11-08) — 레지스트리 fileByJisa 템플릿을 따른다. 한 파일(58MB)은 더 쓰지 않는다.
+OUT_TPL = 'data/michochi/*.json'
 CACHE = ROOT / 'data/inbox_michochi/geocode-cache.json'
 METER_RE = re.compile(r'^[0-9A-Z]{2}[0-9]{9}$')
 TYPE_BY_CODE = {'19': 'AE', '25': 'G', '26': 'G', '27': 'G', '45': 'G', '46': 'G', '47': 'G',
@@ -69,11 +70,11 @@ def area(a):
 def coord_pool():
     """주소 -> {lat,lng,acc,road,src}. exact 를 우선한다. 주소·지번주소 둘 다로 건다."""
     sys.path.insert(0, str(ROOT / 'scripts'))
-    from datasets import DATASETS, archive_paths
+    from datasets import DATASETS, archive_paths, dataset_files
     files = []
     for d in DATASETS:
-        if d.get('file') and d['code'] != 'c':
-            files.append(ROOT / d['file'])
+        if d['code'] != 'c':
+            files += [ROOT / f for f in dataset_files(d)]
         files += archive_paths(d['code'])
     files += [ROOT / f for f in POOL_FILES]
     pool = {}
@@ -255,18 +256,40 @@ def main():
         if x.get('통신방식_출처') == '전체DCU(변대주명)' and x.get('출처') != '실효 잔여':
             del x['통신방식_출처']
 
-    OUT.write_text(dump(out), encoding='utf-8')
-    print(f'저장 {OUT} ({len(out):,}계기, {OUT.stat().st_size / 1e6:.1f}MB)')
-    r = subprocess.run([sys.executable, str(ROOT / 'scripts/validate_bdju.py'), str(OUT)])
+    write_split(out)
+
+
+def write_split(out):
+    """지사별 파일로 쓰고 게이트를 돈다. 실패하면 이번에 쓴 파일을 전부 지운다.
+    ★지사 판정 = 지도 jisaOf 와 같은 함수(scripts/jisa_split.py) — 지사를 고르면 그 파일만 받는다."""
+    import jisa_split as JS
+    parts, cross = JS.split_rows(out)
+    bad = JS.key_diff(out, parts, '미조치')
+    if bad:
+        sys.exit(f'★상태키 게이트 실패 — 지사 파일 하나만 읽으면 키가 바뀌는 계기 {len(bad)} {bad[:5]}')
+    print(f'지사 파일 {dict((j, len(v)) for j, v in parts.items())} · 두 지사에 걸친 주소 {cross}')
+    outdir = ROOT / Path(OUT_TPL).parent
+    outdir.mkdir(parents=True, exist_ok=True)
+    files = []
+    for j, slug in JS.JISA_SLUG.items():
+        f = ROOT / OUT_TPL.replace('*', slug)
+        if parts.get(j):
+            f.write_text(dump(parts[j]), encoding='utf-8')
+            files.append(f)
+            print(f'저장 {f.relative_to(ROOT)} ({len(parts[j]):,}계기, {f.stat().st_size / 1e6:.1f}MB)')
+        elif f.exists():
+            f.unlink()          # 이번 판에 없는 지사 — 옛 파일이 남으면 지도가 지난 행을 보여 준다
+    r = subprocess.run([sys.executable, str(ROOT / 'scripts/validate_bdju.py')] + [str(f) for f in files])
     if r.returncode:
-        OUT.unlink()
+        for f in files:
+            f.unlink()
         sys.exit('★validate_bdju 실패 — 산출물을 지웠다')
     # 좌표 구 게이트(역지오코딩) — 좌표가 주소의 구 안에 있어야 한다. 캐시가 있어 두 번째부터는 호출이 거의 없다.
-    r = subprocess.run([sys.executable, str(ROOT / 'scripts/check_geo_gu.py'), '--reverse', str(OUT)])
+    r = subprocess.run([sys.executable, str(ROOT / 'scripts/check_geo_gu.py'), '--reverse'] + [str(f) for f in files])
     if r.returncode:
-        OUT.unlink()
+        for f in files:
+            f.unlink()
         sys.exit('★좌표 구 게이트 실패 — 산출물을 지웠다')
-
 
 if __name__ == '__main__':
     main()

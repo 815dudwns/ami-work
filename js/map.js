@@ -67,22 +67,35 @@ let locationOverlay = null;
 let locationWatchId = null;
 let locationActive = false;
 
-// 데이터셋 1개 로드 — 실효(16MB)는 캐시-우선(IndexedDB), skt/tou(작음)는 직접 fetch.
-async function loadDataset(d) {
+// 받은 파일 — 같은 파일을 두 번 sampleData 에 넣지 않게(지사별 리스트는 지사를 바꿀 때마다 그 파일만 더 받는다)
+const _loadedFiles = new Set();
+
+// 지금 화면의 지사 — 지사별 파일 리스트(미조치)는 이 지사 파일만 받는다. '' = 전부(지사 필터 없는 전용 계정).
+function currentJisaForLoad() {
+    if (_LS_NS) return '';
+    const s = document.getElementById('jisa-select');
+    return (s && s.value) || localStorage.getItem(lsKey('ami_selected_jisa')) || '';
+}
+
+// 데이터셋 1개 로드 — 실효(16MB)는 캐시-우선(IndexedDB), 나머지는 ETag 캐시(loadListCached).
+//   ★지사별 파일(fileByJisa, 미조치 2026-11-08)은 jisa 의 파일만 받는다. 파일마다 캐시 키가 따로라
+//     지사를 바꾸면 그 지사 파일만 새로 받는다(이미 받은 지사는 다시 해석하지 않는다).
+async function loadDataset(d, jisa) {
     // 파일 없는 리스트(추가 — workStatus 에서 만든다, js/add-site.js)는 받을 것이 없다
-    if (!d.file) return [];
-    try {
-        let rows;
-        if (d.category === '실효') {
-            rows = await loadSiteDataCached(d.file);
-        } else {
-            rows = await loadListCached(d.file);
+    const files = datasetFiles(d, jisa).filter(f => !_loadedFiles.has(f));
+    if (!files.length) return [];
+    files.forEach(f => _loadedFiles.add(f));
+    const parts = await Promise.all(files.map(async f => {
+        try {
+            const rows = d.category === '실효' ? await loadSiteDataCached(f) : await loadListCached(f);
+            return rows.map(r => ({ ...r, category: d.category }));
+        } catch (e) {
+            console.warn(`[load ${d.category}] 실패:`, f, e);
+            _loadedFiles.delete(f);   // 다음에 다시 시도
+            return [];
         }
-        return rows.map(r => ({ ...r, category: d.category }));
-    } catch (e) {
-        console.warn(`[load ${d.category}] 실패:`, e);
-        return [];
-    }
+    }));
+    return parts.flat();
 }
 
 // 실효 site-data 캐시-우선(stale-while-revalidate 단순화):
@@ -187,10 +200,11 @@ async function initMap() {
     // 근접 마커 분산은 픽셀 간격이라 줌마다 위치를 다시 잡는다(spreadOverlappingMarkers)
     kakao.maps.event.addListener(map, 'zoom_changed', relayoutSpreadMarkers);
 
-    // 지도 이동/줌 변경 시 현재 뷰 저장
+    // 지도 이동/줌 변경 시 현재 뷰 저장 + 화면 안 마커만 붙이기(cullMarkers)
     kakao.maps.event.addListener(map, 'idle', () => {
         const c = map.getCenter();
         localStorage.setItem('ami_map_view', JSON.stringify({ lat: c.getLat(), lng: c.getLng(), level: map.getLevel() }));
+        cullMarkers();
     });
 
     const _first = DATASETS.filter(d => !DEFERRED_CATEGORIES.includes(d.category));
@@ -198,7 +212,7 @@ async function initMap() {
     const _selNow = getSelectedCategories();
     const _later = DATASETS.filter(d => DEFERRED_CATEGORIES.includes(d.category) && _selNow.has(d.category));
     try {
-        const loaded = await Promise.all(_first.map(loadDataset));
+        const loaded = await Promise.all(_first.map(d => loadDataset(d, currentJisaForLoad())));
         sampleData = loaded.flat();
     } catch (e) {
         console.error('[siteData] 로드 실패:', e);
@@ -228,7 +242,6 @@ async function initMap() {
     await _laterDone;
 }
 
-const _deferredLoaded = new Set();
 // 큰 리스트를 받는 중이면 그 약속 — 주소 추가가 '이미 있는 주소' 판정 전에 기다린다(js/add-site.js)
 let _deferredLoading = null;
 function loadDeferredLists(list) {
@@ -237,12 +250,15 @@ function loadDeferredLists(list) {
     p.finally(() => { if (_deferredLoading === p) _deferredLoading = null; });
     return p;
 }
+// 지사를 바꾼 뒤 지사별 파일이 늦게 도착하면 그때 지도를 맞춘다(onJisaChange)
+let _fitAfterLoad = false;
 async function _loadDeferredLists(list) {
-    list = (list || []).filter(d => !_deferredLoaded.has(d.category));
+    // 받을 파일이 남은 것만 — 이미 받은 파일은 loadDataset 이 건너뛴다(_loadedFiles)
+    const jisa = currentJisaForLoad();
+    list = (list || []).filter(d => datasetFiles(d, jisa).some(f => !_loadedFiles.has(f)));
     if (!list.length) return;
-    list.forEach(d => _deferredLoaded.add(d.category));
     try {
-        const loaded = await Promise.all(list.map(loadDataset));
+        const loaded = await Promise.all(list.map(d => loadDataset(d, jisa)));
         const rows = loaded.flat();
         if (!rows.length) return;
         sampleData = sampleData.concat(rows);
@@ -250,19 +266,28 @@ async function _loadDeferredLists(list) {
         collectDatasetDates();
         // 선택된 리스트에 들어 있을 때만 다시 그린다(꺼져 있으면 마커가 안 바뀐다)
         const sel = getSelectedCategories();
-        if (list.some(d => sel.has(d.category))) rebuildMarkers();
+        if (list.some(d => sel.has(d.category))) {
+            rebuildMarkers();
+            if (_fitAfterLoad) fitToFilteredMarkers();
+        }
         console.log('[siteData] 큰 리스트 뒤늦게 반영:', rows.length, '개');
     } catch (e) {
         console.warn('[siteData] 큰 리스트 로드 실패:', e);
-        list.forEach(d => _deferredLoaded.delete(d.category));
+    } finally {
+        _fitAfterLoad = false;
     }
 }
 
-// 꺼져 있던 큰 리스트를 켜면 그때 받는다
+// 켜진 리스트 중 아직 안 받은 파일이 있으면 받는다 — 꺼져 있던 큰 리스트를 켰을 때 · 지사를 바꿨을 때(지사별 파일).
+//   반환: 받기 시작했으면 true.
 function ensureDeferredForSelection() {
     const sel = getSelectedCategories();
-    const need = DATASETS.filter(d => DEFERRED_CATEGORIES.includes(d.category) && sel.has(d.category) && !_deferredLoaded.has(d.category));
+    const jisa = currentJisaForLoad();
+    const need = DATASETS.filter(d => sel.has(d.category)
+        && (DEFERRED_CATEGORIES.includes(d.category) || d.fileByJisa)
+        && datasetFiles(d, jisa).some(f => !_loadedFiles.has(f)));
     if (need.length) loadDeferredLists(need);
+    return need.length > 0;
 }
 
 // 지사 드롭다운 옵션 채우기 (JISA_TO_GU 7개 키 기준 + localStorage 복원)
@@ -363,7 +388,8 @@ function renderGuCheckboxes(jisa) {
 function fitToFilteredMarkers() {
     if (!markers.length) return;
     const bounds = new kakao.maps.LatLngBounds();
-    markers.forEach(m => bounds.extend(m.overlay.getPosition()));
+    // 마커는 화면에 들어올 때 만든다(cullMarkers) — 위치는 마커 객체의 좌표로 잡는다
+    markers.forEach(m => bounds.extend(new kakao.maps.LatLng(markerLat(m), markerLng(m))));
     if (bounds.isEmpty()) return;
     map.setBounds(bounds, 60);   // 60px 여백
     // 단일/소수 좌표면 최대줌으로 튐 — 적당 레벨로 보정 (setBounds는 동기 반영)
@@ -378,11 +404,12 @@ function onJisaChange() {
     // 지사 바뀌면 구 선택 초기화 (해당 지사 전체 구 ON) + 체크박스 재렌더
     localStorage.removeItem(lsKey('ami_selected_gu'));
     renderGuCheckboxes(value);
-    markers.forEach(m => m.overlay.setMap(null));
-    markers = [];
+    clearMarkers();
     loadMarkers();
     refreshAllMarkers();
     fitToFilteredMarkers();   // 선택 지사 영역으로 지도 이동
+    // 지사별 파일 리스트(미조치)는 이 지사 파일을 지금 받는다 — 도착하면 다시 그리고 지도를 한 번 더 맞춘다
+    _fitAfterLoad = ensureDeferredForSelection();
 }
 
 // 구 체크박스 변경 시 마커 재생성
@@ -390,8 +417,7 @@ function onGuChange() {
     const checked = [];
     document.querySelectorAll('#gu-checkboxes input[type="checkbox"]:checked').forEach(cb => checked.push(cb.value));
     localStorage.setItem(lsKey('ami_selected_gu'), JSON.stringify(checked));
-    markers.forEach(m => m.overlay.setMap(null));
-    markers = [];
+    clearMarkers();
     loadMarkers();
     refreshAllMarkers();
     fitToFilteredMarkers();   // 선택 구 영역으로 지도 이동
@@ -399,10 +425,15 @@ function onGuChange() {
 
 // 마커 전체 재생성 (필터 변경 공통 처리)
 function rebuildMarkers() {
-    markers.forEach(m => m.overlay.setMap(null));
-    markers = [];
+    clearMarkers();
     loadMarkers();
     refreshAllMarkers();
+}
+
+// 지도에서 마커를 전부 뗀다(아직 만들지 않은 마커는 뗄 것이 없다)
+function clearMarkers() {
+    markers.forEach(m => { if (m.overlay) m.overlay.setMap(null); });
+    markers = [];
 }
 
 // 현재 화면의 카테고리 체크 상태를 저장한다.
@@ -701,12 +732,12 @@ function loadMarkers() {
     spreadOverlappingMarkers(grouped);
 
     Object.values(grouped).forEach(data => {
-        const coords = new kakao.maps.LatLng(data.lat, data.lng);
-        createMarker(coords, data.address, data.meters, data.category, data.addresses, data.statusKeys);
+        createMarker(data.lat, data.lng, data.address, data.meters, data.category, data.addresses, data.statusKeys);
         // 분산된 마커는 줌이 바뀔 때 픽셀 간격을 다시 맞춘다(relayoutSpreadMarkers)
         if (data.spread) markers[markers.length - 1].spread = data.spread;
     });
     showNoListHint(selectedCats.size === 0);
+    cullMarkers();
 }
 
 // 리스트가 하나도 안 켜져 있으면 지도 위에 한 줄 안내
@@ -829,8 +860,12 @@ function spreadLatLng(sp) {
 }
 
 // 줌이 바뀌면 분산된 마커 위치를 다시 계산한다(픽셀 간격 유지).
+//   ★붙어 있는 마커만 — 나머지는 화면에 들어와 붙을 때(attachMarker) 그 줌으로 계산한다.
 function relayoutSpreadMarkers() {
-    markers.forEach(m => { if (m.spread) m.overlay.setPosition(spreadLatLng(m.spread)); });
+    const level = map.getLevel();
+    markers.forEach(m => {
+        if (m.spread && m.attached) { m.overlay.setPosition(spreadLatLng(m.spread)); m._spreadLevel = level; }
+    });
 }
 
 function spreadOverlappingMarkers(grouped) {
@@ -846,11 +881,9 @@ function spreadOverlappingMarkers(grouped) {
         keys.forEach((key, i) => {
             const r = SPREAD_STEP_PX * Math.sqrt(i);
             const angle = i * GOLDEN_ANGLE;
-            const sp = { lat0, lng0, dx: r * Math.sin(angle), dy: -r * Math.cos(angle) };
-            grouped[key].spread = sp;
-            const ll = spreadLatLng(sp);
-            grouped[key].lat = ll.getLat();
-            grouped[key].lng = ll.getLng();
+            // ★화면 위치는 붙일 때 그 줌으로 계산한다(attachMarker → spreadLatLng). 여기서 미리 하면
+            //   덩어리마다 투영 계산을 돌려 만 개 단위 리스트에서 느리다. 모양은 같다(같은 함수·같은 오프셋).
+            grouped[key].spread = { lat0, lng0, dx: r * Math.sin(angle), dy: -r * Math.cos(angle) };
         });
     });
 }
@@ -909,12 +942,74 @@ function gapapMarkerLabel(meters) {
     return '';   // 한전기준 없는 건은 데이터셋에 없다(있으면 라벨 없이 핀만)
 }
 
-// 단일 마커 생성 및 지도에 추가
-function createMarker(position, address, meters, category, addresses, statusKeys) {
+// 단일 마커 등록 — ★DOM·오버레이는 아직 만들지 않는다(2026-11-08 영준님 "마커가 너무 많아서 버벅임").
+//   미조치 한 지사만 1만 개가 넘는데 전부 DOM 오버레이로 붙이면 이동·확대마다 지도가 멈췄다.
+//   여기서는 자료만 담고, 화면(+여백) 안에 들어올 때 cullMarkers → attachMarker 가 만들어 붙인다.
+//   ★m.overlay / m.element 는 화면에 한 번도 안 들어온 마커면 null 이다 — 만지는 곳은 먼저 확인하라.
+function createMarker(lat, lng, address, meters, category, addresses, statusKeys) {
     // 표시용 지번 목록(패널 제목 등). 단일이면 [address].
     const addrList = (addresses && addresses.length) ? addresses : [address];
     // 상태를 읽고 쓰는 키. 한 주소가 마커 여러 개로 갈리면 주소와 달라진다(js/status-key.js).
     const keyList = (statusKeys && statusKeys.length) ? statusKeys : addrList;
+    markers.push({ lat: +lat, lng: +lng, address, addresses: addrList, statusKeys: keyList, meters, category,
+                   overlay: null, element: null, attached: false });
+}
+
+// 마커 기준 좌표 — 분산 마커는 덩어리 중심(화면 오프셋은 수십 px 라 컬링 여백 안이다)
+function markerLat(m) { return m.spread ? m.spread.lat0 : m.lat; }
+function markerLng(m) { return m.spread ? m.spread.lng0 : m.lng; }
+function markerPosition(m) {
+    return m.spread ? spreadLatLng(m.spread) : new kakao.maps.LatLng(m.lat, m.lng);
+}
+
+// ── 화면 안 마커만 붙이기(viewport culling, 2026-11-08) ─────────────────────────
+//   지도 범위 + 사방 CULL_MARGIN 화면만큼 안의 마커만 지도에 붙인다. idle 마다 새로 들어온 것은 붙이고
+//   나간 것은 뗀다(뗀 마커는 DOM 을 버리지 않고 두었다가 다시 붙인다 — 상태색은 그대로 유지된다).
+//   ★줌 아웃 동작(숨기기+안내 / 격자 숫자)은 아직 미정이다 — markerPolicyForLevel() 한 곳만 바꾸면 된다.
+const CULL_MARGIN = 0.5;
+let cullStats = { attached: 0, total: 0, level: null, ms: 0 };
+function markerPolicyForLevel(level) {   // 'show' = 범위 안 전부 / 'hide' = 하나도 안 붙임(미래: 'grid')
+    return 'show';
+}
+function cullMarkers() {
+    if (!map || typeof map.getBounds !== 'function') return;
+    const t0 = performance.now();
+    const b = map.getBounds();
+    const sw = b.getSouthWest(), ne = b.getNorthEast();
+    const dLat = (ne.getLat() - sw.getLat()) * CULL_MARGIN, dLng = (ne.getLng() - sw.getLng()) * CULL_MARGIN;
+    const s = sw.getLat() - dLat, n = ne.getLat() + dLat, w = sw.getLng() - dLng, e = ne.getLng() + dLng;
+    const level = map.getLevel();
+    const show = markerPolicyForLevel(level) === 'show';
+    let attached = 0;
+    for (let i = 0; i < markers.length; i++) {
+        const m = markers[i];
+        const la = markerLat(m), ln = markerLng(m);
+        const inView = show && la >= s && la <= n && ln >= w && ln <= e;
+        if (inView) {
+            if (!m.attached) attachMarker(m, level);
+            attached++;
+        } else if (m.attached) {
+            m.overlay.setMap(null);
+            m.attached = false;
+        }
+    }
+    cullStats = { attached, total: markers.length, level, ms: Math.round(performance.now() - t0) };
+}
+function attachMarker(m, level) {
+    if (!m.overlay) buildMarkerOverlay(m);
+    else if (m.spread && m._spreadLevel !== level) {
+        m.overlay.setPosition(spreadLatLng(m.spread));
+        m._spreadLevel = level;
+    }
+    m.overlay.setMap(map);
+    m.attached = true;
+}
+
+// 마커 DOM·오버레이를 만든다(처음 화면에 들어올 때 한 번). 모양·색·뱃지·우선순위는 예전 createMarker 그대로.
+function buildMarkerOverlay(m) {
+    const { address, meters, category } = m;
+    const addrList = m.addresses;
+    const keyList = m.statusKeys;
     const state = aggregateState(keyList);
     const addedCount = aggregateAddedCount(keyList);
     // 지도에서 추가한 개소의 자리 행(_addedSite)은 계기가 아니다 — 계기 수는 added_meters 로 센다
@@ -993,7 +1088,7 @@ function createMarker(position, address, meters, category, addresses, statusKeys
     });
 
     const customOverlay = new kakao.maps.CustomOverlay({
-        position: position,
+        position: markerPosition(m),
         content: markerEl,  // DOM 엘리먼트로 전달
         yAnchor: 1,
         // 우선순위가 높을수록 위에 그려진다. 안 주면 나중에 만든 마커가 이기므로
@@ -1001,9 +1096,11 @@ function createMarker(position, address, meters, category, addresses, statusKeys
         zIndex: 100 - markerPriority(category)
     });
 
-    customOverlay.setMap(map);
-
-    markers.push({ overlay: customOverlay, address, addresses: addrList, statusKeys: keyList, meters, element: markerEl, category });
+    m.overlay = customOverlay;
+    m.element = markerEl;
+    m._spreadLevel = map.getLevel();
+    // 예전 흐름(만들고 → Firebase 수신 뒤 repaintMarker)과 똑같은 모양이 되게 한 번 칠한다
+    repaintMarker(m);
 }
 
 // 마커 색상 갱신 (상태 변경 시 호출) — address는 변경된 단일 지번이지만,
@@ -1018,6 +1115,8 @@ function updateMarkerColor(statusKey) {
 
 // 마커 하나를 현재 workStatus 기준으로 다시 칠한다.
 function repaintMarker(marker) {
+    // 아직 화면에 안 들어와 DOM 이 없는 마커 — 붙일 때 그 시점 상태로 칠한다(buildMarkerOverlay)
+    if (!marker.element) return;
     const addrList = marker.statusKeys || marker.addresses || [marker.address];
     const state = aggregateState(addrList);
     const isApproximate = marker.meters.some(m => m.좌표정확도 === 'approximate');
@@ -1103,7 +1202,7 @@ function repaintMarkersForKeys(keySet) {
     markers.forEach(m => {
         const ks = m.statusKeys || m.addresses || [m.address];
         for (let i = 0; i < ks.length; i++) {
-            if (keySet.has(ks[i])) { repaintMarker(m); painted++; return; }
+            if (keySet.has(ks[i])) { if (m.element) { repaintMarker(m); painted++; } return; }
         }
     });
     return painted;
