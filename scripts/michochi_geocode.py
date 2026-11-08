@@ -3,6 +3,7 @@
 
     python3 scripts/michochi_geocode.py            # geocode every address not yet in the cache
     python3 scripts/michochi_geocode.py --count    # only print how many are left
+    python3 scripts/michochi_geocode.py --recheck [--dry]   # re-judge cached answers (same lot -> exact)
 
 Order of sources (scripts/build_michochi_data.py reads the same cache):
   1. coordinates we already have for the same address (all map lists + archives + 종로맵·구로)
@@ -13,6 +14,10 @@ Order of sources (scripts/build_michochi_data.py reads the same cache):
      * answered 구·동 differ from the source   -> dong center of the source, approximate
        (실측: '종로구 삼청동 -2' 를 카카오가 '소격동 2' 로 exact 응답)
      * same 동, different 번지                -> keep coords, approximate
+     * same 동, same lot written differently  -> exact (2026-11-08). lot = (산, 본번, 부번 — 없으면 0),
+       so '청량리동 219-0' == '청량리동 219'. 산 must match: '1-145' vs '산 1-145' is another lot.
+       Applies to every method except the 본번-only / 동 중심 fallbacks, which never asked for this lot.
+  5. --recheck re-judges the cache with rule 3 (no API call, coordinates unchanged).
   4. ★quota guard — Kakao 429 that does not clear stops the whole run (nothing is written as 'fail').
      geocode_cascade would otherwise read a quota error as 'not found' and fall to 동 중심 silently.
 
@@ -80,6 +85,21 @@ def parts(a):
     return gu, dong, re.sub(r'\s+', '', bj.group(0)) if bj else ''
 
 
+LOT_RE = re.compile(r'^(산)?(\d+)(?:-(\d+))?$')
+NOT_THIS_LOT = ('dong_center', 'kakao_jibun_parent')   # these answers never looked up the asked lot
+
+
+def lot(bj):
+    """'219-0' -> (False, 219, 0) == '219'. '산1-145' -> (True, 1, 145). 번지 아님 -> None."""
+    m = LOT_RE.match(bj or '')
+    return (bool(m.group(1)), int(m.group(2)), int(m.group(3) or 0)) if m else None
+
+
+def same_lot(a, b):
+    la, lb = lot(a), lot(b)
+    return la is not None and la == lb
+
+
 def dong_center(gu, dong):
     q = f'서울특별시 {gu} {dong}'
     got = G.kakao_address(q) or G.kakao_keyword(q) or G.naver_address(q)
@@ -106,12 +126,52 @@ def geocode(a):
         r = dong_center(gu, dong)
         r['method'] = f'dong_center(answer {h.jibun or h.address})'
         return r
-    acc = h.accuracy if got[2] == bj else 'approximate'
-    method = h.method if got[2] == bj else f'{h.method}(번지 {got[2]})'
-    if h.method == 'dong_center':
-        acc = 'approximate'
+    if h.method in NOT_THIS_LOT:
+        acc, method = 'approximate', h.method
+    elif got[2] == bj:
+        acc, method = h.accuracy, h.method
+    elif same_lot(got[2], bj):
+        acc, method = 'exact', f'{h.method}(같은 지번 {got[2]})'
+    else:
+        acc, method = 'approximate', f'{h.method}(번지 {got[2]})'
     return {'acc': acc, 'lat': h.lat, 'lng': h.lng, 'method': method,
             'road': h.road or '', 'jibun': h.jibun or ''}
+
+
+def recheck(a, v):
+    """Cache entry -> exact if the stored answer is the asked 구·동 and the same lot. Else None (keep)."""
+    if v.get('acc') != 'approximate' or v.get('lat') is None or not v.get('jibun'):
+        return None
+    base = v.get('method', '').split('(')[0]
+    if base in NOT_THIS_LOT or base.startswith('unparsed'):
+        return None
+    p, got = parts(a), parts(v['jibun'])
+    if not p or not got or not p[2] or got[0] != p[0]:
+        return None
+    if G._dong_of(f'서울 {p[0]} {got[1]}') != G._dong_of(f'서울 {p[0]} {p[1]}'):
+        return None
+    if not same_lot(got[2], p[2]):
+        return None
+    return dict(v, acc='exact', method=f'{base}(같은 지번 {got[2]})')
+
+
+def run_recheck():
+    cache = json.loads(CACHE.read_text(encoding='utf-8'))
+    hit = {}
+    for a, v in cache.items():
+        n = recheck(a, v)
+        if n:
+            hit[a] = n
+    from collections import Counter
+    print(f'같은 지번 -> exact {len(hit):,} · 방법 '
+          f'{dict(Counter(v["method"].split("(")[0] for v in hit.values()))}', flush=True)
+    if '--dry' in sys.argv or not hit:
+        return 0
+    cache.update(hit)
+    tmp = CACHE.with_suffix('.tmp')
+    tmp.write_text(json.dumps(cache, ensure_ascii=False, indent=0), encoding='utf-8')
+    tmp.replace(CACHE)
+    return 0
 
 
 def todo():
@@ -126,6 +186,8 @@ def todo():
 
 
 def main():
+    if '--recheck' in sys.argv:
+        return run_recheck()
     addrs, pool, cache, left = todo()
     print(f'주소 {len(addrs):,} · 기존 좌표(exact) {sum(1 for a in addrs if a in pool and pool[a]["acc"] == "exact"):,}'
           f' · 캐시 {len(cache):,} · 남은 것 {len(left):,}', flush=True)
