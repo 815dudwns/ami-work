@@ -349,43 +349,41 @@ function populateJisaOptions() {
     renderGuCheckboxes(select.value);
 }
 
-// 구 체크박스 렌더 (지사 변경 시 + 초기 진입 시 호출)
+// 구 선택 렌더 (지사 변경 시 + 초기 진입 시 호출)
+//   ★구는 한 번에 하나만(2026-11-08 영준님 "마포용산이면 체크박스가 아니라 셀렉트 버튼으로. 두 개 다 띄우는 경우가
+//     생겨서"). 버튼 하나만 켜지고 '전체'·'전부 끔' 상태는 없다. 저장값 ami_selected_gu 는 배열 그대로지만 항상 1개다.
+//   저장값이 없거나·비었거나·여럿이거나·이 지사 구가 아니면 → 이 지사 구 중 저장값에 먼저 나온 것, 없으면 첫 구.
+//   (함수 이름은 호출부가 여럿이라 그대로 둔다)
+function selectedGuFor(gus) {
+    let arr = [];
+    try { arr = JSON.parse(localStorage.getItem(lsKey('ami_selected_gu')) || '[]'); } catch { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+    return arr.find(g => gus.includes(g)) || gus[0];
+}
 function renderGuCheckboxes(jisa) {
     const container = document.getElementById('gu-checkboxes');
     if (!container) return;
     container.innerHTML = '';
+    container.classList.add('gu-single');
 
     const gus = JISA_TO_GU[jisa] || (jisa === '미분류' ? ['미분류'] : []);
-    if (gus.length === 0) return;
-
-    // localStorage 복원: ami_selected_gu 없으면 전체 ON (마이그레이션 안전)
-    let savedRaw = localStorage.getItem(lsKey('ami_selected_gu'));
-    let savedSet = null;
-    if (savedRaw) {
-        try {
-            const arr = JSON.parse(savedRaw);
-            // 현재 지사 구들과 교집합이 0이면 전체 ON으로 리셋
-            const inter = arr.filter(g => gus.includes(g));
-            savedSet = inter.length > 0 ? new Set(arr) : null;
-        } catch { savedSet = null; }
-        // ★화면과 내부 선택값을 같게 맞춘다(2026-10-20 영준님 '도봉 눌러도 안 뜸').
-        //   저장값이 비었거나('[]') 이 지사 구와 겹치지 않으면 화면은 '전체 켬'으로 그리는데,
-        //   loadMarkers 는 저장값을 그대로 읽어 빈 집합 = 마커 0개가 됐다. 그 상태에서 구를 누르면
-        //   보이는 것과 반대로 토글돼 '리스트를 하나 꺼야 뜨는' 것처럼 보였다.
-        //   화면대로 '전체'(null)로 되돌린다.
-        if (!savedSet) localStorage.removeItem(lsKey('ami_selected_gu'));
+    if (gus.length === 0) {
+        // 구 목록이 없는 지사 — 구로 거르지 않는다(null = 지사 전체)
+        localStorage.removeItem(lsKey('ami_selected_gu'));
+        return;
     }
+    const sel = selectedGuFor(gus);
+    localStorage.setItem(lsKey('ami_selected_gu'), JSON.stringify([sel]));   // 항상 1개로 맞춘다(마이그레이션)
 
     gus.forEach(g => {
-        const label = document.createElement('label');
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.value = g;
-        cb.checked = savedSet ? savedSet.has(g) : true; // null이면 전체 ON
-        cb.addEventListener('change', onGuChange);
-        label.appendChild(cb);
-        label.appendChild(document.createTextNode(g));
-        container.appendChild(label);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'gu-btn' + (g === sel ? ' active' : '');
+        btn.dataset.gu = g;
+        btn.textContent = g;
+        btn.setAttribute('aria-pressed', g === sel ? 'true' : 'false');
+        btn.addEventListener('click', () => onGuSelect(g));
+        container.appendChild(btn);
     });
 }
 
@@ -415,7 +413,7 @@ function onJisaChange() {
     const select = document.getElementById('jisa-select');
     const value = select ? select.value : '';
     localStorage.setItem(lsKey('ami_selected_jisa'), value);
-    // 지사 바뀌면 구 선택 초기화 (해당 지사 전체 구 ON) + 체크박스 재렌더
+    // 지사 바뀌면 구 선택 초기화 — 새 지사의 첫 구 하나(renderGuCheckboxes 가 저장까지 한다)
     localStorage.removeItem(lsKey('ami_selected_gu'));
     renderGuCheckboxes(value);
     clearMarkers();
@@ -426,15 +424,21 @@ function onJisaChange() {
     _fitAfterLoad = ensureDeferredForSelection();
 }
 
-// 구 체크박스 변경 시 마커 재생성
-function onGuChange() {
-    const checked = [];
-    document.querySelectorAll('#gu-checkboxes input[type="checkbox"]:checked').forEach(cb => checked.push(cb.value));
-    localStorage.setItem(lsKey('ami_selected_gu'), JSON.stringify(checked));
+// 구 버튼 누름 — 그 구 하나만 켠다(이미 켜진 구를 다시 누르면 아무것도 안 바뀐다 — 빈 상태 없음)
+function onGuSelect(g) {
+    let cur = [];
+    try { cur = JSON.parse(localStorage.getItem(lsKey('ami_selected_gu')) || '[]'); } catch { cur = []; }
+    if (cur.length === 1 && cur[0] === g) return;
+    localStorage.setItem(lsKey('ami_selected_gu'), JSON.stringify([g]));
+    document.querySelectorAll('#gu-checkboxes .gu-btn').forEach(b => {
+        const on = b.dataset.gu === g;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
     clearMarkers();
     loadMarkers();
     refreshAllMarkers();
-    fitToFilteredMarkers();   // 선택 구 영역으로 지도 이동
+    fitToFilteredMarkers();   // 선택 구 영역으로 지도 이동(미조치 켰으면 레벨 5 제한 그대로)
 }
 
 // 마커 전체 재생성 (필터 변경 공통 처리)
