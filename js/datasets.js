@@ -159,7 +159,8 @@ const DATASET_REGISTRY = [
       statsLabel: '미조치', archivesGlob: 'data/michochi-completed-archive-*.json',
       // ★noLabel — 헬퍼·아미큐 리스트 라벨 인덱스(data/meter-list-index.json)에서 뺀다. 넣으면 0.6MB -> 3.2MB 이고
       //   헬퍼가 그 파일을 매번 받는다(2MB 넘으면 빼라 — PM 2026-11-07). scripts/gen_meter_list_index.py covered()
-      noLabel: true },
+      // ★noStats — 통계 분모에서도 뺀다(2026-11-08, 영준님 승인). 넣으면 통계 인덱스가 36MB 로 커진다.
+      noLabel: true, noStats: true },
     // 완료 아카이브 — 실효에서 완료돼 빠진 건들. 지도에는 안 올라가고 통계 분모에만 들어간다.
     //   파일이 날짜별로 늘어나므로 glob 으로 잡는다(archivesGlob).
     { code: 'a', category: '완료아카이브', onMap: false, statsLabel: '완료 아카이브',

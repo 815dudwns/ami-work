@@ -55,7 +55,8 @@ DATASETS = [
     {"code": "c", "fileByJisa": "data/michochi/*.json", "category": "미조치", "uiLabel": "미조치",
      "statsLabel": "미조치", "archivesGlob": "data/michochi-completed-archive-*.json",
      # 라벨 인덱스에서 뺀다 — 넣으면 0.6MB -> 3.2MB(헬퍼가 매번 받는다). gen_meter_list_index.covered()
-     "noLabel": True},
+     # 통계에서도 뺀다(2026-11-08) — 넣으면 통계 인덱스가 36MB
+     "noLabel": True, "noStats": True},
     # 지도에는 안 올라가고 통계 분모에만 들어간다.
     {"code": "a", "category": "완료아카이브", "onMap": False, "statsLabel": "완료 아카이브",
      "archivesGlob": "data/site-data-completed-archive-*.json"},
