@@ -117,7 +117,8 @@ const DATASET_REGISTRY = [
     //   ★통계 분모에 넣지 않는다(실적이 아니라 확인용). archives 도 없다.
     //   ★label 은 null = 마커에 **계기 개수**를 찍는다(한 DCU·한 모뎀에 여러 계기가 물린 구조).
     { code: 'n', file: './data/lpnoapp-data.json', category: 'LP무기록', label: null,
-      uiLabel: 'LP 무기록(확인용)', allowGroup: 'owner' },
+      // ★2026-11-08 지도 메뉴에서 내렸다(onMap:false, 영준님) — 파일·workStatus 는 그대로.
+      uiLabel: 'LP 무기록(확인용)', allowGroup: 'owner', onMap: false },
     // 25년 미청구 — 한전 원장(미청구2.xlsx)에서 상태='미청구' 인 계기 중 우리가 갈 곳.
     //   대상 정의: 미청구 13,182 − 고압 637 − modem_work(20260908) 945 − Sheet2 2,654 = 8,994
     //   ★계기교체 축은 제외 사유가 아니다(영준님 2026-09-18) — 25년 미청구는 **모뎀** 공사
