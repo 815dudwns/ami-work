@@ -208,7 +208,8 @@ async function initMap() {
     //   붙은 채 6 으로 가면 그 한 번에 12초 멈췄다(실측: 미리 떼면 6ms). 줌을 시작할 때는 방향을 모르니
     //   들어갈 때도 떼고, idle 의 cullMarkers 가 새 레벨에 맞게 다시 붙인다(떼기 7천 개 0.1초).
     kakao.maps.event.addListener(map, 'zoom_start', () => {
-        if (map.getLevel() >= HIDE_LEVEL_WITH_MICHOCHI - 1 && michochiOn()) detachAllMarkers();
+        if (map.getLevel() >= HIDE_LEVEL_WITH_MICHOCHI - 1) detachAllMarkers();   // 리스트 무관(2026-11-08 동그라미)
+        clearClusterBubbles();
     });
 
     // 지도 이동/줌 변경 시 현재 뷰 저장 + 화면 안 마커만 붙이기(cullMarkers)
@@ -405,7 +406,7 @@ function fitToFilteredMarkers() {
     if (map.getLevel() < 4) map.setLevel(4);
     // 미조치가 켜져 있으면 지사 전체 맞춤(레벨 7~8)이 곧 숨김 구간이다 — 레벨 5 로 줄여 마커가 보이게 한다.
     //   중심은 맞춘 범위의 중심 그대로(setLevel 은 지도 중심 기준으로 확대한다).
-    if (map.getLevel() > FIT_MAX_LEVEL_WITH_MICHOCHI && michochiOn()) {
+    if (map.getLevel() > FIT_MAX_LEVEL_WITH_MICHOCHI) {   // 리스트 무관 — 동그라미 레벨(6) 바로 아래로 맞춤
         const c = bounds.getSouthWest(), d = bounds.getNorthEast();
         map.setCenter(new kakao.maps.LatLng((c.getLat() + d.getLat()) / 2, (c.getLng() + d.getLng()) / 2));
         map.setLevel(FIT_MAX_LEVEL_WITH_MICHOCHI);
@@ -992,14 +993,15 @@ function markerPosition(m) {
 //     화면에 보이는 마커 수만큼 카카오 SDK 가 동기 레이아웃을 돌려서, 미조치를 켜고 레벨 6 이상으로 빼면
 //     수십 초 멈췄다. 그래서 미조치가 켜져 있으면 레벨 6 이상에서는 아무것도 안 붙이고 안내 글만 띄운다.
 const CULL_MARGIN = 0.5;
-const HIDE_LEVEL_WITH_MICHOCHI = 6;   // 이 레벨 이상(더 넓게 보기)이면 숨김 — 미조치 켜졌을 때만
-const FIT_MAX_LEVEL_WITH_MICHOCHI = 5; // 지사·구 맞춤이 이보다 넓으면 이 레벨로 줄인다
+const HIDE_LEVEL_WITH_MICHOCHI = 6;   // 이 레벨 이상(더 넓게 보기)이면 마커 대신 계기 수 동그라미 — 리스트 무관(2026-11-08, 이름은 옛 그대로)
+const FIT_MAX_LEVEL_WITH_MICHOCHI = 5; // 지사·구 맞춤이 이보다 넓으면 이 레벨로 줄인다 — 리스트 무관
 let cullStats = { attached: 0, total: 0, level: null, ms: 0, policy: 'show' };
 function michochiOn() {
     return DATASETS.some(d => d.category === '미조치') && getSelectedCategories().has('미조치');
 }
 function markerPolicyForLevel(level) {   // 'show' = 범위 안 전부 / 'hide' = 하나도 안 붙임(미래: 'grid')
-    if (level >= HIDE_LEVEL_WITH_MICHOCHI && michochiOn()) return 'hide';
+    // 레벨 6 이상은 리스트 무관 계기 수 동그라미(영준님 2026-11-08) — 마커는 하나도 안 붙인다
+    if (level >= HIDE_LEVEL_WITH_MICHOCHI) return 'hide';
     return 'show';
 }
 // 숨김 안내 — 지도 위 작은 글자 한 줄(아이콘 없음)
@@ -1027,7 +1029,8 @@ function cullMarkers() {
     const level = map.getLevel();
     const policy = markerPolicyForLevel(level);
     const show = policy === 'show';
-    setZoomHint(!show && markers.length > 0);
+    // 넓게 보면 안내 글 대신 계기 수 동그라미(동그라미가 스스로 설명한다)
+    if (show) clearClusterBubbles(); else renderClusterBubbles();
     let attached = 0;
     for (let i = 0; i < markers.length; i++) {
         const m = markers[i];
@@ -1043,6 +1046,111 @@ function cullMarkers() {
     }
     cullStats = { attached, total: markers.length, level, ms: Math.round(performance.now() - t0), policy };
 }
+// ── 넓게 보기 = 계기 수 동그라미 (2026-11-08, 영준님 확정) ─────────────────────────────
+//   레벨 6 이상이면 리스트와 상관없이 마커 대신 동그라미. 칸은 **지도 좌표에 고정된 격자**다 —
+//   레벨 6 칸 = 위도 0.00865° x 경도 0.01088°(390px 폰 화면 약 120px), 레벨이 하나 오르면 2배, 원점 위경도 0,0.
+//   칸 집계는 **전체 마커**로 한다(화면 경계에 잘린 칸이 없게) — 지도를 밀어도 칸·숫자·위치가 그대로다.
+//   동그라미 위치 = 칸 안 계기들의 평균 좌표(계기 수 가중), 글자 = '미완료/전체' 계기 수.
+//   미완료 = 계기 자기 상태키가 완료·불가가 아니고, 개별불가(failedMeters — 마커 안 어느 키에든)도 아닌 것.
+//   보류·미완은 미완료. 체크(checkedMeters)는 상태가 아니라 안 센다. 상태가 바뀌면 다시 센다(repaintMarker).
+//   누르면 그 자리 중심으로 레벨 4. 오버레이 수십 개라 카카오 앵커 비용은 문제 안 된다(마커 수천 개와 다르다).
+const CLUSTER_TAP_LEVEL = 4;
+const CLUSTER_BASE = { level: 6, lat: 0.00865, lng: 0.01088 };
+const CLUSTER_MARGIN = 0.5;          // 화면 사방 반 화면 — 밀 때 바로 이어 보이게
+let clusterBubbles = [];
+let _cellCache = { markers: null, level: null, cells: null };
+let _clusterRedrawPending = false;
+let clusterStats = { bubbles: 0, ms: 0 };
+function cellDegFor(level) {
+    const k = Math.pow(2, level - CLUSTER_BASE.level);
+    return { lat: CLUSTER_BASE.lat * k, lng: CLUSTER_BASE.lng * k };
+}
+function markerMeterCounts(m) {
+    if (m._mc) return m._mc;
+    const keys = m.statusKeys || m.addresses || [m.address];
+    const rows = (m.meters || []).filter(x => !x._addedSite);
+    let pend = 0;
+    for (const r of rows) {
+        let k = null;
+        try { k = statusKeyOf(r, statusKeyIndex); } catch (e) {}
+        if (!k || !keys.includes(k)) k = keys[0];
+        const st = (workStatus[k] && workStatus[k].state) || 'pending';
+        if (st === 'complete' || st === 'fail') continue;
+        const no = String(r.계기번호 || '');
+        if (no && keys.some(kk => workStatus[kk] && workStatus[kk].failedMeters && workStatus[kk].failedMeters[no] !== undefined)) continue;
+        pend++;
+    }
+    // 지도에서 추가한 계기(added_meters)는 대표 키 상태로 센다
+    const added = aggregateAddedCount(keys);
+    const st0 = (workStatus[keys[0]] && workStatus[keys[0]].state) || 'pending';
+    m._mc = { total: rows.length + added, pend: pend + ((st0 === 'complete' || st0 === 'fail') ? 0 : added) };
+    return m._mc;
+}
+function invalidateClusterCount(m) {
+    m._mc = null;
+    _cellCache.markers = null;
+    if (clusterBubbles.length && !_clusterRedrawPending) {
+        _clusterRedrawPending = true;
+        requestAnimationFrame(() => { _clusterRedrawPending = false; if (map && markerPolicyForLevel(map.getLevel()) === 'hide') renderClusterBubbles(); });
+    }
+}
+function clusterCells(level) {
+    if (_cellCache.markers === markers && _cellCache.level === level && _cellCache.cells) return _cellCache.cells;
+    const cd = cellDegFor(level);
+    const cells = new Map();
+    for (const m of markers) {
+        const la = markerLat(m), ln = markerLng(m);
+        const mc = markerMeterCounts(m);
+        const w = mc.total || 1;
+        const k = Math.floor(la / cd.lat) + ':' + Math.floor(ln / cd.lng);
+        let c = cells.get(k);
+        if (!c) { c = { n: 0, p: 0, w: 0, la: 0, ln: 0 }; cells.set(k, c); }
+        c.n += mc.total; c.p += mc.pend; c.w += w; c.la += la * w; c.ln += ln * w;
+    }
+    const list = [...cells.values()].filter(c => c.n > 0).map(c => ({ n: c.n, p: c.p, lat: c.la / c.w, lng: c.ln / c.w }));
+    _cellCache = { markers, level, cells: list };
+    return list;
+}
+function clearClusterBubbles() {
+    clusterBubbles.forEach(o => o.setMap(null));
+    clusterBubbles = [];
+}
+let _clusterMeasure = null;
+function clusterLabelWidth(text) {
+    if (!_clusterMeasure) _clusterMeasure = document.createElement('canvas').getContext('2d');
+    _clusterMeasure.font = `700 11px ${getComputedStyle(document.body).fontFamily || 'sans-serif'}`;
+    return _clusterMeasure.measureText(text).width;
+}
+function renderClusterBubbles() {
+    if (!map) return;
+    const t0 = performance.now();
+    clearClusterBubbles();
+    const level = map.getLevel();
+    const cells = clusterCells(level);
+    const b = map.getBounds(), sw = b.getSouthWest(), ne = b.getNorthEast();
+    const dLat = (ne.getLat() - sw.getLat()) * CLUSTER_MARGIN, dLng = (ne.getLng() - sw.getLng()) * CLUSTER_MARGIN;
+    const s = sw.getLat() - dLat, n = ne.getLat() + dLat, w = sw.getLng() - dLng, e = ne.getLng() + dLng;
+    for (const c of cells) {
+        if (c.lat < s || c.lat > n || c.lng < w || c.lng > e) continue;
+        const label = c.p + '/' + c.n;
+        const d = Math.round(Math.max(30, clusterLabelWidth(label) + 10));
+        const el = document.createElement('div');
+        el.className = 'cluster-bubble';
+        el.textContent = label;
+        el.style.cssText = `width:${d}px;height:${d}px;line-height:${d}px;margin-left:${-d / 2}px;margin-top:${-d / 2}px;`
+            + 'border-radius:50%;background:rgba(16,185,129,0.72);border:2px solid rgba(255,255,255,0.9);box-sizing:border-box;'
+            + 'color:#fff;font-weight:700;font-size:11px;text-align:center;white-space:nowrap;cursor:pointer;'
+            + 'box-shadow:0 1px 4px rgba(0,0,0,0.25);';
+        const pos = new kakao.maps.LatLng(c.lat, c.lng);
+        el.addEventListener('click', () => { map.setCenter(pos); map.setLevel(CLUSTER_TAP_LEVEL); });
+        // 크기를 알고 있으니 앵커는 0,0 + margin 으로 가운데 맞춤(카카오 크기 읽기를 해도 0 이라 무해)
+        const o = new kakao.maps.CustomOverlay({ position: pos, content: el, xAnchor: 0, yAnchor: 0, zIndex: 200, clickable: true });
+        o.setMap(map);
+        clusterBubbles.push(o);
+    }
+    clusterStats = { bubbles: clusterBubbles.length, ms: Math.round(performance.now() - t0) };
+}
+
 function detachAllMarkers() {
     for (let i = 0; i < markers.length; i++) {
         const m = markers[i];
@@ -1169,6 +1277,8 @@ function updateMarkerColor(statusKey) {
 
 // 마커 하나를 현재 workStatus 기준으로 다시 칠한다.
 function repaintMarker(marker) {
+    // 동그라미 계기 수(미완료)는 DOM 이 없는 마커도 다시 센다 — 상태가 바뀌었으니
+    invalidateClusterCount(marker);
     // 아직 화면에 안 들어와 DOM 이 없는 마커 — 붙일 때 그 시점 상태로 칠한다(buildMarkerOverlay)
     if (!marker.element) return;
     const addrList = marker.statusKeys || marker.addresses || [marker.address];
@@ -1256,7 +1366,7 @@ function repaintMarkersForKeys(keySet) {
     markers.forEach(m => {
         const ks = m.statusKeys || m.addresses || [m.address];
         for (let i = 0; i < ks.length; i++) {
-            if (keySet.has(ks[i])) { if (m.element) { repaintMarker(m); painted++; } return; }
+            if (keySet.has(ks[i])) { repaintMarker(m); if (m.element) painted++; return; }   // DOM 없는 마커도 동그라미 수는 다시 센다
         }
     });
     return painted;
