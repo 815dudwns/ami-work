@@ -270,11 +270,11 @@ def keys_for_address(addr, addr_to_keys):
     return addr_to_keys.get(addr, [addr])
 
 
-# ─── Firebase 키 인코딩 (js/firebase.js encodeKey/decodeKey 의 파이썬 짝) ───────────
+# ─── Firebase 키 인코딩 (js/ws-format.js encodeKey/decodeKey 의 파이썬 짝) ───────────
 #
 # ★왜 필요한가 (2026-09-09 실측으로 잡음):
 #   Firebase RTDB 키에는 `.` `#` `$` `[` `]` `/` 를 못 쓴다. 앱은 workStatus 를 쓸 때
-#   js/firebase.js 의 encodeKey() 로 이 문자들을 바꿔 저장하고, 읽을 때 되돌린다.
+#   js/ws-format.js 의 encodeKey() 로 이 문자들을 바꿔 저장하고, 읽을 때 되돌린다.
 #   파이썬 쪽에는 그 짝이 없어서, **상태키를 맨 주소 그대로 Firebase 와 대조하면
 #   특수문자가 든 주소만 통째로 안 맞고 '기록 없음 = 미착수' 로 잡힌다.**
 #   실제로 고압철거 집계에서 완료 3 · 불가 1 을 "미착수 4건" 으로 잘못 셌다. 주소가
@@ -296,7 +296,7 @@ _KEY_ESCAPES = (
 
 
 def encode_key(s):
-    """주소·계기번호 -> Firebase 키. js/firebase.js encodeKey() 와 같은 결과."""
+    """주소·계기번호 -> Firebase 키. js/ws-format.js encodeKey() 와 같은 결과."""
     out = str(s if s is not None else "")
     for raw, esc in _KEY_ESCAPES:
         out = out.replace(raw, esc)
@@ -304,7 +304,7 @@ def encode_key(s):
 
 
 def decode_key(s):
-    """Firebase 키 -> 원래 문자열. js/firebase.js decodeKey() 와 같은 결과."""
+    """Firebase 키 -> 원래 문자열. js/ws-format.js decodeKey() 와 같은 결과."""
     out = str(s if s is not None else "")
     for raw, esc in _KEY_ESCAPES:
         out = out.replace(esc, raw)

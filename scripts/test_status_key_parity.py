@@ -92,7 +92,7 @@ def check_dataset_drift():
 # ─── Firebase 키 인코딩 대조 ────────────────────────────────────────────────
 # ★2026-09-09 추가. 파이썬에 encodeKey 짝이 없어서 고압 집계가 완료 3·불가 1 을
 #   "미착수 4건" 으로 잘못 셌다(주소에 `.` 포함). 두 구현이 같은 키를 내는지 여기서 막는다.
-# ★js/firebase.js 는 통째로 실행하면 firebase SDK·localStorage 를 찾다 죽는다.
+# ★encodeKey/decodeKey 는 2026-11-08 부터 js/ws-format.js 에 있다(지도·통계 공용). 그 파일도 config.js 상수를 찾으므로
 #   그래서 encodeKey/decodeKey **두 함수의 소스만 떼어** vm 에서 돌린다.
 KEY_CASES = [
     # 실제로 오판을 냈던 주소들 (고압철거)
@@ -113,7 +113,7 @@ const src=fs.readFileSync(process.argv[2],'utf8');
 // encodeKey / decodeKey 선언만 떼어 낸다(파일 전체는 SDK 를 찾다 죽는다).
 const grab=(name)=>{
   const m=src.match(new RegExp('function\\s+'+name+'\\s*\\([^)]*\\)\\s*\\{[\\s\\S]*?\\n\\}'));
-  if(!m) throw new Error(name+' 를 js/firebase.js 에서 못 찾았다');
+  if(!m) throw new Error(name+' 를 '+process.argv[2]+' 에서 못 찾았다');
   return m[0];
 };
 const ctx={}; vm.createContext(ctx);
@@ -124,12 +124,12 @@ process.stdout.write(JSON.stringify(cases.map(s=>[ctx.encodeKey(s), ctx.decodeKe
 
 
 def check_key_encoding():
-    """js/firebase.js encodeKey/decodeKey 와 status_key.encode_key/decode_key 대조."""
+    """js/ws-format.js encodeKey/decodeKey 와 status_key.encode_key/decode_key 대조."""
     from status_key import encode_key, decode_key  # noqa: E402
 
-    src = os.path.join(ROOT, "js", "firebase.js")
+    src = os.path.join(ROOT, "js", "ws-format.js")
     if not os.path.exists(src):
-        return ["js/firebase.js 가 없다 — 키 인코딩 대조를 건너뛰지 않는다."]
+        return ["js/ws-format.js 가 없다 — 키 인코딩 대조를 건너뛰지 않는다."]
     with tempfile.TemporaryDirectory() as td:
         drv = os.path.join(td, "keydrv.js")
         casef = os.path.join(td, "cases.json")

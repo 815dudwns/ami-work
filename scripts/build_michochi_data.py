@@ -12,6 +12,11 @@ PM 이 거른 입력을 그대로 싣는다(다시 거르지 않는다):
   지도에 남는다. FMPMTR 원시 수집분(data/inbox_hapdong)만 있는 철거계기는 빼지 않는다(지도에 다른 흔적이 없다).
   뺀 목록 = data/reference/michochi_exclude_hapdong_removed_<날짜>.json
 
+★올해 실효 대상 제외(2026-11-08, 영준님 승인 — 영구 축): main data/reference/michochi_exclude_silhyo_target_2026_20261108.json
+  (1,162 계기) 에 든 계기를 뺀다. 출처 = awms FMPMTR '연간대상 실효계기 목록'(fmpMtr2000, 실효년월 2025-01~2026-12,
+  계기번호 가림) 을 우리 전체 번호에 앞4·뒤4·지번으로 맞춘 것(전부 유일, 전체번호 검색 표본 101/101 일치).
+  실효 교체 사업 대상이라 미조치(모뎀)로 따로 가지 않는다. 제외 내역 엑셀에 '올해 실효 대상' 시트.
+
 Output: data/michochi/<지사영문>.json (지사별 7개, 2026-11-08 — 지도는 고른 지사 파일만 받는다) — 계기 1행. 상태키 '주소|미조치'(네임스페이스 — 실효·합동·미청구의 옛 완료를
   물려받지 않게). js/datasets.js code 'c'.
   ★파일 서식 = 한 줄에 한 행(compact). 14만 행이라 indent 를 주면 수십 MB 가 늘어난다.
@@ -53,6 +58,8 @@ CACHE = ROOT / 'data/inbox_michochi/geocode-cache.json'
 # 합동 철거계기 제외 축 — 지도 합동 파일 + 아카이브만(원시 FMPMTR 수집분은 넣지 않는다)
 HAPDONG_FILES = ['data/hapdong-data.json', 'data/hapdong-data-archive.json']
 HAPDONG_EXCL_OUT = ROOT / 'data/reference/michochi_exclude_hapdong_removed_20261108.json'
+# 올해 실효 대상 제외 축 — 목록 정본은 main(원본 목록과 같은 자리)
+SILHYO_TARGET = MAIN / 'data/reference/michochi_exclude_silhyo_target_2026_20261108.json'
 METER_RE = re.compile(r'^[0-9A-Z]{2}[0-9]{9}$')
 TYPE_BY_CODE = {'19': 'AE', '25': 'G', '26': 'G', '27': 'G', '45': 'G', '46': 'G', '47': 'G',
                 '52': '아미고', '53': '아미고', '54': '아미고', '55': '아미고'}
@@ -233,6 +240,16 @@ def main():
           f'{dict(sorted(Counter(e["합동 작업일"][:6] for e in excl).items()))}')
     HAPDONG_EXCL_OUT.write_text(json.dumps(excl, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
 
+    # 올해 실효 대상 제외(영구 축 — 위 docstring)
+    st_rows = json.loads(SILHYO_TARGET.read_text(encoding='utf-8'))
+    st_set = {norm_meter(r['계기번호']) for r in st_rows if r.get('계기번호')}
+    n0 = len(out)
+    st_hit = {x['계기번호'] for x in out if norm_meter(x['계기번호']) in st_set}
+    out = [x for x in out if x['계기번호'] not in st_hit]
+    print(f'올해 실효 대상 제외 {n0 - len(out):,} (목록 {len(st_set):,} 중 · 이미 다른 축으로 빠진 것 {len(st_set & excl_m)} · '
+          f'미조치에 없던 것 {len(st_set - st_hit - excl_m)})')
+    excl_m = excl_m | st_hit
+
     # 좌표
     miss = sorted({x['주소'] for x in out if x.get('lat') is None
                    and not (x['주소'] in pool and pool[x['주소']]['acc'] == 'exact') and x['주소'] not in cache})
@@ -273,10 +290,10 @@ def main():
     out_m = [x['계기번호'] for x in out]
     add_m = {x['계기번호'] for x in sil_add}
     pre = lambda S: Counter(m[:2] for m in S if not m.isdigit())  # noqa: E731
-    d1 = set(src_m) - set(out_m) - excl_m - set(arch or ())   # 일부러 뺀 것(합동 철거·아카이브)은 빠져도 된다
+    d1 = set(src_m) - set(out_m) - excl_m - set(arch or ())   # 일부러 뺀 것(합동 철거·올해 실효 대상·아카이브)은 빠져도 된다
     d2 = set(out_m) - set(src_m) - add_m
     nulls = sum(1 for x in out if x.get('lat') is None)
-    print(f'대조: 원본 {len(src_m):,} · 실효 추가 {len(sil_add)} · 합동 철거 제외 {len(excl_m)} · 출력 {len(out_m):,}'
+    print(f'대조: 원본 {len(src_m):,} · 실효 추가 {len(sil_add)} · 제외 축(합동 철거+올해 실효 대상) {len(excl_m)} · 출력 {len(out_m):,}'
           f' · 원본-출력(제외분 뺀) {len(d1)}'
           f' · 출력-원본(실효 추가 제외) {len(d2)} · 중복 {len(out_m) - len(set(out_m))}'
           f' · 접두 원본 {dict(pre(src_m))} 출력 {dict(pre(out_m))} · 좌표 null {nulls}')
