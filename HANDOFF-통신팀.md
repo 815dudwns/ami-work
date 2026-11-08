@@ -6,10 +6,25 @@
 > 앱 통칭 [[app_naming_convention]]. 배포 시 APP_VERSION 갱신 [[jongno_app_version_deploy]]. 종로맵=Naver Maps.
 > **awms API 모를 때 = `research/awms-poc/awms_API_레퍼런스.md`. 통신팀(mob/cst)/계기팀(mob/mtr) 별개 — 항상 구별.**
 
-## 현재 상태 (2026-11-07 마감)
+## 현재 상태 (2026-11-08 마감)
 
-- **배포 상태**: tongsin = main(`8761ab3` 위, 내 마지막 커밋 `6c792d3`). 아미맵 **v20261105.3** · 아미큐 **2.2.27** · 헬퍼 inject **v94**.
+- **배포 상태 (11/08 마감)**: tongsin = origin/main(`3d86d03`, 내 마지막 커밋 `9cde537`, main 에 안 올라간 커밋 0).
+  아미맵 **v20261108.8** · 아미큐 **2.2.27** · 헬퍼 inject **v94**.
   세션 시작 시 `git fetch && git log HEAD..origin/main` 부터 — PM 이 main 에 인덱스 커밋을 직접 넣는다(ff-only 로 맞추고 시작).
+- **11/07~11/08 처리분 (아미맵, 전부 배포됨)**:
+  - 미조치 리스트(주덕기 과장 미설치 고객, code c): 지사별 파일 `data/michochi/<지사영문>.json` 7개, 고른 지사만 받음. noStats·noLabel.
+    빌더 `scripts/build_michochi_data.py` 제외 축 = 합동 철거계기(233, `data/reference/michochi_exclude_hapdong_removed_20261108.json`)
+    + 올해 실효 대상(1,162, `data/reference/michochi_exclude_silhyo_target_2026_20261108.json` — ★빌더는 main 경로에서 읽는다).
+    현재 144,285계기 · 57,325곳. 제외 내역 엑셀 main `data/outbox_jdg_20261108/미조치_제외내역_20261108.xlsx`(gitignore).
+  - 마커 성능: 화면 안만 붙임(cullMarkers) · 레벨 6+ 는 리스트 무관 마커 대신 계기 수 동그라미('미완료/전체', 고정 격자,
+    `renderClusterBubbles`) · zoom_start 에서 마커 떼기(카카오 setLevel 이 붙은 오버레이마다 레이아웃) · 지사 맞춤 상한 레벨 5.
+  - 구 선택은 한 번에 하나(버튼) · 첫 실행 지사 맞춤(`_fitOnFirstMarkers`) · LP무기록 onMap:false.
+  - 통계 = 지도 위 iframe 창(`js/stats-overlay.js`, stats.html?embed=1, 지도 메모리 workStatus 사용), 직접 열면 IDB 미러+syncAt 델타
+    (`js/ws-format.js` — encodeKey/decodeKey 도 여기로 옮김, 상태키 대조 테스트도 여기서 읽음).
+  - 실험 브랜치(미병합, 푸시 안 함): `exp-anchor`(오버레이 크기 고정, 10~40배) · `exp-markerimage` · `exp-canvas` · `exp-canvas-cluster`
+    · `tongsin-cluster-proto`. 보고서 `/tmp/relay/report_marker_render_exp_20261108.md`. 캔버스 방식 = 제일 빠르나 2~3일 공수.
+  - 열린 제안(PM 판단): 8081 시험판 리스트 켜짐 URL 프리셋(`?lists=`) · 통계 인덱스 IDB 캐시 · exp-anchor 운영 적용 여부.
+  - ★`data/inbox_awms_20261108/` 는 커밋 금지(원본). `data/inbox_hapdong/addr_fill_custinfo.json` 은 미추적 그대로.
 - **main 워크트리 미커밋 파일은 PM 것 — 손대지 마라**: `data/inbox_hapdong/last_fetch.json`(수집 표식, 11/03 에 한 번 덮었다 복구한 사고),
   인덱스 작업 중이면 `data/stats-site-index.json`·`meter-list-index.json`. main fast-forward 는 `git merge --ff-only` 만, checkout/restore 금지.
 - **11/03~11/05 처리분** (전부 PM 발주·배포 승인):
