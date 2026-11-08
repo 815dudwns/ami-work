@@ -5,6 +5,7 @@ let markers = [];
 let sampleData = [];
 // 마커키 -> workStatus 키 인덱스 (js/status-key.js). 데이터 로드 직후 1회 생성.
 let statusKeyIndex = null;
+let _fitOnFirstMarkers = false;   // 첫 실행(저장 위치 없음) — initMap 이 켜고 loadMarkers 가 한 번 쓰고 끈다
 
 // 지사 -> 구 매핑 (단일 소스 오브 트루스, 하드코딩 — 데이터의 지사필드는 '기타' 오염으로 신뢰 불가)
 const JISA_TO_GU = {
@@ -188,6 +189,9 @@ async function initMap() {
 
     // 마지막 지도 위치/줌 레벨 복원
     const saved = (() => { try { return JSON.parse(localStorage.getItem('ami_map_view')); } catch { return null; } })();
+    // 저장된 위치가 없으면(첫 실행) 첫 마커가 생길 때 고른 지사로 한 번 맞춘다(loadMarkers 끝).
+    //   안 하면 기본 위치(용산)에 머물러 고른 지사 마커가 전부 화면 밖이라 '리스트가 안 나온다'(2026-11-08).
+    _fitOnFirstMarkers = !saved;
     const options = {
         center: new kakao.maps.LatLng(saved ? saved.lat : 37.525, saved ? saved.lng : 126.960),
         level: saved ? saved.level : 4
@@ -755,6 +759,7 @@ function loadMarkers() {
         if (data.spread) markers[markers.length - 1].spread = data.spread;
     });
     showNoListHint(selectedCats.size === 0);
+    if (_fitOnFirstMarkers && markers.length) { _fitOnFirstMarkers = false; fitToFilteredMarkers(); }
     cullMarkers();
 }
 
