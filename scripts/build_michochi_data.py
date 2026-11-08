@@ -5,6 +5,12 @@ PM 이 거른 입력을 그대로 싣는다(다시 거르지 않는다):
   main data/reference/michochi_rows_20261107.json   — 원본 열 + 계기번호(정리) + 번호기준타입
   main data/reference/silhyo_remain_20261107.json   — 실효에 남은 15계기. 위 목록에 없는 것만 실효 필드째 더한다.
   제외 내역(영준님 검토용) = main data/outbox_jdg_20261107/미조치_제외내역_20261107.xlsx
+    (+ 합동 철거 시트를 더한 판 = main data/outbox_jdg_20261108/미조치_제외내역_20261108.xlsx)
+
+★합동 철거계기 제외(2026-11-08, 영준님 승인 — 영구 축): 미조치 계기가 합동 리스트(지도 파일 + 아카이브)의
+  철거계기(계기번호_전)이면 뺀다. 그 계기는 이미 교체돼 떼어졌고(KDN 11/06 판이 늦었다) 개소는 합동의 새 계기로
+  지도에 남는다. FMPMTR 원시 수집분(data/inbox_hapdong)만 있는 철거계기는 빼지 않는다(지도에 다른 흔적이 없다).
+  뺀 목록 = data/reference/michochi_exclude_hapdong_removed_<날짜>.json
 
 Output: data/michochi/<지사영문>.json (지사별 7개, 2026-11-08 — 지도는 고른 지사 파일만 받는다) — 계기 1행. 상태키 '주소|미조치'(네임스페이스 — 실효·합동·미청구의 옛 완료를
   물려받지 않게). js/datasets.js code 'c'.
@@ -44,6 +50,9 @@ SILHYO = MAIN / 'data/reference/silhyo_remain_20261107.json'
 # 지사별 파일(2026-11-08) — 레지스트리 fileByJisa 템플릿을 따른다. 한 파일(58MB)은 더 쓰지 않는다.
 OUT_TPL = 'data/michochi/*.json'
 CACHE = ROOT / 'data/inbox_michochi/geocode-cache.json'
+# 합동 철거계기 제외 축 — 지도 합동 파일 + 아카이브만(원시 FMPMTR 수집분은 넣지 않는다)
+HAPDONG_FILES = ['data/hapdong-data.json', 'data/hapdong-data-archive.json']
+HAPDONG_EXCL_OUT = ROOT / 'data/reference/michochi_exclude_hapdong_removed_20261108.json'
 METER_RE = re.compile(r'^[0-9A-Z]{2}[0-9]{9}$')
 TYPE_BY_CODE = {'19': 'AE', '25': 'G', '26': 'G', '27': 'G', '45': 'G', '46': 'G', '47': 'G',
                 '52': '아미고', '53': '아미고', '54': '아미고', '55': '아미고'}
@@ -77,6 +86,9 @@ def coord_pool():
             files += [ROOT / f for f in dataset_files(d)]
         files += archive_paths(d['code'])
     files += [ROOT / f for f in POOL_FILES]
+    # 마지막 = 미조치 자기 이전 판(2026-11-08). 다른 리스트가 아카이브·재생성으로 그 주소를 잃어도 이미 게이트를
+    #   통과한 좌표를 그대로 이어 쓴다(add 는 먼저 들어온 exact 를 지키므로 빈 주소만 채운다).
+    files += sorted((ROOT / 'data/michochi').glob('*.json'))
     pool = {}
 
     def add(a, lat, lng, acc, road, src):
@@ -113,6 +125,25 @@ def coord_pool():
                 add(a, v.get('lat'), v.get('lng'), 'exact' if v.get('acc') == 'exact' else 'approximate',
                     ws(v.get('road')), p.parent.name)
     return pool
+
+
+def norm_meter(v):
+    """계기번호: 공백·하이픈 제거, 대문자, 순수 숫자만 zfill(11) — 영문 접두는 그대로(build_hapdong_data 와 같다)."""
+    s = re.sub(r'[\s-]', '', str(v if v is not None else '')).upper()
+    return s.zfill(11) if s.isdigit() else s
+
+
+def hapdong_removed():
+    """합동 철거계기 -> 그 합동 행들(작업일 최신 먼저)."""
+    by = {}
+    for f in HAPDONG_FILES:
+        for r in json.loads((ROOT / f).read_text(encoding='utf-8')):
+            m = norm_meter(r.get('계기번호_전'))
+            if m:
+                by.setdefault(m, []).append(r)
+    for rows in by.values():
+        rows.sort(key=lambda r: str(r.get('작업일') or ''), reverse=True)
+    return by
 
 
 def dump(rows):
@@ -182,6 +213,26 @@ def main():
         out = [x for x in out if x['계기번호'] not in arch]
         print(f'아카이브 제외 {n0 - len(out):,}')
 
+    # 합동 철거계기 제외(영구 축 — 위 docstring)
+    hd = hapdong_removed()
+    excl = []
+    keep = []
+    for x in out:
+        rows = hd.get(norm_meter(x['계기번호']))
+        if not rows:
+            keep.append(x)
+            continue
+        h = rows[0]
+        excl.append({'계기번호': x['계기번호'], '지사': x['지사'], '미조치 주소': x['주소'],
+                     '합동 주소': h.get('주소', ''), '합동 지번주소': h.get('지번주소', ''),
+                     '합동 새 계기번호': h.get('계기번호', ''), '합동 작업일': h.get('작업일', ''),
+                     '합동 행 수': len(rows)})
+    out = keep
+    excl_m = {e['계기번호'] for e in excl}
+    print(f'합동 철거계기 제외 {len(excl):,} (합동 철거계기 {len(hd):,} 중) · 작업일 '
+          f'{dict(sorted(Counter(e["합동 작업일"][:6] for e in excl).items()))}')
+    HAPDONG_EXCL_OUT.write_text(json.dumps(excl, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+
     # 좌표
     miss = sorted({x['주소'] for x in out if x.get('lat') is None
                    and not (x['주소'] in pool and pool[x['주소']]['acc'] == 'exact') and x['주소'] not in cache})
@@ -222,13 +273,14 @@ def main():
     out_m = [x['계기번호'] for x in out]
     add_m = {x['계기번호'] for x in sil_add}
     pre = lambda S: Counter(m[:2] for m in S if not m.isdigit())  # noqa: E731
-    d1 = set(src_m) - set(out_m)
+    d1 = set(src_m) - set(out_m) - excl_m - set(arch or ())   # 일부러 뺀 것(합동 철거·아카이브)은 빠져도 된다
     d2 = set(out_m) - set(src_m) - add_m
     nulls = sum(1 for x in out if x.get('lat') is None)
-    print(f'대조: 원본 {len(src_m):,} · 실효 추가 {len(sil_add)} · 출력 {len(out_m):,} · 원본-출력 {len(d1)}'
+    print(f'대조: 원본 {len(src_m):,} · 실효 추가 {len(sil_add)} · 합동 철거 제외 {len(excl_m)} · 출력 {len(out_m):,}'
+          f' · 원본-출력(제외분 뺀) {len(d1)}'
           f' · 출력-원본(실효 추가 제외) {len(d2)} · 중복 {len(out_m) - len(set(out_m))}'
           f' · 접두 원본 {dict(pre(src_m))} 출력 {dict(pre(out_m))} · 좌표 null {nulls}')
-    if d1 or d2 or len(out_m) != len(set(out_m)) or pre(set(src_m) | add_m) != pre(out_m) or nulls:
+    if d1 or d2 or len(out_m) != len(set(out_m)) or pre((set(src_m) | add_m) - excl_m - set(arch or ())) != pre(out_m) or nulls:
         sys.exit('★원본 대조 실패 — 출력하지 않는다')
 
     bad_fmt = [m for m in out_m if not METER_RE.match(m)]

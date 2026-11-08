@@ -199,6 +199,13 @@ async function initMap() {
 
     // 근접 마커 분산은 픽셀 간격이라 줌마다 위치를 다시 잡는다(spreadOverlappingMarkers)
     kakao.maps.event.addListener(map, 'zoom_changed', relayoutSpreadMarkers);
+    // 숨김 구간 바로 앞 레벨(미조치 켜짐, 레벨 5)에서 줌이 시작되면 **미리 다 뗀다**. 카카오 setLevel 은
+    //   zoom_changed 를 내기 전에 붙어 있는 오버레이를 새 레벨로 전부 다시 배치한다 — 레벨 5 에 7천 개가
+    //   붙은 채 6 으로 가면 그 한 번에 12초 멈췄다(실측: 미리 떼면 6ms). 줌을 시작할 때는 방향을 모르니
+    //   들어갈 때도 떼고, idle 의 cullMarkers 가 새 레벨에 맞게 다시 붙인다(떼기 7천 개 0.1초).
+    kakao.maps.event.addListener(map, 'zoom_start', () => {
+        if (map.getLevel() >= HIDE_LEVEL_WITH_MICHOCHI - 1 && michochiOn()) detachAllMarkers();
+    });
 
     // 지도 이동/줌 변경 시 현재 뷰 저장 + 화면 안 마커만 붙이기(cullMarkers)
     kakao.maps.event.addListener(map, 'idle', () => {
@@ -394,6 +401,13 @@ function fitToFilteredMarkers() {
     map.setBounds(bounds, 60);   // 60px 여백
     // 단일/소수 좌표면 최대줌으로 튐 — 적당 레벨로 보정 (setBounds는 동기 반영)
     if (map.getLevel() < 4) map.setLevel(4);
+    // 미조치가 켜져 있으면 지사 전체 맞춤(레벨 7~8)이 곧 숨김 구간이다 — 레벨 5 로 줄여 마커가 보이게 한다.
+    //   중심은 맞춘 범위의 중심 그대로(setLevel 은 지도 중심 기준으로 확대한다).
+    if (map.getLevel() > FIT_MAX_LEVEL_WITH_MICHOCHI && michochiOn()) {
+        const c = bounds.getSouthWest(), d = bounds.getNorthEast();
+        map.setCenter(new kakao.maps.LatLng((c.getLat() + d.getLat()) / 2, (c.getLng() + d.getLng()) / 2));
+        map.setLevel(FIT_MAX_LEVEL_WITH_MICHOCHI);
+    }
 }
 
 // 지사 선택 변경 시 마커 재생성
@@ -965,11 +979,34 @@ function markerPosition(m) {
 // ── 화면 안 마커만 붙이기(viewport culling, 2026-11-08) ─────────────────────────
 //   지도 범위 + 사방 CULL_MARGIN 화면만큼 안의 마커만 지도에 붙인다. idle 마다 새로 들어온 것은 붙이고
 //   나간 것은 뗀다(뗀 마커는 DOM 을 버리지 않고 두었다가 다시 붙인다 — 상태색은 그대로 유지된다).
-//   ★줌 아웃 동작(숨기기+안내 / 격자 숫자)은 아직 미정이다 — markerPolicyForLevel() 한 곳만 바꾸면 된다.
+//   ★줌 아웃 동작은 markerPolicyForLevel() 한 곳에서 정한다(2026-11-08 영준님 승인 — 숨기기+안내).
+//     화면에 보이는 마커 수만큼 카카오 SDK 가 동기 레이아웃을 돌려서, 미조치를 켜고 레벨 6 이상으로 빼면
+//     수십 초 멈췄다. 그래서 미조치가 켜져 있으면 레벨 6 이상에서는 아무것도 안 붙이고 안내 글만 띄운다.
 const CULL_MARGIN = 0.5;
-let cullStats = { attached: 0, total: 0, level: null, ms: 0 };
+const HIDE_LEVEL_WITH_MICHOCHI = 6;   // 이 레벨 이상(더 넓게 보기)이면 숨김 — 미조치 켜졌을 때만
+const FIT_MAX_LEVEL_WITH_MICHOCHI = 5; // 지사·구 맞춤이 이보다 넓으면 이 레벨로 줄인다
+let cullStats = { attached: 0, total: 0, level: null, ms: 0, policy: 'show' };
+function michochiOn() {
+    return DATASETS.some(d => d.category === '미조치') && getSelectedCategories().has('미조치');
+}
 function markerPolicyForLevel(level) {   // 'show' = 범위 안 전부 / 'hide' = 하나도 안 붙임(미래: 'grid')
+    if (level >= HIDE_LEVEL_WITH_MICHOCHI && michochiOn()) return 'hide';
     return 'show';
+}
+// 숨김 안내 — 지도 위 작은 글자 한 줄(아이콘 없음)
+function setZoomHint(visible) {
+    let el = document.getElementById('zoom-hint');
+    if (!el) {
+        if (!visible) return;
+        el = document.createElement('div');
+        el.id = 'zoom-hint';
+        el.textContent = '확대하면 마커가 보입니다';
+        el.style.cssText = 'position:fixed;left:50%;bottom:88px;transform:translateX(-50%);z-index:20;'
+            + 'background:rgba(0,0,0,0.65);color:#fff;font-size:13px;padding:6px 12px;border-radius:14px;'
+            + 'pointer-events:none;white-space:nowrap;';
+        document.body.appendChild(el);
+    }
+    el.style.display = visible ? '' : 'none';
 }
 function cullMarkers() {
     if (!map || typeof map.getBounds !== 'function') return;
@@ -979,7 +1016,9 @@ function cullMarkers() {
     const dLat = (ne.getLat() - sw.getLat()) * CULL_MARGIN, dLng = (ne.getLng() - sw.getLng()) * CULL_MARGIN;
     const s = sw.getLat() - dLat, n = ne.getLat() + dLat, w = sw.getLng() - dLng, e = ne.getLng() + dLng;
     const level = map.getLevel();
-    const show = markerPolicyForLevel(level) === 'show';
+    const policy = markerPolicyForLevel(level);
+    const show = policy === 'show';
+    setZoomHint(!show && markers.length > 0);
     let attached = 0;
     for (let i = 0; i < markers.length; i++) {
         const m = markers[i];
@@ -993,7 +1032,13 @@ function cullMarkers() {
             m.attached = false;
         }
     }
-    cullStats = { attached, total: markers.length, level, ms: Math.round(performance.now() - t0) };
+    cullStats = { attached, total: markers.length, level, ms: Math.round(performance.now() - t0), policy };
+}
+function detachAllMarkers() {
+    for (let i = 0; i < markers.length; i++) {
+        const m = markers[i];
+        if (m.attached) { m.overlay.setMap(null); m.attached = false; }
+    }
 }
 function attachMarker(m, level) {
     if (!m.overlay) buildMarkerOverlay(m);
