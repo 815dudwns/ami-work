@@ -10,25 +10,7 @@ let statusRef = null;
 
 // ── 키 인코딩/디코딩 ─────────────────────────────────────────
 // Firebase 키 금지 문자: . # $ [ ] /
-function encodeKey(str) {
-    return str
-        .replace(/\./g,  '_dot_')
-        .replace(/#/g,   '_hash_')
-        .replace(/\$/g,  '_dollar_')
-        .replace(/\[/g,  '_lb_')
-        .replace(/\]/g,  '_rb_')
-        .replace(/\//g,  '_sl_');
-}
 
-function decodeKey(str) {
-    return str
-        .replace(/_dot_/g,    '.')
-        .replace(/_hash_/g,   '#')
-        .replace(/_dollar_/g, '$')
-        .replace(/_lb_/g,     '[')
-        .replace(/_rb_/g,     ']')
-        .replace(/_sl_/g,     '/');
-}
 
 // ── syncAt — 델타 동기화용 서버 시각 (2026-08-19, 1단계) ──────
 //
@@ -341,7 +323,7 @@ function loadStatusLocal() {
 //   끝날 때까지 빈 화면이 된다 — 영준님이 보신 "처음 열면 완료가 하나도 없다"가 이것이다.
 //   게다가 미러가 자리를 다 먹으면 작은 이벤트 큐 저장까지 밀려 완료가 통째 유실된다.
 // IndexedDB 는 이 한도가 사실상 없고, site-data 16MB 캐시가 이미 같은 경로로 돌고 있다.
-const WS_IDB_KEY = 'ami_work_status_v2' + WS_KEY_SUFFIX;   // 소속별 보관소(js/config.js)
+// WS_IDB_KEY — js/ws-format.js(통계와 같이 쓴다)
 
 async function loadStatusStored() {
     // 1순위 IndexedDB
@@ -628,56 +610,7 @@ function saveMeterFailEvent(address, meter, failed, reason) {
 // ── Firebase 데이터 → 내부 형식 변환 ─────────────────────────
 
 // 단일 Firebase 값(val) → 내부 형식 객체 변환 (주소 키 불필요, 값 객체만 처리)
-function buildOneFromFirebase(val) {
-    const meterChecks = val.meterChecks || {};
-    let checkedMeters;
 
-    // 기존 배열 형태도 지원 (하위호환)
-    if (Array.isArray(val.checkedMeters)) {
-        checkedMeters = val.checkedMeters;
-    } else {
-        checkedMeters = Object.entries(meterChecks)
-            .filter(([, v]) => v.checked)
-            .map(([encodedMeter]) => decodeKey(encodedMeter));
-    }
-
-    // failedMeters: Firebase 키(인코딩됨) → 계기번호(디코딩) 로 변환
-    const failedMeters = {};
-    if (val.failedMeters && typeof val.failedMeters === 'object') {
-        for (const [encodedMeter, reason] of Object.entries(val.failedMeters)) {
-            failedMeters[decodeKey(encodedMeter)] = reason;
-        }
-    }
-
-    return {
-        state:         val.state         || 'pending',
-        reason:        val.reason        || '',
-        updatedAt:     val.updatedAt     || '',
-        updatedBy:     val.updatedBy     || '',
-        updatedByName: val.updatedByName || '',
-        rework:        val.rework === true,
-        previousCompleteAt: val.previousCompleteAt || '',
-        previousCompleteBy: val.previousCompleteBy || '',
-        // 델타 동기화용 서버 시각. 3단계(델타 쿼리)에서 lastSyncAt 계산에 쓴다.
-        //   ★숫자다. 없으면 0 — 1단계 배포 전에 쓰인 레코드가 여기 해당한다.
-        syncAt:        (typeof val.syncAt === 'number') ? val.syncAt : 0,
-        checkedMeters,
-        meterChecks,  // 원본 보관 (ts 비교용)
-        added_meters: val.added_meters || {},   // 사용자 추가 계기 (admin 등)
-        failedMeters,  // 계기 개별 불가: { 계기번호: 사유 }
-        // 지도에서 직접 추가한 개소 정보(js/add-site.js). 없는 레코드에는 칸을 안 만든다(미러 크기).
-        ...((val.site && typeof val.site === 'object') ? { site: val.site } : {}),
-    };
-}
-
-// buildWorkStatusFromFirebase — 전체 객체 변환 (기존 호출처 호환 유지)
-function buildWorkStatusFromFirebase(data) {
-    const result = {};
-    Object.entries(data).forEach(([encodedAddr, val]) => {
-        result[decodeKey(encodedAddr)] = buildOneFromFirebase(val);
-    });
-    return result;
-}
 
 // ── 사용자 추가 계기 (admin 등) ────────────────────────────────
 // added_meters/{meter_id}: { meter_id, added_by, added_by_name, added_at, mfg_ym, source }
@@ -1007,9 +940,7 @@ function schedulePaint(statusKey) {
 //
 // ★rules 에 workStatus/$dataset .indexOn "syncAt" 이 있어야 한다(2026-08-19 적용 완료).
 //   없으면 서버가 전건을 훑어 오히려 느려진다.
-const WS_SYNCAT_KEY = 'ami_work_status_syncAt' + WS_KEY_SUFFIX;   // 마지막으로 받은 syncAt (IndexedDB)
-const WS_SCHEMA_VERSION = 2;                       // 구조가 바뀌면 올린다 -> 전량 재수신
-const WS_SCHEMA_KEY = 'ami_work_status_schema' + WS_KEY_SUFFIX;
+// WS_SYNCAT_KEY · WS_SCHEMA_VERSION · WS_SCHEMA_KEY — js/ws-format.js(통계와 같이 쓴다)
 const FULL_RESYNC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;   // 주 1회 키 대조
 const WS_AUDIT_KEY = 'ami_work_status_audit_at' + WS_KEY_SUFFIX;
 
