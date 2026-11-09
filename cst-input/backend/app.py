@@ -998,7 +998,7 @@ def api_diag_workgroup():
 
 
 # ── 변대주번호 자동조회 (아미큐 자동채움, 영준님 2026-07-02) ──────────
-# 계기번호==ami-work 지도 데이터(실효·25 미청구·25 불가) 계기번호 -> 변대주(0000A000).
+# 계기번호==ami-work 지도 데이터(실효·25 미청구·25 불가·미조치) 계기번호 -> 변대주(0000A000).
 # ★동행 모드의 종로 workStatus·종로 site-data 조회는 폐지했다(2026-10-19, 종로맵 은퇴).
 #   예전 경로(ROOT.parent/jongno-combined)는 존재하지 않아 늘 빈값이었고, 3분마다 종로 workStatus
 #   를 내려받기만 했다. 동행(WITH_YN=Y) 여부는 saveAct 의 MTR_WITH_YN 에만 쓰이고 변대주 조회와 무관하다.
@@ -1043,7 +1043,7 @@ def _sd_cached(key: str, path):
     return _bdju_cache[key]
 
 
-# ★일반 소스 순서 = 실효(site-data) -> 25 미청구 -> 25 불가. 첫 매칭(값이 나온 행)을 쓴다.
+# ★일반 소스 순서 = 실효(site-data) -> 25 미청구 -> 25 불가 -> 미조치(아래 _michochi_bdju_map). 첫 매칭(값이 나온 행)을 쓴다.
 #   영준님 2026-10-13: "25 미청구나 25불가, 지도에 있는 것들의 변대주를 아미큐에서 받아오기로 했는데
 #   그게 안 되고 있어" — 예전엔 실효만 봐서 미청구·불가 계기는 늘 빈값이었다.
 #   ★값 = 아미맵 상세 상단 변대주 줄의 [복사] 버튼 값과 **똑같이**(영준님 정정 2026-10-13).
@@ -1104,6 +1104,37 @@ def bdju_copy_val(m: dict) -> str:
     return _pole_copy_val(_pole_meter_for_display(m))
 
 
+# ★미조치(2026-11-09, 영준님 "아미큐 변대주 따라오는 것도 반영돼? 미조치") = 일반 소스 맨 뒤.
+#   지사별 7개 파일(data/michochi/*.json, 지도 레지스트리 fileByJisa) + 미조치 완료 아카이브.
+#   ★14만 행 · 70MB 라 행을 들고 있지 않는다 — 파일이 바뀌면 계기 -> 복사값 dict 만 만들어 둔다(빈값은 안 넣음).
+#     값 규칙은 위 bdju_copy_val 그대로(변대주 영역 = dcu_master 묶음, 대장미등재면 빈값).
+_MICHOCHI_GLOBS = ("michochi/*.json", "michochi-completed-archive-*.json")
+_bdju_mc = {"mtime": None, "map": {}}
+
+
+def _michochi_bdju_map() -> dict:
+    files = [Path(x) for g in _MICHOCHI_GLOBS for x in sorted(glob.glob(str(ROOT / "data" / g)))]
+    try:
+        mtime = tuple((str(f), os.path.getmtime(f)) for f in files)
+    except OSError:
+        mtime = None
+    if _bdju_mc["mtime"] != mtime or (mtime is None and not _bdju_mc["map"]):
+        d = {}
+        n = 0
+        for f in files:
+            for m in _load_sd(f):
+                n += 1
+                k = norm_meter(m.get("계기번호"))
+                if k and k not in d:          # 지도 파일이 먼저 — 첫 행이 이긴다
+                    v = bdju_copy_val(m)
+                    if v:
+                        d[k] = v
+        _bdju_mc["map"] = d
+        _bdju_mc["mtime"] = mtime
+        print(f"[bdju] michochi 재적재: {n}건 중 값 있는 계기 {len(d)} (파일 {len(files)}개)", flush=True)
+    return _bdju_mc["map"]
+
+
 def _bdju_ilban(mid: str) -> str:
     want = norm_meter(mid)
     for key, path in _BDJU_ILBAN_SOURCES:
@@ -1112,7 +1143,7 @@ def _bdju_ilban(mid: str) -> str:
                 v = bdju_copy_val(m)
                 if v:
                     return v
-    return ""
+    return _michochi_bdju_map().get(want, "")
 
 
 @app.get("/api/bdju")
