@@ -29,6 +29,8 @@ Output: data/michochi/<지사영문>.json (지사별 7개, 2026-11-08 — 지도
   변대주 하위(미설치 개소) · 상 구분 · 계약종별 · 계약상태 · 대상여부 · LP수신(성공실패 'x/96', #N/A 는 빈칸)
   lat · lng(6자리) · 좌표정확도(approximate 일 때만 — 없으면 exact) · 미설치개소(=원본 '변대주 하위(미설치 개소)')
   대상여부는 '대상' 이 아닐 때만 (+ dcu_철거예정 — apply_dcu_status.py 가 붙인다)
+  변대주 영역(2026-11-09) = dcu_master 한 묶음 — 변대주·변대주번호·DCUID·DCU통신방식·회선상태·철거판정·DCU차수·대장출처
+    (fix_bdju, 못 찾으면 대장출처 '대장미등재'). 원장 값이 대장과 다르면 변대주_원장·변대주번호_원장.
 
 좌표 — 같은 주소의 기존 좌표를 먼저 쓴다(전 리스트 + 아카이브 + 종로맵·구로, exact 만).
   나머지는 scripts/michochi_geocode.py 가 만든 캐시(data/inbox_michochi/geocode-cache.json).
@@ -318,6 +320,27 @@ def main():
     removal, comm = DCU.load_reference()
     st = DCU.apply_to(out, removal, comm)
     print(f'DCU 판정 {dict(st.most_common())}')
+
+    # 변대주 영역 = dcu_master 한 묶음(2026-11-09, 영준님 "변대주 대입법칙 따라서 dcu 매칭") — 25미청구·불가와
+    #   같은 함수(build_michunggu_dataset_20260918.fix_bdju): 형태로 칸을 정하고 번호 -> 이름 -> DCUID 순으로
+    #   같은 축끼리만 찾는다. 찾으면 이름·번호·DCUID·통신방식·회선상태·철거판정·차수를 같은 대장 행에서 통째로,
+    #   못 찾으면 번호·DCUID 를 비우고 대장출처 '대장미등재'(상세 'DCU 없음'). 원장 값은 변대주_원장·변대주번호_원장.
+    #   ★위 DCU 판정(변대주명+지사) 뒤에 돈다 — 이름이 대장 표기로 바뀌어도 통신방식 판정은 원본 이름 그대로다.
+    #   ★칸별 출처(변대주출처 등)는 싣지 않는다 — 전부 대장출처와 같다(14만 행).
+    import importlib.util
+    _s = importlib.util.spec_from_file_location('michunggu_ds', str(ROOT / 'scripts/build_michunggu_dataset_20260918.py'))
+    D = importlib.util.module_from_spec(_s)
+    _s.loader.exec_module(D)
+    by_id, by_no, by_name = D.load_dcu_master()
+    multi = dcu_multi_cha()
+    multi_hit = Counter(x['변대주번호'] for x in out if x.get('변대주번호') in multi)
+    D.fix_bdju(out, by_id, by_no, by_name)
+    for x in out:
+        for k in ('변대주출처', '변대주번호출처', 'DCUID출처'):
+            x.pop(k, None)
+    print(f'대장출처 {dict(Counter(x["대장출처"] for x in out).most_common())}')
+    print(f'번호 하나에 DCU 여럿(첫 행 채택) — 번호 {len(multi_hit)} · 계기 {sum(multi_hit.values())} · '
+          f'{sorted(multi_hit.items())}')
     for x in out:                       # 빈 칸은 싣지 않는다(apply_to 는 판정 없음을 '' 로 넣는다)
         for k in [k for k, v in x.items() if (v == '' or v is None) and k not in ('lat', 'lng')]:
             del x[k]
@@ -326,6 +349,19 @@ def main():
             del x['통신방식_출처']
 
     write_split(out)
+
+
+def dcu_multi_cha():
+    """dcu_master 에서 변대주번호 하나에 DCU(차수) 가 여럿인 번호 -> 행들. fix_bdju 는 첫 행을 쓴다."""
+    import sqlite3
+    con = sqlite3.connect(ROOT / 'data/ami.db')
+    by = {}
+    for did, no, cha in con.execute('SELECT DCU_ID,변대주번호,차수 FROM dcu_master'):
+        no = (no or '').strip()
+        if no:
+            by.setdefault(no, []).append(((did or '').strip(), (cha or '').strip()))
+    con.close()
+    return {k: v for k, v in by.items() if len(v) > 1}
 
 
 def write_split(out):
