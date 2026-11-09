@@ -344,9 +344,13 @@ def main():
     for x in out:                       # 빈 칸은 싣지 않는다(apply_to 는 판정 없음을 '' 로 넣는다)
         for k in [k for k, v in x.items() if (v == '' or v is None) and k not in ('lat', 'lng')]:
             del x[k]
-        # 통신방식_출처 는 이 리스트에선 전부 '전체DCU(변대주명)' 다(원본에 통신방식 칸이 없다) — 7만 행 3.4MB 라 뺀다.
-        if x.get('통신방식_출처') == '전체DCU(변대주명)' and x.get('출처') != '실효 잔여':
-            del x['통신방식_출처']
+        # ★통신방식은 실효 잔여(실효 리스트의 실제 계기 정보)에만 남긴다(PM 2026-11-09).
+        #   나머지 행의 값은 apply_dcu_status 가 변대주명으로 끌어온 DCU 값이라 위 대장 묶음(DCU통신방식)과
+        #   겹치고(7만 행 중 25 만 다름), 상세가 대장출처 행의 통신방식을 '현재 통신방식' 으로 그려 틀린 말이 된다.
+        #   dcu_철거예정 은 따로 규칙이라 남긴다.
+        if x.get('출처') != '실효 잔여':
+            x.pop('통신방식', None)
+            x.pop('통신방식_출처', None)
 
     write_split(out)
 
