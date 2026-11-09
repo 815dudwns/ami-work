@@ -54,8 +54,8 @@ DATASETS = [
     #     fileByJisa 의 "*" 자리에 넣는 조각은 scripts/jisa_split.py JISA_SLUG(= js/datasets.js JISA_FILE_SLUG).
     {"code": "c", "fileByJisa": "data/michochi/*.json", "category": "미조치", "uiLabel": "미조치",
      "statsLabel": "미조치", "archivesGlob": "data/michochi-completed-archive-*.json",
-     # 헬퍼·아미큐 라벨에는 넣는다(2026-11-09 영준님). 통계에서는 뺀다(2026-11-08) — 넣으면 통계 인덱스가 36MB
-     "noStats": True},
+     # 헬퍼·아미큐 라벨·통계 모두 넣는다(2026-11-09 영준님). 11/08 엔 통계 noStats 였다.
+     },
     # 지도에는 안 올라가고 통계 분모에만 들어간다.
     {"code": "a", "category": "완료아카이브", "onMap": False, "statsLabel": "완료 아카이브",
      "archivesGlob": "data/site-data-completed-archive-*.json"},

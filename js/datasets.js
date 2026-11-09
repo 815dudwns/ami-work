@@ -159,8 +159,8 @@ const DATASET_REGISTRY = [
       statsLabel: '미조치', archivesGlob: 'data/michochi-completed-archive-*.json',
       // ★헬퍼·아미큐 리스트 라벨에는 넣는다(2026-11-09 영준님 "리스트업할 때마다 잘 넣어") — 인덱스가 커져도
       //   헬퍼는 ETag 확인이라 안 바뀌면 304. 예전 noLabel(크기 때문에 뺌)은 되돌렸다.
-      // ★noStats — 통계 분모에서는 뺀다(2026-11-08, 영준님 승인). 넣으면 통계 인덱스가 36MB 로 커진다.
-      noStats: true },
+      // ★통계에 넣는다(2026-11-09 영준님 "미조치 통계 적용"). 11/08 엔 크기 때문에 noStats 였다.
+    },
     // 완료 아카이브 — 실효에서 완료돼 빠진 건들. 지도에는 안 올라가고 통계 분모에만 들어간다.
     //   파일이 날짜별로 늘어나므로 glob 으로 잡는다(archivesGlob).
     { code: 'a', category: '완료아카이브', onMap: false, statsLabel: '완료 아카이브',
