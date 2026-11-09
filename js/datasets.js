@@ -157,10 +157,10 @@ const DATASET_REGISTRY = [
     //   ★지사별 파일(2026-11-08) — 58MB 한 파일을 매번 통째로 해석하던 것이 첫 진입을 멈췄다. 고른 지사 파일만 받는다.
     { code: 'c', fileByJisa: './data/michochi/*.json', category: '미조치', label: null, uiLabel: '미조치', menuOrder: -1,
       statsLabel: '미조치', archivesGlob: 'data/michochi-completed-archive-*.json',
-      // ★noLabel — 헬퍼·아미큐 리스트 라벨 인덱스(data/meter-list-index.json)에서 뺀다. 넣으면 0.6MB -> 3.2MB 이고
-      //   헬퍼가 그 파일을 매번 받는다(2MB 넘으면 빼라 — PM 2026-11-07). scripts/gen_meter_list_index.py covered()
-      // ★noStats — 통계 분모에서도 뺀다(2026-11-08, 영준님 승인). 넣으면 통계 인덱스가 36MB 로 커진다.
-      noLabel: true, noStats: true },
+      // ★헬퍼·아미큐 리스트 라벨에는 넣는다(2026-11-09 영준님 "리스트업할 때마다 잘 넣어") — 인덱스가 커져도
+      //   헬퍼는 ETag 확인이라 안 바뀌면 304. 예전 noLabel(크기 때문에 뺌)은 되돌렸다.
+      // ★noStats — 통계 분모에서는 뺀다(2026-11-08, 영준님 승인). 넣으면 통계 인덱스가 36MB 로 커진다.
+      noStats: true },
     // 완료 아카이브 — 실효에서 완료돼 빠진 건들. 지도에는 안 올라가고 통계 분모에만 들어간다.
     //   파일이 날짜별로 늘어나므로 glob 으로 잡는다(archivesGlob).
     { code: 'a', category: '완료아카이브', onMap: false, statsLabel: '완료 아카이브',
