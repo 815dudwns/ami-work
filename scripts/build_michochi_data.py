@@ -62,6 +62,8 @@ HAPDONG_FILES = ['data/hapdong-data.json', 'data/hapdong-data-archive.json']
 HAPDONG_EXCL_OUT = ROOT / 'data/reference/michochi_exclude_hapdong_removed_20261108.json'
 # 올해 실효 대상 제외 축 — 목록 정본은 main(원본 목록과 같은 자리)
 SILHYO_TARGET = MAIN / 'data/reference/michochi_exclude_silhyo_target_2026_20261108.json'
+POLE_MOVED_OUT = ROOT / 'data/reference/michochi_pole_near_moved_20261109.json'    # 옮긴 '?' 개소·갈래·거리
+POLE_SPREAD_OUT = ROOT / 'data/reference/michochi_pole_near_spread_20261109.json'   # 형제가 300m 넘게 퍼진 '?' 개소
 METER_RE = re.compile(r'^[0-9A-Z]{2}[0-9]{9}$')
 TYPE_BY_CODE = {'19': 'AE', '25': 'G', '26': 'G', '27': 'G', '45': 'G', '46': 'G', '47': 'G',
                 '52': '아미고', '53': '아미고', '54': '아미고', '55': '아미고'}
@@ -352,7 +354,164 @@ def main():
             x.pop('통신방식', None)
             x.pop('통신방식_출처', None)
 
+    pole_near(out, cache)
     write_split(out)
+
+
+# ── '?' 개소를 같은 변대주의 정확 개소 옆으로(2026-11-09, 영준님 "물음표를 변대주로 옮겨 … 마커 겹치지 않게") ──
+#   ★옮기는 건 **위치를 모르는 '?'** 만이다(where_unknown — 번지없음·주소해석불가·본번다름). 본번이 같은 '?' 는
+#     제자리 근처라 그대로 둔다(영준님 정정 2026-11-09).
+#   우리 DCU 대장엔 변대주 좌표가 없다 — 같은 변대주에 붙은 미조치 **정확 개소**들이 변대주 위치의 근사다.
+#   ★'?' 는 남긴다(좌표정확도 approximate 그대로, 광명 7차 선례). 좌표출처 'pole_<변대주명>_근처' 로 상세에 띄운다.
+#   ★주소·상태키(주소|미조치)·계기 집합·정확 개소는 안 건드린다. lat/lng/좌표출처 만.
+#   키 = 변대주번호(대장) > 변대주번호_원장 > 변대주명(공백 제거) — 축을 넘나들지 않는다(축 이름까지 키에 넣는다).
+#   형제 = 같은 키 · 같은 구의 정확 개소. 같은 동에 있으면 그것만. 기준점 = 형제 좌표의 medoid(실제 개소 하나).
+#   겹침 금지 = 기준점 둘레 고리(20m, 다 차면 15m씩 바깥)에 각도를 나눠 놓고, 모든 미조치 마커·먼저 놓은 개소와
+#   POLE_MIN_SEP 이상 떨어진 첫 자리. 지도는 소수 6자리 같은 좌표를 한 마커로 합친다(status-key.js markerKeyOf).
+POLE_RING0, POLE_RING_STEP, POLE_MIN_SEP = 20.0, 15.0, 12.0
+POLE_SPREAD_WARN = 300.0
+
+
+def _dist_m(a, b):
+    import math
+    dy = (a[0] - b[0]) * 111320.0
+    dx = (a[1] - b[1]) * 111320.0 * math.cos(math.radians((a[0] + b[0]) / 2))
+    return math.hypot(dx, dy)
+
+
+def _dong_of(addr):
+    m = re.match(r'^\S+\s+\S+구\s+(\S+)', ws(addr))
+    return m.group(1) if m else ''
+
+
+def _pole_key(x):
+    if x.get('변대주번호'):
+        return ('번호', x['변대주번호'].upper())
+    if x.get('변대주번호_원장'):
+        return ('원장번호', str(x['변대주번호_원장']).upper())
+    if x.get('변대주'):
+        return ('이름', re.sub(r'\s+', '', x['변대주']).upper())
+    return None
+
+
+def where_unknown(a, cache):
+    """'?' 개소가 **어디 들어갈지 모르는** 것인가(영준님 정정 2026-11-09 "제대로 들어간 애들은 놔둬야 해.
+    어디 들어갈지 몰라서 동 가운데나 그 동네 찍힌 것들만"). 옮길 갈래 이름 또는 None(그대로).
+      번지없음 — 동 중심이거나 응답에 번지가 없다 / 주소해석불가 — 원본 주소를 못 읽었다
+      본번다름 — 응답 본번이 원본 본번과 다르다(이웃 지번으로 찍힌 것)
+      None    — 본번이 같다(부번·산·본번 검색 차이 — 제자리 근처)"""
+    import michochi_geocode as MG
+    v = cache.get(a) or {}
+    meth = v.get('method', '')
+    if meth.startswith('unparsed'):
+        return '주소해석불가'
+    if meth.startswith('dong_center'):
+        return '번지없음'
+    p = MG.parts(a)
+    g = MG.parts(v['jibun']) if v.get('jibun') else None
+    lp = MG.lot(p[2]) if p else None
+    lg = MG.lot(g[2]) if g else None
+    if not lp or not lg:
+        return '번지없음'
+    return None if lp[1] == lg[1] else '본번다름'
+
+
+def pole_near(out, cache):
+    import math
+    sites = {}
+    for x in out:
+        sites.setdefault(x['주소'], []).append(x)
+    approx = {a: v for a, v in sites.items() if any(x.get('좌표정확도') == 'approximate' for x in v)}
+    exact = {a: v for a, v in sites.items() if a not in approx}
+    # 키 -> 정확 개소 (구, 동, 좌표)
+    sib = {}
+    for a, v in exact.items():
+        for k in {_pole_key(x) for x in v} - {None}:
+            sib.setdefault(k, {})[a] = (area(a), _dong_of(a), (v[0]['lat'], v[0]['lng']))
+    # 겹침 검사용 격자(약 22m 칸) — 모든 미조치 마커 좌표
+    CELL = 0.0002
+    grid = {}
+
+    def put(pt):
+        grid.setdefault((int(pt[0] // CELL), int(pt[1] // CELL)), []).append(pt)
+
+    def free(pt):
+        ci, cj = int(pt[0] // CELL), int(pt[1] // CELL)
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for q in grid.get((ci + di, cj + dj), ()):
+                    if _dist_m(pt, q) < POLE_MIN_SEP:
+                        return False
+        return True
+
+    for v in sites.values():
+        if v[0].get('lat') is not None:
+            put((v[0]['lat'], v[0]['lng']))
+    st = Counter()
+    moved_d, spread, moved_list = [], [], []
+    for a in sorted(approx, key=lambda a: (str(_pole_key(approx[a][0])), a)):
+        v = approx[a]
+        why = where_unknown(a, cache)
+        if why is None:
+            st['그대로 — 본번 같음(제자리 근처)'] += 1
+            continue
+        keys = Counter(k for k in (_pole_key(x) for x in v) if k)
+        if not keys:
+            st[f'그대로 — 변대주 없음({why})'] += 1
+            continue
+        k = sorted(keys.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+        gu, dong = area(a), _dong_of(a)
+        cand = [(aa, t[2]) for aa, t in sib.get(k, {}).items() if t[0] == gu]
+        if not cand:
+            st[f'그대로 — 같은 변대주·같은 구 정확 개소 없음({why})'] += 1
+            continue
+        same_dong = [(aa, p) for aa, p in cand if sib[k][aa][1] == dong]
+        if same_dong:
+            cand = same_dong
+        pts = [p for _, p in cand]
+        anchor = min(pts, key=lambda p: (sum(_dist_m(p, q) for q in pts), p))
+        far = max(_dist_m(anchor, q) for q in pts)
+        if far > POLE_SPREAD_WARN:
+            spread.append((a, k[1], len(pts), round(far)))
+        spot = None
+        ring = 0
+        while spot is None and ring < 40:
+            r = POLE_RING0 + ring * POLE_RING_STEP
+            n = max(6, int(2 * math.pi * r // POLE_MIN_SEP))
+            for i in range(n):
+                th = 2 * math.pi * i / n + ring * 0.37
+                dlat = r * math.cos(th) / 111320.0
+                dlng = r * math.sin(th) / (111320.0 * math.cos(math.radians(anchor[0])))
+                pt = (round(anchor[0] + dlat, 6), round(anchor[1] + dlng, 6))
+                if free(pt):
+                    spot = pt
+                    break
+            ring += 1
+        if spot is None:
+            st['그대로 — 빈 자리 없음'] += 1
+            continue
+        old = (v[0]['lat'], v[0]['lng'])
+        name = next((x.get('변대주') for x in v if _pole_key(x) == k and x.get('변대주')), '') or k[1]
+        for x in v:
+            x['lat'], x['lng'] = spot
+            x['좌표출처'] = f'pole_{name}_근처'
+        put(spot)
+        moved_d.append(_dist_m(old, spot))
+        st['옮김'] += 1
+        st['옮김 계기'] += len(v)
+        st[f'  옮김 {why}'] += 1
+        moved_list.append({'주소': a, '갈래': why, '변대주': name, '형제 개소': len(pts),
+                           '이동m': round(_dist_m(old, spot)), '기준 개소': next(aa for aa, p in cand if p == anchor)})
+        st[f'  형제 {"같은 동" if same_dong else "같은 구"}'] += 1
+    moved_d.sort()
+    q = lambda f: round(moved_d[min(len(moved_d) - 1, int(f * len(moved_d)))]) if moved_d else 0  # noqa: E731
+    print(f"변대주 근처로 옮김: {dict(st)} · 이동거리 중앙 {q(0.5)}m · p90 {q(0.9)}m · 최대 {q(1.0)}m · "
+          f"형제 {POLE_SPREAD_WARN:.0f}m 넘게 퍼짐 {len(spread)}")
+    POLE_SPREAD_OUT.write_text(json.dumps([{'주소': a, '키': kk, '형제 개소': n, '최대 거리m': d}
+                                           for a, kk, n, d in spread], ensure_ascii=False, indent=1) + '\n',
+                               encoding='utf-8')
+    POLE_MOVED_OUT.write_text(json.dumps(moved_list, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+    return st
 
 
 def dcu_multi_cha():
