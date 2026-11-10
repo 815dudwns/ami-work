@@ -42,7 +42,7 @@ FORMAT = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE타입)", "LTE 모뎀(E타입)", "L
           "IotPLC모뎀(AE타입)", "IotPLC모뎀(E 타입)", "IotPLC모뎀(AMIGO)",
           "HPGP모뎀(AE타입)", "HPGP모뎀(G타입)"]
 
-FORMAT_B = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE·E타입)", "LTE 모뎀(G타입)", "PLC모뎀(AE타입)", "PLC모뎀(E 타입)",
+FORMAT_B = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE타입)", "LTE 모뎀(G타입)", "PLC모뎀(AE타입)", "PLC모뎀(E 타입)",
             "PLC모뎀(AMIGO)", "IotPLC모뎀(AE타입)", "IotPLC모뎀(E 타입)", "IotPLC모뎀(AMIGO)",
             "HPGP모뎀(AE타입)", "HPGP모뎀(G타입)"]
 
@@ -193,11 +193,28 @@ def others_installed(macs):
 # 6/23 92190689274·92190685309 (KS-PLC 9528E4/E5) sat under 9999 기타2 and looked unused.
 ALL_DEPTS = A.DEPTS + ["5999", "9922", "9999", "9100", "3985", "7290"]
 BASELINE = ROOT / "cst-input/backend/stock_baseline.json"   # gitignored
+# Rolled-forward count: the daily check saves today's result here, so the next run only fetches
+# the delta since then instead of every install since the physical count (영준님 2026-11-10).
+CHECKPOINT = ROOT / "cst-input/backend/stock_checkpoint.json"   # gitignored
 
 
 def bucket(k):
-    # baseline buckets: LTE AE and E are counted together physically
-    return "LTE 모뎀(AE·E타입)" if k.startswith("LTE 모뎀(AE") or k == "LTE 모뎀(E타입)" else k
+    # LTE stock is AE only (영준님 2026-11-10 "lte는 ae만있음") — prefixes don't split AE/E
+    return "LTE 모뎀(AE타입)" if k.startswith("LTE 모뎀(AE") or k == "LTE 모뎀(E타입)" else k
+
+
+def _start():
+    """Start point = the newer of the physical baseline and the last saved checkpoint."""
+    b = json.loads(BASELINE.read_text())
+    src = "기준 실물"
+    if CHECKPOINT.exists():
+        c = json.loads(CHECKPOINT.read_text())
+        if c.get("ts", 0) > b["ts"]:
+            b, src = c, "지난 작업검사"
+    counts = defaultdict(int)
+    for k, v in b["counts"].items():
+        counts[bucket(k) if k == "LTE 모뎀(AE·E타입)" else k] += v
+    return b["ts"], counts, src
 
 
 def from_baseline(a):
@@ -208,10 +225,12 @@ def from_baseline(a):
     at all. So 영준님 counted physically once; from then on only the delta is computed.
     """
     import datetime
-    b = json.loads(BASELINE.read_text())
-    ts = b["ts"] * 1000
-    stock = defaultdict(int, b["counts"])
-    print(f"기준 실물 {sum(stock.values())}개 ({datetime.datetime.fromtimestamp(b['ts']):%m/%d %H:%M})")
+    import time
+    now = int(time.time())
+    t_start, stock, src = _start()
+    ts = t_start * 1000
+    d_start = datetime.datetime.fromtimestamp(t_start).strftime("%Y-%m-%d")
+    print(f"{src} {sum(stock.values())}개 ({datetime.datetime.fromtimestamp(t_start):%m/%d %H:%M})")
     # receipts after the baseline: 출고 (not self-handover) + 인계
     me = "273584"
     got = []
@@ -226,7 +245,7 @@ def from_baseline(a):
     off = 0
     if OFFBOOK.exists():
         for bt in json.loads(OFFBOOK.read_text()).get("batches", []):
-            if bt.get("inBaseline"):
+            if bt.get("inBaseline") or (src != "기준 실물" and (bt.get("date") or "") <= d_start):
                 continue
             for m in bt.get("macs", []):
                 if m.upper() not in got:
@@ -234,7 +253,7 @@ def from_baseline(a):
                     off += 1
     # installs after the baseline: master rows that consumed a new modem (신설·교체), one per meter
     h = A.headers()
-    d0 = datetime.datetime.fromtimestamp(b["ts"]).strftime("%Y%m%d")
+    d0 = datetime.datetime.fromtimestamp(t_start).strftime("%Y%m%d")
     today = datetime.date.today().strftime("%Y%m%d")
     seen, used, rows = set(), [], []
     for code in ALL_DEPTS:
@@ -264,6 +283,11 @@ def from_baseline(a):
     for k in FORMAT_B + sorted(set(stock) - set(FORMAT_B)):
         if stock.get(k):
             print(f"  {k:18} {stock[k]:3}")
+    if a.save:
+        CHECKPOINT.write_text(json.dumps({"ts": now, "counts": {k: v for k, v in stock.items() if v},
+                                          "note": "작업검사 때 저장한 재고. 다음 계산은 이 시각 이후만 받는다."},
+                                         ensure_ascii=False, indent=1))
+        print(f"  재고 저장 -> {CHECKPOINT.name} ({datetime.datetime.fromtimestamp(now):%m/%d %H:%M})")
     odd = [(m, d, n) for m, d, n in used if m not in ledger and not m.startswith("AC5E8CA")]
     if odd:
         print("\n  ★장부에 없는 MAC으로 시공(오독 의심 — 재전송 확인):")
@@ -277,6 +301,7 @@ def main():
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--no-refresh", action="store_true")
     ap.add_argument("--ledger", action="store_true", help="기준 실물 대신 장부 추정 방식으로")
+    ap.add_argument("--save", action="store_true", help="계산한 재고를 저장 — 다음엔 이 시각 이후만 계산(작업검사가 부른다)")
     a = ap.parse_args()
     if not a.no_refresh:
         refresh()
