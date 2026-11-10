@@ -282,7 +282,22 @@ function macGroupsHtml(meters, cards, macKeyOf) {
 }
 
 // 주소 클릭 시 상세 패널 표시
+// 검색에서 연 상세(2026-11-10) — js/map.js 가 showDetail 바로 전에 넣고, showDetail 이 읽고 비운다.
+//   listLine = 상세 위 리스트 이름 줄 · keyIndex = 이 상세 계기들의 자기 상태키 판정용 인덱스
+//   (검색 대상이 지금 지도에 안 받아 둔 리스트 파일 행이면 지도 인덱스에 없다 — 그 파일로 만든 인덱스를 쓴다).
+//   ★마커를 눌러 연 평소 상세는 ctx 가 없어 줄이 안 보이고 인덱스는 지도 것 그대로다.
+let _detailSearchCtx = null;
+let currentKeyIndex = null;
+
 function showDetail(address, meters, addresses, statusKeys) {
+    const _sctx = _detailSearchCtx;
+    _detailSearchCtx = null;
+    currentKeyIndex = _sctx ? _sctx.keyIndex : null;
+    const listLineEl = document.getElementById('detail-list-line');
+    if (listLineEl) {
+        listLineEl.textContent = _sctx && _sctx.listLine ? `리스트 ${_sctx.listLine}` : '';
+        listLineEl.style.display = _sctx && _sctx.listLine ? '' : 'none';
+    }
     currentAddress = address;
     currentMeters = meters;
     currentAddresses = (addresses && addresses.length) ? addresses : [address];
@@ -1493,7 +1508,7 @@ function resetStatus() {
 function meterOwnKey(meter) {
     if (!meter || meter.__added) return currentStatusKey;
     try {
-        const idx = (typeof statusKeyIndex !== 'undefined') ? statusKeyIndex : null;
+        const idx = currentKeyIndex || ((typeof statusKeyIndex !== 'undefined') ? statusKeyIndex : null);
         const k = statusKeyOf(meter, idx);
         if (k && (currentStatusKeys || []).includes(k)) return k;
     } catch (e) {}

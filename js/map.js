@@ -1406,6 +1406,60 @@ function toggleLocation() {
 }
 
 // ── 검색 기능 ─────────────────────────────────────────
+// ★모든 리스트 + 완료 아카이브를 찾는다(2026-11-10 영준님 "검색에 안되자나" · "완료아카이브도 검색되게").
+//   예전엔 지금 받아 둔 리스트(sampleData)만 훑어서, 미조치를 꺼 두거나 다른 지사를 보고 있으면 결과가 없었다.
+//   이제 data/search-index.json(scripts/gen_search_index.py — 레지스트리 전체 파일 + 아카이브)을 검색 창을
+//   처음 열 때 한 번 받아 그걸 훑는다. 지도 첫 진입에는 받지 않는다.
+// ★결과를 눌러도 지사·구·리스트 선택은 그대로 둔다(영준님 2026-11-10 "검색은 지사 상관없이 대상만 보이게").
+//   그 대상 하나만 임시 마커로 띄워 그 자리로 가고 상세를 연다(리스트 이름 줄 포함).
+//   - 지도에 올라가는 리스트의 행 = 평소 상세 그대로(상태 버튼 포함). 상태키는 그 리스트 규칙 그대로 —
+//     받아 둔 행이면 지도 인덱스, 아니면 그 리스트 파일(지사별이면 그 지사 파일)을 받아 같은 함수로 만든다.
+//   - 아카이브 행·지도에서 내린 리스트 행 = 읽기 전용 창(인덱스에 든 값만, 쓰기 길 없음).
+//   임시 마커는 다른 결과를 고르거나, 검색 표시 줄의 x 또는 검색 창 닫기로 치운다.
+const SEARCH_MIN = 4;
+const SEARCH_MAX = 200;
+const SEARCH_ADDR_PREFIX = '서울특별시 ';   // 인덱스는 이 앞머리를 떼고 싣는다(gen_search_index.py ADDR_PREFIX)
+// 인덱스 슬롯 이름 — 레지스트리 표시명. 'a' 는 실효의 옛 완료 아카이브라 이름을 붙여 준다.
+const SEARCH_NAME_OVERRIDE = { a: '실효계기' };
+let _searchIdx = null;       // 해석해 둔 인덱스
+let _searchIdxP = null;      // 받는 중인 약속
+let _searchTarget = null;    // 지금 띄운 임시 마커 { overlay, ctx }
+
+function _searchFull(a) {
+    a = String(a || '');
+    return a && !a.startsWith(SEARCH_ADDR_PREFIX) && /^\S+[구시군]\s/.test(a) ? SEARCH_ADDR_PREFIX + a : a;
+}
+
+function loadSearchIndex() {
+    if (_searchIdx) return Promise.resolve(_searchIdx);
+    if (_searchIdxP) return _searchIdxP;
+    const t0 = performance.now();
+    _searchIdxP = fetch('./data/search-index.json', { cache: 'no-cache' })
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(raw => {
+            const slots = raw.slots.map(([code, kind]) => {
+                const reg = DATASET_REGISTRY.find(d => d.code === code) || null;
+                const onMap = !!(reg && kind === 0 && DATASETS.includes(reg));
+                const name = SEARCH_NAME_OVERRIDE[code] || (reg && (reg.uiLabel || reg.statsLabel || reg.category)) || code;
+                return {
+                    code, kind, reg, onMap, name,
+                    visible: !!(reg && datasetVisibleToUser(reg)),
+                    tag: kind === 1 ? `${name} · 완료 아카이브` : (onMap ? name : `${name} · 지도에서 내림`),
+                };
+            });
+            const n = raw.rows.length / 3;
+            const meters = new Array(n), site = new Int32Array(n), slot = new Uint16Array(n);
+            for (let i = 0, j = 0; i < n; i++, j += 3) {
+                meters[i] = raw.rows[j]; site[i] = raw.rows[j + 1]; slot[i] = raw.rows[j + 2];
+            }
+            _searchIdx = { slots, jisa: raw.jisa, sites: raw.sites, meters, site, slot, n, gen: raw.gen };
+            console.log('[search] 인덱스', n, '계기 ·', raw.sites.length, '개소 ·', Math.round(performance.now() - t0), 'ms');
+            return _searchIdx;
+        })
+        .catch(e => { _searchIdxP = null; throw e; });
+    return _searchIdxP;
+}
+
 function openSearch() {
     const overlay = document.getElementById('search-overlay');
     if (!overlay) return;
@@ -1413,68 +1467,102 @@ function openSearch() {
     const input = document.getElementById('search-input');
     if (input) { input.value = ''; setTimeout(() => input.focus(), 50); }
     document.getElementById('search-results').innerHTML = '';
-    document.getElementById('search-hint').textContent = '4자 이상 입력하세요';
+    document.getElementById('search-hint').textContent = `${SEARCH_MIN}자 이상 입력하세요`;
+    // 처음 열 때 인덱스를 받기 시작한다(지도 첫 진입엔 안 받는다)
+    loadSearchIndex().catch(e => console.warn('[search] 인덱스 실패:', e));
 }
 
-function closeSearch() {
+// 검색 창만 숨긴다(결과를 골랐을 때 — 임시 마커는 남는다)
+function hideSearchPanel() {
     const overlay = document.getElementById('search-overlay');
     if (overlay) overlay.classList.remove('active');
 }
 
-function runSearch() {
-    const q = (document.getElementById('search-input').value || '').trim();
+// 검색 창 닫기 — 임시 마커도 치운다
+function closeSearch() {
+    hideSearchPanel();
+    clearSearchTarget();
+}
+
+async function runSearch() {
+    let q = (document.getElementById('search-input').value || '').trim();
     const hintEl = document.getElementById('search-hint');
     const resultsEl = document.getElementById('search-results');
-    if (q.length < 4) {
-        hintEl.textContent = '4자 이상 입력하세요';
+    if (q.length < SEARCH_MIN) {
+        hintEl.textContent = `${SEARCH_MIN}자 이상 입력하세요`;
         resultsEl.innerHTML = '';
         return;
     }
+    let idx = _searchIdx;
+    if (!idx) {
+        hintEl.textContent = '검색 자료 받는 중...';
+        try { idx = await loadSearchIndex(); } catch (e) { idx = null; }
+    }
+    // 인덱스 앞머리('서울특별시 ')를 떼고 찾는다 — 붙여 친 검색어도 맞게
+    const qa = q.startsWith(SEARCH_ADDR_PREFIX) ? q.slice(SEARCH_ADDR_PREFIX.length) : q;
 
     const results = [];
     const addrSeen = new Set();
+    if (idx) {
+        // 주소 매치는 개소 단위로 먼저 판정(9만 개소) — 계기행(23만)마다 문자열을 다시 보지 않는다
+        const siteHit = new Uint8Array(idx.sites.length);
+        idx.sites.forEach((s, i) => {
+            if (!qa) return;
+            if (String(s[0]).includes(qa)) siteHit[i] = 1;
+            else if (String(s[1]).includes(qa)) siteHit[i] = 2;
+        });
+        for (let i = 0; i < idx.n; i++) {
+            const sl = idx.slots[idx.slot[i]];
+            if (!sl.visible) continue;
+            const s = idx.sites[idx.site[i]];
+            const meterNo = idx.meters[i];
+            const addr = _searchFull(s[0]), road = _searchFull(s[1]);
+            if (meterNo && meterNo.includes(q)) {
+                results.push({ type: 'meter', primary: meterNo, secondary: addr,
+                               tertiary: road && road !== addr ? road : '', row: i, slot: sl });
+            } else if (siteHit[idx.site[i]]) {
+                const key = idx.slot[i] + '||' + s[0];
+                if (addrSeen.has(key)) continue;
+                addrSeen.add(key);
+                const addrMatched = siteHit[idx.site[i]] === 1;
+                results.push({ type: 'address',
+                               primary: addrMatched ? addr : (road || addr),
+                               secondary: addrMatched ? (road && road !== addr ? road : '') : (addr && addr !== road ? addr : ''),
+                               tertiary: '', row: i, slot: sl });
+            }
+        }
+    }
+    // 파일 없는 리스트(추가 — workStatus 에서 만든다)와 인덱스를 못 받은 경우는 받아 둔 행에서 찾는다
+    const idxCats = new Set(idx ? idx.slots.map(s => s.reg && s.reg.category) : []);
     for (const item of sampleData) {
-        const meterNo = String(item.계기번호 || '');
-        const road = String(item.도로명주소 || '');
-        const addr = String(item.주소 || '');
+        if (idxCats.has(item.category)) continue;
+        const meterNo = String(item.계기번호 || ''), road = String(item.도로명주소 || ''), addr = String(item.주소 || '');
+        const reg = DATASETS.find(d => d.category === item.category);
+        const sl = { name: (reg && reg.uiLabel) || item.category, tag: (reg && reg.uiLabel) || item.category, onMap: true, kind: 0, reg };
         if (meterNo.includes(q)) {
-            // 계기번호 매치: primary=계기번호, secondary=지번주소+도로명
-            results.push({
-                type: 'meter',
-                primary: meterNo,
-                secondary: addr,
-                tertiary: road && road !== addr ? road : '',
-                item,
-            });
+            results.push({ type: 'meter', primary: meterNo, secondary: addr, tertiary: road && road !== addr ? road : '', item, slot: sl });
         } else if (addr.includes(q) || road.includes(q)) {
             const key = item.category + '||' + addr;
             if (addrSeen.has(key)) continue;
             addrSeen.add(key);
-            // 매치된 쪽을 primary로 (지번이 검색어 포함하면 지번 위, 아니면 도로명 위)
-            const addrMatched = addr.includes(q);
-            results.push({
-                type: 'address',
-                primary: addrMatched ? addr : (road || addr),
-                secondary: addrMatched ? (road && road !== addr ? road : '') : (addr && addr !== road ? addr : ''),
-                tertiary: '',
-                item,
-            });
+            const am = addr.includes(q);
+            results.push({ type: 'address', primary: am ? addr : (road || addr),
+                           secondary: am ? (road && road !== addr ? road : '') : (addr && addr !== road ? addr : ''), tertiary: '', item, slot: sl });
         }
     }
+    // 지도 리스트 행이 먼저, 아카이브·내린 리스트는 뒤
+    results.sort((a, b) => (a.slot.onMap ? 0 : 1) - (b.slot.onMap ? 0 : 1));
 
-    hintEl.textContent = `${results.length}건 검색됨`;
+    hintEl.textContent = `${results.length}건 검색됨` + (idx ? '' : ' (받아 둔 리스트만 — 검색 자료를 못 받음)');
     if (results.length === 0) {
         resultsEl.innerHTML = '<div class="search-empty">결과 없음</div>';
         return;
     }
 
-    const MAX = 200;
-    const shown = results.slice(0, MAX);
+    const shown = results.slice(0, SEARCH_MAX);
     const rows = shown.map((r, i) => {
-        const it = r.item;
-        const jisa = jisaOf(it);
-        const cat = it.category === 'skt' ? 'SKT' : '실효';
-        const catClass = it.category === 'skt' ? 'cat-skt' : 'cat-real';
+        const jisa = r.item ? jisaOf(r.item) : idx.jisa[idx.sites[idx.site[r.row]][4]];
+        const catClass = r.slot.onMap ? 'cat-real' : 'cat-arch';
         const sec = r.secondary ? `<div class="sr-secondary">${escapeSearchHtml(r.secondary)}</div>` : '';
         const ter = r.tertiary ? `<div class="sr-secondary">${escapeSearchHtml(r.tertiary)}</div>` : '';
         return `<div class="search-result-row" data-idx="${i}">
@@ -1484,41 +1572,164 @@ function runSearch() {
             </div>
             <div class="sr-meta">
                 <span class="sr-cond">${escapeSearchHtml(jisa)}</span>
-                <span class="sr-cond ${catClass}">${cat}</span>
+                <span class="sr-cond ${catClass}">${escapeSearchHtml(r.slot.tag)}</span>
             </div>
         </div>`;
     }).join('');
 
-    resultsEl.innerHTML = rows + (results.length > MAX ? `<div class="search-empty">+ ${results.length - MAX}건 더 — 검색어를 좁혀주세요</div>` : '');
+    resultsEl.innerHTML = rows + (results.length > SEARCH_MAX ? `<div class="search-empty">+ ${results.length - SEARCH_MAX}건 더 — 검색어를 좁혀주세요</div>` : '');
     resultsEl.querySelectorAll('.search-result-row').forEach((el, i) => {
         el.addEventListener('click', () => gotoSearchResult(shown[i]));
     });
 }
 
-function gotoSearchResult(r) {
-    const it = r.item;
-    if (it.lat == null || it.lng == null) {
+// 결과 하나 -> 임시 마커 + 상세. 지사·구·리스트 선택은 건드리지 않는다.
+async function gotoSearchResult(r) {
+    const idx = _searchIdx;
+    let lat, lng, label;
+    if (r.item) {
+        lat = r.item.lat; lng = r.item.lng;
+    } else {
+        const s = idx.sites[idx.site[r.row]];
+        lat = s[2] == null ? null : s[2] / 1e6;
+        lng = s[3] == null ? null : s[3] / 1e6;
+    }
+    if (lat == null || lng == null) {
         alert('좌표가 없는 항목입니다');
         return;
     }
-    closeSearch();
-    const latlng = new kakao.maps.LatLng(it.lat, it.lng);
+    label = r.type === 'meter' ? r.primary : r.primary;
+    hideSearchPanel();
+    clearSearchTarget();
+    const latlng = new kakao.maps.LatLng(lat, lng);
     map.setLevel(1);
     map.setCenter(latlng);
-
-    // 어떤 매치든 펄스 마커 10초 (계기 매치는 detail 창에 가려져도 창 닫으면 보임)
     showSearchPulse(latlng);
 
-    if (r.type === 'meter') {
-        // 계기번호 매치: detail 패널도 함께 열기
-        setTimeout(() => {
-            // 좌표 기준 합친 마커와 일치 — 같은 좌표·카테고리 전체(여러 지번 포함)
-            const groupMeters = sampleData.filter(s => s.category === it.category && s.lat === it.lat && s.lng === it.lng);
-            const groupAddresses = [...new Set(groupMeters.map(m => m.주소).filter(Boolean))];
-            const groupKeys = [...new Set(groupMeters.map(m => statusKeyOf(m, statusKeyIndex)).filter(Boolean))];
-            if (typeof showDetail === 'function') showDetail(it.주소, groupMeters, groupAddresses, groupKeys);
-        }, 200);
+    const ctx = { r, lat, lng, label };
+    _searchTarget = { overlay: makeSearchTargetMarker(latlng, ctx), ctx };
+    showSearchTargetChip(r.slot.tag, label);
+    await openSearchTargetDetail(ctx);
+}
+
+// 임시 마커 — 리스트 마커와 겹쳐도 구분되게 검정 핀. 누르면 상세를 다시 연다.
+function makeSearchTargetMarker(latlng, ctx) {
+    const el = document.createElement('div');
+    el.className = 'search-target-marker';
+    el.innerHTML = '<svg viewBox="0 0 20 26" xmlns="http://www.w3.org/2000/svg"><path d="M10 0C4.48 0 0 4.48 0 10c0 6.72 10 16 10 16s10-9.28 10-16C20 4.48 15.52 0 10 0z"/><circle cx="10" cy="10" r="4" fill="white"/></svg>';
+    el.addEventListener('click', (e) => { e.stopPropagation(); openSearchTargetDetail(ctx); });
+    const ov = new kakao.maps.CustomOverlay({ position: latlng, content: el, yAnchor: 1, xAnchor: 0.5, zIndex: 998 });
+    ov.setMap(map);
+    return ov;
+}
+
+function showSearchTargetChip(tag, label) {
+    let el = document.getElementById('search-target-chip');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'search-target-chip';
+        el.className = 'search-target-chip';
+        document.body.appendChild(el);
     }
+    el.innerHTML = `<span class="stc-text">검색 ${escapeSearchHtml(label)} · ${escapeSearchHtml(tag)}</span>`
+        + '<button type="button" class="stc-x" aria-label="검색 표시 지우기">×</button>';
+    el.querySelector('.stc-text').onclick = () => { if (_searchTarget) openSearchTargetDetail(_searchTarget.ctx); };
+    el.querySelector('.stc-x').onclick = () => clearSearchTarget();
+    el.style.display = '';
+}
+
+function clearSearchTarget() {
+    if (_searchTarget && _searchTarget.overlay) _searchTarget.overlay.setMap(null);
+    _searchTarget = null;
+    const el = document.getElementById('search-target-chip');
+    if (el) el.style.display = 'none';
+    if (_searchPulseTimer) { clearTimeout(_searchPulseTimer); _searchPulseTimer = null; }
+    if (_searchPulseOverlay) { _searchPulseOverlay.setMap(null); _searchPulseOverlay = null; }
+}
+
+// 같은 좌표(마커 단위) 판정 — loadMarkers 의 그룹 키와 같은 자릿수(6)
+function _sameSpot(item, lat, lng) {
+    return item && item.lat != null && item.lng != null
+        && (+item.lat).toFixed(6) === (+lat).toFixed(6) && (+item.lng).toFixed(6) === (+lng).toFixed(6);
+}
+
+// 지도 리스트 행의 상세 — 평소 상세(showDetail) 그대로, 상태키는 그 리스트 규칙.
+//   받아 둔 행이면 지도 인덱스, 아니면 그 리스트 파일을 받아(sampleData 에는 안 넣는다) 같은 함수로 키를 만든다.
+//   ★네임스페이스 리스트(지도에 올라가는 리스트는 전부 그렇다)는 키가 자기 리스트 행만으로 정해진다.
+//     지사별 파일 하나로 키가 같은지는 빌더 게이트(key_diff)가 본다.
+async function _liveRowsForSearch(r, lat, lng) {
+    const reg = r.slot.reg;
+    const cat = reg.category;
+    let rows = sampleData.filter(it => it.category === cat && _sameSpot(it, lat, lng));
+    if (rows.length) return { rows, keyIndex: statusKeyIndex };
+    const jisa = _searchIdx.jisa[_searchIdx.sites[_searchIdx.site[r.row]][4]];
+    const files = datasetFiles(reg, reg.fileByJisa ? jisa : undefined);
+    const all = [];
+    for (const f of files) {
+        try { (await loadListCached(f)).forEach(x => all.push({ ...x, category: cat })); }
+        catch (e) { console.warn('[search] 파일 받기 실패', f, e); }
+    }
+    const keyIndex = buildStatusKeyIndex(all);
+    rows = all.filter(it => _sameSpot(it, lat, lng));
+    return { rows, keyIndex };
+}
+
+async function openSearchTargetDetail(ctx) {
+    const r = ctx.r;
+    if (r.item) {
+        const it = r.item;
+        const group = sampleData.filter(s => s.category === it.category && _sameSpot(s, ctx.lat, ctx.lng));
+        _openLiveDetail(it, group.length ? group : [it], statusKeyIndex, r.slot.tag);
+        return;
+    }
+    if (!r.slot.onMap) { showSearchReadOnly(r); return; }
+    const { rows, keyIndex } = await _liveRowsForSearch(r, ctx.lat, ctx.lng);
+    if (!rows.length) { showSearchReadOnly(r); return; }   // 파일을 못 받으면 읽기 전용으로라도 보인다
+    const s = _searchIdx.sites[_searchIdx.site[r.row]];
+    const no = _searchIdx.meters[r.row];
+    const it = (no && rows.find(x => String(x.계기번호 || '') === no))
+        || rows.find(x => String(x.주소 || '') === _searchFull(s[0])) || rows[0];
+    _openLiveDetail(it, rows, keyIndex, r.slot.tag);
+}
+
+function _openLiveDetail(it, group, keyIndex, tag) {
+    const addrs = [...new Set(group.map(m => m.주소).filter(Boolean))];
+    const keys = [...new Set(group.map(m => statusKeyOf(m, keyIndex)).filter(Boolean))];
+    // 상세에 리스트 이름 줄 + 이 상세의 계기 자기 키 판정용 인덱스(js/detail.js showDetail 이 읽고 비운다)
+    _detailSearchCtx = { listLine: tag, keyIndex };
+    if (typeof showDetail === 'function') showDetail(it.주소, group, addrs, keys);
+}
+
+// 읽기 전용 창 — 아카이브·지도에서 내린 리스트. 인덱스에 든 값만 보인다(쓰기 길 없음).
+function showSearchReadOnly(r) {
+    const idx = _searchIdx;
+    const siteIx = idx.site[r.row], slotIx = idx.slot[r.row];
+    const s = idx.sites[siteIx];
+    const meters = [];
+    for (let i = 0; i < idx.n; i++) if (idx.site[i] === siteIx && idx.slot[i] === slotIx && idx.meters[i]) meters.push(idx.meters[i]);
+    const addr = _searchFull(s[0]), road = _searchFull(s[1]);
+    let el = document.getElementById('search-ro-overlay');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'search-ro-overlay';
+        el.className = 'search-overlay';
+        el.addEventListener('click', e => { if (e.target === el) el.classList.remove('active'); });
+        document.body.appendChild(el);
+    }
+    const esc = escapeSearchHtml;
+    const hit = idx.meters[r.row];
+    el.innerHTML = `<div class="search-modal search-ro">
+        <div class="search-header"><h3>${esc(road || addr)}</h3>
+            <button class="close-btn" onclick="document.getElementById('search-ro-overlay').classList.remove('active')">×</button></div>
+        <div class="sro-body">
+            <div class="sro-list">${esc(r.slot.tag)}</div>
+            <div class="sro-note">읽기 전용 — 지도에 올라가 있지 않은 기록입니다</div>
+            ${road && addr && road !== addr ? `<div class="sro-row"><span class="sro-k">지번</span>${esc(addr)}</div>` : ''}
+            <div class="sro-row"><span class="sro-k">지사</span>${esc(idx.jisa[s[4]])}</div>
+            <div class="sro-row"><span class="sro-k">계기</span>${meters.length}개</div>
+            <div class="sro-meters">${meters.map(m => `<div class="sro-meter${m === hit ? ' hit' : ''}">${esc(m)}</div>`).join('')}</div>
+        </div></div>`;
+    el.classList.add('active');
 }
 
 // 임시 펄스 마커 — 10초 후 자동 사라짐

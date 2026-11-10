@@ -177,3 +177,8 @@ print(f"  생성시각(KST): {datetime.now(ZoneInfo('Asia/Seoul')).isoformat()}"
 sys.path.insert(0, str(ROOT / "scripts"))
 import gen_meter_list_index
 gen_meter_list_index.main()
+
+# 지도 검색 인덱스(data/search-index.json) — 레지스트리 전체 파일 + 아카이브(2026-11-10).
+#   같은 이유로 main 에서 같이 만든다(아카이브 파일 하나가 git 에 없다). --allow-shrink 도 같이 넘긴다.
+import gen_search_index
+gen_search_index.main(allow_shrink=ALLOW_SHRINK)

@@ -320,3 +320,20 @@ body.add-site-mode #map { cursor: crosshair; }
 .added-site-info { display: none; align-items: center; gap: 8px; padding: 8px 16px; background: #f0fdfa; border-bottom: 1px solid #ccfbf1; font-size: 12px; color: #115e59; font-weight: 600; flex-shrink: 0; }
 .added-site-tag { background: #ccfbf1; color: #0f766e; font-weight: 800; padding: 2px 7px; border-radius: 999px; }
 .added-site-del { margin-left: auto; border: 1px solid #fecaca; background: white; color: #b91c1c; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 8px; cursor: pointer; }
+/* 검색 — 모든 리스트·아카이브(2026-11-10) */
+.sr-cond.cat-arch { color: #6b7280; font-weight: 700; }
+.search-target-marker { width: 28px; height: 36px; cursor: pointer; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4)); }
+.search-target-marker svg { width: 100%; height: 100%; }
+.search-target-marker path { fill: #111827; }
+.search-target-chip { position: fixed; top: 104px; left: 50%; transform: translateX(-50%); z-index: 900; display: flex; align-items: center; gap: 6px; max-width: calc(100vw - 32px); background: rgba(17,24,39,0.9); color: #fff; font-size: 13px; font-weight: 700; padding: 6px 6px 6px 14px; border-radius: 999px; }
+.search-target-chip .stc-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.search-target-chip .stc-x { background: rgba(255,255,255,0.18); border: none; color: #fff; width: 26px; height: 26px; border-radius: 50%; font-size: 16px; line-height: 1; cursor: pointer; flex-shrink: 0; }
+.detail-list-line { margin-top: 4px; font-size: 12px; font-weight: 700; color: #047857; }
+.search-ro .sro-body { padding: 12px 16px 16px; overflow-y: auto; }
+.search-ro .sro-list { font-size: 13px; font-weight: 700; color: #374151; }
+.search-ro .sro-note { font-size: 12px; color: #9ca3af; margin: 2px 0 10px; }
+.search-ro .sro-row { font-size: 13px; color: #374151; margin-top: 4px; word-break: break-all; }
+.search-ro .sro-k { display: inline-block; min-width: 36px; color: #9ca3af; margin-right: 6px; }
+.search-ro .sro-meters { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.search-ro .sro-meter { font-size: 13px; font-family: ui-monospace, monospace; padding: 3px 8px; background: #f3f4f6; border-radius: 6px; }
+.search-ro .sro-meter.hit { background: #fef3c7; font-weight: 700; }
