@@ -280,6 +280,12 @@ def main():
     map_check(a.day, rows, ws, idx)
     if not a.no_ocr:
         ocr_check(jobs, ship)
+    # roll the modem stock forward with today's receipts/installs, so a stock query later only
+    # fetches what happened after this check (영준님 2026-11-10)
+    if a.day == datetime.datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d"):
+        import subprocess
+        print("\n== 4. 모뎀 재고 (오늘치 반영 후 저장)")
+        subprocess.run([sys.executable, str(ROOT / "scripts/my_stock.py"), "--no-refresh", "--save"])
 
 
 if __name__ == "__main__":
