@@ -16,6 +16,10 @@ PM 이 거른 입력을 그대로 싣는다(다시 거르지 않는다):
   (1,162 계기) 에 든 계기를 뺀다. 출처 = awms FMPMTR '연간대상 실효계기 목록'(fmpMtr2000, 실효년월 2025-01~2026-12,
   계기번호 가림) 을 우리 전체 번호에 앞4·뒤4·지번으로 맞춘 것(전부 유일, 전체번호 검색 표본 101/101 일치).
   실효 교체 사업 대상이라 미조치(모뎀)로 따로 가지 않는다. 제외 내역 엑셀에 '올해 실효 대상' 시트.
+★내년 실효 대상 제외(2026-11-10, 영준님 "확신만 제외" — 같은 영구 축, 목록만 하나 더):
+  data/reference/michochi_exclude_silhyo_target_2027_20261110.json (1,364 계기, 실효년월 2027).
+  확인 = 전체번호 검색 일치 24 · 앞4·뒤4·지번 양쪽 유일 일치 1,340(같은 지번에 비슷한 번호 형제 없음, 교체 기록 없음).
+  엑셀 '내년 실효 대상' 시트. 목록이 늘면 SILHYO_TARGETS 에 파일만 더한다.
 
 Output: data/michochi/<지사영문>.json (지사별 7개, 2026-11-08 — 지도는 고른 지사 파일만 받는다) — 계기 1행. 상태키 '주소|미조치'(네임스페이스 — 실효·합동·미청구의 옛 완료를
   물려받지 않게). js/datasets.js code 'c'.
@@ -60,8 +64,9 @@ CACHE = ROOT / 'data/inbox_michochi/geocode-cache.json'
 # 합동 철거계기 제외 축 — 지도 합동 파일 + 아카이브만(원시 FMPMTR 수집분은 넣지 않는다)
 HAPDONG_FILES = ['data/hapdong-data.json', 'data/hapdong-data-archive.json']
 HAPDONG_EXCL_OUT = ROOT / 'data/reference/michochi_exclude_hapdong_removed_20261108.json'
-# 올해 실효 대상 제외 축 — 목록 정본은 main(원본 목록과 같은 자리)
-SILHYO_TARGET = MAIN / 'data/reference/michochi_exclude_silhyo_target_2026_20261108.json'
+# 실효 대상 제외 축(올해·내년) — 목록 파일들. 레포에 커밋된 판을 읽는다(main 에 합쳐지면 main 의 같은 파일).
+SILHYO_TARGETS = [ROOT / 'data/reference/michochi_exclude_silhyo_target_2026_20261108.json',
+                  ROOT / 'data/reference/michochi_exclude_silhyo_target_2027_20261110.json']
 POLE_MOVED_OUT = ROOT / 'data/reference/michochi_pole_near_moved_20261109.json'    # 옮긴 '?' 개소·갈래·거리
 POLE_SPREAD_OUT = ROOT / 'data/reference/michochi_pole_near_spread_20261109.json'   # 형제가 300m 넘게 퍼진 '?' 개소
 METER_RE = re.compile(r'^[0-9A-Z]{2}[0-9]{9}$')
@@ -244,15 +249,16 @@ def main():
           f'{dict(sorted(Counter(e["합동 작업일"][:6] for e in excl).items()))}')
     HAPDONG_EXCL_OUT.write_text(json.dumps(excl, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
 
-    # 올해 실효 대상 제외(영구 축 — 위 docstring)
-    st_rows = json.loads(SILHYO_TARGET.read_text(encoding='utf-8'))
-    st_set = {norm_meter(r['계기번호']) for r in st_rows if r.get('계기번호')}
-    n0 = len(out)
-    st_hit = {x['계기번호'] for x in out if norm_meter(x['계기번호']) in st_set}
-    out = [x for x in out if x['계기번호'] not in st_hit]
-    print(f'올해 실효 대상 제외 {n0 - len(out):,} (목록 {len(st_set):,} 중 · 이미 다른 축으로 빠진 것 {len(st_set & excl_m)} · '
-          f'미조치에 없던 것 {len(st_set - st_hit - excl_m)})')
-    excl_m = excl_m | st_hit
+    # 실효 대상 제외(올해·내년, 영구 축 — 위 docstring). 파일마다 같은 길로 빼고 따로 센다.
+    for st_path in SILHYO_TARGETS:
+        st_rows = json.loads(st_path.read_text(encoding='utf-8'))
+        st_set = {norm_meter(r['계기번호']) for r in st_rows if r.get('계기번호')}
+        n0 = len(out)
+        st_hit = {x['계기번호'] for x in out if norm_meter(x['계기번호']) in st_set}
+        out = [x for x in out if x['계기번호'] not in st_hit]
+        print(f'실효 대상 제외 [{st_path.name}] {n0 - len(out):,} (목록 {len(st_set):,} 중 · 이미 다른 축으로 빠진 것 '
+              f'{len(st_set & excl_m)} · 미조치에 없던 것 {len(st_set - st_hit - excl_m)} {sorted(st_set - st_hit - excl_m)[:20]})')
+        excl_m = excl_m | st_hit
 
     # 좌표
     miss = sorted({x['주소'] for x in out if x.get('lat') is None
@@ -294,10 +300,10 @@ def main():
     out_m = [x['계기번호'] for x in out]
     add_m = {x['계기번호'] for x in sil_add}
     pre = lambda S: Counter(m[:2] for m in S if not m.isdigit())  # noqa: E731
-    d1 = set(src_m) - set(out_m) - excl_m - set(arch or ())   # 일부러 뺀 것(합동 철거·올해 실효 대상·아카이브)은 빠져도 된다
+    d1 = set(src_m) - set(out_m) - excl_m - set(arch or ())   # 일부러 뺀 것(합동 철거·실효 대상·아카이브)은 빠져도 된다
     d2 = set(out_m) - set(src_m) - add_m
     nulls = sum(1 for x in out if x.get('lat') is None)
-    print(f'대조: 원본 {len(src_m):,} · 실효 추가 {len(sil_add)} · 제외 축(합동 철거+올해 실효 대상) {len(excl_m)} · 출력 {len(out_m):,}'
+    print(f'대조: 원본 {len(src_m):,} · 실효 추가 {len(sil_add)} · 제외 축(합동 철거+실효 대상) {len(excl_m)} · 출력 {len(out_m):,}'
           f' · 원본-출력(제외분 뺀) {len(d1)}'
           f' · 출력-원본(실효 추가 제외) {len(d2)} · 중복 {len(out_m) - len(set(out_m))}'
           f' · 접두 원본 {dict(pre(src_m))} 출력 {dict(pre(out_m))} · 좌표 null {nulls}')
