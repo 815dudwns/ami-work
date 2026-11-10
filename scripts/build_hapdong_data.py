@@ -623,21 +623,24 @@ WORK_DAY_OVERRIDES = [
     #   ★날짜 트리를 하루로 모으는 것이고 '작업일시' 원본은 그대로 둔다 — 상세모달에는 실제 날짜가 보인다.
     {'batch': '20260905', '지사': '서울본부직할', '공사번호끝': '181', '작업일': '20260904'},
     # 11/10 아침 07:33 등재 서울본부직할 중구 남산동2가 1건 -> 11/09 작업분(영준님 2026-11-10
-    #   "어제 날짜로 업데이트해"). 그 배치의 직할은 이 1건뿐이라 공사번호 전체로 좁혀 둔다.
-    {'batch': '20261110', '지사': '서울본부직할', '공사번호끝': '397820263200', '작업일': '20261109'},
+    #   "어제 날짜로 업데이트해"). ★그 한 건만 — SEQNO 로 못 박는다. 11/10 저녁 정규 수집에 같은 공사번호
+    #     직할 60여 건이 더 들어와 공사번호로 걸면 오늘 작업분이 통째로 11/09 로 끌려갔다(2026-11-10 저녁).
+    {'batch': '20261110', '지사': '서울본부직할', '공사번호끝': '397820263200', 'seqno': '10153293', '작업일': '20261109'},
 ]
 
 
-def override_work_day(batch_day, jisa, cons_no, work_day):
-    """명시 목록에 걸리면 그 날짜로. 반환 (작업일, 목록에걸렸나)."""
+def override_work_day(batch_day, jisa, cons_no, work_day, seqno=None):
+    """명시 목록에 걸리면 그 날짜로. 반환 (작업일, 목록에걸렸나).
+    항목에 'seqno' 가 있으면 그 CONS_TGT_SEQNO 한 건만 건다."""
     for o in WORK_DAY_OVERRIDES:
         if (str(batch_day) == o['batch'] and jisa == o['지사']
-                and str(cons_no or '').endswith(o['공사번호끝'])):
+                and str(cons_no or '').endswith(o['공사번호끝'])
+                and ('seqno' not in o or str(seqno or '') == o['seqno'])):
             return o['작업일'], True
     return work_day, False
 
 
-def resolve_work_day(batch_day, jisa, cons_no, work_day):
+def resolve_work_day(batch_day, jisa, cons_no, work_day, seqno=None):
     """지도용 작업일 확정 — 명시 목록이 먼저, 없으면 주말·공휴일 귀속 규칙.
 
     ★주말·공휴일 등재분은 직전 영업일로 귀속한다(영준님 지시 2026-09-09).
@@ -648,7 +651,7 @@ def resolve_work_day(batch_day, jisa, cons_no, work_day):
       광진성동 소급분)은 이 일반 규칙으로 대체되지 않는다.
     ※'작업일시' 원본은 손대지 않는다 — 상세모달에는 실제 등재 시각이 그대로 보인다.
     """
-    day, matched = override_work_day(batch_day, jisa, cons_no, work_day)
+    day, matched = override_work_day(batch_day, jisa, cons_no, work_day, seqno)
     if matched:
         return day
     return prev_business_day(day)
@@ -672,7 +675,7 @@ def to_record(r, batch_day):
     #   배치 일자로 떨어뜨린다. 원본 문자열(작업일시)은 빈 채로 남겨 구분 가능하게 둔다.
     work_day = wd[:10].replace('-', '') if len(wd) >= 10 else str(batch_day)
     # 명시 목록 우선 -> 없으면 주말·공휴일은 직전 영업일로 귀속. 작업일시는 원본 그대로 둔다.
-    work_day = resolve_work_day(batch_day, jisa, r.get('CONS_NO'), work_day)
+    work_day = resolve_work_day(batch_day, jisa, r.get('CONS_NO'), work_day, r.get('CONS_TGT_SEQNO'))
 
     pwr = r.get('CNTR_PWR')
     return {
