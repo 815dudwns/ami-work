@@ -810,7 +810,11 @@ _load_session()   # 재기동 시 디스크 세션 복원 (무USB 자립)
 _load_config()    # 폰이 지정한 설정값(지사/동행/계정) 복원 — 기본값 리셋 방지(설정값으로 등록)
 if SESSION.get("jsessionid"):
     pull_workgroup()   # 재기동 시 세션 있으면 awms 저장 작업조(WORKER2_SEQ) 즉시 반영 — 20118 노출 구간 제거
-_cleanup_old_temp(0)   # 기동 시 남은 임시 사진폴더 전부 정리(in-flight 없음)
+# 기동 시 정리는 1시간 지난 것만(2026-11-10). 예전엔 0(전부)이었는데, '모듈을 읽는 프로세스 = 유일한 백엔드'가
+#   아니었다 — 포트를 이미 쥔 백엔드가 있는데 launchd KeepAlive 사본이 10초마다 떴다 죽으며(bind 실패) 그때마다
+#   살아 있는 백엔드의 처리 중 OCR(cstocr_)·전송(cstsave_) 폴더를 지웠다. OCR 배치가 통째로·중간부터 빈 결과,
+#   saveAct 사진 FileNotFoundError 의 원인. 처리 중 폴더는 1시간이 안 되므로 나이로 거르면 누가 읽어도 안전하다.
+_cleanup_old_temp()
 # (전송 아카이브 30일 정리 = _archive_cleanup(), 함수 정의 직후에서 기동 1회 호출)
 
 
@@ -1420,6 +1424,39 @@ def _ocr_sample_cleanup_pending():
 _ocr_sample_cleanup_pending()   # 기동 시 pending 14일 만료분 정리(무한적재 방지 안전망)
 
 
+_OCR_SWIFT_NOISE = re.compile(r"^(총 \d+장 처리 시작|\[\d+/\d+\] |완료$)")
+
+
+def _ocr_swift_run(path_list, tmpd, tag):
+    """visionocr_batch.swift 한 번 → (blocks, errs, returncode, stderr 첫 줄).
+    blocks = {경로: [(y, conf, text)]} — 블록 헤더를 찍은 사진만 키가 있다(중간에 죽으면 뒤는 없음).
+    errs   = {경로: 'ERR_...' 줄} — swift 가 그 사진에 ERR_LOAD/ERR_CGIMAGE/ERR_VISION/ERR_PERFORM 을 찍은 것.
+    시간 초과는 예외 대신 rc='timeout' 으로 돌려 받은 데까지 쓴다. swift 실행 자체가 안 되면 예외."""
+    tmpd.mkdir(parents=True, exist_ok=True)   # 다른 프로세스가 폴더를 지웠어도 목록 파일은 쓴다(사진은 재시도가 다시 씀)
+    listfile = tmpd / f"list{tag}.txt"
+    listfile.write_text("\n".join(path_list))
+    try:
+        r = subprocess.run(["swift", str(OCR_SWIFT), str(listfile)],
+                           capture_output=True, text=True, timeout=180)
+        out, rc, err = r.stdout or "", r.returncode, r.stderr or ""
+    except subprocess.TimeoutExpired as e:
+        dec = lambda v: v.decode("utf-8", "replace") if isinstance(v, bytes) else (v or "")
+        out, rc, err = dec(e.stdout), "timeout", dec(e.stderr)
+    blocks, errs, cur = {}, {}, None
+    for ln in out.splitlines():
+        if ln.startswith("===FILE:"):
+            cur = ln[len("===FILE:"):].rstrip("="); blocks[cur] = []
+        elif cur and ln.startswith("ERR"):
+            errs.setdefault(cur, ln.strip())
+        elif cur and "\t" in ln:
+            parts = ln.split("\t")
+            if len(parts) >= 3:
+                try: blocks[cur].append((float(parts[0]), float(parts[1]), parts[2]))
+                except Exception: pass
+    err1 = next((l.strip() for l in err.splitlines() if l.strip() and not _OCR_SWIFT_NOISE.match(l.strip())), "")
+    return blocks, errs, rc, err1
+
+
 @app.post("/api/ocr")
 def api_ocr(body: dict = Body(...)):
     """사진(base64) 리스트 → AppleVision 계기번호 추출.
@@ -1431,34 +1468,59 @@ def api_ocr(body: dict = Body(...)):
         return {"results": []}
     tmpd = Path(tempfile.mkdtemp(prefix="cstocr_"))
     paths = []
+    raw = {}   # 경로 -> 사진 바이트. 재시도 때 임시 파일이 사라졌으면 다시 쓰고, 실패 표본도 이걸로 저장
     for i, im in enumerate(images):
         b64 = (im.get("b64") or "").split(",")[-1]
         if not b64:
             continue
         p = tmpd / f"{i}.jpg"
         try:
-            p.write_bytes(base64.b64decode(b64))
+            data = base64.b64decode(b64)
+            p.write_bytes(data)
             paths.append((im.get("id", str(i)), p))
+            raw[str(p)] = data
         except Exception:
             pass
-    listfile = tmpd / "list.txt"
-    listfile.write_text("\n".join(str(p) for _, p in paths))
     try:
         try:
-            out = subprocess.run(["swift", str(OCR_SWIFT), str(listfile)],
-                                 capture_output=True, text=True, timeout=180).stdout
+            blocks, errs, rc, err1 = _ocr_swift_run([str(p) for _, p in paths], tmpd, 0)
         except Exception as e:
             raise HTTPException(500, f"OCR 실패: {e}")
-        # ===FILE:path=== 블록별 (y, conf, text) 수집 (swift 출력: y\tconf\ttext)
-        blocks, cur = {}, None
-        for ln in out.splitlines():
-            if ln.startswith("===FILE:"):
-                cur = ln[len("===FILE:"):].rstrip("="); blocks[cur] = []
-            elif cur and "\t" in ln:
-                parts = ln.split("\t")
-                if len(parts) >= 3:
-                    try: blocks[cur].append((float(parts[0]), float(parts[1]), parts[2]))
-                    except Exception: pass
+        # 빈 결과 재시도(2026-11-10) — swift 가 블록을 못 찍었거나(중간에 죽음), 0줄이거나, ERR_* 를 찍은
+        #   사진만 다시 돌린다. 같은 사진을 몇 분 뒤 다시 보내면 다 읽혀 간헐 실패로 봤다. 최대 2번.
+        def _failed():
+            return [str(p) for _, p in paths if not blocks.get(str(p)) or str(p) in errs]
+        empty0 = _failed()
+        rcs = [rc]
+        for attempt in (1, 2):
+            todo = _failed()
+            if not todo:
+                break
+            time.sleep(0.5 * attempt)
+            try:
+                tmpd.mkdir(parents=True, exist_ok=True)
+                for k in todo:
+                    if not Path(k).exists():
+                        Path(k).write_bytes(raw[k])
+            except Exception:
+                pass
+            try:
+                b2, e2, rc2, err2 = _ocr_swift_run(todo, tmpd, attempt)
+            except Exception as e:
+                b2, e2, rc2, err2 = {}, {}, f"exc:{type(e).__name__}", str(e)[:160]
+            rcs.append(rc2)
+            err1 = err1 or err2
+            for k in todo:
+                if b2.get(k) and k not in e2:
+                    blocks[k] = b2[k]
+                    errs.pop(k, None)
+                elif k in e2:
+                    errs[k] = e2[k]
+        still = _failed()
+        first_err = next(iter(errs.values()), "") or err1
+        print(f"[ocr] 사진 {len(paths)} · 빈 결과 {len(empty0)} · 재시도로 살림 {len(empty0) - len(still)}"
+              f" · 끝내 빈 것 {len(still)} · rc {'/'.join(str(x) for x in rcs)}"
+              + (f" · err {first_err[:160]!r}" if first_err else ""), flush=True)
         results = []
         for iid, p in paths:
             lines = blocks.get(str(p), [])
@@ -1467,7 +1529,7 @@ def api_ocr(body: dict = Body(...)):
                             "raw": " | ".join(t for _, _, t in lines)[:240]})
             if not meter_no:   # 실패 표본 수집 — 응답 조립과 완전 분리, 실패해도 위 결과엔 영향 0
                 try:
-                    _ocr_sample_save_pending(p.read_bytes(), lines, str(iid))
+                    _ocr_sample_save_pending(raw[str(p)], lines, str(iid))
                 except Exception:
                     pass
         return {"results": results}
