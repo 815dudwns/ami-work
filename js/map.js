@@ -934,6 +934,18 @@ function markerTagText(isHapdong, isRework) {
 const JANGAE_TECH_SHORT = {
     'KS-PLC': 'PLC', 'K-DCU': 'KDCU', 'LTE_IV': 'LTE', 'SMGW-C': 'SMGW', 'HPGP': 'HPGP',
 };
+// 레지스트리 badgeFrom 뱃지 — 마커 안 계기들의 한 칸 값을 이름으로 바꿔 map 순서대로 '·' 로 잇는다(2026-11-10).
+//   미조치: DCU통신방식 PLC -> 'PLC', K-DCU -> 'IoT', 둘 다면 'PLC·IoT'. map 에 없는 값은 안 쓴다(없으면 '').
+//   ★리스트 이름으로 판정하지 않는다 — 새 리스트는 레지스트리 한 줄(js/datasets.js badgeFrom).
+function registryBadgeText(category, meters) {
+    const ds = DATASET_BY_CATEGORY[category];
+    const bf = ds && ds.badgeFrom;
+    if (!bf || !bf.field || !bf.map) return '';
+    const seen = new Set();
+    (meters || []).forEach(m => { const v = m && m[bf.field]; if (v != null && bf.map[v]) seen.add(bf.map[v]); });
+    return [...new Set(Object.values(bf.map))].filter(t => seen.has(t)).join('·');
+}
+
 function jangaeTechLabel(meters) {
     const set = new Set((meters || []).map(m => (m && m.기술타입) || '').filter(Boolean));
     if (set.size === 0) return '';
@@ -1228,6 +1240,8 @@ function buildMarkerOverlay(m) {
     // 개통 뱃지는 뺐다(영준님 2026-08-31 "개통은 표시 지워") — 개통 여부는 모달에서도 안 쓴다.
     if (isJangae) tagText = jangaeTechLabel(meters);   // 뱃지 = 모뎀 방식(PLC/KDCU/LTE/SMGW)
     if (isLpNoApp) tagText = lpTypeLabel(meters);      // 뱃지 = 아미고 아닌 계기타입(AE/G)
+    const regBadge = registryBadgeText(category, meters);   // 레지스트리 badgeFrom(미조치 PLC / IoT)
+    if (regBadge) tagText = regBadge;
 
     const markerContent = `
         <div class="custom-marker ${color}${isGapap ? ' gapap' : ''}${isJangae ? ' jangae' : ''}${isLpNoApp ? ' lpnoapp' : ''}">
@@ -1236,7 +1250,7 @@ function buildMarkerOverlay(m) {
                 <circle class="pin-circle" cx="10" cy="10" r="5.5" fill="white"/>
             </svg>
             <div class="marker-number">${markerLabel}</div>
-            ${tagText ? `<div class="marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}${isAddedList ? ' tag-added' : ''}">${tagText}</div>` : ''}
+            ${tagText ? `<div class="marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}${isAddedList ? ' tag-added' : ''}${regBadge ? ' tag-reg' : ''}">${tagText}</div>` : ''}
         </div>
     `;
 
@@ -1336,7 +1350,9 @@ function repaintMarker(marker) {
     //     여기서 문구·클래스를 매번 다시 맞춘다(createMarker 와 같은 규칙, markerTagText).
     const touHasRework = isTou && marker.meters.some(m => m.tou_type === 'rework');
     const isRework = aggregateRework(addrList) || touHasRework;
-    const tagText = isJangae ? jangaeTechLabel(marker.meters)
+    const regBadge = registryBadgeText(marker.category, marker.meters);   // createMarker 와 같은 규칙
+    const tagText = regBadge ? regBadge
+                  : isJangae ? jangaeTechLabel(marker.meters)
                   : isLpNoApp ? lpTypeLabel(marker.meters)
                   : isSeonjochi ? (isRework ? '선재' : '선')   // createMarker 와 같은 규칙
                   : isAddedList ? '추'
@@ -1347,7 +1363,7 @@ function repaintMarker(marker) {
             fracEl = document.createElement('div');
             el.appendChild(fracEl);
         }
-        fracEl.className = `marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}${isAddedList ? ' tag-added' : ''}`;
+        fracEl.className = `marker-fraction${isHapdong ? ' tag-hapdong' : ''}${isSeonjochi ? ' tag-seonjochi' : ''}${isAddedList ? ' tag-added' : ''}${regBadge ? ' tag-reg' : ''}`;
         fracEl.textContent = tagText;
     } else if (fracEl) {
         fracEl.remove();

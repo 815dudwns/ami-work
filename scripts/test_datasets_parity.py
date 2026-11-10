@@ -25,25 +25,16 @@ JS = (ROOT / "js" / "datasets.js").read_text(encoding="utf-8")
 
 
 def _js_objects():
-    """js/datasets.js 의 DATASETS 배열을 아주 얕게 파싱한다.
-    주석 줄은 버리고 `{ ... }` 한 덩어리씩 키:값을 뽑는다(중첩 객체는 안 쓴다)."""
-    body = JS[JS.index("const DATASET_REGISTRY = ["):]
-    body = body[: body.index("\n];")]
-    body = re.sub(r"^\s*//.*$", "", body, flags=re.M)          # 주석 제거
-    out = []
-    for chunk in re.findall(r"\{[^{}]*\}", body, flags=re.S):
-        d = {}
-        for k, v in re.findall(r"(\w+)\s*:\s*("
-                               r"'[^']*'|\[[^\]]*\]|true|false|null)", chunk):
-            if v.startswith("'"):
-                d[k] = v[1:-1]
-            elif v.startswith("["):
-                d[k] = [x.strip().strip("'") for x in v[1:-1].split(",") if x.strip()]
-            else:
-                d[k] = {"true": True, "false": False, "null": None}[v]
-        if "code" in d:
-            out.append(d)
-    return out
+    """js/datasets.js 의 DATASET_REGISTRY 를 node 로 실제 실행해 꺼낸다.
+    ★2026-11-10 정규식 얕은 파싱에서 바꿨다 — badgeFrom 처럼 중첩 객체가 들어오면 얕은 파싱은 항목을 쪼개 버린다."""
+    import subprocess
+    drv = ("const fs=require('fs'),vm=require('vm');const c={};vm.createContext(c);"
+           "vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),c);"
+           "process.stdout.write(JSON.stringify(vm.runInContext('DATASET_REGISTRY',c)));")
+    r = subprocess.run(["node", "-e", drv, str(ROOT / "js" / "datasets.js")], capture_output=True, text=True)
+    if r.returncode:
+        raise SystemExit(f"FAIL — node 로 js/datasets.js 를 못 읽었다: {r.stderr.strip()[:300]}")
+    return [d for d in json.loads(r.stdout) if "code" in d]
 
 
 def _norm(d, keys):
@@ -64,7 +55,9 @@ def main():
     py = PY_DATASETS
     keys = ("code", "category", "file", "fileByJisa", "metersKey", "archives", "archivesGlob", "onMap", "noStats", "noLabel",
             # 2026-11-10 리스트 처리 레지스트리화 — 상태키·지연 로드도 두 벌이 같아야 한다
-            "statusCategory", "plainKey", "deferred")
+            "statusCategory", "plainKey", "deferred",
+            # 2026-11-10 마커 위 글씨(미조치 PLC / IoT)
+            "badgeFrom")
     problems = []
 
     jc = [d["code"] for d in js]

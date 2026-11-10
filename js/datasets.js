@@ -36,6 +36,9 @@
 //              미조치(lte) 는 '미조치' 를 써서 기존 '주소|미조치' 기록을 그대로 읽고 쓴다
 //   deferred   true 면 처음엔 안 받고 그 리스트를 켤 때 받는다(큰 리스트, js/map.js)
 //   markerColor 마커 색 클래스(css/common.css .custom-marker.<값>). 근사 좌표면 노랑이 이긴다
+//   badgeFrom  마커 위 글씨를 계기 칸 값에서 { field, map } — 마커 안 계기들의 field 값을 map 으로 바꿔
+//              map 순서대로 '·' 로 잇는다(map 에 없는 값은 안 씀). 미조치 = DCU통신방식 PLC -> 'PLC', K-DCU -> 'IoT'
+//              (영준님 2026-11-10 "Kdcu = iot"). js/map.js registryBadgeText
 // 지사 -> 파일 이름 조각. scripts/jisa_split.py JISA_SLUG 와 같아야 한다(test_datasets_parity 가 본다).
 //   영문인 이유: 한글 파일명은 맥 파일시스템·URL 에서 정규화(NFC/NFD)가 갈릴 수 있다.
 const JISA_FILE_SLUG = {
@@ -158,13 +161,15 @@ const DATASET_REGISTRY = [
     //   PM 이 뺐다 + 실효 잔여 15계기(2026-11-07, 영준님 이름 '미조치').
     //   ★상태키 '주소|미조치' 네임스페이스 — 실효·합동·미청구의 옛 완료가 같은 주소에 많다.
     //   ★14만 계기·5만 8천 개소라 기본 꺼짐이고(defaultOn 없음), 켤 때만 받는다(js/map.js DEFERRED_CATEGORIES).
-    //   마커 = 기본 초록, 뱃지 없음(영준님 2026-11-07 "조 위에 글자 없애고"). 겹침 우선순위는 맨 뒤.
+    //   마커 = 기본 초록, '조' 뱃지 없음(영준님 2026-11-07 "조 위에 글자 없애고") — 11/10 부터 PLC / IoT 글씨(badgeFrom). 겹침 우선순위는 맨 뒤.
     //   ★메뉴 맨 위(menuOrder -1) — 메인 리스트(영준님 2026-11-07). 메뉴 표시 순서만 바꾼다(js/map.js populateCategoryFilter).
     //   상세에 LP 하루 수신 x/96(아미고확인필요 행만)·상 구분·계약종별·계약상태·미설치 개소 수.
     //   생성 scripts/build_michochi_data.py (좌표 scripts/michochi_geocode.py)
     //   ★지사별 파일(2026-11-08) — 58MB 한 파일을 매번 통째로 해석하던 것이 첫 진입을 멈췄다. 고른 지사 파일만 받는다.
     { code: 'c', fileByJisa: './data/michochi/*.json', category: '미조치', label: null, uiLabel: '미조치', menuOrder: -1,
       statsLabel: '미조치', archivesGlob: 'data/michochi-completed-archive-*.json', deferred: true,
+      // ★마커 위 PLC / IoT 글씨(2026-11-10 영준님 "위에 plc / iot 글씨"). 둘 다 있으면 'PLC·IoT'. 상세엔 추가 없음.
+      badgeFrom: { field: 'DCU통신방식', map: { 'PLC': 'PLC', 'K-DCU': 'IoT' } },
       // ★2026-11-10 DCU 있는 개소만(변대주 대장 dcu_master 에서 찾은 계기). 없는 계기는 아래 미조치(lte).
       // ★헬퍼·아미큐 리스트 라벨에는 넣는다(2026-11-09 영준님 "리스트업할 때마다 잘 넣어") — 인덱스가 커져도
       //   헬퍼는 ETag 확인이라 안 바뀌면 304. 예전 noLabel(크기 때문에 뺌)은 되돌렸다.

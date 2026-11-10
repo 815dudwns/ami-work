@@ -54,6 +54,8 @@ DATASETS = [
     #     fileByJisa 의 "*" 자리에 넣는 조각은 scripts/jisa_split.py JISA_SLUG(= js/datasets.js JISA_FILE_SLUG).
     {"code": "c", "fileByJisa": "data/michochi/*.json", "category": "미조치", "uiLabel": "미조치",
      "statsLabel": "미조치", "archivesGlob": "data/michochi-completed-archive-*.json", "deferred": True,
+     # 마커 위 PLC / IoT 글씨(2026-11-10) — js/datasets.js badgeFrom 과 같아야 한다(test_datasets_parity)
+     "badgeFrom": {"field": "DCU통신방식", "map": {"PLC": "PLC", "K-DCU": "IoT"}},
      # 2026-11-10 DCU 있는 계기만 — 없는 계기는 아래 미조치(lte)
      # 헬퍼·아미큐 라벨·통계 모두 넣는다(2026-11-09 영준님). 11/08 엔 통계 noStats 였다.
      },
