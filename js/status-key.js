@@ -49,13 +49,28 @@ const STATUS_KEY_SEP = '|';
 //     겹친다. 네임스페이스가 없으면 이미 완료된 주소의 기록을 그대로 물려받아 회색(완료)로
 //     떠서 할 일이 묻힌다(영준님 "장애는 완료표시하면 안된다 · pending").
 //   ★추가(2026-10-31): 작업자가 지도에서 직접 찍어 넣은 개소('추가' 리스트). 기록 = workStatus '주소|추가' 의 site.
-const NAMESPACED_CATEGORIES = ['고압', '합동', 'skt', '장애', 'LP무기록', '미청구', '미청구불가', '광명', '선조치', '추가', '미조치'];
+//   ★2026-11-10 레지스트리에서 만든다(js/datasets.js — plainKey 아닌 리스트의 statusCategory||category).
+//     새 리스트는 레지스트리 한 줄로 자동 네임스페이스다. 옛 목록은 대조·폴백용으로만 남긴다 —
+//     레지스트리를 못 읽는 곳(파일 단독 실행)에서도 옛 키가 그대로 나오게.
+//     ★map.html·stats.html 은 js/datasets.js 를 이 파일보다 **먼저** 싣는다.
+const LEGACY_NAMESPACED_CATEGORIES = ['고압', '합동', 'skt', '장애', 'LP무기록', '미청구', '미청구불가', '광명', '선조치', '추가', '미조치'];
+const _SK_REGISTRY = (typeof DATASET_REGISTRY !== 'undefined') ? DATASET_REGISTRY : [];
+const NAMESPACED_CATEGORIES = [...new Set(LEGACY_NAMESPACED_CATEGORIES.concat(
+    _SK_REGISTRY.filter(d => d.category && !d.plainKey).map(d => d.statusCategory || d.category)))];
+// 지도 카테고리 -> 상태키 카테고리(미조치(lte) '미조치lte' -> '미조치'). 없으면 자기 이름.
+const _KEY_CATEGORY_OF = Object.fromEntries(
+    _SK_REGISTRY.filter(d => d.category).map(d => [d.category, d.statusCategory || d.category]));
+function keyCategoryOf(cat) {
+    return Object.prototype.hasOwnProperty.call(_KEY_CATEGORY_OF, cat) ? _KEY_CATEGORY_OF[cat] : cat;
+}
 
 // 마커 식별자 — map.js loadMarkers()의 그룹핑 키와 같은 형식이어야 한다.
 function markerKeyOf(item) {
     // ★map.js loadMarkers() 와 **같은 자릿수**여야 한다(2026-09-21 toFixed(6) 로 통일).
     //   한쪽만 바꾸면 갈림 판정이 어긋나 상태키가 흔들리고 작업기록이 고아가 된다.
-    return `${item.category}||${(+item.lat).toFixed(6)}||${(+item.lng).toFixed(6)}`;
+    //   ★카테고리 자리는 **키 카테고리**다(2026-11-10) — 두 리스트가 같은 키를 쓰면(미조치·미조치(lte)) 한 칸으로 본다.
+    //     상태키 계산 전용이다. 지도 마커 묶음(js/map.js loadMarkers)은 리스트 이름으로 따로 묶는다.
+    return `${keyCategoryOf(item.category)}||${(+item.lat).toFixed(6)}||${(+item.lng).toFixed(6)}`;
 }
 
 // 인덱스 조회용 내부 키. ★마커키만으로는 부족하다 — 합친 마커(같은 좌표·같은 카테고리에
@@ -81,7 +96,7 @@ function _collectByAddress(rows) {
         const mk = markerKeyOf(item);
         const slot = byAddr.get(addr);
         if (!slot.has(mk)) {
-            slot.set(mk, { roads: new Set(), category: item.category, lat: item.lat, lng: item.lng });
+            slot.set(mk, { roads: new Set(), category: keyCategoryOf(item.category), lat: item.lat, lng: item.lng });
         }
         if (item.도로명주소) slot.get(mk).roads.add(item.도로명주소);
     });
@@ -104,7 +119,7 @@ function buildStatusKeyIndex(rows) {
     // ★지도에서 직접 추가한 개소(_addedSite)는 키가 이미 정해져 저장돼 있다(_statusKey).
     //   사다리에 넣으면 같은 주소의 기존 개소 키가 흔들린다 — 처음부터 뺀다.
     rows = (rows || []).filter(r => r && !r._addedSite);
-    const plain = rows.filter(r => !NAMESPACED_CATEGORIES.includes(r.category));
+    const plain = rows.filter(r => !NAMESPACED_CATEGORIES.includes(keyCategoryOf(r.category)));
 
     _collectByAddress(plain).forEach((slot, addr) => {
         if (slot.size <= 1) {
@@ -143,7 +158,7 @@ function buildStatusKeyIndex(rows) {
     //   기본형 '주소|고압' 만으로 끝난다. 같은 주소에 그 카테고리 마커가
     //   둘 이상일 때만 도로명 -> 좌표 순으로 올린다.
     NAMESPACED_CATEGORIES.forEach(cat => {
-        const rowsCat = (rows || []).filter(r => r && r.category === cat);
+        const rowsCat = (rows || []).filter(r => r && keyCategoryOf(r.category) === cat);
         _collectByAddress(rowsCat).forEach((slot, addr) => {
             const mks = [...slot.keys()].sort();
             if (mks.length > 1) splitAddresses.push(addr);
@@ -186,7 +201,7 @@ function buildStatusKeyIndex(rows) {
 //   ★좌표는 만들지 않는다 — 동을 끌어낼 주소가 없으니 추측 금지. 마커 없이 데이터로만 둔다.
 //   ★scripts/status_key.py 의 fallback_key_of 와 같은 값을 내야 한다.
 function fallbackKeyOf(item) {
-    const cat = (item && item.category) || '';
+    const cat = keyCategoryOf((item && item.category) || '') || '';
     for (const f of ['CONS_TGT_SEQNO', '고객번호', '계기번호']) {
         const v = String((item && item[f]) != null ? item[f] : '').trim();
         if (v) return cat ? v + STATUS_KEY_SEP + cat : v;

@@ -33,6 +33,8 @@ for (const [f,cat] of DATASETS){
 }
 const ctx={console:{log(){},warn(){}}};
 vm.createContext(ctx);
+// ★datasets.js 먼저 — status-key.js 가 레지스트리로 네임스페이스·키 카테고리를 만든다(2026-11-10, map.html 과 같은 순서)
+vm.runInContext(fs.readFileSync(path.join(ROOT,'js/datasets.js'),'utf8'),ctx);
 vm.runInContext(fs.readFileSync(path.join(ROOT,'js/status-key.js'),'utf8'),ctx);
 const idx=ctx.buildStatusKeyIndex(rows);
 const obj={}; idx.byMarker.forEach((v,k)=>{obj[k]=v;});

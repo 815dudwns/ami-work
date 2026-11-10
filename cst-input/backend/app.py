@@ -1109,10 +1109,40 @@ def bdju_copy_val(m: dict) -> str:
 
 
 # ★미조치(2026-11-09, 영준님 "아미큐 변대주 따라오는 것도 반영돼? 미조치") = 일반 소스 맨 뒤.
-#   지사별 7개 파일(data/michochi/*.json, 지도 레지스트리 fileByJisa) + 미조치 완료 아카이브.
+#   지사별 파일(data/michochi/*.json · data/michochi-lte/*.json, 지도 레지스트리 fileByJisa) + 두 리스트 완료 아카이브.
 #   ★14만 행 · 70MB 라 행을 들고 있지 않는다 — 파일이 바뀌면 계기 -> 복사값 dict 만 만들어 둔다(빈값은 안 넣음).
 #     값 규칙은 위 bdju_copy_val 그대로(변대주 영역 = dcu_master 묶음, 대장미등재면 빈값).
-_MICHOCHI_GLOBS = ("michochi/*.json", "michochi-completed-archive-*.json")
+#   ★2026-11-10 미조치를 미조치 / 미조치(lte) 로 나눴다 — DCU 통신방식 HPGP 계기도 lte 쪽이라 변대주 값이 있다.
+#     읽을 파일은 레지스트리(scripts/datasets.py)에서 — 상태키 '미조치' 를 쓰는 리스트 전부의 fileByJisa + archivesGlob.
+#     레지스트리를 못 읽으면 아래 고정 목록(나눈 뒤 두 리스트)으로.
+_MICHOCHI_GLOBS_FALLBACK = ("michochi/*.json", "michochi-completed-archive-*.json",
+                            "michochi-lte/*.json", "michochi-lte-completed-archive-*.json")
+
+
+def _michochi_globs():
+    try:
+        import importlib.util as _iu
+        import sys as _sys
+        _sd = str(ROOT / "scripts")
+        if _sd not in _sys.path:
+            _sys.path.append(_sd)
+        _spec = _iu.spec_from_file_location("ami_registry", str(ROOT / "scripts" / "datasets.py"))
+        _m = _iu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m)
+        out = []
+        for d in _m.DATASETS:
+            if _m.status_category(d) != "미조치":
+                continue
+            for k in ("fileByJisa", "archivesGlob"):
+                if d.get(k):
+                    out.append(d[k][len("data/"):] if d[k].startswith("data/") else d[k])
+        return tuple(out) or _MICHOCHI_GLOBS_FALLBACK
+    except Exception as e:  # noqa: BLE001
+        print(f"[bdju] 레지스트리 못 읽음 — 고정 목록 사용: {e}", flush=True)
+        return _MICHOCHI_GLOBS_FALLBACK
+
+
+_MICHOCHI_GLOBS = _michochi_globs()
 _bdju_mc = {"mtime": None, "map": {}}
 
 

@@ -1168,7 +1168,8 @@ function renderMetersList() {
 
         // 6.7) 미조치(2026-11-07) — 미설치 고객 리스트 원본 칸. 값만 보여준다(판단 문구 없음).
         //   LP 는 '아미고확인필요' 행에만 있다(하루 96회 중 수신 횟수). 나머지는 원본이 #N/A 라 빈칸.
-        if (meter.category === '미조치') {
+        //   ★미조치(lte) 도 같은 원본 칸이라 같이 보인다 — 키 카테고리로 판정(2026-11-10, js/status-key.js keyCategoryOf).
+        if (keyCategoryOf(meter.category) === '미조치') {
             if (meter.LP수신) subParts.push(`LP 하루 수신 ${meter.LP수신}`);
             if (meter['대상여부'] && meter['대상여부'] !== '대상') subParts.push(meter['대상여부']);
             if (meter['상 구분']) subParts.push(meter['상 구분']);

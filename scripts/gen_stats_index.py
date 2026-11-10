@@ -31,6 +31,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 CRED = ROOT / "ami-work-1c49a-firebase-adminsdk-fbsvc-8ce17a057a.json"
 OUT = ROOT / "data" / "stats-site-index.json"
+# --out-dir <폴더> — 세 인덱스(통계·리스트 라벨·검색)를 그 폴더에 쓴다(2026-11-10). 데스크 워크트리에서 새 리스트가
+#   들어가는지 **커밋 없이** 확인할 때 쓴다(진짜 인덱스는 main 에서 data/ 에 만든다). 줄어듦 검사는 그 폴더 파일과 한다.
+OUT_DIR = Path(sys.argv[sys.argv.index("--out-dir") + 1]) if "--out-dir" in sys.argv else None
+if OUT_DIR:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    OUT = OUT_DIR / "stats-site-index.json"
 DB_URL = "https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app"
 
 if not firebase_admin._apps:
@@ -162,6 +168,23 @@ if shrunk and not ALLOW_SHRINK:
     print("  ▸ 정말로 줄어드는 것이 맞으면: python3 scripts/gen_stats_index.py --allow-shrink")
     sys.exit(1)
 
+# ─── 레지스트리 리스트가 0행이면 멈춘다 (2026-11-10, 영준님 "어느 리스트가 들어오더라도 알아서 반영") ───
+# ★왜: 리스트를 나누거나 새로 올릴 때마다 통계·헬퍼·아미큐 라벨에서 그 리스트가 빠지는 일이 반복됐다.
+#   레지스트리에 있고 통계에 들어가야 하는 리스트(stats_sources 대상 = noStats 아님 · 계정 전용 아님)가
+#   인덱스에 0행이면 파일 경로가 틀렸거나 파일이 없는 것이다 — 조용히 0 으로 내보내지 않는다.
+#   ※지도 파일이 비고 아카이브만 있는 리스트(실효·선조치)도 아카이브 행이 있으니 0 이 아니다.
+from datasets import DATASETS as _REG
+_want_stats = [d["code"] for d in _REG
+               if not d.get("noStats") and not (d.get("allowGroup") and not d.get("statsEvenIfGroup"))
+               and d.get("source") != "workStatus"]
+_zero = [c for c in _want_stats if not new_by_list.get(c)]
+if _zero:
+    print("\n★중단 — 통계에 들어가야 할 레지스트리 리스트가 0행이다:",
+          ", ".join(f"{c}({next(d.get('statsLabel') or d.get('uiLabel') or d['category'] for d in _REG if d['code'] == c)})"
+                    for c in _zero))
+    print("  ▸ 레지스트리 파일 경로(file·fileByJisa·archives·archivesGlob)와 실제 파일을 확인하라")
+    sys.exit(1)
+
 # 공백 없는 콤팩트 JSON (GitHub Pages gzip 전제)
 OUT.write_text(json.dumps(index, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 size_mb = OUT.stat().st_size / 1e6
@@ -176,9 +199,9 @@ print(f"  생성시각(KST): {datetime.now(ZoneInfo('Asia/Seoul')).isoformat()}"
 # (2026-10-21: 합동을 올리고 통계만 다시 만들어서 헬퍼 라벨이 10/20 아침 상태에 멈춰 있었다)
 sys.path.insert(0, str(ROOT / "scripts"))
 import gen_meter_list_index
-gen_meter_list_index.main()
+gen_meter_list_index.main(dst=(OUT_DIR / "meter-list-index.json") if OUT_DIR else None)
 
 # 지도 검색 인덱스(data/search-index.json) — 레지스트리 전체 파일 + 아카이브(2026-11-10).
 #   같은 이유로 main 에서 같이 만든다(아카이브 파일 하나가 git 에 없다). --allow-shrink 도 같이 넘긴다.
 import gen_search_index
-gen_search_index.main(allow_shrink=ALLOW_SHRINK)
+gen_search_index.main(allow_shrink=ALLOW_SHRINK, dst=(OUT_DIR / "search-index.json") if OUT_DIR else None)

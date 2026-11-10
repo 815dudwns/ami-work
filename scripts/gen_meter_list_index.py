@@ -70,7 +70,8 @@ def norm(no):
     return re.sub(r'[\s\-]', '', str(no or '')).upper()
 
 
-def main():
+def main(dst=None):
+    dst = Path(dst) if dst else DST
     rows = []      # (code, meterNo, 고객번호)
     lists = covered()
     for d, paths, missing in lists:
@@ -97,8 +98,15 @@ def main():
     names = {d['code']: SHORT.get(d['code']) or d.get('statsLabel') or d.get('uiLabel') or d['category']
              for d, _, _ in lists}
     out = {'__names': names, **out}
-    DST.write_text(json.dumps(out, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
-    print(len(out) - 1, 'meters ->', DST, os.path.getsize(DST), 'bytes · lists', ''.join(names), names)
+    # 라벨에 들어가야 할 리스트가 0계기면 멈춘다(2026-11-10) — 경로가 틀렸거나 파일이 없는 것. 조용히 빠지지 않게.
+    got = {code for code, no, _ in rows if no}
+    zero = [d['code'] for d, _, _ in lists if d['code'] not in got]
+    if zero:
+        print('★중단 — 리스트 라벨에 들어가야 할 레지스트리 리스트가 0계기다:',
+              ', '.join(f"{c}({names[c]})" for c in zero), '— 레지스트리 파일 경로와 실제 파일을 확인하라')
+        sys.exit(1)
+    dst.write_text(json.dumps(out, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
+    print(len(out) - 1, 'meters ->', dst, os.path.getsize(dst), 'bytes · lists', ''.join(names), names)
 
 
 if __name__ == '__main__':

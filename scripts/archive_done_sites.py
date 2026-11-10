@@ -39,7 +39,10 @@ from datasets import DATASETS, dataset_files  # noqa: E402
 
 WS_URL = ('https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app'
           '/workStatus/charger4eleccar.json')
-CODES = ['s', 'p', 'm', 'u', 'c']     # 실효 · 선조치 · 25미청구 · 25불가 · 미조치(2026-11-07)
+# 지도 파일과 자기 아카이브(archivesGlob)가 둘 다 있는 리스트 전부 — 레지스트리에서(2026-11-10).
+#   예전 손 목록 ['s', 'p', 'm', 'u', 'c'] 에 미조치(lte) 'l' 이 자동으로 붙는다. 새 리스트도 레지스트리 한 줄이면 된다.
+#   ★상태키는 리스트별로 따로 센다 — 미조치·미조치(lte) 는 같은 '주소|미조치' 를 쓰므로 섞인 개소가 완료면 양쪽 다 옮긴다.
+CODES = [d['code'] for d in DATASETS if d.get('archivesGlob') and dataset_files(d)]
 DONE = ('complete', 'fail')
 
 

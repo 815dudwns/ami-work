@@ -51,6 +51,7 @@ STATUS_KEY_SEP = "|"
 #     2026-09-03 에 DATASETS 가 js/datasets.js 로 옮겨가며 "목록 대조 건너뜀" 경고만 내고
 #     그 어긋남을 못 잡았다. 사본을 없애는 것이 유일한 해법이다(2026-09-07).
 from datasets import MAP_DATASETS as _MAP_DATASETS, dataset_files as _dataset_files  # noqa: E402
+from datasets import NAMESPACED_FROM_REGISTRY as _NS_REG, STATUS_CATEGORY_OF as _KEY_CAT  # noqa: E402
 
 # (data/ 기준 상대경로, 카테고리) — 지사별로 나눈 리스트(미조치 data/michochi/*.json)는 파일마다 한 줄.
 #   ★예전엔 basename 이었다. 하위 폴더 파일이 생겨 data/ 기준 상대경로로 바꿨다(js 쪽 짝: test_status_key_parity).
@@ -60,14 +61,25 @@ DATASETS = [(f[len("data/"):] if f.startswith("data/") else os.path.basename(f),
 # 자기 이름을 상태키에 박는 카테고리 — 다른 리스트와 상태를 절대 공유하지 않는다.
 #   성격이 다른 리스트가 또 들어오면 여기에 한 줄 추가하면 된다.
 # 추가(2026-10-31) = 지도에서 직접 찍어 넣은 개소. 기록은 workStatus '주소|추가' 의 site.
-NAMESPACED_CATEGORIES = ("고압", "합동", "skt", "장애", "LP무기록", "미청구", "미청구불가", "광명", "선조치", "추가", "미조치")
+#   ★2026-11-10 레지스트리에서 만든다(scripts/datasets.py NAMESPACED_FROM_REGISTRY — plainKey 아닌 리스트 전부).
+#     아래 옛 목록은 대조용으로만 남긴다 — 레지스트리 목록이 이것을 다 품어야 한다(scripts/test_status_key_registry.py).
+#     새 리스트는 레지스트리 한 줄로 자동 네임스페이스다.
+LEGACY_NAMESPACED_CATEGORIES = ("고압", "합동", "skt", "장애", "LP무기록", "미청구", "미청구불가", "광명", "선조치", "추가", "미조치")
+NAMESPACED_CATEGORIES = tuple(dict.fromkeys(LEGACY_NAMESPACED_CATEGORIES + _NS_REG))
+
+
+def key_category_of(item):
+    """그 행이 상태키에 쓰는 카테고리 — 레지스트리 statusCategory(미조치(lte) '미조치lte' -> '미조치'), 없으면 category.
+    ★마커키·네임스페이스 묶음·대체키 전부 이걸 쓴다 — 그래야 두 리스트가 한 주소에서 같은 키를 낸다."""
+    c = item.get("category")
+    return _KEY_CAT.get(c, c)
 
 
 def marker_key_of(item):
     """마커 식별자 — js/map.js loadMarkers()의 그룹핑 키와 같은 형식."""
     # ★js/map.js loadMarkers() 와 같은 자릿수(2026-09-21 toFixed(6) 로 통일).
     return "{}||{:.6f}||{:.6f}".format(
-        item.get("category"), float(item.get("lat") or 0), float(item.get("lng") or 0))
+        key_category_of(item), float(item.get("lat") or 0), float(item.get("lng") or 0))
 
 
 def _lookup_key(marker_key, addr):
@@ -114,7 +126,7 @@ def _collect_by_address(rows):
         if mk not in slot:
             slot[mk] = {
                 "roads": set(),
-                "category": item.get("category"),
+                "category": key_category_of(item),
                 "lat": item["lat"],
                 "lng": item["lng"],
             }
@@ -143,7 +155,7 @@ def build_status_key_index(rows):
     #     실효·재방문 키가 갈려 옛 기록과 끊기는 일을 막는다.
     # 지도에서 직접 추가한 개소(_addedSite)는 키가 저장돼 있다 — 사다리에서 뺀다(js/status-key.js 와 같다)
     rows = [r for r in rows if r and not r.get("_addedSite")]
-    plain = [r for r in rows if r.get("category") not in NAMESPACED_CATEGORIES]
+    plain = [r for r in rows if key_category_of(r) not in NAMESPACED_CATEGORIES]
 
     for addr, slot in _collect_by_address(plain).items():
         if len(slot) <= 1:
@@ -182,7 +194,7 @@ def build_status_key_index(rows):
     #   기본형 '주소|고압' 만으로 끝난다. 같은 주소에 그 카테고리 마커가
     #   둘 이상일 때만 도로명 -> 좌표 순으로 올린다.
     for cat in NAMESPACED_CATEGORIES:
-        rows_cat = [r for r in rows if r.get("category") == cat]
+        rows_cat = [r for r in rows if key_category_of(r) == cat]
         for addr, slot in _collect_by_address(rows_cat).items():
             mks = sorted(slot)
             if len(mks) > 1:
@@ -226,7 +238,7 @@ def fallback_key_of(item):
       형식은 네임스페이스와 같은 '<고유값>|<카테고리>' (예: '8651532|합동').
     ★좌표는 만들지 않는다 — 동을 끌어낼 주소가 없으니 추측 금지. 마커 없이 데이터로만 둔다.
     """
-    cat = item.get("category") or ""
+    cat = key_category_of(item) or ""
     for f in ("CONS_TGT_SEQNO", "고객번호", "계기번호"):
         v = str(item.get(f) or "").strip()
         if v:

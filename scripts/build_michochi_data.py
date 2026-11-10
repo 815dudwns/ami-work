@@ -23,6 +23,9 @@ PM 이 거른 입력을 그대로 싣는다(다시 거르지 않는다):
 
 Output: data/michochi/<지사영문>.json (지사별 7개, 2026-11-08 — 지도는 고른 지사 파일만 받는다) — 계기 1행. 상태키 '주소|미조치'(네임스페이스 — 실효·합동·미청구의 옛 완료를
   물려받지 않게). js/datasets.js code 'c'.
+  ★2026-11-10 둘로 나눈다(계기 단위, is_plc_dcu) — DCU 대장에서 찾았고 DCU 통신방식 PLC·K-DCU = 미조치 data/michochi/,
+    나머지(대장미등재·HPGP) = 미조치(lte) data/michochi-lte/<지사영문>.json (code 'l'). 상태키는 둘 다 '주소|미조치'.
+    게이트: 두 리스트 합 = 전체(겹침 0) · 리스트 하나·지사 파일 하나만 읽어도 키 같음 · validate_bdju · 좌표 구.
   ★파일 서식 = 한 줄에 한 행(compact). 14만 행이라 indent 를 주면 수십 MB 가 늘어난다.
   ★값이 빈 칸은 싣지 않는다(지도·상세는 없는 필드를 빈칸으로 읽는다).
 
@@ -60,6 +63,8 @@ SRC = MAIN / 'data/reference/michochi_rows_20261107.json'
 SILHYO = MAIN / 'data/reference/silhyo_remain_20261107.json'
 # 지사별 파일(2026-11-08) — 레지스트리 fileByJisa 템플릿을 따른다. 한 파일(58MB)은 더 쓰지 않는다.
 OUT_TPL = 'data/michochi/*.json'
+# 미조치(lte) — DCU 없는 계기(2026-11-10). 레지스트리 'l' fileByJisa 와 같아야 한다(아래 _check_registry_paths).
+OUT_LTE_TPL = 'data/michochi-lte/*.json'
 CACHE = ROOT / 'data/inbox_michochi/geocode-cache.json'
 # 합동 철거계기 제외 축 — 지도 합동 파일 + 아카이브만(원시 FMPMTR 수집분은 넣지 않는다)
 HAPDONG_FILES = ['data/hapdong-data.json', 'data/hapdong-data-archive.json']
@@ -223,7 +228,7 @@ def main():
 
     # 아카이브 제외(지금은 없다 — 나중에 완료분을 아카이브로 옮긴 뒤 다시 돌려도 되살리지 않게)
     from datasets import archived_meters
-    arch = archived_meters('c')
+    arch = archived_meters('c') | archived_meters('l')   # 미조치 · 미조치(lte) 아카이브 둘 다 — 끝난 계기는 다시 안 올린다
     if arch:
         n0 = len(out)
         out = [x for x in out if x['계기번호'] not in arch]
@@ -361,7 +366,37 @@ def main():
             x.pop('통신방식_출처', None)
 
     pole_near(out, cache)
-    write_split(out)
+    # ── 미조치 / 미조치(lte) 나누기(2026-11-10 영준님 "변대주 기준으로 dcu 가 있는 개소와 없는 개소로") ──
+    #   계기 단위다 — 대장(dcu_master)에서 DCU 를 찾았고 그 DCU 통신방식이 PLC·K-DCU 인 계기 = 미조치,
+    #   나머지(대장미등재 · DCU 통신방식 HPGP — 영준님 "Hpgp lte포함해") = 미조치(lte).
+    #   한 주소에 양쪽이 섞이면 두 리스트에 다 나온다(마커마다 그 리스트 계기만). 좌표·주소·칸은 안 바꾼다.
+    #   ★상태키는 둘 다 '주소|미조치'(레지스트리 statusCategory) — 나누기 전 기록을 그대로 쓴다.
+    dcu = [x for x in out if is_plc_dcu(x)]
+    lte = [x for x in out if not is_plc_dcu(x)]
+    print(f'나누기 기준 {dict(Counter((x.get("대장출처", "")[:10], x.get("DCU통신방식", "")) for x in out).most_common())}')
+    print(f'나누기: 미조치(DCU PLC·K-DCU) {len(dcu):,}계기 · {len({x["주소"] for x in dcu}):,}개소 / '
+          f'미조치(lte) {len(lte):,}계기 · {len({x["주소"] for x in lte}):,}개소 / '
+          f'섞인 개소 {len({x["주소"] for x in dcu} & {x["주소"] for x in lte}):,}')
+    write_split({'c': (dcu, OUT_TPL), 'l': (lte, OUT_LTE_TPL)}, out)
+
+
+MICHOCHI_DCU_COMM = ('PLC', 'K-DCU')   # 미조치에 남는 DCU 통신방식 — HPGP 는 lte 로(2026-11-10 영준님)
+
+
+def is_plc_dcu(x):
+    """미조치(DCU)에 남는 계기인가 — DCU 대장에서 찾았고(대장출처 'dcu_master/...', 못 찾으면 '대장미등재')
+    그 DCU 통신방식(DCU통신방식)이 PLC·K-DCU. 아니면 미조치(lte)."""
+    return (str(x.get('대장출처') or '').startswith('dcu_master/')
+            and str(x.get('DCU통신방식') or '').strip() in MICHOCHI_DCU_COMM)
+
+
+def _check_registry_paths(lists):
+    """빌더 출력 경로가 레지스트리(scripts/datasets.py) fileByJisa 와 같은가 — 어긋나면 지도가 못 찾는다."""
+    from datasets import DATASETS
+    reg = {d['code']: d.get('fileByJisa') for d in DATASETS}
+    for code, (_, tpl) in lists.items():
+        if reg.get(code) != tpl:
+            sys.exit(f'★레지스트리 경로 불일치 — {code}: 빌더 {tpl} / 레지스트리 {reg.get(code)}')
 
 
 # ── '?' 개소를 같은 변대주의 정확 개소 옆으로(2026-11-09, 영준님 "물음표를 변대주로 옮겨 … 마커 겹치지 않게") ──
@@ -533,26 +568,40 @@ def dcu_multi_cha():
     return {k: v for k, v in by.items() if len(v) > 1}
 
 
-def write_split(out):
-    """지사별 파일로 쓰고 게이트를 돈다. 실패하면 이번에 쓴 파일을 전부 지운다.
-    ★지사 판정 = 지도 jisaOf 와 같은 함수(scripts/jisa_split.py) — 지사를 고르면 그 파일만 받는다."""
+def write_split(lists, full):
+    """리스트별·지사별 파일로 쓰고 게이트를 돈다. 실패하면 이번에 쓴 파일을 전부 지운다.
+    lists = {코드: (rows, 경로 템플릿)} — 미조치 'c' · 미조치(lte) 'l'. full = 나누기 전 전체(키 기준).
+    ★지사 판정 = 지도 jisaOf 와 같은 함수(scripts/jisa_split.py) — 지사를 고르면 그 파일만 받는다.
+    게이트: 두 리스트 합 = 전체(계기 집합 정확히, 겹침 0) · 상태키 — 전체로 계산한 키 = 리스트 하나·지사 파일 하나만
+    읽었을 때의 키(둘 다 '주소|미조치') · validate_bdju · 좌표 구."""
     import jisa_split as JS
-    parts, cross = JS.split_rows(out)
-    bad = JS.key_diff(out, parts, '미조치')
+    _check_registry_paths(lists)
+    ids = [x['계기번호'] for rows, _ in lists.values() for x in rows]
+    if len(ids) != len(full) or set(ids) != {x['계기번호'] for x in full} or len(ids) != len(set(ids)):
+        sys.exit(f'★나누기 게이트 실패 — 합 {len(ids):,} / 전체 {len(full):,} / 겹침 {len(ids) - len(set(ids))}')
+    parts_all = {}
+    for code, (rows, _) in lists.items():
+        parts, cross = JS.split_rows(rows)
+        parts_all[code] = parts
+        print(f'[{code}] 지사 파일 {dict((j, len(v)) for j, v in parts.items())} · 두 지사에 걸친 주소 {cross}')
+    flat = {(c, j): v for c, ps in parts_all.items() for j, v in ps.items()}
+    bad = JS.key_diff(full, flat, '미조치')
     if bad:
-        sys.exit(f'★상태키 게이트 실패 — 지사 파일 하나만 읽으면 키가 바뀌는 계기 {len(bad)} {bad[:5]}')
-    print(f'지사 파일 {dict((j, len(v)) for j, v in parts.items())} · 두 지사에 걸친 주소 {cross}')
-    outdir = ROOT / Path(OUT_TPL).parent
-    outdir.mkdir(parents=True, exist_ok=True)
+        sys.exit(f'★상태키 게이트 실패 — 리스트 하나·지사 파일 하나만 읽으면 키가 바뀌는 계기 {len(bad)} {bad[:5]}')
+    print(f'상태키 게이트 통과 — 리스트·지사 파일 {len(flat)}개 각각만 읽어도 전체와 같은 키')
     files = []
-    for j, slug in JS.JISA_SLUG.items():
-        f = ROOT / OUT_TPL.replace('*', slug)
-        if parts.get(j):
-            f.write_text(dump(parts[j]), encoding='utf-8')
-            files.append(f)
-            print(f'저장 {f.relative_to(ROOT)} ({len(parts[j]):,}계기, {f.stat().st_size / 1e6:.1f}MB)')
-        elif f.exists():
-            f.unlink()          # 이번 판에 없는 지사 — 옛 파일이 남으면 지도가 지난 행을 보여 준다
+    for code, (rows, tpl) in lists.items():
+        outdir = ROOT / Path(tpl).parent
+        outdir.mkdir(parents=True, exist_ok=True)
+        for j, slug in JS.JISA_SLUG.items():
+            f = ROOT / tpl.replace('*', slug)
+            part = parts_all[code].get(j)
+            if part:
+                f.write_text(dump(part), encoding='utf-8')
+                files.append(f)
+                print(f'저장 {f.relative_to(ROOT)} ({len(part):,}계기, {f.stat().st_size / 1e6:.1f}MB)')
+            elif f.exists():
+                f.unlink()          # 이번 판에 없는 지사 — 옛 파일이 남으면 지도가 지난 행을 보여 준다
     r = subprocess.run([sys.executable, str(ROOT / 'scripts/validate_bdju.py')] + [str(f) for f in files])
     if r.returncode:
         for f in files:

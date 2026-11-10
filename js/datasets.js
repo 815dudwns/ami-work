@@ -29,6 +29,13 @@
 //              (js/map.js loadDataset). 파일 목록은 datasetFiles(d) — 스크립트는 scripts/datasets.py dataset_files
 //   allowGroup 지정하면 그 계정 그룹에만 보인다(js/auth.js AUTH_GROUPS). 통계 분모에서도 빠진다
 //              ★2026-09-20 현재 쓰는 리스트가 없다 — 25미청구·미청구불가는 전 작업자 공개다
+//   ── 2026-11-10 리스트 처리 레지스트리화(영준님 "어느 리스트가 들어오더라도 알아서 반영") ──
+//   plainKey   true 면 상태키가 맨 주소(갈리면 도로명 사다리) — 실효·완료아카이브만. 없으면 '주소|<키 카테고리>'
+//              네임스페이스다(js/status-key.js NAMESPACED_CATEGORIES 를 여기서 만든다 — 새 리스트는 자동 네임스페이스)
+//   statusCategory  상태키에 박는 이름(없으면 category). 한 리스트를 둘로 나눠도 기록을 같이 쓰게 할 때 —
+//              미조치(lte) 는 '미조치' 를 써서 기존 '주소|미조치' 기록을 그대로 읽고 쓴다
+//   deferred   true 면 처음엔 안 받고 그 리스트를 켤 때 받는다(큰 리스트, js/map.js)
+//   markerColor 마커 색 클래스(css/common.css .custom-marker.<값>). 근사 좌표면 노랑이 이긴다
 // 지사 -> 파일 이름 조각. scripts/jisa_split.py JISA_SLUG 와 같아야 한다(test_datasets_parity 가 본다).
 //   영문인 이유: 한글 파일명은 맥 파일시스템·URL 에서 정규화(NFC/NFD)가 갈릴 수 있다.
 const JISA_FILE_SLUG = {
@@ -46,7 +53,7 @@ function datasetFiles(d, jisa) {
 
 const DATASET_REGISTRY = [
     { code: 's', file: './data/site-data.json', category: '실효', label: null, uiLabel: '실효계기',
-      statsLabel: '실효',
+      statsLabel: '실효', plainKey: true,
       // ★2026-11-07 지도 메뉴에서 내렸다(onMap:false). 남은 15계기는 미조치로 옮겼고(지도 파일은 빈 배열),
       //   통계 분모·리스트 라벨은 아카이브로 그대로 남는다.
       onMap: false,
@@ -64,7 +71,7 @@ const DATASET_REGISTRY = [
     //   ★defaultOn — 업데이트 후 모두에게 켜진 채로(기존 선택 저장된 작업자 포함, 영준님 2026-10-30).
     { code: 'p', file: './data/seonjochi-data.json', category: '선조치', label: '선', uiLabel: '선조치',
       // ★2026-11-07 지도 메뉴에서 내렸다(onMap:false) — 남은 계기 0, 통계 줄은 아카이브로 남는다.
-      statsLabel: '선조치', defaultOn: true, onMap: false, archivesGlob: 'data/seonjochi-completed-archive-*.json' },
+      statsLabel: '선조치', defaultOn: true, onMap: false, markerColor: 'seonjochi', archivesGlob: 'data/seonjochi-completed-archive-*.json' },
     // 재방문은 2026-09-09 리스트업에서 폐기했다. 주소 단위 workStatus 로 '재' 를 붙이던 목록이라
     //   한 계기 완료가 그 주소 전체에 '재' 를 씌웠다(창천동 5-49 20계기 전건 오탐). 계기 단위로 다시
     //   세니 127건 중 재방문으로 남을 것이 하나도 없었다 — 82건은 애초에 미착수(실효), 43건은 이미 처리됨.
@@ -134,6 +141,7 @@ const DATASET_REGISTRY = [
     //   ★statsEvenIfGroup — 지도는 staff 에만 열어두되 통계 분모·선택지에는 넣는다.
     //     확인용 리스트(LP무기록)와 달리 이건 실제 작업 대상이라 실적이다(영준님 2026-09-18).
     { code: 'm', file: './data/michunggu-data.json', category: '미청구', label: null,
+      deferred: true, markerColor: 'michunggu',
       uiLabel: '25미청구', statsLabel: '25미청구', archivesGlob: 'data/michunggu-completed-archive-*.json' },
     // 25년 미청구불가 — 25년 불가 중 '가서 다시 해볼 수 있는' 사유만 추린 것.
     //   판정 정본 research/불가사유_분류_확정_20260920.json (사유조합 945종 중 대상 505종).
@@ -144,7 +152,7 @@ const DATASET_REGISTRY = [
     //   ★화면 라벨은 '25년불가'(영준님 2026-09-20). category 는 workStatus 키라 그대로 둔다 —
     //   바꾸면 이미 쌓인 완료 기록이 끊긴다([[jongno_workstatus_address_key_partial]]).
     { code: 'u', file: './data/michunggu-bulga-data.json', category: '미청구불가', label: null,
-      uiLabel: '25년불가', statsLabel: '25년불가',
+      uiLabel: '25년불가', statsLabel: '25년불가', deferred: true, markerColor: 'bulga',
       archivesGlob: 'data/michunggu-bulga-completed-archive-*.json' },
     // 미조치 — 주덕기 과장 미설치 고객 리스트(11/06) 중 AE·G·아미고(계기번호 3~4자리 기준), 이미 시공한 계기는
     //   PM 이 뺐다 + 실효 잔여 15계기(2026-11-07, 영준님 이름 '미조치').
@@ -156,14 +164,24 @@ const DATASET_REGISTRY = [
     //   생성 scripts/build_michochi_data.py (좌표 scripts/michochi_geocode.py)
     //   ★지사별 파일(2026-11-08) — 58MB 한 파일을 매번 통째로 해석하던 것이 첫 진입을 멈췄다. 고른 지사 파일만 받는다.
     { code: 'c', fileByJisa: './data/michochi/*.json', category: '미조치', label: null, uiLabel: '미조치', menuOrder: -1,
-      statsLabel: '미조치', archivesGlob: 'data/michochi-completed-archive-*.json',
+      statsLabel: '미조치', archivesGlob: 'data/michochi-completed-archive-*.json', deferred: true,
+      // ★2026-11-10 DCU 있는 개소만(변대주 대장 dcu_master 에서 찾은 계기). 없는 계기는 아래 미조치(lte).
       // ★헬퍼·아미큐 리스트 라벨에는 넣는다(2026-11-09 영준님 "리스트업할 때마다 잘 넣어") — 인덱스가 커져도
       //   헬퍼는 ETag 확인이라 안 바뀌면 304. 예전 noLabel(크기 때문에 뺌)은 되돌렸다.
       // ★통계에 넣는다(2026-11-09 영준님 "미조치 통계 적용"). 11/08 엔 크기 때문에 noStats 였다.
     },
+    // 미조치(lte) — 미조치 중 DCU 가 없는 계기(대장출처 '대장미등재', 2026-11-10 영준님 "dcu 없는 것은 lte 개소로
+    //   리스트 분리하고 색깔도 바꿀거야"). 같은 빌더(scripts/build_michochi_data.py)가 계기 단위로 나눈다 —
+    //   한 주소에 양쪽 계기가 있으면 두 리스트에 다 나오고, 마커마다 그 리스트 계기만 싣는다.
+    //   ★상태키는 미조치와 같은 '주소|미조치'(statusCategory) — 나누기 전 기록을 그대로 쓰고, 섞인 개소는
+    //     개소 상태를 두 마커가 함께 쓴다. 계기 체크는 계기 자기 키라 그대로 계기별이다.
+    //   마커 = 진초록(markerColor 'lte'), 미조치(에메랄드)와 구별. 기본 꺼짐·켤 때만 받음(deferred).
+    { code: 'l', fileByJisa: './data/michochi-lte/*.json', category: '미조치lte', statusCategory: '미조치',
+      label: null, uiLabel: '미조치(lte)', statsLabel: '미조치(lte)', menuOrder: -0.5, deferred: true,
+      markerColor: 'lte', archivesGlob: 'data/michochi-lte-completed-archive-*.json' },
     // 완료 아카이브 — 실효에서 완료돼 빠진 건들. 지도에는 안 올라가고 통계 분모에만 들어간다.
     //   파일이 날짜별로 늘어나므로 glob 으로 잡는다(archivesGlob).
-    { code: 'a', category: '완료아카이브', onMap: false, statsLabel: '완료 아카이브',
+    { code: 'a', category: '완료아카이브', onMap: false, statsLabel: '완료 아카이브', plainKey: true,
       archivesGlob: 'data/site-data-completed-archive-*.json' },
     // 광명지사 — 다른 회사 작업분(2026-10-30 영준님 지시). kmtest 계정에만 보인다(전용 그룹).
     //   ★우리 작업과 섞이지 않는다: 지도(allowGroup) · 상태키('주소|광명' 네임스페이스) ·
@@ -230,10 +248,13 @@ const DATASETS = DATASET_REGISTRY.filter(
     d => d.onMap !== false && (d.file || d.fileByJisa || d.source === 'workStatus') && datasetVisibleToUser(d));
 const MAP_DATASETS = DATASETS;
 
-/** 통계 인덱스 코드 -> 상태키 카테고리. 네임스페이스 판정에 쓴다. */
+/** 통계 인덱스 코드 -> 상태키 카테고리(statusCategory 가 있으면 그것). 네임스페이스 판정·workStatus 조회에 쓴다.
+ *  ★리스트 이름이 아니라 **키에 박히는 이름**이다 — 미조치(lte) 'l' -> '미조치'(2026-11-10). */
 const DATASET_CATEGORY_BY_CODE = Object.fromEntries(
-    DATASET_REGISTRY.filter(d => d.category).map(d => [d.code, d.category])
+    DATASET_REGISTRY.filter(d => d.category).map(d => [d.code, d.statusCategory || d.category])
 );
+/** 지도 카테고리(category) -> 레지스트리 항목. 마커 색 등 리스트별 표시를 여기서 꺼낸다. */
+const DATASET_BY_CATEGORY = Object.fromEntries(DATASET_REGISTRY.filter(d => d.category).map(d => [d.category, d]));
 
 /** 통계 리스트 선택 버튼 목록. '전체 누적'은 코드가 아니라 모드라 따로 붙인다.
  *
@@ -252,5 +273,5 @@ const DATASET_STATS_OPTS = DATASET_REGISTRY
 
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { DATASET_REGISTRY, DATASETS, MAP_DATASETS,
-                       DATASET_CATEGORY_BY_CODE, DATASET_STATS_OPTS, JISA_FILE_SLUG, datasetFiles };
+                       DATASET_CATEGORY_BY_CODE, DATASET_BY_CATEGORY, DATASET_STATS_OPTS, JISA_FILE_SLUG, datasetFiles };
 }

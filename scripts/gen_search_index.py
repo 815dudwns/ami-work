@@ -131,7 +131,10 @@ def slot_counts(idx):
     return c
 
 
-def main(allow_shrink=None):
+def main(allow_shrink=None, dst=None):
+    global DST
+    if dst:
+        DST = Path(dst)
     if allow_shrink is None:
         allow_shrink = '--allow-shrink' in sys.argv
     idx, srcs, missing = build()

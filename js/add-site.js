@@ -501,7 +501,9 @@ async function saveAddSite() {
         const r = document.querySelector('input[name="add-site-list"]:checked');
         const cat = (r && r.value) || '추가';
         // 상태키 = 그 리스트의 규칙(js/status-key.js) — 네임스페이스면 '주소|리스트', 아니면(실효) 맨 주소
-        const key = NAMESPACED_CATEGORIES.includes(cat) ? `${p.jibun}${STATUS_KEY_SEP}${cat}` : p.jibun;
+        //   ★키 카테고리(statusCategory)로 — 미조치(lte) 를 골라도 '주소|미조치'(2026-11-10)
+        const kc = keyCategoryOf(cat);
+        const key = NAMESPACED_CATEGORIES.includes(kc) ? `${p.jibun}${STATUS_KEY_SEP}${kc}` : p.jibun;
         const rec = workStatus[key];
         if (rec && rec.site && !rec.site.deleted) {
             // 같은 키의 추가 개소가 이미 있다(그 리스트가 꺼져 있어 판정에 안 걸린 경우) — 그 개소에 붙인다

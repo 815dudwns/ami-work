@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 DATASETS = [
     {"code": "s", "file": "data/site-data.json", "category": "실효",
-     "uiLabel": "실효계기", "statsLabel": "실효",
+     "uiLabel": "실효계기", "statsLabel": "실효", "plainKey": True,
      # 2026-11-07 지도 메뉴에서 내림 — 남은 15계기는 미조치로. 통계·라벨은 아카이브로 남는다.
      "onMap": False,
      # 완료·불가 개소 아카이브(2026-11-07) — 자기 리스트에 붙인다. 'a'(완료아카이브) 글롭과 이름이 겹치지 않게 silhyo-
@@ -43,21 +43,27 @@ DATASETS = [
     #   ★allowGroup 이 걸려 있어 stats_sources() 가 건너뛴다 = 통계 분모에 안 들어간다.
     #     작업 지시가 나가고 공개로 바꿀 때 그 점을 함께 판단해야 한다. js/datasets.js 주석 참조
     {"code": "m", "file": "data/michunggu-data.json", "category": "미청구",
-     "uiLabel": "25미청구", "statsLabel": "25미청구",
+     "uiLabel": "25미청구", "statsLabel": "25미청구", "deferred": True,
      "archivesGlob": "data/michunggu-completed-archive-*.json"},
     # 25년 미청구불가 — js/datasets.js 주석 참조. 전 작업자 공개.
     {"code": "u", "file": "data/michunggu-bulga-data.json", "category": "미청구불가",
-     "uiLabel": "25년 미청구불가", "statsLabel": "25년 미청구불가",
+     "uiLabel": "25년 미청구불가", "statsLabel": "25년 미청구불가", "deferred": True,
      "archivesGlob": "data/michunggu-bulga-completed-archive-*.json"},
     # 미조치 — 미설치 고객 리스트(11/06) AE·G·아미고 + 실효 잔여(2026-11-07). js/datasets.js 주석 참조
     #   ★지사별 파일(2026-11-08) — 58MB 한 파일을 매번 통째로 해석하던 것이 지도 첫 진입을 멈췄다.
     #     fileByJisa 의 "*" 자리에 넣는 조각은 scripts/jisa_split.py JISA_SLUG(= js/datasets.js JISA_FILE_SLUG).
     {"code": "c", "fileByJisa": "data/michochi/*.json", "category": "미조치", "uiLabel": "미조치",
-     "statsLabel": "미조치", "archivesGlob": "data/michochi-completed-archive-*.json",
+     "statsLabel": "미조치", "archivesGlob": "data/michochi-completed-archive-*.json", "deferred": True,
+     # 2026-11-10 DCU 있는 계기만 — 없는 계기는 아래 미조치(lte)
      # 헬퍼·아미큐 라벨·통계 모두 넣는다(2026-11-09 영준님). 11/08 엔 통계 noStats 였다.
      },
+    # 미조치(lte) — 미조치 중 DCU 없는 계기(2026-11-10). 상태키는 '주소|미조치' 그대로(statusCategory).
+    #   js/datasets.js 주석 참조. 같은 빌더 scripts/build_michochi_data.py 가 계기 단위로 나눈다.
+    {"code": "l", "fileByJisa": "data/michochi-lte/*.json", "category": "미조치lte", "statusCategory": "미조치",
+     "uiLabel": "미조치(lte)", "statsLabel": "미조치(lte)", "deferred": True,
+     "archivesGlob": "data/michochi-lte-completed-archive-*.json"},
     # 지도에는 안 올라가고 통계 분모에만 들어간다.
-    {"code": "a", "category": "완료아카이브", "onMap": False, "statsLabel": "완료 아카이브",
+    {"code": "a", "category": "완료아카이브", "onMap": False, "statsLabel": "완료 아카이브", "plainKey": True,
      "archivesGlob": "data/site-data-completed-archive-*.json"},
     # 광명지사 — 다른 회사 작업분, kmtest 전용(js/datasets.js 주석 참조).
     #   allowGroup 이고 statsEvenIfGroup 이 없어 stats_sources() 가 건너뛴다 = 통계 분모 제외.
@@ -80,6 +86,23 @@ def dataset_files(d):
 
 MAP_DATASETS = [d for d in DATASETS if d.get("onMap", True) and dataset_files(d)]
 CATEGORY_BY_CODE = {d["code"]: d["category"] for d in DATASETS if d.get("category")}
+
+
+def status_category(d):
+    """그 리스트가 상태키에 박는 이름 — statusCategory 가 있으면 그것(미조치(lte) -> '미조치'), 없으면 category."""
+    return d.get("statusCategory") or d.get("category")
+
+
+# 지도 카테고리 -> 상태키 카테고리 / 네임스페이스 카테고리(plainKey 아닌 것 전부) — js/status-key.js 와 같은 규칙
+STATUS_CATEGORY_OF = {d["category"]: status_category(d) for d in DATASETS if d.get("category")}
+STATUS_CATEGORY_BY_CODE = {d["code"]: status_category(d) for d in DATASETS if d.get("category")}
+NAMESPACED_FROM_REGISTRY = tuple(dict.fromkeys(status_category(d) for d in DATASETS
+                                               if d.get("category") and not d.get("plainKey")))
+
+
+def codes_of_status_category(cat):
+    """상태키 카테고리 -> 그 키를 쓰는 리스트 코드들('미조치' -> ('c', 'l'))."""
+    return tuple(d["code"] for d in DATASETS if d.get("category") and status_category(d) == cat)
 
 
 def archive_paths(code):

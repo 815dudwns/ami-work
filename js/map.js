@@ -178,7 +178,8 @@ async function loadListCached(file) {
 // 큰 리스트 — 첫 화면을 먼저 그린 뒤 뒤에서 불러온다(25미청구 14.5MB · 불가 6.7MB).
 //   ★상태키가 안 흔들린다: 이 둘은 네임스페이스 카테고리라 실효·합동의 갈림 판정에 끼지 않는다(js/status-key.js).
 //   ★미조치(2026-11-07, 14만 계기)도 여기 — 기본 꺼짐이고, 켤 때만 받는다.
-const DEFERRED_CATEGORIES = ['미청구', '미청구불가', '미조치'];
+//   ★2026-11-10 레지스트리 deferred 에서 만든다 — 새 큰 리스트(미조치(lte) 등)는 레지스트리 한 줄로 따라온다.
+const DEFERRED_CATEGORIES = DATASETS.filter(d => d.deferred).map(d => d.category);
 
 // 지도 초기화 (카카오맵 생성 + 마커 로드)
 async function initMap() {
@@ -996,9 +997,8 @@ const CULL_MARGIN = 0.5;
 const HIDE_LEVEL_WITH_MICHOCHI = 6;   // 이 레벨 이상(더 넓게 보기)이면 마커 대신 계기 수 동그라미 — 리스트 무관(2026-11-08, 이름은 옛 그대로)
 const FIT_MAX_LEVEL_WITH_MICHOCHI = 5; // 지사·구 맞춤이 이보다 넓으면 이 레벨로 줄인다 — 리스트 무관
 let cullStats = { attached: 0, total: 0, level: null, ms: 0, policy: 'show' };
-function michochiOn() {
-    return DATASETS.some(d => d.category === '미조치') && getSelectedCategories().has('미조치');
-}
+// (michochiOn() 은 지웠다 2026-11-10 — 레벨 6 동그라미·레벨 5 맞춤·줌 전 떼기가 2026-11-08 부터 리스트 무관이라
+//   부르는 곳이 없었다. 리스트별로 되돌릴 일이 생기면 레지스트리 필드로 만든다.)
 function markerPolicyForLevel(level) {   // 'show' = 범위 안 전부 / 'hide' = 하나도 안 붙임(미래: 'grid')
     // 레벨 6 이상은 리스트 무관 계기 수 동그라미(영준님 2026-11-08) — 마커는 하나도 안 붙인다
     if (level >= HIDE_LEVEL_WITH_MICHOCHI) return 'hide';
@@ -1197,12 +1197,12 @@ function buildMarkerOverlay(m) {
     //   ★색만 빌려 쓰는 것이고 미완 리스트라 흰 원 규칙은 green 을 따른다.
     //   ★approximate(주소 부정확)는 노란색이 이긴다 — 리스트 색보다 '주소를 못 믿는다' 가
     //     먼저 보여야 한다(영준님 2026-09-20). 안 그러면 불가 56건이 라벤더에 묻힌다.
-    if (isBulga && !isApproximate) color = 'bulga';
-    // 선조치 — 전용 분홍(영준님 지시 2026-10-30 '선조치' 리스트). 근사 좌표면 노랑이 이기는 것은 불가와 같다.
-    if (isSeonjochi && !isApproximate) color = 'seonjochi';
-    // 25미청구 — 분홍(영준님 2026-11-07 "25미청구를 다른 색으로" — 미조치가 기본 초록이라 둘이 같아 보였다).
-    //   선조치 분홍을 물려받는다(선조치는 지도에서 내렸다). 근사 좌표면 노랑이 이기는 것은 불가·선조치와 같다.
-    if (isMichunggu && !isApproximate) color = 'michunggu';
+    //   선조치 — 분홍(2026-10-30) · 25미청구 — 분홍(2026-11-07, 미조치 초록과 갈라 보이게) ·
+    //   미조치(lte) — 진초록(2026-11-10 영준님 "초록인데 조금 색다르게해").
+    //   ★색은 레지스트리 markerColor 에서 온다(2026-11-10) — 새 리스트는 레지스트리 한 줄 + css 한 줄.
+    //     근사 좌표면 노랑이 이기는 것은 전부 같다.
+    { const _ds = DATASET_BY_CATEGORY[category];
+      if (_ds && _ds.markerColor && !isApproximate) color = _ds.markerColor; }
     // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
     if (state === 'complete') color = 'gray';
     else if (state === 'hold') color = 'blue';
@@ -1304,12 +1304,12 @@ function repaintMarker(marker) {
     //   ★색만 빌려 쓰는 것이고 미완 리스트라 흰 원 규칙은 green 을 따른다.
     //   ★approximate(주소 부정확)는 노란색이 이긴다 — 리스트 색보다 '주소를 못 믿는다' 가
     //     먼저 보여야 한다(영준님 2026-09-20). 안 그러면 불가 56건이 라벤더에 묻힌다.
-    if (isBulga && !isApproximate) color = 'bulga';
-    // 선조치 — 전용 분홍(영준님 지시 2026-10-30 '선조치' 리스트). 근사 좌표면 노랑이 이기는 것은 불가와 같다.
-    if (isSeonjochi && !isApproximate) color = 'seonjochi';
-    // 25미청구 — 분홍(영준님 2026-11-07 "25미청구를 다른 색으로" — 미조치가 기본 초록이라 둘이 같아 보였다).
-    //   선조치 분홍을 물려받는다(선조치는 지도에서 내렸다). 근사 좌표면 노랑이 이기는 것은 불가·선조치와 같다.
-    if (isMichunggu && !isApproximate) color = 'michunggu';
+    //   선조치 — 분홍(2026-10-30) · 25미청구 — 분홍(2026-11-07, 미조치 초록과 갈라 보이게) ·
+    //   미조치(lte) — 진초록(2026-11-10 영준님 "초록인데 조금 색다르게해").
+    //   ★색은 레지스트리 markerColor 에서 온다(2026-11-10) — 새 리스트는 레지스트리 한 줄 + css 한 줄.
+    //     근사 좌표면 노랑이 이기는 것은 전부 같다.
+    { const _ds = DATASET_BY_CATEGORY[marker.category];
+      if (_ds && _ds.markerColor && !isApproximate) color = _ds.markerColor; }
     // TOU/SKT/실효 모두 workStatus(완료/불가/보류)에 따라 마커 변형
     if (state === 'complete') color = 'gray';
     else if (state === 'hold') color = 'blue';
