@@ -6,11 +6,22 @@
 > 앱 통칭 [[app_naming_convention]]. 배포 시 APP_VERSION 갱신 [[jongno_app_version_deploy]]. 종로맵=Naver Maps.
 > **awms API 모를 때 = `research/awms-poc/awms_API_레퍼런스.md`. 통신팀(mob/cst)/계기팀(mob/mtr) 별개 — 항상 구별.**
 
-## 현재 상태 (2026-11-08 마감)
+## 현재 상태 (2026-11-11 마감)
 
-- **배포 상태 (11/08 마감)**: tongsin = origin/main(`3d86d03`, 내 마지막 커밋 `9cde537`, main 에 안 올라간 커밋 0).
-  아미맵 **v20261108.8** · 아미큐 **2.2.27** · 헬퍼 inject **v94**.
+- **배포 상태 (11/11 마감)**: tongsin = origin/main(`b609ac2`, main 에 안 올라간 커밋 0).
+  아미맵 **v20261110.8** · 아미큐 **2.2.28** · 헬퍼 inject **v95**.
   세션 시작 시 `git fetch && git log HEAD..origin/main` 부터 — PM 이 main 에 인덱스 커밋을 직접 넣는다(ff-only 로 맞추고 시작).
+- **11/10~11/11 처리분**:
+  - 아미맵 v20261110.5: 미조치 마커 위 PLC / IoT 글씨 — 레지스트리 `badgeFrom {field, map}`(DCU통신방식 PLC->PLC, K-DCU->IoT),
+    `js/map.js registryBadgeText`, css `.tag-reg`. parity 시험이 js 레지스트리를 node vm 으로 실행해 대조(markerColor 는 js 전용이라 대조 제외).
+  - 합동 11/10 정규(.6)·추가(.7)·밤(.8): 지도 11/10 444 · 11/09 503 · 11/06 280 = 1,227, archive 17,367.
+    작업일 예외 남산동2가 1건은 `WORK_DAY_OVERRIDES` 에 `seqno` 로 못 박음 — 공사번호로 걸면 같은 공사번호 60행이 통째로 끌려간다.
+    종로 보강 대상 1,757 / 채움 1,699 / 50m 보류 5(그대로).
+  - 헬퍼 inject v95: 설치불가/철거관리(MOBCST2000) 처음 열 때 모뎀(radioVal M), 목록 deptSelect·임의추가 새 행 tmpDeptSelect 를
+    `__helperDept` 로(awms 작업자 세팅 DEPT2 대신). 대상리스트 행·슬레이브(MODEM_DIV 20)·저장된 행은 손대지 않음. 게이트 `__featOn`.
+    맥 headless 실측(쓰기 요청 전부 abort): insUnable body DEPT2 3500 -> 7793. **폰 실기 시험은 아직** — 영준님 현장 확인 대기.
+    시험 스크립트 `/tmp/relay/helper_bulga_pw_test.py`.
+
 - **11/07~11/08 처리분 (아미맵, 전부 배포됨)**:
   - 미조치 리스트(주덕기 과장 미설치 고객, code c): 지사별 파일 `data/michochi/<지사영문>.json` 7개, 고른 지사만 받음. noStats·noLabel.
     빌더 `scripts/build_michochi_data.py` 제외 축 = 합동 철거계기(233, `data/reference/michochi_exclude_hapdong_removed_20261108.json`)
