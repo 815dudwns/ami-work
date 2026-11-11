@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v94'; // v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v95'; // v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
   var FEAT_RELEASED = true;   // [v89] released input checks on for every helper user (see __featOn)
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
@@ -1150,6 +1150,62 @@ function parseValue(text) {
     if (!selDept && !selWith) { __deptSelApplied.dept = false; __deptSelApplied.with = false; }
   }
 
+  // ── [v95] 헬퍼: 설치불가/철거관리(MOBCST2000) — 모뎀 기본 선택 + 헬퍼 설정 지사 ──
+  //   영준님 2026-11-11: "저장된 지사 적용을 불가에도 · DCU/모뎀 중 모뎀으로 · 임의추가 작성모달이 항상 서대문은평".
+  //   ★서대문은평은 우리 inject 가 아니라 awms 가 채운다 — 이 화면 addRow 가 새 행 지사를 로그인 사용자의 awms
+  //     작업자 세팅(selectOptions.setWorkUserList[0].DEPT2, 우영준 계정 = 3500 서대문은평)으로 넣는다.
+  //   ★저장 body(insUnable FormData)는 currentRow 전체 + vKdnDept1/2 다. currentRow.DEPT2 는 tmpDeptSelect watcher 가
+  //     옮기고 vKdnDept1/2 도 tmpDeptSelect 로 찾으므로, tmpDeptSelect 하나만 바꾸면 화면·저장이 같이 따라간다.
+  //   게이트 = 1000 화면 지사 강제(applyDeptWith)와 같은 __awmsHelper + __featOn(). 설정 지사는 같은 window.__helperDept.
+  //   화면 정의: https://awms.kdn.com/service/ami/html/sub/mob/cst/MOBCST2000.html (#app 의 Vue 루트).
+  var __bulgaSeen = (typeof WeakMap !== 'undefined') ? new WeakMap() : null;
+  function getBulgaVM() {
+    var el = document.getElementById('app');
+    var v = el && el.__vue__;
+    if (v && ('tmpDeptSelect' in v) && ('radioVal' in v) && v.rsltList) return v;
+    return null;
+  }
+  function applyBulgaHelper() {
+    if (!window.__awmsHelper || !__bulgaSeen || !__featOn()) return;
+    var vm = getBulgaVM();
+    if (!vm) return;
+    var st = __bulgaSeen.get(vm);
+    if (!st) { st = { radio: false, list: false, rows: new WeakMap() }; __bulgaSeen.set(vm, st); }
+    // 1) 모뎀 기본 — 이 화면을 처음 볼 때 한 번만(awms 기본은 DCU). 그 뒤 DCU 로 바꾸면 그대로 둔다.
+    //    radioVal watcher 가 옵션·목록을 다시 불러온다(사람이 누른 것과 같은 길).
+    if (!st.radio) {
+      st.radio = true;
+      if (vm.radioVal !== 'M' && !vm.rsltList.currentRow) {
+        vm.radioVal = 'M';
+        rec({ stage: 'bulga-radio-m' });
+      }
+    }
+    var hDept = String(window.__helperDept || '');
+    var opts = vm.deptOption || [];
+    if (!hDept || !opts.length) return;
+    if (!opts.some(function (o) { return String(o.DEPT2) === hDept; })) return;   // 이 화면 지사 목록에 없는 값이면 안 건드림
+    // 2) 목록 지사 — 옵션이 들어온 뒤 한 번, '지사 전체'(빈 값)일 때만. select 의 @change 대신 fnSearch 를 직접 부른다.
+    if (!st.list) {
+      st.list = true;
+      if (!vm.deptSelect) {
+        vm.deptSelect = hDept;
+        rec({ stage: 'bulga-list-dept', dept: hDept });
+        try { if (typeof vm.fnSearch === 'function') vm.fnSearch(); } catch (e) { rec({ stage: 'bulga-list-search-err', err: String(e && e.message || e) }); }
+      }
+    }
+    // 3) 새 행(등록 > 임의추가) — 행마다 한 번. 그 뒤 손으로 바꾼 지사는 그대로 둔다.
+    //    대상리스트에서 고른 행(TGT_DIV_CD)은 그 대상의 지사라, 슬레이브 추가(MODEM_DIV 20)는 마스터 지사를 이어받으니 건드리지 않는다.
+    //    저장된 행(WORK_STEP 있음)도 건드리지 않는다.
+    var row = vm.rsltList.currentRow;
+    if (!row || st.rows.has(row)) return;
+    st.rows.set(row, 1);
+    if (row.WORK_STEP || row.TGT_DIV_CD || String(row.MODEM_DIV || '') === '20') return;
+    var before = String(vm.tmpDeptSelect || '');
+    if (before !== hDept) vm.tmpDeptSelect = hDept;
+    rec({ stage: 'bulga-row-dept', before: before, dept: hDept, radio: vm.radioVal });
+  }
+  window.__applyBulgaHelper = applyBulgaHelper;   // 진단용
+
   // ── 통신방식/분기 자동선택 (계기번호+맥 입력 후) ──
   // 마스터(MODEM_DIV=10): INST_S = 계기타입+맥 추론. 슬래이브(20): 직전 마스터 통신방식 따라옴.
   // 분기: 슬래이브가 아미고면 무선·아니면 0.5. (PLC는 site-data 통신방식 매핑 단계에서 확장 — __commMap)
@@ -1606,6 +1662,9 @@ function parseValue(text) {
     setInterval(function () {
       try {
         applyDeptSelect();
+      } catch (e) {}
+      try {
+        applyBulgaHelper();   // [v95] 설치불가/철거관리 — 모뎀 기본 + 헬퍼 설정 지사
       } catch (e) {}
       try {
         var vm = getAwmsVM();
