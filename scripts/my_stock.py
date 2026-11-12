@@ -79,15 +79,14 @@ def _history_type(m):
 
 
 def kind(m):
-    # LTE Amigo/G prefixes: >99% of master installs. Other LTE = AE or E, prefixes reused ->
-    # decided per 7-char prefix from history; unresolved stays "AE·E 확인".
+    # LTE Amigo/G prefixes: >99% of master installs. Every other LTE is AE — 영준님 has no
+    # E-type LTE modems (2026-11-12), so no history lookup / "AE·E 확인" for LTE.
     if m.startswith("012"):
         if m[:6] in AMIGO:
             return "LTE 모뎀(AMIGO)"
         if m[:6] in GTYPE:
             return "LTE 모뎀(G타입)"
-        t = _history_type(m)
-        return f"LTE 모뎀({t}타입)" if t else "LTE 모뎀(AE·E 확인)"
+        return "LTE 모뎀(AE타입)"
     # PLC: KS-PLC = DCU 1-4차, IoT-PLC = DCU 5-6차, K-DCU = IoT-PLC (영준님 2026-10-15).
     # Generation measured via DCU 차수 of the installs: E0AEED, 847207B/C/D = DCU1-4 (KS-PLC);
     # 8472070, 847207E, AC5E8C = DCU5-6 (IoT-PLC). 44B433/0014B0 = HPGP.
