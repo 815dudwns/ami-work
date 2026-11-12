@@ -501,7 +501,7 @@ async function saveAddSite() {
         const r = document.querySelector('input[name="add-site-list"]:checked');
         const cat = (r && r.value) || '추가';
         // 상태키 = 그 리스트의 규칙(js/status-key.js) — 네임스페이스면 '주소|리스트', 아니면(실효) 맨 주소
-        //   ★키 카테고리(statusCategory)로 — 미조치(lte) 를 골라도 '주소|미조치'(2026-11-10)
+        //   키 카테고리 = 리스트 이름(2026-11-12 부터 리스트끼리 공유 없음 — 미조치(lte) 면 '주소|미조치lte')
         const kc = keyCategoryOf(cat);
         const key = NAMESPACED_CATEGORIES.includes(kc) ? `${p.jibun}${STATUS_KEY_SEP}${kc}` : p.jibun;
         const rec = workStatus[key];

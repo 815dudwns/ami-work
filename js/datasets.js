@@ -32,8 +32,9 @@
 //   ── 2026-11-10 리스트 처리 레지스트리화(영준님 "어느 리스트가 들어오더라도 알아서 반영") ──
 //   plainKey   true 면 상태키가 맨 주소(갈리면 도로명 사다리) — 실효·완료아카이브만. 없으면 '주소|<키 카테고리>'
 //              네임스페이스다(js/status-key.js NAMESPACED_CATEGORIES 를 여기서 만든다 — 새 리스트는 자동 네임스페이스)
-//   statusCategory  상태키에 박는 이름(없으면 category). 한 리스트를 둘로 나눠도 기록을 같이 쓰게 할 때 —
-//              미조치(lte) 는 '미조치' 를 써서 기존 '주소|미조치' 기록을 그대로 읽고 쓴다
+//   ★상태키 카테고리 = 늘 자기 category 다 — 리스트끼리 상태키를 같이 쓰지 않는다(2026-11-12 영준님 "모든리스트
+//              개별동작하게"). 예전 statusCategory(미조치(lte) 가 '주소|미조치' 를 같이 쓰던 것)는 없앴고,
+//              레지스트리에 다시 넣으면 scripts/test_status_key_registry.py 가 실패한다
 //   deferred   true 면 처음엔 안 받고 그 리스트를 켤 때 받는다(큰 리스트, js/map.js)
 //   markerColor 마커 색 클래스(css/common.css .custom-marker.<값>). 근사 좌표면 노랑이 이긴다
 //   badgeFrom  마커 위 글씨를 계기 칸 값에서 { field, map } — 마커 안 계기들의 field 값을 map 으로 바꿔
@@ -178,10 +179,11 @@ const DATASET_REGISTRY = [
     // 미조치(lte) — 미조치 중 DCU 가 없는 계기(대장출처 '대장미등재', 2026-11-10 영준님 "dcu 없는 것은 lte 개소로
     //   리스트 분리하고 색깔도 바꿀거야"). 같은 빌더(scripts/build_michochi_data.py)가 계기 단위로 나눈다 —
     //   한 주소에 양쪽 계기가 있으면 두 리스트에 다 나오고, 마커마다 그 리스트 계기만 싣는다.
-    //   ★상태키는 미조치와 같은 '주소|미조치'(statusCategory) — 나누기 전 기록을 그대로 쓰고, 섞인 개소는
-    //     개소 상태를 두 마커가 함께 쓴다. 계기 체크는 계기 자기 키라 그대로 계기별이다.
+    //   ★상태키는 '주소|미조치lte' — 미조치와 따로다(2026-11-12 영준님 "모든리스트 개별동작하게"). 11/10~11/12 엔
+    //     '주소|미조치' 를 같이 써서 섞인 개소 한쪽 완료가 다른 쪽에도 찍혔다. 그 사이 기록은
+    //     scripts/migrate_michochi_lte_keys.py 가 새 키로 옮긴다(옛 키는 남김).
     //   마커 = 진초록(markerColor 'lte'), 미조치(에메랄드)와 구별. 기본 꺼짐·켤 때만 받음(deferred).
-    { code: 'l', fileByJisa: './data/michochi-lte/*.json', category: '미조치lte', statusCategory: '미조치',
+    { code: 'l', fileByJisa: './data/michochi-lte/*.json', category: '미조치lte',
       label: null, uiLabel: '미조치(lte)', statsLabel: '미조치(lte)', menuOrder: -0.5, deferred: true,
       markerColor: 'lte', archivesGlob: 'data/michochi-lte-completed-archive-*.json' },
     // 완료 아카이브 — 실효에서 완료돼 빠진 건들. 지도에는 안 올라가고 통계 분모에만 들어간다.
@@ -253,10 +255,10 @@ const DATASETS = DATASET_REGISTRY.filter(
     d => d.onMap !== false && (d.file || d.fileByJisa || d.source === 'workStatus') && datasetVisibleToUser(d));
 const MAP_DATASETS = DATASETS;
 
-/** 통계 인덱스 코드 -> 상태키 카테고리(statusCategory 가 있으면 그것). 네임스페이스 판정·workStatus 조회에 쓴다.
- *  ★리스트 이름이 아니라 **키에 박히는 이름**이다 — 미조치(lte) 'l' -> '미조치'(2026-11-10). */
+/** 통계 인덱스 코드 -> 상태키 카테고리(= 그 리스트 category). 네임스페이스 판정·workStatus 조회에 쓴다.
+ *  ★2026-11-12 부터 리스트마다 자기 키다(미조치(lte) 'l' -> '미조치lte'). */
 const DATASET_CATEGORY_BY_CODE = Object.fromEntries(
-    DATASET_REGISTRY.filter(d => d.category).map(d => [d.code, d.statusCategory || d.category])
+    DATASET_REGISTRY.filter(d => d.category).map(d => [d.code, d.category])
 );
 /** 지도 카테고리(category) -> 레지스트리 항목. 마커 색 등 리스트별 표시를 여기서 꺼낸다. */
 const DATASET_BY_CATEGORY = Object.fromEntries(DATASET_REGISTRY.filter(d => d.category).map(d => [d.category, d]));

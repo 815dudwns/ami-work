@@ -59,9 +59,10 @@ DATASETS = [
      # 2026-11-10 DCU 있는 계기만 — 없는 계기는 아래 미조치(lte)
      # 헬퍼·아미큐 라벨·통계 모두 넣는다(2026-11-09 영준님). 11/08 엔 통계 noStats 였다.
      },
-    # 미조치(lte) — 미조치 중 DCU 없는 계기(2026-11-10). 상태키는 '주소|미조치' 그대로(statusCategory).
+    # 미조치(lte) — 미조치 중 DCU 없는 계기(2026-11-10). 상태키 '주소|미조치lte'(2026-11-12 미조치와 분리 —
+    #   영준님 "모든리스트 개별동작하게"). 옛 공유 기록은 scripts/migrate_michochi_lte_keys.py 가 옮긴다.
     #   js/datasets.js 주석 참조. 같은 빌더 scripts/build_michochi_data.py 가 계기 단위로 나눈다.
-    {"code": "l", "fileByJisa": "data/michochi-lte/*.json", "category": "미조치lte", "statusCategory": "미조치",
+    {"code": "l", "fileByJisa": "data/michochi-lte/*.json", "category": "미조치lte",
      "uiLabel": "미조치(lte)", "statsLabel": "미조치(lte)", "deferred": True,
      "archivesGlob": "data/michochi-lte-completed-archive-*.json"},
     # 지도에는 안 올라가고 통계 분모에만 들어간다.
@@ -91,8 +92,10 @@ CATEGORY_BY_CODE = {d["code"]: d["category"] for d in DATASETS if d.get("categor
 
 
 def status_category(d):
-    """그 리스트가 상태키에 박는 이름 — statusCategory 가 있으면 그것(미조치(lte) -> '미조치'), 없으면 category."""
-    return d.get("statusCategory") or d.get("category")
+    """그 리스트가 상태키에 박는 이름 = 그 리스트 category.
+    ★2026-11-12 부터 리스트끼리 키를 같이 쓰지 않는다(영준님 "모든리스트 개별동작하게"). 예전 statusCategory
+    필드는 없앴다 — 레지스트리에 다시 넣으면 scripts/test_status_key_registry.py 가 실패한다."""
+    return d.get("category")
 
 
 # 지도 카테고리 -> 상태키 카테고리 / 네임스페이스 카테고리(plainKey 아닌 것 전부) — js/status-key.js 와 같은 규칙
@@ -103,7 +106,7 @@ NAMESPACED_FROM_REGISTRY = tuple(dict.fromkeys(status_category(d) for d in DATAS
 
 
 def codes_of_status_category(cat):
-    """상태키 카테고리 -> 그 키를 쓰는 리스트 코드들('미조치' -> ('c', 'l'))."""
+    """상태키 카테고리 -> 그 키를 쓰는 리스트 코드들. 2026-11-12 부터 늘 하나('미조치' -> ('c',))."""
     return tuple(d["code"] for d in DATASETS if d.get("category") and status_category(d) == cat)
 
 

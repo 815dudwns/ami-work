@@ -50,14 +50,17 @@ ME = "우영준"
 DEPT_NM = {"3600": "마포용산", "3500": "서대문은평", "7793": "서울본부직할", "3100": "광진성동",
            "3400": "노원도봉", "4080": "강북성북", "3000": "동대문중랑"}
 # workStatus key namespace -> stats-site-index list code ('' = 실효; old completions are 'a')
-#   ★레지스트리에서 만든다(2026-11-10) — 키 카테고리(statusCategory||category)가 같은 리스트는 한 칸에 모인다.
-#     '미조치' -> ('c', 'l'): 완료된 '주소|미조치' 키가 미조치(lte) 개소일 수 있다. plainKey(실효·완료아카이브)는 ''.
+#   ★레지스트리에서 만든다(2026-11-10). 2026-11-12 부터 리스트마다 자기 키('미조치' -> c, '미조치lte' -> l).
+#     plainKey(실효·완료아카이브)는 ''.
+#   ★11/10~11/12 엔 미조치(lte) 도 '주소|미조치' 를 썼다 — 그 사이 날짜를 다시 검사하면 옛 키가 lte 개소일 수 있어
+#     미조치에서 못 찾으면 lte 를 본다(PRE_SPLIT_FALLBACK).
 from datasets import DATASETS as _REG, status_category as _scat  # noqa: E402
 NS_LIST = {}
 for _d in _REG:
     if _d.get("category") and _d.get("source") != "workStatus":
         NS_LIST.setdefault("" if _d.get("plainKey") else _scat(_d), []).append(_d["code"])
 NS_LIST = {k: tuple(v) for k, v in NS_LIST.items()}
+PRE_SPLIT_FALLBACK = {"미조치": ("l",)}
 
 
 def meter_kind(no):
@@ -225,15 +228,11 @@ def map_check(day, rows, ws, idx):
         if isinstance(v.get("site"), dict):
             # site added from the map (js/add-site.js): its meters live only in added_meters, not in the index
             ms = sorted((v.get("added_meters") or {}).keys())
-        codes = () if ms else NS_LIST.get(ns, ("s",))
-        if ns and len(codes) > 1:
-            # 한 키를 여러 리스트가 같이 쓴다(미조치·미조치(lte), 2026-11-10) — 섞인 개소는 양쪽 계기가 다 그 키의 계기다
-            ms = sorted({m for code in codes for m in by_addr.get((addr, code), [])})
-        else:
-            for code in codes:      # 실효 -> 옛 완료 아카이브 순으로 먼저 찾은 쪽
-                ms = by_addr.get((addr, code), [])
-                if ms:
-                    break
+        codes = () if ms else NS_LIST.get(ns, ("s",)) + PRE_SPLIT_FALLBACK.get(ns, ())
+        for code in codes:      # 실효 -> 옛 완료 아카이브 순으로 먼저 찾은 쪽(미조치 -> 옛 공유 키면 lte)
+            ms = by_addr.get((addr, code), [])
+            if ms:
+                break
         miss = [m for m in ms if m not in aw]
         if miss or not ms:
             print(f"   ★ {v['updatedAt'][11:16]} {k} 리스트계기 {ms} awms 없음 {miss}")

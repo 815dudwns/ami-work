@@ -41,7 +41,8 @@ WS_URL = ('https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.
           '/workStatus/charger4eleccar.json')
 # 지도 파일과 자기 아카이브(archivesGlob)가 둘 다 있는 리스트 전부 — 레지스트리에서(2026-11-10).
 #   예전 손 목록 ['s', 'p', 'm', 'u', 'c'] 에 미조치(lte) 'l' 이 자동으로 붙는다. 새 리스트도 레지스트리 한 줄이면 된다.
-#   ★상태키는 리스트별로 따로 센다 — 미조치·미조치(lte) 는 같은 '주소|미조치' 를 쓰므로 섞인 개소가 완료면 양쪽 다 옮긴다.
+#   ★상태키는 리스트별로 따로 센다 — 2026-11-12 부터 미조치 '주소|미조치' · 미조치(lte) '주소|미조치lte' 로 나뉘어,
+#     섞인 개소는 그 리스트 쪽이 완료일 때만 그 리스트에서 옮긴다(11/10~11/12 공유 기록은 migrate_michochi_lte_keys.py 로 옮긴 뒤).
 CODES = [d['code'] for d in DATASETS if d.get('archivesGlob') and dataset_files(d)]
 DONE = ('complete', 'fail')
 

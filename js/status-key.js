@@ -49,27 +49,25 @@ const STATUS_KEY_SEP = '|';
 //     겹친다. 네임스페이스가 없으면 이미 완료된 주소의 기록을 그대로 물려받아 회색(완료)로
 //     떠서 할 일이 묻힌다(영준님 "장애는 완료표시하면 안된다 · pending").
 //   ★추가(2026-10-31): 작업자가 지도에서 직접 찍어 넣은 개소('추가' 리스트). 기록 = workStatus '주소|추가' 의 site.
-//   ★2026-11-10 레지스트리에서 만든다(js/datasets.js — plainKey 아닌 리스트의 statusCategory||category).
+//   ★2026-11-10 레지스트리에서 만든다(js/datasets.js — plainKey 아닌 리스트의 category). 2026-11-12 부터 리스트마다 자기 키.
 //     새 리스트는 레지스트리 한 줄로 자동 네임스페이스다. 옛 목록은 대조·폴백용으로만 남긴다 —
 //     레지스트리를 못 읽는 곳(파일 단독 실행)에서도 옛 키가 그대로 나오게.
 //     ★map.html·stats.html 은 js/datasets.js 를 이 파일보다 **먼저** 싣는다.
 const LEGACY_NAMESPACED_CATEGORIES = ['고압', '합동', 'skt', '장애', 'LP무기록', '미청구', '미청구불가', '광명', '선조치', '추가', '미조치'];
 const _SK_REGISTRY = (typeof DATASET_REGISTRY !== 'undefined') ? DATASET_REGISTRY : [];
 const NAMESPACED_CATEGORIES = [...new Set(LEGACY_NAMESPACED_CATEGORIES.concat(
-    _SK_REGISTRY.filter(d => d.category && !d.plainKey).map(d => d.statusCategory || d.category)))];
-// 지도 카테고리 -> 상태키 카테고리(미조치(lte) '미조치lte' -> '미조치'). 없으면 자기 이름.
-const _KEY_CATEGORY_OF = Object.fromEntries(
-    _SK_REGISTRY.filter(d => d.category).map(d => [d.category, d.statusCategory || d.category]));
+    _SK_REGISTRY.filter(d => d.category && !d.plainKey).map(d => d.category)))];
+// 지도 카테고리 -> 상태키 카테고리. ★2026-11-12 부터 늘 자기 이름이다(리스트끼리 키를 같이 쓰지 않는다 —
+//   영준님 "모든리스트 개별동작하게"). 호출하는 곳이 많아 함수는 남긴다.
 function keyCategoryOf(cat) {
-    return Object.prototype.hasOwnProperty.call(_KEY_CATEGORY_OF, cat) ? _KEY_CATEGORY_OF[cat] : cat;
+    return cat;
 }
 
 // 마커 식별자 — map.js loadMarkers()의 그룹핑 키와 같은 형식이어야 한다.
 function markerKeyOf(item) {
     // ★map.js loadMarkers() 와 **같은 자릿수**여야 한다(2026-09-21 toFixed(6) 로 통일).
     //   한쪽만 바꾸면 갈림 판정이 어긋나 상태키가 흔들리고 작업기록이 고아가 된다.
-    //   ★카테고리 자리는 **키 카테고리**다(2026-11-10) — 두 리스트가 같은 키를 쓰면(미조치·미조치(lte)) 한 칸으로 본다.
-    //     상태키 계산 전용이다. 지도 마커 묶음(js/map.js loadMarkers)은 리스트 이름으로 따로 묶는다.
+    //   카테고리 자리는 키 카테고리(= 리스트 이름, 2026-11-12 부터 리스트끼리 공유 없음).
     return `${keyCategoryOf(item.category)}||${(+item.lat).toFixed(6)}||${(+item.lng).toFixed(6)}`;
 }
 

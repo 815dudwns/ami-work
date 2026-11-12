@@ -69,8 +69,8 @@ NAMESPACED_CATEGORIES = tuple(dict.fromkeys(LEGACY_NAMESPACED_CATEGORIES + _NS_R
 
 
 def key_category_of(item):
-    """그 행이 상태키에 쓰는 카테고리 — 레지스트리 statusCategory(미조치(lte) '미조치lte' -> '미조치'), 없으면 category.
-    ★마커키·네임스페이스 묶음·대체키 전부 이걸 쓴다 — 그래야 두 리스트가 한 주소에서 같은 키를 낸다."""
+    """그 행이 상태키에 쓰는 카테고리 = 그 행 category(2026-11-12 부터 리스트끼리 공유 없음, 레지스트리 status_category).
+    마커키·네임스페이스 묶음·대체키 전부 이걸 쓴다."""
     c = item.get("category")
     return _KEY_CAT.get(c, c)
 

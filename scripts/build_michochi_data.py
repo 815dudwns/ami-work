@@ -24,7 +24,8 @@ PM 이 거른 입력을 그대로 싣는다(다시 거르지 않는다):
 Output: data/michochi/<지사영문>.json (지사별 7개, 2026-11-08 — 지도는 고른 지사 파일만 받는다) — 계기 1행. 상태키 '주소|미조치'(네임스페이스 — 실효·합동·미청구의 옛 완료를
   물려받지 않게). js/datasets.js code 'c'.
   ★2026-11-10 둘로 나눈다(계기 단위, is_plc_dcu) — DCU 대장에서 찾았고 DCU 통신방식 PLC·K-DCU = 미조치 data/michochi/,
-    나머지(대장미등재·HPGP) = 미조치(lte) data/michochi-lte/<지사영문>.json (code 'l'). 상태키는 둘 다 '주소|미조치'.
+    나머지(대장미등재·HPGP) = 미조치(lte) data/michochi-lte/<지사영문>.json (code 'l'). 상태키 '주소|미조치' / '주소|미조치lte'
+    (2026-11-12 분리 — 11/10~11/12 엔 둘 다 '주소|미조치').
     게이트: 두 리스트 합 = 전체(겹침 0) · 리스트 하나·지사 파일 하나만 읽어도 키 같음 · validate_bdju · 좌표 구.
   ★파일 서식 = 한 줄에 한 행(compact). 14만 행이라 indent 를 주면 수십 MB 가 늘어난다.
   ★값이 빈 칸은 싣지 않는다(지도·상세는 없는 필드를 빈칸으로 읽는다).
@@ -370,7 +371,7 @@ def main():
     #   계기 단위다 — 대장(dcu_master)에서 DCU 를 찾았고 그 DCU 통신방식이 PLC·K-DCU 인 계기 = 미조치,
     #   나머지(대장미등재 · DCU 통신방식 HPGP — 영준님 "Hpgp lte포함해") = 미조치(lte).
     #   한 주소에 양쪽이 섞이면 두 리스트에 다 나온다(마커마다 그 리스트 계기만). 좌표·주소·칸은 안 바꾼다.
-    #   ★상태키는 둘 다 '주소|미조치'(레지스트리 statusCategory) — 나누기 전 기록을 그대로 쓴다.
+    #   ★상태키는 리스트마다 따로 — 미조치 '주소|미조치' · 미조치(lte) '주소|미조치lte'(2026-11-12 영준님 "모든리스트 개별동작하게").
     dcu = [x for x in out if is_plc_dcu(x)]
     lte = [x for x in out if not is_plc_dcu(x)]
     print(f'나누기 기준 {dict(Counter((x.get("대장출처", "")[:10], x.get("DCU통신방식", "")) for x in out).most_common())}')
@@ -573,7 +574,10 @@ def write_split(lists, full):
     lists = {코드: (rows, 경로 템플릿)} — 미조치 'c' · 미조치(lte) 'l'. full = 나누기 전 전체(키 기준).
     ★지사 판정 = 지도 jisaOf 와 같은 함수(scripts/jisa_split.py) — 지사를 고르면 그 파일만 받는다.
     게이트: 두 리스트 합 = 전체(계기 집합 정확히, 겹침 0) · 상태키 — 전체로 계산한 키 = 리스트 하나·지사 파일 하나만
-    읽었을 때의 키(둘 다 '주소|미조치') · validate_bdju · 좌표 구."""
+    읽었을 때의 키 · validate_bdju · 좌표 구.
+    ★상태키 게이트는 주소 부분을 본다(카테고리를 '미조치' 로 맞춰 계산) — 2026-11-12 부터 실제 키는 리스트마다
+      '주소|미조치' / '주소|미조치lte' 지만, 리스트 하나만 읽어도 주소 부분이 전체와 같아야 미조치 쪽 키가 나누기 전과
+      같고 lte 쪽 옛 공유 기록을 접미만 바꿔 옮길 수 있다(scripts/migrate_michochi_lte_keys.py)."""
     import jisa_split as JS
     _check_registry_paths(lists)
     ids = [x['계기번호'] for rows, _ in lists.values() for x in rows]

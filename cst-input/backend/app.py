@@ -1113,10 +1113,14 @@ def bdju_copy_val(m: dict) -> str:
 #   ★14만 행 · 70MB 라 행을 들고 있지 않는다 — 파일이 바뀌면 계기 -> 복사값 dict 만 만들어 둔다(빈값은 안 넣음).
 #     값 규칙은 위 bdju_copy_val 그대로(변대주 영역 = dcu_master 묶음, 대장미등재면 빈값).
 #   ★2026-11-10 미조치를 미조치 / 미조치(lte) 로 나눴다 — DCU 통신방식 HPGP 계기도 lte 쪽이라 변대주 값이 있다.
-#     읽을 파일은 레지스트리(scripts/datasets.py)에서 — 상태키 '미조치' 를 쓰는 리스트 전부의 fileByJisa + archivesGlob.
+#     읽을 파일은 레지스트리(scripts/datasets.py)에서 — 미조치·미조치(lte) 두 리스트의 fileByJisa + archivesGlob.
+#     ★2026-11-12 상태키를 나눠(미조치lte) 상태키 카테고리로 고르면 lte 가 빠진다 — 리스트 이름으로 고른다.
 #     레지스트리를 못 읽으면 아래 고정 목록(나눈 뒤 두 리스트)으로.
 _MICHOCHI_GLOBS_FALLBACK = ("michochi/*.json", "michochi-completed-archive-*.json",
                             "michochi-lte/*.json", "michochi-lte-completed-archive-*.json")
+
+
+_MICHOCHI_CATEGORIES = ("미조치", "미조치lte")
 
 
 def _michochi_globs():
@@ -1131,7 +1135,7 @@ def _michochi_globs():
         _spec.loader.exec_module(_m)
         out = []
         for d in _m.DATASETS:
-            if _m.status_category(d) != "미조치":
+            if d.get("category") not in _MICHOCHI_CATEGORIES:
                 continue
             for k in ("fileByJisa", "archivesGlob"):
                 if d.get(k):
