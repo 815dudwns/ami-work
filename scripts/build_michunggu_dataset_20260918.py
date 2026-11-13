@@ -2201,6 +2201,21 @@ def main():
         (ROOT / 'research/좌표통합_보류_20260921.json').write_text(json.dumps(
             {'25미청구': _ust['보류목록']}, ensure_ascii=False, indent=1))
 
+    # ── 제외축 M7: 계기불량 대장 (2026-11-13, 영준님 "리스트에서 제외할 자료") ──
+    #   목록·매칭 = scripts/bad_ledger.py(미조치와 공용) — 계기번호 정확 일치만. 게이트 기대치(pm)도 같이 줄인다.
+    #   재생성 없이 이 축만 적용 = python3 scripts/bad_ledger.py --apply-michunggu
+    import bad_ledger as _BL
+    _bh = _BL.hits(map_rows + pend_rows)
+    if _bh:
+        _bs = {nm(r['계기번호']) for r, _, _ in _bh}
+        EX.stage(EX.L_MICH, [EX.row(EX.L_MICH, 'M7', r, _BL.reason(v, f), f"대장 장소 {v.get('장소', '')}")
+                             for r, v, f in _bh])
+        map_rows = [x for x in map_rows if nm(x['계기번호']) not in _bs]
+        pend_rows = [x for x in pend_rows if nm(x['계기번호']) not in _bs]
+        _fx7 = {nm(k): nm(v[0]) for k, v in METER_TYPO_FIX.items()}
+        pm = [m for m in pm if _fx7.get(m, m) not in _bs]
+    log(f'계기불량 대장 제외(M7) {len(_bh)}건')
+
     # ── 완료·불가 아카이브 (2026-11-07) — 끝나서 옮긴 계기를 지도에 되살리지 않는다 ──
     #   scripts/archive_done_sites.py 가 data/michunggu-completed-archive-*.json 으로 옮긴 계기는
     #   다시 빌드해도 빠진 채로 둔다. 게이트 기대치(pm)도 같이 줄인다.

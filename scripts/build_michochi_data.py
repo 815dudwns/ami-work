@@ -20,6 +20,10 @@ PM 이 거른 입력을 그대로 싣는다(다시 거르지 않는다):
   data/reference/michochi_exclude_silhyo_target_2027_20261110.json (1,364 계기, 실효년월 2027).
   확인 = 전체번호 검색 일치 24 · 앞4·뒤4·지번 양쪽 유일 일치 1,340(같은 지번에 비슷한 번호 형제 없음, 교체 기록 없음).
   엑셀 '내년 실효 대상' 시트. 목록이 늘면 SILHYO_TARGETS 에 파일만 더한다.
+★계기불량 대장 제외(2026-11-13, 영준님 "리스트에서 제외할 자료" — 영구 축): data/reference/meter_bad_ledger_2025_exclude_20261113.json
+  (628 계기, 윤용운 반장 메일 — 2025 1~7월 계기불량 사진대장). 계기번호 정확 일치만(숫자만이면 zfill11, 추정·유사번호 금지).
+  뺀 목록 = data/reference/michochi_exclude_bad_ledger_20261113.json. 엑셀 '계기불량 대장' 시트.
+  목록 파일·매칭 = scripts/bad_ledger.py(25미청구 M7 과 공용) — 목록이 늘면 거기 BAD_LEDGERS 에 파일만 더한다.
 
 Output: data/michochi/<지사영문>.json (지사별 7개, 2026-11-08 — 지도는 고른 지사 파일만 받는다) — 계기 1행. 상태키 '주소|미조치'(네임스페이스 — 실효·합동·미청구의 옛 완료를
   물려받지 않게). js/datasets.js code 'c'.
@@ -73,6 +77,8 @@ HAPDONG_EXCL_OUT = ROOT / 'data/reference/michochi_exclude_hapdong_removed_20261
 # 실효 대상 제외 축(올해·내년) — 목록 파일들. 레포에 커밋된 판을 읽는다(main 에 합쳐지면 main 의 같은 파일).
 SILHYO_TARGETS = [ROOT / 'data/reference/michochi_exclude_silhyo_target_2026_20261108.json',
                   ROOT / 'data/reference/michochi_exclude_silhyo_target_2027_20261110.json']
+# 계기불량 대장 제외 축(2026-11-13) — 목록 파일·매칭은 scripts/bad_ledger.py(25미청구와 공용)
+BAD_LEDGER_EXCL_OUT = ROOT / 'data/reference/michochi_exclude_bad_ledger_20261113.json'
 POLE_MOVED_OUT = ROOT / 'data/reference/michochi_pole_near_moved_20261109.json'    # 옮긴 '?' 개소·갈래·거리
 POLE_SPREAD_OUT = ROOT / 'data/reference/michochi_pole_near_spread_20261109.json'   # 형제가 300m 넘게 퍼진 '?' 개소
 METER_RE = re.compile(r'^[0-9A-Z]{2}[0-9]{9}$')
@@ -266,6 +272,25 @@ def main():
               f'{len(st_set & excl_m)} · 미조치에 없던 것 {len(st_set - st_hit - excl_m)} {sorted(st_set - st_hit - excl_m)[:20]})')
         excl_m = excl_m | st_hit
 
+    # 계기불량 대장 제외(영구 축 — 위 docstring). 계기번호 정확 일치만.
+    import bad_ledger as BL
+    bl_set = BL.load()
+    n0 = len(out)
+    bad_excl = []
+    hit_m = set()
+    for x, v, fname in BL.hits(out):
+        hit_m.add(x['계기번호'])
+        bad_excl.append({'계기번호': x['계기번호'], '지사': x['지사'], '미조치 주소': x['주소'],
+                         '대장 사업소': v.get('사업소', ''), '증상': v.get('증상', ''), '대장 장소': v.get('장소', ''),
+                         '일자': v.get('일자', ''), '작업자': v.get('작업자', ''), '제조': v.get('제조', ''),
+                         '분기': v.get('분기', ''), '대장 파일': fname})
+    out = [x for x in out if x['계기번호'] not in hit_m]
+    excl_n = {norm_meter(m) for m in excl_m}
+    print(f'계기불량 대장 제외 {n0 - len(out):,} (목록 {len(bl_set):,} 중 · 이미 다른 축으로 빠진 것 '
+          f'{len(set(bl_set) & excl_n)} · 미조치에 없던 것 {len(set(bl_set) - {norm_meter(m) for m in hit_m} - excl_n)})')
+    excl_m = excl_m | hit_m
+    BAD_LEDGER_EXCL_OUT.write_text(json.dumps(bad_excl, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+
     # 좌표
     miss = sorted({x['주소'] for x in out if x.get('lat') is None
                    and not (x['주소'] in pool and pool[x['주소']]['acc'] == 'exact') and x['주소'] not in cache})
@@ -306,10 +331,10 @@ def main():
     out_m = [x['계기번호'] for x in out]
     add_m = {x['계기번호'] for x in sil_add}
     pre = lambda S: Counter(m[:2] for m in S if not m.isdigit())  # noqa: E731
-    d1 = set(src_m) - set(out_m) - excl_m - set(arch or ())   # 일부러 뺀 것(합동 철거·실효 대상·아카이브)은 빠져도 된다
+    d1 = set(src_m) - set(out_m) - excl_m - set(arch or ())   # 일부러 뺀 것(합동 철거·실효 대상·계기불량 대장·아카이브)은 빠져도 된다
     d2 = set(out_m) - set(src_m) - add_m
     nulls = sum(1 for x in out if x.get('lat') is None)
-    print(f'대조: 원본 {len(src_m):,} · 실효 추가 {len(sil_add)} · 제외 축(합동 철거+실효 대상) {len(excl_m)} · 출력 {len(out_m):,}'
+    print(f'대조: 원본 {len(src_m):,} · 실효 추가 {len(sil_add)} · 제외 축(합동 철거+실효 대상+계기불량 대장) {len(excl_m)} · 출력 {len(out_m):,}'
           f' · 원본-출력(제외분 뺀) {len(d1)}'
           f' · 출력-원본(실효 추가 제외) {len(d2)} · 중복 {len(out_m) - len(set(out_m))}'
           f' · 접두 원본 {dict(pre(src_m))} 출력 {dict(pre(out_m))} · 좌표 null {nulls}')
