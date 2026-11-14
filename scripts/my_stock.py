@@ -42,13 +42,21 @@ FORMAT = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE타입)", "LTE 모뎀(E타입)", "L
           "IotPLC모뎀(AE타입)", "IotPLC모뎀(E 타입)", "IotPLC모뎀(AMIGO)",
           "HPGP모뎀(AE타입)", "HPGP모뎀(G타입)"]
 
-FORMAT_B = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE타입)", "LTE 모뎀(G타입)", "PLC모뎀(AE타입)",
-            "PLC모뎀(AMIGO)", "IotPLC모뎀(AE타입)", "IotPLC모뎀(AMIGO)",
+FORMAT_B = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE타입)", "LTE 모뎀(E타입)", "LTE 모뎀(G타입)", "PLC모뎀(AE타입)", "PLC모뎀(E 타입)",
+            "PLC모뎀(AMIGO)", "IotPLC모뎀(AE타입)", "IotPLC모뎀(E 타입)", "IotPLC모뎀(AMIGO)",
             "HPGP모뎀(AE타입)", "HPGP모뎀(G타입)"]
 
 
 OFFBOOK = ROOT / "cst-input/backend/offbook_stock.json"   # awms 미등록 실물(따로 장부)
 TYPE_OVERRIDE = Path(__file__).resolve().parent.parent / "cst-input/backend/stock_type_override.json"
+
+
+def _confirmed_type(m):
+    """Type confirmed on the physical label (stock_type_override.json), else None. No guessing."""
+    try:
+        return json.loads(TYPE_OVERRIDE.read_text()).get("macs", {}).get(m, {}).get("type")
+    except Exception:
+        return None
 
 
 def _history_type(m):
@@ -86,21 +94,23 @@ def kind(m):
             return "LTE 모뎀(AMIGO)"
         if m[:6] in GTYPE:
             return "LTE 모뎀(G타입)"
-        return "LTE 모뎀(AE타입)"
+        return "LTE 모뎀(E타입)" if _confirmed_type(m) == "E" else "LTE 모뎀(AE타입)"
     # PLC: KS-PLC = DCU 1-4차, IoT-PLC = DCU 5-6차, K-DCU = IoT-PLC (영준님 2026-10-15).
     # Generation measured via DCU 차수 of the installs: E0AEED, 847207B/C/D = DCU1-4 (KS-PLC);
     # 8472070, 847207E, AC5E8C = DCU5-6 (IoT-PLC). 44B433/0014B0 = HPGP.
     if m.startswith("AC5E8C"):
         return "IotPLC모뎀(AMIGO)" if m[6:8] == "B0" else "IotPLC모뎀(AE타입)"
-    # AE and E modems are NOT told apart (영준님 2026-11-14 "etype 계기를 구별하지말아야겟다") —
-    # prefixes are reused, so every non-Amigo/G modem counts as AE.
+    # AE vs E is not guessed (영준님 2026-11-14 "etype 계기를 구별하지말아야겟다" / "일단 e의 존재는 남겨놔"):
+    # default AE, E only when physically confirmed in stock_type_override.json. E rows stay in the format.
+    def plc(gen):
+        return f"{gen}({'E 타입' if _confirmed_type(m) == 'E' else 'AE타입'})"
     if m.startswith("8472070"):
         # 8472070E3/E4/D9 = KS-PLC, rest = K-DCU — same rule as 아미큐 backend _mac_raw_suffix
-        return "PLC모뎀(AE타입)" if m[7:9] in ("E3", "E4", "D9") else "IotPLC모뎀(AE타입)"
+        return plc("PLC모뎀" if m[7:9] in ("E3", "E4", "D9") else "IotPLC모뎀")
     if m.startswith("847207E"):
-        return "IotPLC모뎀(AE타입)"
+        return plc("IotPLC모뎀")
     if m.startswith(("E0AEED", "847207B", "847207C", "847207D")):
-        return "PLC모뎀(AE타입)"
+        return plc("PLC모뎀")
     if m.startswith(("44B433", "0014B0")):
         return "HPGP모뎀(AE타입)"
     return "미분류 " + m[:7]
@@ -199,8 +209,8 @@ CHECKPOINT = ROOT / "cst-input/backend/stock_checkpoint.json"   # gitignored
 
 
 def bucket(k):
-    # LTE stock is AE only (영준님 2026-11-10 "lte는 ae만있음") — prefixes don't split AE/E
-    return "LTE 모뎀(AE타입)" if k.startswith("LTE 모뎀(AE") or k == "LTE 모뎀(E타입)" else k
+    # Old 'AE·E' rows fold into AE. Confirmed LTE E stays its own row (영준님 2026-11-14 "e의 존재는 남겨놔").
+    return "LTE 모뎀(AE타입)" if k.startswith("LTE 모뎀(AE") else k
 
 
 def _start():
