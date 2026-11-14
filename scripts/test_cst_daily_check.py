@@ -212,7 +212,7 @@ def _():
     return not rep.of("red"), rep
 
 
-@case("리스트 밖 계기 섞인 모뎀 = 노랑(묶어서)")
+@case("리스트 밖 계기 섞인 모뎀 = 사진 판독 대기(묶어서)")
 def _():
     rs = base()
     s2 = row("25530024655", "E0AEED953741", modem="20")
@@ -220,7 +220,7 @@ def _():
     for r in rs[:3]:
         r["MB_REG_CNT"] = "3"
     rep = run(rs, {**BUNGI_OK, "25530024655": {"BUNGI": "0.5"}})
-    return has(rep, "yellow", "리스트 밖 계기 1대", "25530024655"), rep
+    return has(rep, "outlist", "리스트 밖 계기 1대", "25530024655"), rep
 
 
 WS = "서울특별시 마포구 신수동 257-1|미조치"
@@ -274,6 +274,64 @@ def _():
                                                 "updatedByName": "우영준"}}
     rep = run(group(m, []), {}, ws)
     return has(rep, "red", "47452030000"), rep
+
+
+def outlist_rep():
+    rs = base()
+    s2 = row("25530024655", "E0AEED953741", modem="20")
+    rs.insert(2, s2)
+    for r in rs[:3]:
+        r["MB_REG_CNT"] = "3"
+    return run(rs, {**BUNGI_OK, "25530024655": {"BUNGI": "0.5"}})
+
+
+@case("리스트 밖 + 사진 일치 = 초록")
+def _():
+    rep = outlist_rep()
+    C.resolve_outlist(rep, {"25530024655": "ok"})
+    return has(rep, "green", "리스트 밖 1대", "사진 번호 확인 일치") and not rep.of("yellow"), rep
+
+
+@case("리스트 밖 + 판독 실패 = 노랑")
+def _():
+    rep = outlist_rep()
+    C.resolve_outlist(rep, {"25530024655": "none"})
+    return has(rep, "yellow", "사진 판독 못 함", "25530024655"), rep
+
+
+@case("리스트 밖 + 사진 없음 = 노랑")
+def _():
+    rep = outlist_rep()
+    C.resolve_outlist(rep, {})
+    return has(rep, "yellow", "사진 판독 못 함"), rep
+
+
+@case("리스트 밖 + 사진 번호 다름 = 이 항목 빼고 판독 항목에 맡김")
+def _():
+    rep = outlist_rep()
+    C.resolve_outlist(rep, {"25530024655": "bad"})
+    return not [x for x in rep.items if "리스트 밖" in x["msg"]], rep
+
+
+@case("리스트 밖 + 판독 안 함(--no-ocr) = 노랑")
+def _():
+    rep = outlist_rep()
+    C.resolve_outlist(rep, None)
+    return has(rep, "yellow", "사진 판독 안 함"), rep
+
+
+@case("지도: 리스트 밖만 더 있음(빠진 것 없음) = 사진으로 판정, 사진 일치면 초록")
+def _():
+    m = row("A0550070511", "01264263971", dcu="")
+    ss = [row(n, "01264263971", modem="20") for n in ("25190712322", "25190712868")]
+    for n in ("25190712322", "25190712868"):
+        lst(n, "서울특별시 마포구 신수동 421-12")
+    SHIP["rows"]["01264263971"] = {"owned": True}
+    ws = {"서울특별시 마포구 신수동 421-12|미조치": {"state": "complete", "updatedAt": "2026-11-13T11:08:06+09:00",
+                                                  "updatedByName": "우영준"}}
+    rep = run(group(m, ss), {n: {"BUNGI": "0.5"} for n in ("25190712322", "25190712868")}, ws)
+    C.resolve_outlist(rep, {"A0550070511": "ok"})
+    return has(rep, "green", "421-12", "사진 번호 확인 일치") and not rep.of("yellow") and not rep.of("red"), rep
 
 
 def main():

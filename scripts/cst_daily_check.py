@@ -28,7 +28,8 @@ Checks (영준님 checklist 2026-11-14)
       own stock = '신설인데 기설로' 빨강; MAC photo OCR for every 기설.
     - 교체 M1020: registered by 영준님 by hand — out of the new-install rules, counted only.
     - meter number: law ^[0-9A-Z]{2}[0-9]{9}$, type code (3-4th digits) in the cst_rules table,
-      in a map list (노랑 if not, grouped per modem), 지사 = list 지사.
+      in a map list, 지사 = list 지사. An out-of-list meter is decided by its slot-5 photo read:
+      photo = awms number -> 초록, unread / no photo -> 노랑, different -> the 오타 rule.
     - 계기유형 INST_M / 통신방식 INST_S / slave BUNGI vs what the backend would have sent = 빨강.
  2. Map: places I marked complete that day vs awms, same list only. 개별불가 memo number found in
     awms = resolved; memo one digit off an awms number = 노랑 '메모 오타 의심'; list count !=
@@ -381,7 +382,9 @@ def app_check(day, rows, ship, idx, details, jobs, rep, done_site_meters):
                 msg = f"리스트 밖 계기 {len(out_list)}대 {out_list} (같은 모뎀 리스트 계기 {len(in_list)}대)"
             else:
                 msg = f"리스트에 없는 계기 {out_list} — 계기교체로 새 번호일 수 있다"
-            rep.add("yellow", "awms", msg, "계기 사진으로 번호 확인", meters=out_list, mac=mac, meter=out_list[0])
+            # ★not yellow yet — every out-of-list meter goes through the slot-5 photo read first
+            #   (영준님 2026-11-14 "리스트 밖이면 5번 ocr 과정해야함"); resolve_outlist() decides
+            rep.add("outlist", "awms", msg, "계기 사진으로 번호 확인", meters=out_list, mac=mac, meter=out_list[0])
 
         # photos (아미큐 rows)
         src = sorted({"아미큐" if r["INSTR_NUM"] in via else "아미큐 외(헬퍼·화면)" for r in rs})
@@ -500,7 +503,12 @@ def map_check(sites, rows, idx, rep):
         if missing and not out_list:
             rep.add("red", "map", f"{t} {k} 리스트 {len(ms)}대 중 {len(missing)}대 awms 없음 {missing}",
                     f"{', '.join(missing)} 추가 등록, 현장에 없으면 개별불가", key=k, meters=missing)
+        elif not missing and out_list and len(reg) - len(out_list) == expect:
+            # only extra meters outside the list, nothing missing — decided by the photo read
+            rep.add("outlist", "map", f"{t} {k} 리스트 {len(ms)}대 / 등록 {len(reg)}대 — 리스트 밖 {len(out_list)}대 {out_list}",
+                    "계기 사진으로 번호 확인", key=k, meters=out_list)
         elif missing or len(reg) != expect:
+            # a missing list meter / count gap is an omission signal — yellow regardless of photos (275-1)
             msg = f"{t} {k} 리스트 {len(ms)}대 / 등록 {len(reg)}대"
             if missing:
                 msg += f" — 리스트 {len(missing)}대 없음 {missing}"
@@ -628,8 +636,11 @@ def two_pass(targets, read, match, outdir):
     return res
 
 
-def ocr_check(day, rows, ship, idx, details, photo_map, rep, outdir, groups_div):
+def ocr_check(day, rows, ship, idx, details, photo_map, rep, outdir, groups_div, extra=()):
+    """Returns {meter: ok/bad/none/nophoto} for the slot-5 read. `extra` = rows of other days that are
+    out-of-list meters of today's modems — they are read too (resolve_outlist needs a verdict)."""
     today = [r for r in rows if r.get("WORK_DATE") == day and groups_div.get((r.get("MAC_MODEM") or "").upper()) != "M1020"]
+    today += [r for r in extra if r not in today]
     print("== 3. 사진 판독 (우리 엔진 · 원본 + 2배 확대)")
     # meter numbers, slot 5, masters and slaves
     tg, nophoto = [], []
@@ -659,6 +670,8 @@ def ocr_check(day, rows, ship, idx, details, photo_map, rep, outdir, groups_div)
     for x in list(rep.items):
         if x["sec"] == "map" and x["level"] != "green" and x.get("meters") and set(x["meters"]) <= set(typo):
             rep.items.remove(x)
+    verdict = {k: v[0] for k, v in res.items()}
+    verdict.update({n: "nophoto" for n in nophoto})
     print(f"   계기 사진 {len(tg)}장: 일치 {sum(v[0] == 'ok' for v in res.values())} · 다름 {len(bad)} · 판독 못함 {len(none)}"
           + (f" {none}" if none else "") + (f" · 사진 없음 {len(nophoto)} {nophoto}" if nophoto else ""))
     # MAC, slot 4, 기설 + not in my 출고 ledger
@@ -685,6 +698,31 @@ def ocr_check(day, rows, ship, idx, details, photo_map, rep, outdir, groups_div)
                     "사진 보고 맥 확인", photos=[p], mac=mac, meter=no)
     print(f"   모뎀맥 사진 {len(tg)}장(기설 + 출고장부 밖): 일치 {sum(res[n][0] == 'ok' for n, _, _ in tg)}"
           f" · 못 찾음 {sum(res[n][0] != 'ok' for n, _, _ in tg)}\n")
+    return verdict
+
+
+def resolve_outlist(rep, verdict):
+    """Out-of-list meters, after the slot-5 read (영준님 2026-11-14):
+    photo = awms number for all -> 초록 / any unread or no photo -> 노랑 '사진 판독 못 함' /
+    a different number -> the read itself already made the item (오타 빨강 or 노랑 + 사진), drop this one.
+    verdict None = OCR was not run (--no-ocr) -> 노랑 as before."""
+    for x in list(rep.items):
+        if x["level"] != "outlist":
+            continue
+        ms = x.get("meters") or []
+        if verdict is None:
+            x["level"], x["msg"] = "yellow", x["msg"] + " (사진 판독 안 함)"
+            continue
+        vs = {m: verdict.get(m, "nophoto") for m in ms}
+        unread = [m for m, v in vs.items() if v in ("none", "nophoto")]
+        if all(v == "ok" for v in vs.values()):
+            where = x.get("key") or f"모뎀 {x.get('mac', '')}"
+            x["level"], x["todo"] = "green", ""
+            x["msg"] = f"{where} 리스트 밖 {len(ms)}대 {ms} — 사진 번호 확인 일치"
+        elif unread:
+            x["level"], x["msg"] = "yellow", f"{x['msg']} — 리스트 밖 + 사진 판독 못 함 {unread}"
+        else:
+            rep.items.remove(x)
 
 
 # ── 4. material ───────────────────────────────────────────────────────────────
@@ -788,8 +826,16 @@ def main():
         if r.get("MODEM_DIV") == "10":
             groups_div[(r.get("MAC_MODEM") or "").upper()] = r.get("WORK_DIV")
     photo_map = archive_photo_map(jobs)
+    verdict = None
     if not a.no_ocr:
-        ocr_check(a.day, rows, ship, idx, details, photo_map, rep, photodir, groups_div)
+        # out-of-list meters registered on another day (older slaves of today's modems) are read too
+        want = {m for x in rep.items if x["level"] == "outlist" for m in x.get("meters") or []}
+        have = {r["INSTR_NUM"] for r in day_rows}
+        extra = [r for r in rows if r["INSTR_NUM"] in want - have]
+        if extra and not offline and not a.detail_file:
+            details.update(fetch_details(extra))
+        verdict = ocr_check(a.day, rows, ship, idx, details, photo_map, rep, photodir, groups_div, extra)
+    resolve_outlist(rep, verdict)
     # every 노랑/빨강 about a meter carries its nameplate photo (slot 5) so a person can look at once
     for x in rep.items:
         if x["level"] != "green" and not x["photos"]:
