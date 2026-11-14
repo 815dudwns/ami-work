@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v96'; // v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v97'; // v97: 테스터 전용 자재관리 화면 — 헬퍼 홈 [자재관리] 버튼. 내 모뎀(출고 20·인계 40, 본인 인계·6/22 이전 출고·소유 N·교체로 뗀 옛 모뎀 뺌) - 시공 목록 맥 = 보유/사용, 종류는 my_stock.kind() 와 같은 규칙(E 추정 없음, 전부 AE), 종류별 보유 awms·따로장부·합계·오늘 사용 표, 자재 추가 = awms 자재에 없는 맥만 Firebase helperStock/<USER_ID>/offbook/<MAC> 에 기록(awms 에 들어오면 'awms 에 들어옴' 표시, 한 번만 셈). awms 는 읽기만(selectList·selectBarcdQr·getMainList). v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
   var FEAT_RELEASED = true;   // [v89] released input checks on for every helper user (see __featOn)
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
@@ -938,6 +938,12 @@ function parseValue(text) {
   } catch (e) {}
 
   window.__onNativeScan = function (raw) {
+    // [v97] 자재관리 추가 창에서 연 스캔이면 그 창으로만 보낸다(awms 칸에 안 넣음)
+    if (window.__stockScanCb && document.getElementById('__stock_add')) {
+      var scb = window.__stockScanCb; window.__stockScanCb = null;
+      try { scb(raw || ''); } catch (e) {}
+      return;
+    }
     var field = window.__pendingField || '';
     var vm = window.__pendingVM || getAwmsVM();
     rec({ stage: 'scan', raw: raw, field: field });
@@ -1894,7 +1900,18 @@ function parseValue(text) {
         setBtn.textContent = '설정 열기 (앱 재시작)';
         setBtn.style.cssText = 'background:transparent;color:#cbd5e1;border:1px solid rgba(255,255,255,0.3);border-radius:12px;padding:11px 26px;font-size:13px;';
         setBtn.onclick = function () { window.location.href = 'https://localhost/'; };
-        ov.appendChild(t); ov.appendChild(s); ov.appendChild(back); ov.appendChild(setBtn);
+        ov.appendChild(t); ov.appendChild(s); ov.appendChild(back);
+        // [v97] 자재관리 — 테스터만 보인다
+        try {
+          if (window.__stockTester && window.__stockTester()) {
+            var stkBtn = document.createElement('button');
+            stkBtn.textContent = '자재관리';
+            stkBtn.style.cssText = 'background:#175cd3;color:#fff;border:none;border-radius:14px;padding:14px 40px;font-size:17px;font-weight:800;';
+            stkBtn.onclick = function () { if (window.__openStockPage) window.__openStockPage(); };
+            ov.appendChild(stkBtn);
+          }
+        } catch (e) {}
+        ov.appendChild(setBtn);
         document.body.appendChild(ov);
       };
       window.__openHelperHome = openHelperHome;
@@ -2205,4 +2222,338 @@ function parseValue(text) {
       }, true);
     }
   } catch (e) {}
+  // ===== [v97] 자재관리 BEGIN (테스터 전용 · awms 는 읽기만) =====
+  //   영준님 2026-11-14: "일단 불러오고. 그것을 일단 다 AE타입이라 생각해. 등록된 모뎀이 아닌것은
+  //   자재추가할수있게해서 따로장부를 기록. 타입별 개수도 나오게."
+  //   awms 호출 = mobMtl6000 selectList(출고 20·인계 40) · mobMtl4000 selectBarcdQr · mobCst1000 getMainList. 전부 GET.
+  //   내 모뎀 규칙 = scripts/my_stock.py 장부 방식(main 의 ledger 갈래)과 같다:
+  //     출고 행 중 인계자 = 본인(장애 교체로 잡힌 1개 출고) 뺌 · 출고는 6/22 일괄 재출고 이후만 · 인계는 날짜 무관
+  //     · 자재소유 N 은 내 것 아님 · 교체(M1020)로 떼어 낸 옛 모뎀(EXT_FCTY_ID)이 내 출고로 잡힌 것 뺌
+  //     · 시공 목록(getMainList MAC_MODEM)에 있으면 '사용'.
+  //   따로장부 = awms 자재가 모르는 실물 — Firebase helperStock/<USER_ID>/offbook/<MAC>. awms 와 겹치지 않는다.
+  var STOCK_FB = 'https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app/helperStock/';
+  var STOCK_SINCE = '20260622';
+  var STOCK_ROWS = [
+    ['LTE 모뎀(AE타입)', 'LTE AE'], ['LTE 모뎀(E타입)', 'LTE E'], ['LTE 모뎀(G타입)', 'LTE G'],
+    ['LTE 모뎀(AMIGO)', 'LTE 아미고'], ['PLC모뎀(AE타입)', 'PLC AE'], ['PLC모뎀(E 타입)', 'PLC E'],
+    ['IotPLC모뎀(AE타입)', 'IoT PLC AE'], ['IotPLC모뎀(E 타입)', 'IoT PLC E'], ['IotPLC모뎀(AMIGO)', 'IoT PLC 아미고']];
+
+  // [v97-kind-begin] scripts/my_stock.py kind() 와 같은 규칙. E 는 추정하지 않는다(실물 확인 화면 없음 = 전부 AE).
+  //   고치면 scripts/test_helper_stock.py 가 my_stock.kind() 와 대조한다.
+  var STOCK_AMIGO = ['012497', '012498', '012536', '012642'];
+  var STOCK_GTYPE = ['012540', '012545', '012556'];
+  function stockKind(mac) {
+    var m = String(mac || '').toUpperCase();
+    if (m.indexOf('012') === 0) {
+      if (STOCK_AMIGO.indexOf(m.slice(0, 6)) >= 0) return 'LTE 모뎀(AMIGO)';
+      if (STOCK_GTYPE.indexOf(m.slice(0, 6)) >= 0) return 'LTE 모뎀(G타입)';
+      return 'LTE 모뎀(AE타입)';
+    }
+    if (m.indexOf('AC5E8C') === 0) return m.slice(6, 8) === 'B0' ? 'IotPLC모뎀(AMIGO)' : 'IotPLC모뎀(AE타입)';
+    if (m.indexOf('8472070') === 0) return ['E3', 'E4', 'D9'].indexOf(m.slice(7, 9)) >= 0 ? 'PLC모뎀(AE타입)' : 'IotPLC모뎀(AE타입)';
+    if (m.indexOf('847207E') === 0) return 'IotPLC모뎀(AE타입)';
+    if (/^(E0AEED|847207B|847207C|847207D)/.test(m)) return 'PLC모뎀(AE타입)';
+    if (/^(44B433|0014B0)/.test(m)) return 'HPGP모뎀(AE타입)';
+    return '미분류 ' + m.slice(0, 7);
+  }
+  // [v97-kind-end]
+
+  function stockNorm(mac) { return String(mac || '').replace(/[\s:\-*]/g, '').toUpperCase(); }
+  function stockYmd(d) {   // KST YYYYMMDD
+    var k = new Date((d ? d.getTime() : Date.now()) + 9 * 3600 * 1000);
+    return k.toISOString().slice(0, 10).replace(/-/g, '');
+  }
+
+  // [v97-build-begin] 순수 계산 — 응답 배열만 받는다(시험에서 녹화 응답으로 돌린다).
+  //   r20 / r20N = 출고 탭 전체 / 자재소유 N · r40 / r40N = 인계 탭 · main = getMainList 행 · off = 따로장부 {MAC: {...}}
+  function stockBuild(me, r20, r20N, r40, r40N, main, off, today) {
+    var N20 = {}, N40 = {}, i, x, k;
+    for (i = 0; i < (r20N || []).length; i++) N20[stockNorm(r20N[i].FCTY_ID)] = 1;
+    for (i = 0; i < (r40N || []).length; i++) N40[stockNorm(r40N[i].FCTY_ID)] = 1;
+    var used = {}, ext = {}, todayMeters = {}, todayUsed = {};
+    for (i = 0; i < (main || []).length; i++) {
+      x = main[i] || {};
+      k = stockNorm(x.MAC_MODEM);
+      if (k && k !== '-') used[k] = 1;
+      var e = stockNorm(x.EXT_FCTY_ID);
+      if (x.WORK_DIV === 'M1020' && e && e !== '-') ext[e] = 1;
+      // 오늘 사용 = 새 모뎀을 쓴 마스터(신설·교체), 계기당 한 번(맥 정정 재전송은 옛 행이 남는다)
+      var wd = String(x.WORK_DATE || '').replace(/\D/g, '').slice(0, 8);
+      if (wd === today && String(x.MODEM_DIV) === '10' && (x.WORK_DIV === 'M1010' || x.WORK_DIV === 'M1020')
+          && k && !todayMeters[x.INSTR_NUM]) {
+        todayMeters[x.INSTR_NUM] = 1;
+        var tk = stockKind(k);
+        todayUsed[tk] = (todayUsed[tk] || 0) + 1;
+      }
+    }
+    var ledger = {}, rows = {}, drop = { self: 0, before: 0, notOwned: 0, ext: 0 };
+    var take = function (arr, src, N) {
+      for (var j = 0; j < (arr || []).length; j++) {
+        var y = arr[j] || {}, m = stockNorm(y.FCTY_ID);
+        if (!m) continue;
+        ledger[m] = 1;
+        if (src === '20' && String(y.HNDOVR_USER_ID || '') === me) { drop.self++; continue; }
+        var row = { mac: m, kind: stockKind(m), ymd: String(y.WRHSG_SHP_YMD || ''), sts: String(y.MTRL_STS_CD || ''),
+                    src: src, owned: !N[m], from: String(y.HNDOVR_USER_NM || '') };
+        if (src === '40') in40[m] = 1;
+        if (rows[m] && rows[m].owned) continue;              // 출고·인계 양쪽이면 소유 행을 남긴다(백엔드와 같다)
+        rows[m] = row;
+      }
+    };
+    var in40 = {};
+    take(r20, '20', N20);
+    take(r40, '40', N40);
+    var list = [];
+    for (k in rows) {
+      var r = rows[k];
+      if (!r.owned) { drop.notOwned++; continue; }
+      if (!in40[k] && r.ymd && r.ymd < STOCK_SINCE) { drop.before++; continue; }   // 인계받은 맥은 날짜 무관
+      r.used = !!used[k];
+      if (!r.used && ext[k]) { drop.ext++; continue; }
+      list.push(r);
+    }
+    var offList = [];
+    for (k in (off || {})) {
+      var o = off[k] || {}, m2 = stockNorm(k);
+      offList.push({ mac: m2, kind: stockKind(m2), addedAt: o.addedAt || 0, note: o.note || '',
+                     inAwms: !!ledger[m2], used: !!used[m2] });
+    }
+    var counts = {};
+    var bump = function (kd, f) { counts[kd] = counts[kd] || { awms: 0, off: 0 }; counts[kd][f]++; };
+    for (i = 0; i < list.length; i++) if (!list[i].used) bump(list[i].kind, 'awms');
+    for (i = 0; i < offList.length; i++) if (!offList[i].inAwms && !offList[i].used) bump(offList[i].kind, 'off');
+    return { list: list, off: offList, counts: counts, todayUsed: todayUsed, drop: drop, ledger: ledger };
+  }
+  // [v97-build-end]
+
+  function stockMe() {
+    try {
+      var vm = getAwmsVM();
+      var s = vm && (vm.session || (vm.$root && vm.$root.session));
+      if (s && s.USER_ID) return String(s.USER_ID);
+      var all = document.querySelectorAll('body *');
+      for (var i = 0; i < all.length && i < 3000; i++) {
+        var v = all[i].__vue__;
+        var r = v && v.$root;
+        if (r && r.session && r.session.USER_ID) return String(r.session.USER_ID);
+      }
+    } catch (e) {}
+    return '';
+  }
+  function stockTester() { var me = stockMe(); return !!me && TESTER_IDS.indexOf(me) > -1; }
+  window.__stockTester = stockTester;
+
+  function stockGet(url, app) {
+    return fetch(url, { credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        referrer: 'https://awms.kdn.com/html/main/index.html?app=' + app + '&menu=' + app + (app === 'MOBMTL' ? '6000' : '1000') })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if ((r.headers.get('content-type') || '').indexOf('json') < 0) throw new Error('세션 만료 — awms 로그인 화면이 왔다');
+        return r.json();
+      });
+  }
+  function stockMtl(radio, yn) {
+    return stockGet('/ami/mob/mtl/mobMtl6000/selectList?radioVal=' + radio + '&vFclClCode=&vMtlCode=&vShpPurpCtt=&sortCd=1&searchVal=&myMtrlYn=' + yn, 'MOBMTL')
+      .then(function (j) { return Array.isArray(j) ? j : []; });
+  }
+  // 시공 목록은 달마다 끊어 받는다 — 긴 구간·큰 pRowCount 는 HTTP 500(my_stock replaced_ext 실측)
+  function stockMain(since, today) {
+    var spans = [], y = +since.slice(0, 4), m = +since.slice(4, 6);
+    while (true) {
+      var a = '' + y + ('0' + m).slice(-2) + '01';
+      if (a > today) break;
+      var ny = m === 12 ? y + 1 : y, nm = m === 12 ? 1 : m + 1;
+      var b = stockYmd(new Date(Date.UTC(ny, nm - 1, 1) - 9 * 3600 * 1000 - 1000));
+      spans.push([a < since ? since : a, b > today ? today : b]);
+      y = ny; m = nm;
+    }
+    return Promise.all(spans.map(function (sp) {
+      return stockGet('/ami/mob/cst/mobCst1000/getMainList?FLAG=M10&DEPT1=3970&DEPT2=&searchKeyword=&sortKey=0&workStep=25,28,29' +
+                      '&pPageNo=1&pRowCount=5000&strDate=' + sp[0] + '&endDate=' + sp[1], 'MOBCST')
+        .then(function (d) { return Array.isArray(d) ? d : ((d && (d.rows || d.list)) || []); });
+    })).then(function (parts) { return [].concat.apply([], parts); });
+  }
+  function stockFb(me, mac, method, body) {
+    var u = STOCK_FB + encodeURIComponent(me) + '/offbook' + (mac ? '/' + encodeURIComponent(mac) : '') + '.json';
+    var o = { method: method || 'GET' };
+    if (body) { o.body = JSON.stringify(body); o.headers = { 'Content-Type': 'application/json' }; }
+    return fetch(u, o).then(function (r) { if (!r.ok) throw new Error('Firebase HTTP ' + r.status); return r.json(); });
+  }
+
+  function stockEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function stockFmtYmd(y) { y = String(y || ''); return y.length === 8 ? y.slice(4, 6) + '/' + y.slice(6) : (y || '-'); }
+
+  var __stock = { data: null, tab: 'hold', me: '' };
+  function stockRender() {
+    var ov = document.getElementById('__helper_stock');
+    if (!ov) return;
+    var body = ov.querySelector('#__stock_body');
+    var d = __stock.data;
+    if (!d) { body.innerHTML = '<div style="padding:30px;text-align:center;color:#667085">불러오는 중…</div>'; return; }
+    if (d.err) { body.innerHTML = '<div style="padding:24px;color:#d92d20;font-weight:700">못 불러옴 — ' + stockEsc(d.err) + '</div>'; return; }
+    var b = d.build, c = b.counts, t = b.todayUsed, h = '';
+    var td = 'padding:7px 6px;border-bottom:1px solid #eaecf0;text-align:right;';
+    h += '<table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff">' +
+      '<tr style="background:#f2f4f7;color:#475467"><th style="' + td + 'text-align:left">종류</th><th style="' + td + '">보유 awms</th>' +
+      '<th style="' + td + '">보유 따로장부</th><th style="' + td + '">합계</th><th style="' + td + '">오늘 사용</th></tr>';
+    var keys = STOCK_ROWS.slice(), tot = { a: 0, o: 0, t: 0 };
+    var extra = Object.keys(c).concat(Object.keys(t)).filter(function (k, i, s) {
+      return s.indexOf(k) === i && !STOCK_ROWS.some(function (r) { return r[0] === k; });
+    });
+    extra.forEach(function (k) { keys.push([k, k.replace('모뎀', ' ')]); });
+    keys.forEach(function (r) {
+      var v = c[r[0]] || { awms: 0, off: 0 }, n = t[r[0]] || 0;
+      tot.a += v.awms; tot.o += v.off; tot.t += n;
+      var dim = (v.awms + v.off + n) ? '' : 'color:#98a2b3;';
+      h += '<tr style="' + dim + '"><td style="' + td + 'text-align:left">' + stockEsc(r[1]) + '</td><td style="' + td + '">' + v.awms +
+        '</td><td style="' + td + '">' + v.off + '</td><td style="' + td + 'font-weight:700">' + (v.awms + v.off) + '</td><td style="' + td + '">' + n + '</td></tr>';
+    });
+    h += '<tr style="font-weight:800"><td style="' + td + 'text-align:left">합계</td><td style="' + td + '">' + tot.a + '</td><td style="' + td + '">' + tot.o +
+      '</td><td style="' + td + '">' + (tot.a + tot.o) + '</td><td style="' + td + '">' + tot.t + '</td></tr></table>';
+    h += '<div style="font-size:12px;color:#667085;margin:6px 2px 12px">awms 장부 기준 — 실물 재고와 다를 수 있음 · 전부 AE 로 셈(E 는 아직 가르지 않음)</div>';
+    var dr = b.drop;
+    h += '<div style="font-size:11px;color:#98a2b3;margin:-6px 2px 12px">뺀 것: 본인 인계(장애 교체) ' + dr.self + ' · 6/22 이전 출고 ' + dr.before +
+      ' · 소유 아님 ' + dr.notOwned + ' · 교체로 뗀 옛 모뎀 ' + dr.ext + '</div>';
+    var tabs = [['hold', '보유'], ['used', '사용'], ['off', '따로장부']];
+    h += '<div style="display:flex;gap:6px;margin-bottom:8px">';
+    tabs.forEach(function (tb) {
+      var on = __stock.tab === tb[0];
+      h += '<button data-tab="' + tb[0] + '" style="flex:1;height:36px;border-radius:9px;font-size:14px;font-weight:700;border:1px solid ' +
+        (on ? '#175cd3;background:#175cd3;color:#fff' : '#d0d5dd;background:#fff;color:#344054') + '">' + tb[1] + '</button>';
+    });
+    h += '</div>';
+    var rowsH = '', cell = 'padding:6px 4px;border-bottom:1px solid #f2f4f7;';
+    if (__stock.tab === 'off') {
+      b.off.sort(function (x, y) { return (y.addedAt || 0) - (x.addedAt || 0); });
+      b.off.forEach(function (o) {
+        var st = o.inAwms ? '<span style="color:#b54708;font-weight:700">awms 에 들어옴</span>' : (o.used ? '사용' : '보유');
+        rowsH += '<tr><td style="' + cell + 'font-family:monospace">' + stockEsc(o.mac) + '</td><td style="' + cell + '">' + stockEsc(o.kind) +
+          '</td><td style="' + cell + '">' + (o.addedAt ? stockFmtYmd(stockYmd(new Date(o.addedAt))) : '-') + '</td><td style="' + cell + '">' + st +
+          (o.note ? '<div style="font-size:11px;color:#667085">' + stockEsc(o.note) + '</div>' : '') +
+          '</td><td style="' + cell + '"><button data-del="' + stockEsc(o.mac) + '" style="border:1px solid #d0d5dd;background:#fff;border-radius:7px;padding:4px 7px;font-size:12px;white-space:nowrap">빼기</button></td></tr>';
+      });
+      if (!b.off.length) rowsH = '<tr><td style="padding:16px;color:#98a2b3">따로장부가 비어 있음</td></tr>';
+    } else {
+      var want = __stock.tab === 'used';
+      var arr = b.list.filter(function (r) { return r.used === want; });
+      arr.sort(function (x, y) { return x.kind < y.kind ? -1 : x.kind > y.kind ? 1 : (y.ymd > x.ymd ? 1 : y.ymd < x.ymd ? -1 : 0); });
+      arr.slice(0, 600).forEach(function (r) {
+        rowsH += '<tr><td style="' + cell + 'font-family:monospace">' + stockEsc(r.mac) + '</td><td style="' + cell + '">' + stockEsc(r.kind) +
+          '</td><td style="' + cell + '">' + stockFmtYmd(r.ymd) + (r.src === '40' ? ' 인계' : '') + '</td><td style="' + cell + '">' + (r.used ? '사용' : '보유') + '</td></tr>';
+      });
+      if (arr.length > 600) rowsH += '<tr><td style="padding:10px;color:#98a2b3">… ' + (arr.length - 600) + '개 더</td></tr>';
+      if (!arr.length) rowsH = '<tr><td style="padding:16px;color:#98a2b3">없음</td></tr>';
+    }
+    h += '<table style="width:100%;border-collapse:collapse;font-size:12px;background:#fff">' + rowsH + '</table>';
+    body.innerHTML = h;
+    Array.prototype.forEach.call(body.querySelectorAll('button[data-tab]'), function (bt) {
+      bt.onclick = function () { __stock.tab = bt.getAttribute('data-tab'); stockRender(); };
+    });
+    Array.prototype.forEach.call(body.querySelectorAll('button[data-del]'), function (bt) {
+      bt.onclick = function () {
+        var m = bt.getAttribute('data-del');
+        if (!confirm(m + ' 를 따로장부에서 뺄까요?')) return;
+        stockFb(__stock.me, m, 'DELETE').then(function () { rec({ stage: 'stock-off-del', mac: m }); stockLoad(); })
+          .catch(function (e) { alert('못 뺌 — ' + e.message); });
+      };
+    });
+  }
+
+  function stockLoad() {
+    var me = __stock.me, today = stockYmd();
+    __stock.data = null; stockRender();
+    var p = [stockMtl('20', ''), stockMtl('20', 'N'), stockMtl('40', ''), stockMtl('40', 'N')];
+    Promise.all(p).then(function (m) {
+      var since = STOCK_SINCE;
+      m[2].forEach(function (x) { var y = String(x.WRHSG_SHP_YMD || ''); if (/^\d{8}$/.test(y) && y < since) since = y; });
+      return Promise.all([stockMain(since, today), stockFb(me).catch(function () { return {}; })]).then(function (r) {
+        var b = stockBuild(me, m[0], m[1], m[2], m[3], r[0], r[1] || {}, today);
+        __stock.data = { build: b, at: Date.now() };
+        rec({ stage: 'stock-load', hold: b.list.filter(function (x) { return !x.used; }).length, off: b.off.length });
+        stockRender();
+      });
+    }).catch(function (e) { __stock.data = { err: e.message || String(e) }; stockRender(); });
+  }
+
+  // 자재 추가 — awms 가 모르는 맥만. awms 자재(selectBarcdQr) 에 있거나 내 출고·인계 목록에 있으면 거절.
+  function stockAddDialog() {
+    if (document.getElementById('__stock_add')) return;
+    var w = document.createElement('div');
+    w.id = '__stock_add';
+    w.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px;';
+    w.innerHTML = '<div style="background:#fff;border-radius:14px;padding:18px;width:100%;max-width:360px;font-family:-apple-system,sans-serif">' +
+      '<div style="font-size:18px;font-weight:800;margin-bottom:4px">자재 추가 (따로장부)</div>' +
+      '<div style="font-size:12px;color:#667085;margin-bottom:12px">awms 에 없는 모뎀만 들어갑니다</div>' +
+      '<div style="display:flex;gap:6px"><input id="__stock_mac" autocomplete="off" autocapitalize="characters" placeholder="모뎀 맥" ' +
+      'style="flex:1;height:44px;border:1px solid #d0d5dd;border-radius:9px;padding:0 10px;font-size:17px;font-family:monospace">' +
+      '<button id="__stock_scan" style="height:44px;border:0;border-radius:9px;background:#344054;color:#fff;padding:0 14px;font-size:14px;font-weight:700">스캔</button></div>' +
+      '<input id="__stock_note" placeholder="메모 (선택)" style="width:100%;box-sizing:border-box;margin-top:8px;height:38px;border:1px solid #d0d5dd;border-radius:9px;padding:0 10px;font-size:14px">' +
+      '<div id="__stock_msg" style="min-height:20px;margin-top:10px;font-size:14px;font-weight:700"></div>' +
+      '<div style="display:flex;gap:8px;margin-top:10px">' +
+      '<button id="__stock_ok" style="flex:1;height:44px;border:0;border-radius:10px;background:#175cd3;color:#fff;font-size:15px;font-weight:700">추가</button>' +
+      '<button id="__stock_cancel" style="flex:1;height:44px;border:1px solid #d0d5dd;border-radius:10px;background:#fff;color:#667085;font-size:15px">닫기</button></div></div>';
+    document.body.appendChild(w);
+    var inp = w.querySelector('#__stock_mac'), msg = w.querySelector('#__stock_msg');
+    var say = function (t, col) { msg.textContent = t; msg.style.color = col || '#101828'; };
+    var close = function () { window.__stockScanCb = null; try { w.parentNode.removeChild(w); } catch (e) {} };
+    w.querySelector('#__stock_cancel').onclick = close;
+    w.querySelector('#__stock_scan').onclick = function () {
+      if (!(window.AndroidScanner && window.AndroidScanner.scan)) { say('스캐너 없음 — 손으로 넣으세요', '#b54708'); return; }
+      window.__stockScanCb = function (raw) { inp.value = stockNorm(raw); say('읽힌 값을 라벨과 맞춰 보고 [추가]', '#175cd3'); };
+      window.AndroidScanner.scan();
+    };
+    w.querySelector('#__stock_ok').onclick = function () {
+      var m = stockNorm(inp.value), note = String(w.querySelector('#__stock_note').value || '').trim().slice(0, 100);
+      if (!m) { say('맥을 넣으세요', '#d92d20'); return; }
+      var fe = macFormatError(m, true);
+      if (fe) { say('맥 오류 — ' + fe.reason, '#d92d20'); return; }
+      var kd = stockKind(m);
+      if (kd.indexOf('미분류') === 0) { say('종류를 모르는 앞자리 — 추가 안 함', '#d92d20'); return; }
+      var b = __stock.data && __stock.data.build;
+      if (!b) { say('목록을 아직 못 불러옴 — 다시 열어 주세요', '#d92d20'); return; }
+      if (b.ledger[m]) { say('awms 등록 모뎀 — 장부에 이미 있음', '#d92d20'); return; }
+      if (b.off.some(function (o) { return o.mac === m; })) { say('이미 따로장부에 있음', '#b54708'); return; }
+      say('awms 자재 조회 중…', '#667085');
+      stockGet('/ami/mob/mtl/mobMtl4000/selectBarcdQr?vFclCl=M&vUnitCode=10&vBarcdQr=' + encodeURIComponent(m), 'MOBMTL')
+        .then(function (j) {
+          if (!(Array.isArray(j) && j.length === 0)) {
+            rec({ stage: 'stock-off-refuse', mac: m });
+            say('awms 등록 모뎀 — 장부에 이미 있음', '#d92d20');
+            return;
+          }
+          return stockFb(__stock.me, m, 'PUT', { type: kd, addedAt: Date.now(), note: note, by: __stock.me }).then(function () {
+            rec({ stage: 'stock-off-add', mac: m, kind: kd });
+            say('추가함 — ' + m + ' (' + kd + ')', '#067647');
+            inp.value = ''; w.querySelector('#__stock_note').value = '';
+            stockLoad();
+          });
+        })
+        .catch(function (e) { say('조회·저장 실패 — 추가 안 함 (' + e.message + ')', '#d92d20'); });
+    };
+  }
+
+  function openStockPage() {
+    if (document.getElementById('__helper_stock')) return;
+    __stock.me = stockMe();
+    if (!__stock.me || TESTER_IDS.indexOf(__stock.me) < 0) return;
+    var ov = document.createElement('div');
+    ov.id = '__helper_stock';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#f9fafb;overflow-y:auto;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#101828;' +
+      'padding:calc(env(safe-area-inset-top,0px) + 12px) 12px calc(env(safe-area-inset-bottom,0px) + 24px);box-sizing:border-box;';
+    ov.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">' +
+      '<div style="font-size:20px;font-weight:800;flex:1">자재관리 <span style="font-size:11px;color:#98a2b3;font-weight:400">시험판 ' + VER + '</span></div>' +
+      '<button id="__stock_reload" style="height:36px;border:1px solid #d0d5dd;border-radius:9px;background:#fff;padding:0 10px;font-size:13px">새로고침</button>' +
+      '<button id="__stock_close" style="height:36px;border:0;border-radius:9px;background:#1e3a8a;color:#fff;padding:0 12px;font-size:13px;font-weight:700">닫기</button></div>' +
+      '<button id="__stock_addbtn" style="width:100%;height:44px;border:0;border-radius:10px;background:#175cd3;color:#fff;font-size:15px;font-weight:800;margin-bottom:10px">자재 추가</button>' +
+      '<div id="__stock_body"></div>';
+    document.body.appendChild(ov);
+    ov.querySelector('#__stock_close').onclick = function () { ov.remove(); };
+    ov.querySelector('#__stock_reload').onclick = stockLoad;
+    ov.querySelector('#__stock_addbtn').onclick = stockAddDialog;
+    rec({ stage: 'stock-open' });
+    stockLoad();
+  }
+  window.__openStockPage = openStockPage;
+  // ===== [v97] 자재관리 END =====
+
 })();
