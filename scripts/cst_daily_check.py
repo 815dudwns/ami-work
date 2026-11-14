@@ -32,10 +32,12 @@ Checks (영준님 checklist 2026-11-14)
       photo = awms number -> 초록, unread / no photo -> 노랑, different -> the 오타 rule.
     - 계기유형 INST_M / 통신방식 INST_S / slave BUNGI vs what the backend would have sent = 빨강.
  2. Map: places I marked complete that day vs awms, same list only. 개별불가 memo number found in
-    awms = resolved; memo one digit off an awms number = 노랑 '메모 오타 의심'; list count !=
-    registered count = 노랑 with the out-of-list meters.
+    awms = resolved; memo one digit off an awms number = 노랑 '메모 오타 의심'.
+    영준님 3 rules (2026-11-14): list meter in awms = pass (no photo read) / out-of-list meter in awms =
+    slot-5 photo read / list place complete but a list meter not in awms = 빨강 '누락' (even when
+    out-of-list meters were registered there — 신수동 275-1).
  3. Photo OCR with our engine (Apple Vision; Google Vision is not used): meter number on slot 5 for
-    every master and slave, MAC on slot 4 for 기설 and MACs not in my 출고 ledger. Confusable
+    out-of-list meters only, MAC on slot 4 for 기설 and MACs not in my 출고 ledger. Confusable
     letters are folded (B=8 O=0 S=5 D=0 I=1) and a miss is read again at 2x, then the barcode on the
     photo (zbarimg) — 노랑 only when the original read, the 2x read and the barcode all disagree.
  4. Material (today only): today's use by type (신설 masters, kind()) + stock, and
@@ -475,7 +477,6 @@ def map_check(sites, rows, idx, rep):
         # 'outside the list' and are not this place's count
         reg = {n for n in reg if n in ms or not in_lists(n)}
         missing = []        # list meter, no awms row, no 개별불가
-        dropped = 0         # 개별불가 with no number in the memo — not expected in awms
         stands_in = set()   # awms numbers that stand in for a list meter (memo number / memo typo)
         for m in [m for m in ms if m not in aw]:
             if m not in failed:
@@ -493,31 +494,18 @@ def map_check(sites, rows, idx, rep):
                 rep.add("yellow", "map", f"{t} {k} 개별불가 {m} 메모 번호 {n} 와 awms {x} 가 한 자리 다르다 — 메모 오타 의심",
                         "계기 사진으로 어느 쪽이 맞는지 보고 메모(또는 awms)를 고친다", key=k, meter=x)
             elif nums:
-                dropped += 1
                 rep.add("yellow", "map", f"{t} {k} 개별불가 {m} 메모 번호 {sorted(nums)} 가 awms 에 없다",
                         "메모 번호 확인", key=k, meter=m)
-            else:
-                dropped += 1
         out_list = sorted(reg - set(ms) - stands_in)
-        expect = len(ms) - dropped
-        if missing and not out_list:
-            rep.add("red", "map", f"{t} {k} 리스트 {len(ms)}대 중 {len(missing)}대 awms 없음 {missing}",
+        # 영준님 3규칙(2026-11-14): 리스트 = awms 면 통과 / 리스트 밖 awms 는 사진 판독 /
+        #   리스트 완료인데 awms 없음 = 누락(빨강) — 리스트 밖 계기가 같이 있어도 누락은 누락(275-1)
+        if missing:
+            rep.add("red", "map", f"{t} {k} 누락 — 리스트 {len(ms)}대 중 {len(missing)}대 awms 없음 {missing}"
+                    + (f" (리스트 밖 {len(out_list)}대 등록 {out_list})" if out_list else ""),
                     f"{', '.join(missing)} 추가 등록, 현장에 없으면 개별불가", key=k, meters=missing)
-        elif not missing and out_list and len(reg) - len(out_list) == expect:
-            # only extra meters outside the list, nothing missing — decided by the photo read
+        if out_list:
             rep.add("outlist", "map", f"{t} {k} 리스트 {len(ms)}대 / 등록 {len(reg)}대 — 리스트 밖 {len(out_list)}대 {out_list}",
                     "계기 사진으로 번호 확인", key=k, meters=out_list)
-        elif missing or len(reg) != expect:
-            # a missing list meter / count gap is an omission signal — yellow regardless of photos (275-1)
-            msg = f"{t} {k} 리스트 {len(ms)}대 / 등록 {len(reg)}대"
-            if missing:
-                msg += f" — 리스트 {len(missing)}대 없음 {missing}"
-            if out_list:
-                msg += f" + 리스트 밖 {len(out_list)}대 {out_list}"
-            rep.add("yellow", "map", msg,
-                    "계기 사진으로 리스트 밖 계기가 리스트 계기를 대신한 건지, 빠뜨린 건지 확인"
-                    + (f" — 현장에 없으면 {', '.join(missing)} 개별불가" if missing else ""),
-                    key=k, meters=missing + out_list)
     done = states.get("complete", 0)
     print(f"   완료 {done}곳 · 불가 {states.get('fail', 0)}곳"
           + "".join(f" · {s} {n}곳" for s, n in states.items() if s not in ("complete", "fail")) + "\n")
@@ -643,16 +631,17 @@ def ocr_check(day, rows, ship, idx, details, photo_map, rep, outdir, groups_div,
     today += [r for r in extra if r not in today]
     print("== 3. 사진 판독 (우리 엔진 · 원본 + 2배 확대)")
     # meter numbers, slot 5, masters and slaves
+    def listed(n):
+        return [x for x in idx.get(n, []) if x["l"] != "a"]
+    # 영준님 3규칙: 리스트에 있는 계기는 awms 에 있으면 통과 — 판독은 리스트 밖 계기만
     tg, nophoto = [], []
-    for r in today:
+    for r in [r for r in today if not listed(r["INSTR_NUM"])]:
         p = get_photo(r["INSTR_NUM"], "5", photo_map, details, outdir)
         (tg.append((r["INSTR_NUM"], r["INSTR_NUM"], p)) if p else nophoto.append(r["INSTR_NUM"]))
     res = two_pass(tg, ocr_meters, lambda w, g: bool(g) and fold(w) == fold(g), outdir)
     bad = {k: v for k, v in res.items() if v[0] == "bad"}
     none = sorted(k for k, v in res.items() if v[0] == "none")
     path_of = {k: p for k, _, p in tg}
-    def listed(n):
-        return [x for x in idx.get(n, []) if x["l"] != "a"]
     typo = {}
     aw = {r["INSTR_NUM"] for r in rows}
     for no, (_, g1, g2) in bad.items():
@@ -672,7 +661,7 @@ def ocr_check(day, rows, ship, idx, details, photo_map, rep, outdir, groups_div,
             rep.items.remove(x)
     verdict = {k: v[0] for k, v in res.items()}
     verdict.update({n: "nophoto" for n in nophoto})
-    print(f"   계기 사진 {len(tg)}장: 일치 {sum(v[0] == 'ok' for v in res.values())} · 다름 {len(bad)} · 판독 못함 {len(none)}"
+    print(f"   리스트 밖 계기 사진 {len(tg)}장: 일치 {sum(v[0] == 'ok' for v in res.values())} · 다름 {len(bad)} · 판독 못함 {len(none)}"
           + (f" {none}" if none else "") + (f" · 사진 없음 {len(nophoto)} {nophoto}" if nophoto else ""))
     # MAC, slot 4, 기설 + not in my 출고 ledger
     own = ship.get("rows") or {}
@@ -702,10 +691,17 @@ def ocr_check(day, rows, ship, idx, details, photo_map, rep, outdir, groups_div,
 
 
 def resolve_outlist(rep, verdict):
-    """Out-of-list meters, after the slot-5 read (영준님 2026-11-14):
+    """Out-of-list meters, after the slot-5 read (영준님 2026-11-14 — list meters are not read at all):
     photo = awms number for all -> 초록 / any unread or no photo -> 노랑 '사진 판독 못 함' /
     a different number -> the read itself already made the item (오타 빨강 or 노랑 + 사진), drop this one.
     verdict None = OCR was not run (--no-ocr) -> 노랑 as before."""
+    covered = {m for x in rep.items if x["level"] == "outlist" for m in x.get("meters") or []}
+    if verdict is not None:
+        # out-of-list meters read without an item of their own (기설 master = the old modem's 대표계기)
+        for m, v in sorted(verdict.items()):
+            if m not in covered and v in ("none", "nophoto"):
+                rep.add("yellow", "ocr", f"리스트 밖 {m} — 사진 판독 못 함" + (" (사진 없음)" if v == "nophoto" else ""),
+                        "계기 사진으로 번호 확인", meter=m)
     for x in list(rep.items):
         if x["level"] != "outlist":
             continue

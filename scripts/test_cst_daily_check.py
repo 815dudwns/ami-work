@@ -251,7 +251,7 @@ def _():
     return has(rep, "green", "해결") and not rep.of("yellow") and not rep.of("red"), rep
 
 
-@case("리스트 1대 없음 + 리스트 밖 = 노랑 묶음 (11/13 신수동 275-1)")
+@case("리스트 1대 없음 + 리스트 밖 = 빨강 누락, 리스트 밖은 사진 판독 (11/13 신수동 275-1)")
 def _():
     m = row("47450039041", "01254535719", dcu="")
     ss = [row(n, "01254535719", modem="20") for n in ("25530026782", "25530024655")]
@@ -261,7 +261,9 @@ def _():
     ws = {"서울특별시 마포구 신수동 275-1|미조치lte": {"state": "complete", "updatedAt": "2026-11-13T15:13:07+09:00",
                                                     "updatedByName": "우영준"}}
     rep = run(group(m, ss), {n: {"BUNGI": "0.5"} for n in ("25530026782", "25530024655")}, ws)
-    ok = has(rep, "yellow", "리스트 2대 / 등록 3대", "25530018556", "리스트 밖 2대") and not rep.of("red")
+    ok = has(rep, "red", "누락", "25530018556") and has(rep, "outlist", "리스트 밖 2대")
+    C.resolve_outlist(rep, {"25530024655": "ok", "47450039041": "ok"})
+    ok = ok and has(rep, "green", "275-1", "사진 번호 확인 일치") and not rep.of("yellow")
     return ok, rep
 
 
@@ -332,6 +334,34 @@ def _():
     rep = run(group(m, ss), {n: {"BUNGI": "0.5"} for n in ("25190712322", "25190712868")}, ws)
     C.resolve_outlist(rep, {"A0550070511": "ok"})
     return has(rep, "green", "421-12", "사진 번호 확인 일치") and not rep.of("yellow") and not rep.of("red"), rep
+
+
+@case("기설 마스터(리스트 밖, 항목 없음) 판독 못 함 = 노랑")
+def _():
+    rep = C.Report()
+    C.resolve_outlist(rep, {"06190038568": "none", "47452015946": "ok"})
+    return has(rep, "yellow", "06190038568", "사진 판독 못 함") and len(rep.items) == 1, rep
+
+
+@case("리스트 계기는 사진 판독 안 함, 리스트 밖만 판독")
+def _():
+    rs = base()
+    s2 = row("25530024655", "E0AEED953741", modem="20")
+    rs.insert(2, s2)
+    seen = []
+    old_tp, old_gp = C.two_pass, C.get_photo
+    C.get_photo = lambda meter, slot, *a: f"/x/{meter}_{slot}.jpg"
+
+    def fake(targets, read, match, outdir):
+        seen.append([k for k, _, _ in targets])
+        return {k: ("ok", w, "") for k, w, _ in targets}
+    C.two_pass = fake
+    try:
+        with redirect_stdout(io.StringIO()):
+            v = C.ocr_check(DAY, rs, SHIP, IDX, {}, {}, C.Report(), Path("/tmp"), {})
+    finally:
+        C.two_pass, C.get_photo = old_tp, old_gp
+    return seen and seen[0] == ["25530024655"] and set(v) == {"25530024655"}, None
 
 
 def main():
