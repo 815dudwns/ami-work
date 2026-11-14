@@ -93,7 +93,11 @@ def kind(m):
     if m.startswith("AC5E8C"):
         return "IotPLC모뎀(AMIGO)" if m[6:8] == "B0" else "IotPLC모뎀(AE타입)"
     if m.startswith("8472070"):
-        return "IotPLC모뎀(E 타입)"  # 영준님; history: E-via-adapter majority
+        # 8472070E3/E4/D9 = KS-PLC, rest = K-DCU — same rule as 아미큐 backend _mac_raw_suffix
+        # (영준님 2026-11-14 "반영해야지"). Type stays E (영준님; E-via-adapter majority).
+        if m[7:9] in ("E3", "E4", "D9"):
+            return "PLC모뎀(E 타입)"
+        return "IotPLC모뎀(E 타입)"
     if m.startswith("847207E"):
         return f"IotPLC모뎀({_history_type(m) or 'AE·E 확인'} 타입)"
     if m.startswith("E0AEED"):
