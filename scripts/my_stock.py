@@ -231,6 +231,7 @@ def from_baseline(a):
     import time
     now = int(time.time())
     t_start, stock, src = _start()
+    start_counts = dict(stock)
     ts = t_start * 1000
     d_start = datetime.datetime.fromtimestamp(t_start).strftime("%Y-%m-%d")
     print(f"{src} {sum(stock.values())}개 ({datetime.datetime.fromtimestamp(t_start):%m/%d %H:%M})")
@@ -241,8 +242,10 @@ def from_baseline(a):
         for x in _mtl6000(radio):
             if (x.get("REG_DATE") or 0) > ts and not (radio == "20" and str(x.get("HNDOVR_USER_ID")) == me):
                 got.append((x.get("FCTY_ID") or "").upper())
+    recv = defaultdict(int)
     for m in got:
         stock[bucket(kind(m))] += 1
+        recv[bucket(kind(m))] += 1
     # off-book receipts: physical modems awms material does not know (IoT PLC, 영준님 2026-10-21).
     # They never reach the 출고 ledger, so they are added here from the separate ledger.
     off = 0
@@ -253,6 +256,7 @@ def from_baseline(a):
             for m in bt.get("macs", []):
                 if m.upper() not in got:
                     stock[bucket(kind(m.upper()))] += 1
+                    recv[bucket(kind(m.upper()))] += 1
                     off += 1
     # installs after the baseline: master rows that consumed a new modem (신설·교체), one per meter
     h = A.headers()
@@ -296,6 +300,9 @@ def from_baseline(a):
         print("\n  ★장부에 없는 MAC으로 시공(오독 의심 — 재전송 확인):")
         for m, d, n in odd:
             print(f"     {d} 계기 {n}  MAC {m}")
+    # 작업검사(cst_daily_check)가 '지난 검사 재고 - 사용 + 수령 = 지금' 을 타입별로 대조한다
+    return {"start_ts": t_start, "start_src": src, "start": start_counts, "got": got, "recv": dict(recv), "offbook": off,
+            "used": used, "stock": {k: v for k, v in stock.items()}, "saved": bool(a.save)}
 
 
 def main():
