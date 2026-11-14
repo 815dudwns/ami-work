@@ -42,8 +42,8 @@ FORMAT = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE타입)", "LTE 모뎀(E타입)", "L
           "IotPLC모뎀(AE타입)", "IotPLC모뎀(E 타입)", "IotPLC모뎀(AMIGO)",
           "HPGP모뎀(AE타입)", "HPGP모뎀(G타입)"]
 
-FORMAT_B = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE타입)", "LTE 모뎀(G타입)", "PLC모뎀(AE타입)", "PLC모뎀(E 타입)",
-            "PLC모뎀(AMIGO)", "IotPLC모뎀(AE타입)", "IotPLC모뎀(E 타입)", "IotPLC모뎀(AMIGO)",
+FORMAT_B = ["LTE 모뎀(AMIGO)", "LTE 모뎀(AE타입)", "LTE 모뎀(G타입)", "PLC모뎀(AE타입)",
+            "PLC모뎀(AMIGO)", "IotPLC모뎀(AE타입)", "IotPLC모뎀(AMIGO)",
             "HPGP모뎀(AE타입)", "HPGP모뎀(G타입)"]
 
 
@@ -92,18 +92,15 @@ def kind(m):
     # 8472070, 847207E, AC5E8C = DCU5-6 (IoT-PLC). 44B433/0014B0 = HPGP.
     if m.startswith("AC5E8C"):
         return "IotPLC모뎀(AMIGO)" if m[6:8] == "B0" else "IotPLC모뎀(AE타입)"
+    # AE and E modems are NOT told apart (영준님 2026-11-14 "etype 계기를 구별하지말아야겟다") —
+    # prefixes are reused, so every non-Amigo/G modem counts as AE.
     if m.startswith("8472070"):
         # 8472070E3/E4/D9 = KS-PLC, rest = K-DCU — same rule as 아미큐 backend _mac_raw_suffix
-        # (영준님 2026-11-14 "반영해야지"). Type stays E (영준님; E-via-adapter majority).
-        if m[7:9] in ("E3", "E4", "D9"):
-            return "PLC모뎀(E 타입)"
-        return "IotPLC모뎀(E 타입)"
+        return "PLC모뎀(AE타입)" if m[7:9] in ("E3", "E4", "D9") else "IotPLC모뎀(AE타입)"
     if m.startswith("847207E"):
-        return f"IotPLC모뎀({_history_type(m) or 'AE·E 확인'} 타입)"
-    if m.startswith("E0AEED"):
+        return "IotPLC모뎀(AE타입)"
+    if m.startswith(("E0AEED", "847207B", "847207C", "847207D")):
         return "PLC모뎀(AE타입)"
-    if m.startswith(("847207B", "847207C", "847207D")):
-        return f"PLC모뎀({_history_type(m) or 'AE·E 확인'} 타입)".replace("(AE 타입)", "(AE타입)")
     if m.startswith(("44B433", "0014B0")):
         return "HPGP모뎀(AE타입)"
     return "미분류 " + m[:7]
