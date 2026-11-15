@@ -2392,10 +2392,10 @@ function parseValue(text) {
     if (!d) { body.innerHTML = '<div style="padding:30px;text-align:center;color:#667085">조회 중…</div>'; return; }
     if (d.err) { body.innerHTML = '<div style="padding:24px;color:#d92d20;font-weight:700">조회 실패 — ' + stockEsc(d.err) + '</div>'; return; }
     var b = d.build, c = b.counts, t = b.todayUsed, h = '';
-    var td = 'padding:7px 6px;border-bottom:1px solid #eaecf0;text-align:right;';
+    var td = 'padding:7px 5px;border-bottom:1px solid #eaecf0;text-align:right;white-space:nowrap;';   // [v97] 머리글·행 이름 한 줄(360px 폭 확인)
     h += '<table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff">' +
-      '<tr style="background:#f2f4f7;color:#475467"><th style="' + td + 'text-align:left">종류</th><th style="' + td + '">재고 awms</th>' +
-      '<th style="' + td + '">재고 별도 관리 자재</th><th style="' + td + '">총계</th><th style="' + td + '">금일 사용</th></tr>';
+      '<tr style="background:#f2f4f7;color:#475467"><th style="' + td + 'text-align:left">자재</th><th style="' + td + '">awms</th>' +
+      '<th style="' + td + '">별도</th><th style="' + td + '">총계</th><th style="' + td + '">금일</th></tr>';
     var keys = STOCK_ROWS.slice(), tot = { a: 0, o: 0, t: 0 };
     var extra = Object.keys(c).concat(Object.keys(t)).filter(function (k, i, s) {
       return s.indexOf(k) === i && !STOCK_ROWS.some(function (r) { return r[0] === k; });
@@ -2410,7 +2410,7 @@ function parseValue(text) {
     });
     h += '<tr style="font-weight:800"><td style="' + td + 'text-align:left">총계</td><td style="' + td + '">' + tot.a + '</td><td style="' + td + '">' + tot.o +
       '</td><td style="' + td + '">' + (tot.a + tot.o) + '</td><td style="' + td + '">' + tot.t + '</td></tr></table>';
-    h += '<div style="font-size:12px;color:#667085;margin:6px 2px 12px">awms 등록 기준 · 실재고와 차이 발생 가능 · 모뎀 형식 전량 AE 기준 집계(E 미구분)</div>';
+    h += '<div style="font-size:12px;color:#667085;margin:6px 2px 12px">awms 등록 재고 · 별도 관리 재고 · 금일 사용 · awms 등록 기준, 실재고와 차이 발생 가능 · 모뎀 형식 전량 AE 기준 집계(E 미구분)</div>';
     var dr = b.drop;
     h += '<div style="font-size:11px;color:#98a2b3;margin:-6px 2px 12px">집계 제외: 본인 인계(장애 교체) ' + dr.self + ' · 6/22 이전 출고 ' + dr.before +
       ' · 소유 해제 ' + dr.notOwned + ' · 교체 철거 모뎀 ' + dr.ext + '</div>';
