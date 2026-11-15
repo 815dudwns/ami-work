@@ -2348,7 +2348,7 @@ function parseValue(text) {
                         referrer: 'https://awms.kdn.com/html/main/index.html?app=' + app + '&menu=' + app + (app === 'MOBMTL' ? '6000' : '1000') })
       .then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        if ((r.headers.get('content-type') || '').indexOf('json') < 0) throw new Error('awms 세션 만료 — 재로그인 필요');
+        if ((r.headers.get('content-type') || '').indexOf('json') < 0) throw new Error('awms 세션 만료');
         return r.json();
       });
   }
@@ -2390,7 +2390,7 @@ function parseValue(text) {
     var body = ov.querySelector('#__stock_body');
     var d = __stock.data;
     if (!d) { body.innerHTML = '<div style="padding:30px;text-align:center;color:#667085">조회 중…</div>'; return; }
-    if (d.err) { body.innerHTML = '<div style="padding:24px;color:#d92d20;font-weight:700">조회 실패 — ' + stockEsc(d.err) + '</div>'; return; }
+    if (d.err) { body.innerHTML = '<div style="padding:24px;color:#d92d20;font-weight:700">조회 실패</div>'; return; }
     var b = d.build, c = b.counts, t = b.todayUsed, h = '';
     var td = 'padding:7px 5px;border-bottom:1px solid #eaecf0;text-align:right;white-space:nowrap;';   // [v97] 머리글·행 이름 한 줄(360px 폭 확인)
     h += '<table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff">' +
@@ -2410,10 +2410,10 @@ function parseValue(text) {
     });
     h += '<tr style="font-weight:800"><td style="' + td + 'text-align:left">총계</td><td style="' + td + '">' + tot.a + '</td><td style="' + td + '">' + tot.o +
       '</td><td style="' + td + '">' + (tot.a + tot.o) + '</td><td style="' + td + '">' + tot.t + '</td></tr></table>';
-    h += '<div style="font-size:12px;color:#667085;margin:6px 2px 12px">awms 등록 재고 · 별도 관리 재고 · 금일 사용 · awms 등록 기준, 실재고와 차이 발생 가능 · 모뎀 형식 전량 AE 기준 집계(E 미구분)</div>';
+    h += '<div style="font-size:12px;color:#667085;margin:6px 2px 12px">awms 등록 재고 · 별도 관리 재고 · 금일 사용 · 실재고와 차이 가능</div>';
     var dr = b.drop;
-    h += '<div style="font-size:11px;color:#98a2b3;margin:-6px 2px 12px">집계 제외: 본인 인계(장애 교체) ' + dr.self + ' · 6/22 이전 출고 ' + dr.before +
-      ' · 소유 해제 ' + dr.notOwned + ' · 교체 철거 모뎀 ' + dr.ext + '</div>';
+    h += '<div style="font-size:11px;color:#98a2b3;margin:-6px 2px 12px">제외: 본인 인계 ' + dr.self + ' · 6/22 이전 ' + dr.before +
+      ' · 소유 해제 ' + dr.notOwned + ' · 교체 철거 ' + dr.ext + '</div>';
     var tabs = [['hold', '재고'], ['used', '사용 완료'], ['off', '별도 관리 자재']];
     h += '<div style="display:flex;gap:6px;margin-bottom:8px">';
     tabs.forEach(function (tb) {
@@ -2426,13 +2426,13 @@ function parseValue(text) {
     if (__stock.tab === 'off') {
       b.off.sort(function (x, y) { return (y.addedAt || 0) - (x.addedAt || 0); });
       b.off.forEach(function (o) {
-        var st = o.inAwms ? '<span style="color:#b54708;font-weight:700">awms 등록 확인 — 별도 관리 해제 대상</span>' : (o.used ? '사용 완료' : '재고');
+        var st = o.inAwms ? '<span style="color:#b54708;font-weight:700">awms 등록됨·해제 대상</span>' : (o.used ? '사용 완료' : '재고');
         rowsH += '<tr><td style="' + cell + 'font-family:monospace">' + stockEsc(o.mac) + '</td><td style="' + cell + '">' + stockEsc(o.kind) +
           '</td><td style="' + cell + '">' + (o.addedAt ? stockFmtYmd(stockYmd(new Date(o.addedAt))) : '-') + '</td><td style="' + cell + '">' + st +
           (o.note ? '<div style="font-size:11px;color:#667085">' + stockEsc(o.note) + '</div>' : '') +
           '</td><td style="' + cell + '"><button data-del="' + stockEsc(o.mac) + '" style="border:1px solid #d0d5dd;background:#fff;border-radius:7px;padding:4px 7px;font-size:12px;white-space:nowrap">등록 해제</button></td></tr>';
       });
-      if (!b.off.length) rowsH = '<tr><td style="padding:16px;color:#98a2b3">등록된 별도 관리 자재 없음</td></tr>';
+      if (!b.off.length) rowsH = '<tr><td style="padding:16px;color:#98a2b3">없음</td></tr>';
     } else {
       var want = __stock.tab === 'used';
       var arr = b.list.filter(function (r) { return r.used === want; });
@@ -2441,8 +2441,8 @@ function parseValue(text) {
         rowsH += '<tr><td style="' + cell + 'font-family:monospace">' + stockEsc(r.mac) + '</td><td style="' + cell + '">' + stockEsc(r.kind) +
           '</td><td style="' + cell + '">' + stockFmtYmd(r.ymd) + (r.src === '40' ? ' 인계' : '') + '</td><td style="' + cell + '">' + (r.used ? '사용 완료' : '재고') + '</td></tr>';
       });
-      if (arr.length > 600) rowsH += '<tr><td style="padding:10px;color:#98a2b3">… ' + (arr.length - 600) + '건 추가 있음</td></tr>';
-      if (!arr.length) rowsH = '<tr><td style="padding:16px;color:#98a2b3">해당 자재 없음</td></tr>';
+      if (arr.length > 600) rowsH += '<tr><td style="padding:10px;color:#98a2b3">외 ' + (arr.length - 600) + '건</td></tr>';
+      if (!arr.length) rowsH = '<tr><td style="padding:16px;color:#98a2b3">없음</td></tr>';
     }
     h += '<table style="width:100%;border-collapse:collapse;font-size:12px;background:#fff">' + rowsH + '</table>';
     body.innerHTML = h;
@@ -2452,9 +2452,9 @@ function parseValue(text) {
     Array.prototype.forEach.call(body.querySelectorAll('button[data-del]'), function (bt) {
       bt.onclick = function () {
         var m = bt.getAttribute('data-del');
-        if (!confirm('별도 관리 자재 등록 해제 확인 — ' + m)) return;
+        if (!confirm('등록 해제 ' + m)) return;
         stockFb(__stock.me, m, 'DELETE').then(function () { rec({ stage: 'stock-off-del', mac: m }); stockLoad(); })
-          .catch(function (e) { alert('등록 해제 실패 — ' + e.message); });
+          .catch(function (e) { rec({ stage: 'stock-del-fail', mac: m, msg: String(e && e.message || e) }); alert('등록 해제 실패'); });
       };
     });
   }
@@ -2472,7 +2472,7 @@ function parseValue(text) {
         rec({ stage: 'stock-load', hold: b.list.filter(function (x) { return !x.used; }).length, off: b.off.length });
         stockRender();
       });
-    }).catch(function (e) { __stock.data = { err: e.message || String(e) }; stockRender(); });
+    }).catch(function (e) { __stock.data = { err: e.message || String(e) }; rec({ stage: 'stock-load-fail', msg: __stock.data.err }); stockRender(); });
   }
 
   // 자재 추가 — 스캔(또는 손입력)마다 대기 목록에 쌓고, [저장] 한 번에 모아 쓴다(영준님 2026-11-15).
@@ -2482,11 +2482,11 @@ function parseValue(text) {
   function stockCheckLocal(mac, build, pending) {
     if (!mac) return 'MAC 미입력';
     var fe = macFormatError(mac, true);
-    if (fe) return 'MAC 형식 오류 — ' + fe.reason;
-    if (stockKind(mac).indexOf('미분류') === 0) return '자재 종류 확인 불가 (미등록 MAC 앞자리)';
-    if (!build) return '자재 목록 조회 전 — 잠시 후 재시도 필요';
-    if (build.ledger[mac]) return 'awms 등록 자재 — 별도 등록 불가';
-    for (var i = 0; i < build.off.length; i++) if (build.off[i].mac === mac) return '별도 관리 자재 기등록';
+    if (fe) return 'MAC 형식 오류';
+    if (stockKind(mac).indexOf('미분류') === 0) return '종류 미상';
+    if (!build) return '목록 조회 전';
+    if (build.ledger[mac]) return 'awms 등록 자재';
+    for (var i = 0; i < build.off.length; i++) if (build.off[i].mac === mac) return '이미 등록';
     for (var j = 0; j < (pending || []).length; j++) if (pending[j].mac === mac) return '중복 스캔';
     return '';
   }
@@ -2506,7 +2506,7 @@ function parseValue(text) {
         '<div style="font-size:12px;color:' + col + '">' + stockEsc(p.kind ? p.kind + ' · ' : '') + stockEsc(txt) + '</div></div>' +
         '<button data-rm="' + i + '" style="width:34px;height:34px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;font-size:16px;color:#667085">×</button></div>';
     });
-    box.innerHTML = h || '<div style="padding:10px 4px;font-size:13px;color:#98a2b3">[스캔] 선택 시 카메라 실행 · 1건 인식 후 자동 종료 · 인식 자재는 아래 목록에 추가</div>';
+    box.innerHTML = h || '<div style="padding:10px 4px;font-size:13px;color:#98a2b3">스캔 1회 = 1건</div>';
     Array.prototype.forEach.call(box.querySelectorAll('button[data-rm]'), function (bt) {
       bt.onclick = function () { __stock.pending.splice(+bt.getAttribute('data-rm'), 1); stockPendRender(); };
     });
@@ -2530,9 +2530,9 @@ function parseValue(text) {
     stockGet('/ami/mob/mtl/mobMtl4000/selectBarcdQr?vFclCl=M&vUnitCode=10&vBarcdQr=' + encodeURIComponent(mac), 'MOBMTL')
       .then(function (j) {
         if (Array.isArray(j) && j.length === 0) { p.st = 'ok'; }
-        else { p.st = 'bad'; p.why = 'awms 등록 자재 — 별도 등록 불가'; }
+        else { p.st = 'bad'; p.why = 'awms 등록 자재'; }
       })
-      .catch(function (e) { p.st = 'bad'; p.why = 'awms 조회 실패 — 재시도 필요 (' + e.message + ')'; })
+      .catch(function (e) { p.st = 'bad'; p.why = '조회 실패'; rec({ stage: 'stock-qr-fail', mac: p.mac, msg: String(e && e.message || e) }); })
       .then(function () { stockPendRender(); });
   }
   function stockPendSave() {
@@ -2556,14 +2556,15 @@ function parseValue(text) {
       })
       .catch(function (e) {
         var msg = document.getElementById('__stock_pendmsg');
-        if (msg) { msg.textContent = '등록 실패 — 목록 유지, 재시도 필요 (' + e.message + ')'; msg.style.color = '#d92d20'; }
+        if (msg) { msg.textContent = '등록 실패'; msg.style.color = '#d92d20'; }
+        rec({ stage: 'stock-save-fail', msg: String(e && e.message || e) });
         stockPendRender();
       });
   }
   function stockAddPanelHtml() {
     return '<div id="__stock_addpanel" style="display:none;background:#fff;border:1px solid #d0d5dd;border-radius:12px;padding:10px;margin-bottom:12px">' +
       '<div style="font-size:15px;font-weight:800;margin-bottom:2px">자재 등록 (별도 관리 자재)</div>' +
-      '<div style="font-size:12px;color:#667085;margin-bottom:8px">awms 미등록 자재만 등록 가능 · [등록] 선택 전 저장 없음</div>' +
+      '<div style="font-size:12px;color:#667085;margin-bottom:8px">awms 미등록 자재만</div>' +
       '<button id="__stock_scan" style="width:100%;height:52px;border:0;border-radius:10px;background:#344054;color:#fff;font-size:17px;font-weight:800">스캔</button>' +
       '<div style="display:flex;gap:6px;margin-top:8px"><input id="__stock_mac" autocomplete="off" autocapitalize="characters" placeholder="MAC 직접 입력" ' +
       'style="flex:1;min-width:0;height:40px;border:1px solid #d0d5dd;border-radius:9px;padding:0 10px;font-size:15px;font-family:monospace">' +
@@ -2584,7 +2585,7 @@ function parseValue(text) {
     ov.querySelector('#__stock_scan').onclick = function () {
       var msg = ov.querySelector('#__stock_pendmsg');
       msg.textContent = '';
-      if (!(window.AndroidScanner && window.AndroidScanner.scan)) { msg.textContent = '스캐너 미지원 — MAC 직접 입력 필요'; msg.style.color = '#b54708'; return; }
+      if (!(window.AndroidScanner && window.AndroidScanner.scan)) { msg.textContent = '스캐너 없음'; msg.style.color = '#b54708'; return; }
       // 모뎀 라벨 QR(자재 ID 줄) / 바코드 — awms 칸에 넣을 때와 같은 변환(convertForField)
       window.__stockScanCb = function (raw) { if (raw) stockPendAdd(convertForField('MAC_MODEM', raw)); };
       window.AndroidScanner.scan();
@@ -2614,7 +2615,7 @@ function parseValue(text) {
       '<div id="__stock_body"></div>';
     document.body.appendChild(ov);
     ov.querySelector('#__stock_close').onclick = function () {
-      if (__stock.pending.some(function (p) { return p.st === 'ok'; }) && !confirm('미등록 자재 있음 — 화면 닫기 확인')) return;
+      if (__stock.pending.some(function (p) { return p.st === 'ok'; }) && !confirm('미등록 자재 있음 · 닫기')) return;
       window.__stockScanCb = null; ov.remove();
     };
     ov.querySelector('#__stock_reload').onclick = stockLoad;
