@@ -137,9 +137,9 @@ def check_cases():
     """Pending-list check on each scanned row (stockCheckLocal)."""
     build = {"ledger": {"01254500001": 1}, "off": [{"mac": "AC5E8CA00007"}]}
     pend = [{"mac": "AC5E8CA00008"}]
-    cases = [("AC5E8CA00009", ""), ("01254500001", "awms 등록 모뎀"), ("AC5E8CA00007", "이미 따로장부"),
-             ("AC5E8CA00008", "목록에 이미"), ("AC5E8CA0001", "맥 오류"), ("123456789012", "맥 오류"),
-             ("01264200001", ""), ("", "비었음")]
+    cases = [("AC5E8CA00009", ""), ("01254500001", "awms 등록 자재 — 별도 등록 불가"), ("AC5E8CA00007", "별도 관리 자재 기등록"),
+             ("AC5E8CA00008", "중복 스캔"), ("AC5E8CA0001", "MAC 형식 오류"), ("123456789012", "MAC 형식 오류"),
+             ("01264200001", ""), ("", "MAC 미입력")]
     got = run_node("process.stdout.write(JSON.stringify(IN.c.map(function(c){return stockCheckLocal(c,IN.b,IN.p);})));",
                    {"c": [c for c, _ in cases], "b": build, "p": pend})
     bad = [f"check {c!r}: {g!r} (기대 {w!r})" for (c, w), g in zip(cases, got) if (w == "" and g) or (w and w not in g)]
