@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v98'; // v98: v96 리스트 지사 안내('리스트 지사 X — 지금 Y' + [X 로 바꾸기]) 전 작업자 공개(__featOn, 자재 현황은 테스터 그대로) · 맥 형식 검사(macFormatError) 사유와 [맥 오류] 상자 제안 줄('한 글자 차이 — X 여부 라벨 재확인 필요')을 명사형으로 — 설비등록 [맥 오류] 상자(전 작업자)와 자재 현황 화면이 같은 문구(허용 외 문자·LTE MAC 자릿수·자릿수 부족/초과·미사용 앞자리·847207 7번째 자리). v97: 테스터 전용 자재 현황 화면(코드명 자재관리, 화면 문구 업무체 — 재고·사용 완료·별도 관리 자재·자재 등록) — 헬퍼 홈 [자재 현황] 버튼. 내 모뎀(출고 20·인계 40, 본인 인계·6/22 이전 출고·소유 N·교체로 뗀 옛 모뎀 뺌) - 시공 목록 맥 = 보유/사용, 종류는 my_stock.kind() 와 같은 규칙(E 추정 없음, 전부 AE), 종류별 보유 awms·따로장부·합계·오늘 사용 표, 자재 추가 = [스캔] 한 번에 한 개(카메라 저절로 닫힘) 대기 목록에 쌓고 들어올 때 검사(형식·종류·내 출고/인계·awms 자재 []·따로장부·목록 중복, 거절 줄은 이유 표시·저장 안 함), [저장] 한 번 PATCH 로 Firebase helperStock/<USER_ID>/offbook/<MAC> 에 기록(awms 에 들어오면 'awms 에 들어옴' 표시, 한 번만 셈). awms 는 읽기만(selectList·selectBarcdQr·getMainList). v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v98'; // v98: 사진 크게 보기(전 작업자 · 헬퍼만) — awms 사진 칸이 새 창(window.open·<a target=_blank>)으로 여는 사진을 같은 화면 위에 띄움, 닫기·이전/다음(지금 행 1 작업전·2 모뎀맥·3 계기·4 집합)·두 손가락 확대·두 번 톡 2배·옆으로 밀기, 저장 흐름 무관 · v96 리스트 지사 안내('리스트 지사 X — 지금 Y' + [X 로 바꾸기]) 전 작업자 공개(__featOn, 자재 현황은 테스터 그대로) · 맥 형식 검사(macFormatError) 사유와 [맥 오류] 상자 제안 줄('한 글자 차이 — X 여부 라벨 재확인 필요')을 명사형으로 — 설비등록 [맥 오류] 상자(전 작업자)와 자재 현황 화면이 같은 문구(허용 외 문자·LTE MAC 자릿수·자릿수 부족/초과·미사용 앞자리·847207 7번째 자리). v97: 테스터 전용 자재 현황 화면(코드명 자재관리, 화면 문구 업무체 — 재고·사용 완료·별도 관리 자재·자재 등록) — 헬퍼 홈 [자재 현황] 버튼. 내 모뎀(출고 20·인계 40, 본인 인계·6/22 이전 출고·소유 N·교체로 뗀 옛 모뎀 뺌) - 시공 목록 맥 = 보유/사용, 종류는 my_stock.kind() 와 같은 규칙(E 추정 없음, 전부 AE), 종류별 보유 awms·따로장부·합계·오늘 사용 표, 자재 추가 = [스캔] 한 번에 한 개(카메라 저절로 닫힘) 대기 목록에 쌓고 들어올 때 검사(형식·종류·내 출고/인계·awms 자재 []·따로장부·목록 중복, 거절 줄은 이유 표시·저장 안 함), [저장] 한 번 PATCH 로 Firebase helperStock/<USER_ID>/offbook/<MAC> 에 기록(awms 에 들어오면 'awms 에 들어옴' 표시, 한 번만 셈). awms 는 읽기만(selectList·selectBarcdQr·getMainList). v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
   var FEAT_RELEASED = true;   // [v89] released input checks on for every helper user (see __featOn)
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
@@ -18,7 +18,7 @@
   function _logNode() { return (window.AwmsResult || window.AwmsQ) ? 'queue' : 'helper'; }
   var _FBLOG = _FB_BASE + _logNode() + '.json';
   // [v61] firebase 로그 화이트리스트 — 핵심만 보냄(진단 폭주 차단). 디버깅 필요시 window.__FBLOG_ALL=true 로 전체.
-  var _FBLOG_KEEP = { 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1, 'otp-baseline': 1, 'otp-autofill': 1, 'otp-autofill-fail': 1, 'dept-diag': 1, 'dept-force': 1, 'etc25-auto': 1, 'etc25-clear': 1, 'jisa-change': 1 };
+  var _FBLOG_KEEP = { 'photo-view': 1, 'photo-probe': 1, 'photo-view-err': 1, 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1, 'otp-baseline': 1, 'otp-autofill': 1, 'otp-autofill-fail': 1, 'dept-diag': 1, 'dept-force': 1, 'etc25-auto': 1, 'etc25-clear': 1, 'jisa-change': 1 };
   function rec(o) {
     try {
       o.kind = 'cam'; o.ts = Date.now(); o.url = 'https://awms.kdn.com/__cam__/' + (o.stage || '');
@@ -2222,6 +2222,157 @@ function parseValue(text) {
       }, true);
     }
   } catch (e) {}
+  // ===== [v98] 사진 크게 보기 BEGIN (전 작업자 · 헬퍼만) =====
+  //   awms 는 사진 칸(3~6)을 누르면 새 창으로 큰 사진을 연다. 헬퍼 WebView 는 새 창을 막아 아무 일도 안 일어난다.
+  //   → 새 창 대신 같은 화면 위에 사진을 띄운다. 저장 흐름·사진 칸 값은 건드리지 않는다(읽기만).
+  //   가로채는 길 2개: window.open(사진 주소) · <a target=_blank href=사진 주소> 클릭. 그 밖의 사진 클릭은 그대로 둔다
+  //   (사진 칸 누르기 = 다시 올리기일 수 있어서). 사진 주소 = singleFile.innorix?atchFileId= 또는 blob: 이미지.
+  //   진단: 'photo-view'(띄움) · 'photo-probe'(사진 img 를 눌렀는데 새 창 시도가 없었음 — 다른 길로 여는지 확인용).
+  // [v98-photo-begin]
+  var PHOTO_SLOTS = [['ATCH_FILE_ID_3', '1 작업전'], ['ATCH_FILE_ID_4', '2 모뎀맥'], ['ATCH_FILE_ID_5', '3 계기'], ['ATCH_FILE_ID_6', '4 집합']];
+  function photoIsUrl(u) {
+    u = String(u || '');
+    return /singleFile\.innorix\?[^#]*atchFileId=/i.test(u) || /^blob:/i.test(u) || /\.(jpe?g|png)(\?|$)/i.test(u);
+  }
+  function photoFid(u) { var m = /atchFileId=([^&#]+)/i.exec(String(u || '')); return m ? decodeURIComponent(m[1]) : ''; }
+  function photoUrl(fid) { return '/singleFile.innorix?atchFileId=' + encodeURIComponent(fid); }
+  // 지금 행의 사진 칸 목록(이전·다음). 연 사진이 그 안에 없으면 그 한 장만.
+  function photoList(url, row) {
+    var fid = photoFid(url), list = [];
+    if (row) PHOTO_SLOTS.forEach(function (s) { if (row[s[0]]) list.push({ url: photoUrl(row[s[0]]), fid: String(row[s[0]]), name: s[1] }); });
+    var at = -1;
+    for (var i = 0; i < list.length; i++) if (fid && list[i].fid === fid) at = i;
+    if (at < 0) return { list: [{ url: url, fid: fid, name: '' }], at: 0 };
+    return { list: list, at: at };
+  }
+  // [v98-photo-end]
+  // 닫으면 원래 상태 그대로: 화면 스크롤·열린 창·입력값·포커스·body 스타일·history 를 건드리지 않는다(덮개만 붙였다 뗌).
+  //   ★history 는 쓰지 않는다: pushState/back 은 awms 쪽 popstate 리스너에도 그대로 전달된다(먼저 붙은 리스너는 못 막음, 실측).
+  //   ★안드로이드 뒤로가기 키는 inject 가 못 잡는다 — 헬퍼 APK(Capacitor 7, App 플러그인 없음)는 뒤로가기를 WebView 에 안 넘기고
+  //     앱을 내린다. APK 가 OnBackPressedCallback 에서 window.__photoBack() 을 부르면(참이면 소비) 덮개만 닫힌다 — 다음 APK 때.
+  function photoClose() {
+    var el = document.getElementById('__photo_view');
+    if (el) { el.parentNode.removeChild(el); return true; }
+    return false;
+  }
+  window.__photoClose = photoClose;
+  window.__photoBack = function () { return photoClose(); };
+  function photoOverlay(url, row) {
+    try {
+      var old = document.getElementById('__photo_view'); if (old) old.parentNode.removeChild(old);   // 겹쳐 쌓지 않음
+      var P = photoList(url, row), at = P.at;
+      var ov = document.createElement('div');
+      ov.id = '__photo_view';
+      ov.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#000;display:flex;flex-direction:column;touch-action:none;font-family:-apple-system,sans-serif;';
+      ov.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top,0px) + 8px) 10px 8px;color:#fff">' +
+        '<div id="__pv_name" style="flex:1;font-size:15px;font-weight:700"></div>' +
+        '<button id="__pv_close" style="height:38px;border:0;border-radius:9px;background:#fff;color:#101828;padding:0 16px;font-size:15px;font-weight:800">닫기</button></div>' +
+        '<div id="__pv_box" style="flex:1;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center">' +
+        '<img id="__pv_img" style="max-width:100%;max-height:100%;transform-origin:center center;user-select:none;-webkit-user-drag:none">' +
+        '<div id="__pv_msg" style="position:absolute;color:#98a2b3;font-size:14px"></div></div>' +
+        '<div id="__pv_nav" style="display:flex;gap:8px;padding:8px 10px calc(env(safe-area-inset-bottom,0px) + 10px)">' +
+        '<button id="__pv_prev" style="flex:1;height:44px;border:1px solid #475467;border-radius:10px;background:#101828;color:#fff;font-size:15px">이전</button>' +
+        '<button id="__pv_next" style="flex:1;height:44px;border:1px solid #475467;border-radius:10px;background:#101828;color:#fff;font-size:15px">다음</button></div>';
+      ov.addEventListener('mousedown', function (e) { e.preventDefault(); });   // 덮개 버튼이 포커스를 가져가지 않게(닫은 뒤 포커스·키보드 그대로)
+      document.body.appendChild(ov);
+      var img = ov.querySelector('#__pv_img'), msg = ov.querySelector('#__pv_msg');
+      var sc = 1, tx = 0, ty = 0;
+      var apply = function () { img.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + sc + ')'; };
+      var show = function (i) {
+        at = (i + P.list.length) % P.list.length;
+        var it = P.list[at];
+        sc = 1; tx = 0; ty = 0; apply();
+        msg.textContent = '불러오는 중';
+        img.style.visibility = 'hidden';
+        img.onload = function () { msg.textContent = ''; img.style.visibility = 'visible'; };
+        img.onerror = function () { msg.textContent = '사진 없음'; };
+        img.src = it.url;
+        ov.querySelector('#__pv_name').textContent = (it.name || '사진') + (P.list.length > 1 ? '  ' + (at + 1) + '/' + P.list.length : '');
+      };
+      var nav = ov.querySelector('#__pv_nav');
+      if (P.list.length < 2) nav.style.display = 'none';
+      ov.querySelector('#__pv_prev').onclick = function () { show(at - 1); };
+      ov.querySelector('#__pv_next').onclick = function () { show(at + 1); };
+      ov.querySelector('#__pv_close').onclick = function () { photoClose(); };
+      ov.querySelector('#__pv_box').addEventListener('click', function (e) { if (e.target === e.currentTarget) photoClose(); });   // 사진 바깥 검은 곳
+      // 두 손가락 = 확대·축소, 한 손가락 = 확대 상태에서 이동 / 원래 크기에서 옆으로 밀기 = 이전·다음, 두 번 톡 = 2배·원래
+      var t0 = null, d0 = 0, s0 = 1, p0 = null, lastTap = 0;
+      var box = ov.querySelector('#__pv_box');
+      var dist = function (a, b) { return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); };
+      box.addEventListener('touchstart', function (e) {
+        if (e.touches.length === 2) { d0 = dist(e.touches[0], e.touches[1]); s0 = sc; p0 = null; }
+        else if (e.touches.length === 1) {
+          p0 = { x: e.touches[0].clientX, y: e.touches[0].clientY, tx: tx, ty: ty };
+          var now = Date.now();
+          if (now - lastTap < 300) { sc = sc > 1 ? 1 : 2; tx = ty = 0; apply(); p0 = null; }
+          lastTap = now;
+        }
+        t0 = Date.now();
+      }, { passive: true });
+      box.addEventListener('touchmove', function (e) {
+        if (e.touches.length === 2 && d0) { sc = Math.max(1, Math.min(6, s0 * dist(e.touches[0], e.touches[1]) / d0)); if (sc === 1) { tx = ty = 0; } apply(); }
+        else if (e.touches.length === 1 && p0 && sc > 1) { tx = p0.tx + e.touches[0].clientX - p0.x; ty = p0.ty + e.touches[0].clientY - p0.y; apply(); }
+      }, { passive: true });
+      box.addEventListener('touchend', function (e) {
+        if (p0 && sc === 1 && e.changedTouches.length && P.list.length > 1) {
+          var dx = e.changedTouches[0].clientX - p0.x;
+          if (Math.abs(dx) > 60 && Date.now() - t0 < 600) show(at + (dx < 0 ? 1 : -1));
+        }
+        if (e.touches.length < 2) d0 = 0;
+      }, { passive: true });
+      show(at);
+      rec({ stage: 'photo-view', fid: P.list[at].fid, n: P.list.length });
+    } catch (e) { rec({ stage: 'photo-view-err', msg: String(e) }); }
+  }
+  window.__photoOverlay = photoOverlay;
+  function photoRow() {
+    try { var vm = getAwmsVM(); return vm && vm.mainList && vm.mainList.currentRow; } catch (e) { return null; }
+  }
+  try {
+    if (window.__awmsHelper && !window.__photoViewHooked) {
+      window.__photoViewHooked = true;
+      var __lastOpenTry = 0;
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && document.getElementById('__photo_view')) photoClose(); }, true);
+      var _open = window.open;
+      window.open = function (u) {
+        try {
+          if (__featOn() && photoIsUrl(u)) {
+            __lastOpenTry = Date.now();
+            photoOverlay(String(u), photoRow());
+            return { closed: false, close: function () {}, focus: function () {}, blur: function () {},
+                     document: { write: function () {}, close: function () {} }, location: {} };
+          }
+        } catch (e) {}
+        return _open.apply(window, arguments);
+      };
+      document.addEventListener('click', function (e) {
+        try {
+          if (!__featOn()) return;
+          var a = e.target && e.target.closest && e.target.closest('a[href]');
+          if (a && photoIsUrl(a.getAttribute('href')) && (a.target === '_blank' || a.hasAttribute('download'))) {
+            e.preventDefault(); e.stopPropagation();
+            __lastOpenTry = Date.now();
+            photoOverlay(a.href, photoRow());
+            return;
+          }
+          // 진단만: 사진 img 를 눌렀는데 600ms 안에 새 창 시도가 없으면 기록(다른 길로 여는지 알아내기)
+          var im = e.target && e.target.tagName === 'IMG' ? e.target : null;
+          if (im && photoIsUrl(im.currentSrc || im.src)) {
+            var t = Date.now();
+            setTimeout(function () {
+              if (__lastOpenTry < t) {
+                var p = im.parentElement;
+                rec({ stage: 'photo-probe', id: im.id || '', cls: String(im.className || ''), alt: im.alt || '',
+                      p: p ? (p.tagName + '#' + (p.id || '') + '.' + String(p.className || '')) : '', src: String(im.src).slice(0, 80) });
+              }
+            }, 600);
+          }
+        } catch (x) {}
+      }, true);
+    }
+  } catch (e) {}
+  // ===== [v98] 사진 크게 보기 END =====
+
   // ===== [v97] 자재관리 BEGIN (테스터 전용 · awms 는 읽기만) =====
   //   영준님 2026-11-14: "일단 불러오고. 그것을 일단 다 AE타입이라 생각해. 등록된 모뎀이 아닌것은
   //   자재추가할수있게해서 따로장부를 기록. 타입별 개수도 나오게."
