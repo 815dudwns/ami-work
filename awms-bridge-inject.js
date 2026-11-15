@@ -2426,7 +2426,7 @@ function parseValue(text) {
     if (__stock.tab === 'off') {
       b.off.sort(function (x, y) { return (y.addedAt || 0) - (x.addedAt || 0); });
       b.off.forEach(function (o) {
-        var st = o.inAwms ? '<span style="color:#b54708;font-weight:700">awms 등록됨·해제 대상</span>' : (o.used ? '사용 완료' : '재고');
+        var st = o.inAwms ? '<span style="color:#b54708;font-weight:700">awms 등록됨</span>' : (o.used ? '사용 완료' : '재고');
         rowsH += '<tr><td style="' + cell + 'font-family:monospace">' + stockEsc(o.mac) + '</td><td style="' + cell + '">' + stockEsc(o.kind) +
           '</td><td style="' + cell + '">' + (o.addedAt ? stockFmtYmd(stockYmd(new Date(o.addedAt))) : '-') + '</td><td style="' + cell + '">' + st +
           (o.note ? '<div style="font-size:11px;color:#667085">' + stockEsc(o.note) + '</div>' : '') +
