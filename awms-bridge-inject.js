@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v98'; // v98: 사진 크게 보기(전 작업자 · 헬퍼만) — awms 사진 칸이 새 창(window.open·<a target=_blank>)으로 여는 사진을 같은 화면 위에 띄움, 닫기·이전/다음(지금 행 1 작업전·2 모뎀맥·3 계기·4 집합)·두 손가락 확대·두 번 톡 2배·옆으로 밀기, 저장 흐름 무관 · v96 리스트 지사 안내('리스트 지사 X — 지금 Y' + [X 로 바꾸기]) 전 작업자 공개(__featOn, 자재 현황은 테스터 그대로) · 맥 형식 검사(macFormatError) 사유와 [맥 오류] 상자 제안 줄('한 글자 차이 — X 여부 라벨 재확인 필요')을 명사형으로 — 설비등록 [맥 오류] 상자(전 작업자)와 자재 현황 화면이 같은 문구(허용 외 문자·LTE MAC 자릿수·자릿수 부족/초과·미사용 앞자리·847207 7번째 자리). v97: 테스터 전용 자재 현황 화면(코드명 자재관리, 화면 문구 업무체 — 재고·사용 완료·별도 관리 자재·자재 등록) — 헬퍼 홈 [자재 현황] 버튼. 내 모뎀(출고 20·인계 40, 본인 인계·6/22 이전 출고·소유 N·교체로 뗀 옛 모뎀 뺌) - 시공 목록 맥 = 보유/사용, 종류는 my_stock.kind() 와 같은 규칙(E 추정 없음, 전부 AE), 종류별 보유 awms·따로장부·합계·오늘 사용 표, 자재 추가 = [스캔] 한 번에 한 개(카메라 저절로 닫힘) 대기 목록에 쌓고 들어올 때 검사(형식·종류·내 출고/인계·awms 자재 []·따로장부·목록 중복, 거절 줄은 이유 표시·저장 안 함), [저장] 한 번 PATCH 로 Firebase helperStock/<USER_ID>/offbook/<MAC> 에 기록(awms 에 들어오면 'awms 에 들어옴' 표시, 한 번만 셈). awms 는 읽기만(selectList·selectBarcdQr·getMainList). v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v99'; // v99: 로그인 진단 — POST /login 응답(상태·success·이동 주소·오류 코드, 값·계정은 안 실음)과 OTP 자동 입력 시각을 Firebase 로그에 남김(간헐 '로그인 화면으로 되돌아감' 원인 확인용) · 네이티브에 OTP 가 없는 빌드(__otpNative=false)면 OTP 요청 표시 없음. v98: 사진 크게 보기(전 작업자 · 헬퍼만) — awms 사진 칸이 새 창(window.open·<a target=_blank>)으로 여는 사진을 같은 화면 위에 띄움, 닫기·이전/다음(지금 행 1 작업전·2 모뎀맥·3 계기·4 집합)·두 손가락 확대·두 번 톡 2배·옆으로 밀기, 저장 흐름 무관 · v96 리스트 지사 안내('리스트 지사 X — 지금 Y' + [X 로 바꾸기]) 전 작업자 공개(__featOn, 자재 현황은 테스터 그대로) · 맥 형식 검사(macFormatError) 사유와 [맥 오류] 상자 제안 줄('한 글자 차이 — X 여부 라벨 재확인 필요')을 명사형으로 — 설비등록 [맥 오류] 상자(전 작업자)와 자재 현황 화면이 같은 문구(허용 외 문자·LTE MAC 자릿수·자릿수 부족/초과·미사용 앞자리·847207 7번째 자리). v97: 테스터 전용 자재 현황 화면(코드명 자재관리, 화면 문구 업무체 — 재고·사용 완료·별도 관리 자재·자재 등록) — 헬퍼 홈 [자재 현황] 버튼. 내 모뎀(출고 20·인계 40, 본인 인계·6/22 이전 출고·소유 N·교체로 뗀 옛 모뎀 뺌) - 시공 목록 맥 = 보유/사용, 종류는 my_stock.kind() 와 같은 규칙(E 추정 없음, 전부 AE), 종류별 보유 awms·따로장부·합계·오늘 사용 표, 자재 추가 = [스캔] 한 번에 한 개(카메라 저절로 닫힘) 대기 목록에 쌓고 들어올 때 검사(형식·종류·내 출고/인계·awms 자재 []·따로장부·목록 중복, 거절 줄은 이유 표시·저장 안 함), [저장] 한 번 PATCH 로 Firebase helperStock/<USER_ID>/offbook/<MAC> 에 기록(awms 에 들어오면 'awms 에 들어옴' 표시, 한 번만 셈). awms 는 읽기만(selectList·selectBarcdQr·getMainList). v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
   var FEAT_RELEASED = true;   // [v89] released input checks on for every helper user (see __featOn)
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
@@ -18,7 +18,7 @@
   function _logNode() { return (window.AwmsResult || window.AwmsQ) ? 'queue' : 'helper'; }
   var _FBLOG = _FB_BASE + _logNode() + '.json';
   // [v61] firebase 로그 화이트리스트 — 핵심만 보냄(진단 폭주 차단). 디버깅 필요시 window.__FBLOG_ALL=true 로 전체.
-  var _FBLOG_KEEP = { 'photo-view': 1, 'photo-probe': 1, 'photo-view-err': 1, 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1, 'otp-baseline': 1, 'otp-autofill': 1, 'otp-autofill-fail': 1, 'dept-diag': 1, 'dept-force': 1, 'etc25-auto': 1, 'etc25-clear': 1, 'jisa-change': 1 };
+  var _FBLOG_KEEP = { 'login-res': 1, 'otp-native-direct': 1, 'photo-view': 1, 'photo-probe': 1, 'photo-view-err': 1, 'master-photo-saved': 1, 'slave-photo-copy': 1, 'boot': 1, 'slave-a3-inject': 1, 'addrow-life': 1, 'a4-clear': 1, 'addrow-hook-on': 1, 'mb-to-meter': 1, 'otp-baseline': 1, 'otp-autofill': 1, 'otp-autofill-fail': 1, 'dept-diag': 1, 'dept-force': 1, 'etc25-auto': 1, 'etc25-clear': 1, 'jisa-change': 1 };
   function rec(o) {
     try {
       o.kind = 'cam'; o.ts = Date.now(); o.url = 'https://awms.kdn.com/__cam__/' + (o.stage || '');
@@ -862,8 +862,10 @@ function parseValue(text) {
     window.__otpReceived = function (code) {
       try {
         stopPoll();
+        window.__otpFillAt = Date.now();
         var ok = fillOtp(String(code));
-        rec({ stage: 'otp-native-direct', code2: String(code).slice(0, 2), ok: ok });
+        var bl = document.getElementById('btnLogin');
+        rec({ stage: 'otp-native-direct', ok: ok, btnShown: !!(bl && bl.style.display !== 'none'), btnDis: !!(bl && bl.disabled) });
       } catch (e) {}
     };
 
@@ -1554,6 +1556,24 @@ function parseValue(text) {
               }
             }
           } catch (eM) {}
+          // [v99] 로그인 진단 — /login 응답만. 계정·OTP 값은 싣지 않는다.
+          try {
+            var pu2 = String(x.__u || '').split('?')[0];
+            if (x.__m === 'POST' && /(^|\/)login$/.test(pu2)) {
+              var withOtp = (typeof body === 'string') && /(^|&)authorization=[^&]+/.test(body);
+              var t0 = Date.now();
+              x.addEventListener('loadend', function () {
+                try {
+                  var j = null; try { j = JSON.parse(x.responseText || 'null'); } catch (eJ) {}
+                  rec({ stage: 'login-res', st: x.status, withOtp: withOtp, ms: Date.now() - t0,
+                        sinceFill: window.__otpFillAt ? (Date.now() - window.__otpFillAt) : -1,
+                        success: j && j.success, redir: j && j.redirectUrl ? String(j.redirectUrl).slice(0, 80) : '',
+                        code: j && j.errorCode ? String(j.errorCode) : '', msg: j && j.errorMessage ? String(j.errorMessage).slice(0, 40) : '',
+                        page: location.pathname + (location.search ? '?' + location.search.slice(1, 40) : '') });
+                } catch (eR) {}
+              });
+            }
+          } catch (eL) {}
           if (String(x.__u || '').indexOf('saveAct') > -1) {
             rec({ stage: 'xhr-saveact' });
             x.addEventListener('loadend', function () {
