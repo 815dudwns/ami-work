@@ -41,7 +41,9 @@ def js_part(tag):
 
 
 def run_node(prog, payload):
-    src = ("var STOCK_SINCE='20260622';\n" + js_part("v97-kind") + "\nfunction stockNorm(m){return String(m||'')"
+    t = INJECT.read_text()
+    mfe = t[t.index("  var MAC_OUI = ["):t.index("  // [맥 오류] 박스.")]
+    src = ("var STOCK_SINCE='20260622';\n" + mfe + js_part("v97-kind") + js_part("v97-check") + "\nfunction stockNorm(m){return String(m||'')"
            ".replace(/[\\s:\\-*]/g,'').toUpperCase();}\n" + js_part("v97-build") + "\n"
            "var IN=JSON.parse(require('fs').readFileSync(0,'utf8'));\n" + prog)
     r = subprocess.run(["node", "-e", src], input=json.dumps(payload), capture_output=True, text=True)
@@ -131,6 +133,20 @@ def build_cases():
     return bad
 
 
+def check_cases():
+    """Pending-list check on each scanned row (stockCheckLocal)."""
+    build = {"ledger": {"01254500001": 1}, "off": [{"mac": "AC5E8CA00007"}]}
+    pend = [{"mac": "AC5E8CA00008"}]
+    cases = [("AC5E8CA00009", ""), ("01254500001", "awms 등록 모뎀"), ("AC5E8CA00007", "이미 따로장부"),
+             ("AC5E8CA00008", "목록에 이미"), ("AC5E8CA0001", "맥 오류"), ("123456789012", "맥 오류"),
+             ("01264200001", ""), ("", "비었음")]
+    got = run_node("process.stdout.write(JSON.stringify(IN.c.map(function(c){return stockCheckLocal(c,IN.b,IN.p);})));",
+                   {"c": [c for c, _ in cases], "b": build, "p": pend})
+    bad = [f"check {c!r}: {g!r} (기대 {w!r})" for (c, w), g in zip(cases, got) if (w == "" and g) or (w and w not in g)]
+    print(f"  대기 목록 검사 {len(cases)}건 · 실패 {len(bad)}")
+    return bad
+
+
 def cache_run():
     """Rebuild raw responses from the backend cache (session is dead, so no live call) and print the table."""
     d = json.loads(backend_file("shipped_cache.json").read_text())
@@ -167,7 +183,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cache", action="store_true")
     a = ap.parse_args()
-    bad = parity() + build_cases()
+    bad = parity() + build_cases() + check_cases()
     for b in bad[:30]:
         print("  FAIL", b)
     print("FAIL" if bad else "PASS", f"({len(bad)})")

@@ -55,7 +55,7 @@ def main():
                 skip.append(m)
                 continue
             patch[m] = {"type": my_stock.bucket(my_stock.kind(m)), "addedAt": now,
-                        "note": (bt.get("label") or "")[:100], "by": "seed"}
+                        "note": ("seed " + (bt.get("label") or ""))[:100], "by": USER_ID}   # rules: by == <uid>
     from collections import Counter
     print(f"대상 {len(patch)} · 이미 있음 {len(skip)} · Firebase 현재 {len(have)}")
     for k, v in sorted(Counter(x["type"] for x in patch.values()).items()):

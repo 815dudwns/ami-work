@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v97'; // v97: 테스터 전용 자재관리 화면 — 헬퍼 홈 [자재관리] 버튼. 내 모뎀(출고 20·인계 40, 본인 인계·6/22 이전 출고·소유 N·교체로 뗀 옛 모뎀 뺌) - 시공 목록 맥 = 보유/사용, 종류는 my_stock.kind() 와 같은 규칙(E 추정 없음, 전부 AE), 종류별 보유 awms·따로장부·합계·오늘 사용 표, 자재 추가 = awms 자재에 없는 맥만 Firebase helperStock/<USER_ID>/offbook/<MAC> 에 기록(awms 에 들어오면 'awms 에 들어옴' 표시, 한 번만 셈). awms 는 읽기만(selectList·selectBarcdQr·getMainList). v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v97'; // v97: 테스터 전용 자재관리 화면 — 헬퍼 홈 [자재관리] 버튼. 내 모뎀(출고 20·인계 40, 본인 인계·6/22 이전 출고·소유 N·교체로 뗀 옛 모뎀 뺌) - 시공 목록 맥 = 보유/사용, 종류는 my_stock.kind() 와 같은 규칙(E 추정 없음, 전부 AE), 종류별 보유 awms·따로장부·합계·오늘 사용 표, 자재 추가 = [스캔] 한 번에 한 개(카메라 저절로 닫힘) 대기 목록에 쌓고 들어올 때 검사(형식·종류·내 출고/인계·awms 자재 []·따로장부·목록 중복, 거절 줄은 이유 표시·저장 안 함), [저장] 한 번 PATCH 로 Firebase helperStock/<USER_ID>/offbook/<MAC> 에 기록(awms 에 들어오면 'awms 에 들어옴' 표시, 한 번만 셈). awms 는 읽기만(selectList·selectBarcdQr·getMainList). v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
   var FEAT_RELEASED = true;   // [v89] released input checks on for every helper user (see __featOn)
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
@@ -938,8 +938,8 @@ function parseValue(text) {
   } catch (e) {}
 
   window.__onNativeScan = function (raw) {
-    // [v97] 자재관리 추가 창에서 연 스캔이면 그 창으로만 보낸다(awms 칸에 안 넣음)
-    if (window.__stockScanCb && document.getElementById('__stock_add')) {
+    // [v97] 자재관리 추가 칸에서 연 스캔이면 대기 목록으로만 보낸다(awms 칸에 안 넣음). 한 번 읽으면 끝 — 다음은 [스캔] 다시
+    if (window.__stockScanCb && document.getElementById('__stock_addpanel')) {
       var scb = window.__stockScanCb; window.__stockScanCb = null;
       try { scb(raw || ''); } catch (e) {}
       return;
@@ -2475,67 +2475,132 @@ function parseValue(text) {
     }).catch(function (e) { __stock.data = { err: e.message || String(e) }; stockRender(); });
   }
 
-  // 자재 추가 — awms 가 모르는 맥만. awms 자재(selectBarcdQr) 에 있거나 내 출고·인계 목록에 있으면 거절.
-  function stockAddDialog() {
-    if (document.getElementById('__stock_add')) return;
-    var w = document.createElement('div');
-    w.id = '__stock_add';
-    w.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px;';
-    w.innerHTML = '<div style="background:#fff;border-radius:14px;padding:18px;width:100%;max-width:360px;font-family:-apple-system,sans-serif">' +
-      '<div style="font-size:18px;font-weight:800;margin-bottom:4px">자재 추가 (따로장부)</div>' +
-      '<div style="font-size:12px;color:#667085;margin-bottom:12px">awms 에 없는 모뎀만 들어갑니다</div>' +
-      '<div style="display:flex;gap:6px"><input id="__stock_mac" autocomplete="off" autocapitalize="characters" placeholder="모뎀 맥" ' +
-      'style="flex:1;height:44px;border:1px solid #d0d5dd;border-radius:9px;padding:0 10px;font-size:17px;font-family:monospace">' +
-      '<button id="__stock_scan" style="height:44px;border:0;border-radius:9px;background:#344054;color:#fff;padding:0 14px;font-size:14px;font-weight:700">스캔</button></div>' +
-      '<input id="__stock_note" placeholder="메모 (선택)" style="width:100%;box-sizing:border-box;margin-top:8px;height:38px;border:1px solid #d0d5dd;border-radius:9px;padding:0 10px;font-size:14px">' +
-      '<div id="__stock_msg" style="min-height:20px;margin-top:10px;font-size:14px;font-weight:700"></div>' +
-      '<div style="display:flex;gap:8px;margin-top:10px">' +
-      '<button id="__stock_ok" style="flex:1;height:44px;border:0;border-radius:10px;background:#175cd3;color:#fff;font-size:15px;font-weight:700">추가</button>' +
-      '<button id="__stock_cancel" style="flex:1;height:44px;border:1px solid #d0d5dd;border-radius:10px;background:#fff;color:#667085;font-size:15px">닫기</button></div></div>';
-    document.body.appendChild(w);
-    var inp = w.querySelector('#__stock_mac'), msg = w.querySelector('#__stock_msg');
-    var say = function (t, col) { msg.textContent = t; msg.style.color = col || '#101828'; };
-    var close = function () { window.__stockScanCb = null; try { w.parentNode.removeChild(w); } catch (e) {} };
-    w.querySelector('#__stock_cancel').onclick = close;
-    w.querySelector('#__stock_scan').onclick = function () {
-      if (!(window.AndroidScanner && window.AndroidScanner.scan)) { say('스캐너 없음 — 손으로 넣으세요', '#b54708'); return; }
-      window.__stockScanCb = function (raw) { inp.value = stockNorm(raw); say('읽힌 값을 라벨과 맞춰 보고 [추가]', '#175cd3'); };
+  // 자재 추가 — 스캔(또는 손입력)마다 대기 목록에 쌓고, [저장] 한 번에 모아 쓴다(영준님 2026-11-15).
+  //   들어올 때 바로 검사: 형식 · 종류 · 내 출고/인계 장부 · awms 자재(selectBarcdQr == []) · 따로장부 · 대기 목록 중복.
+  //   거절된 줄은 이유와 함께 남고 저장되지 않는다. [저장] 전에는 아무것도 쓰지 않는다.
+  // [v97-check-begin] 화면·통신 없이 판정만(시험에서 node 로 돌린다). '' = 통과
+  function stockCheckLocal(mac, build, pending) {
+    if (!mac) return '맥이 비었음';
+    var fe = macFormatError(mac, true);
+    if (fe) return '맥 오류 — ' + fe.reason;
+    if (stockKind(mac).indexOf('미분류') === 0) return '종류를 모르는 앞자리';
+    if (!build) return '목록을 아직 못 불러옴';
+    if (build.ledger[mac]) return 'awms 등록 모뎀 — 장부에 이미 있음';
+    for (var i = 0; i < build.off.length; i++) if (build.off[i].mac === mac) return '이미 따로장부에 있음';
+    for (var j = 0; j < (pending || []).length; j++) if (pending[j].mac === mac) return '목록에 이미 있음';
+    return '';
+  }
+  // [v97-check-end]
+
+  __stock.pending = [];   // [{mac, kind, st: 'wait'|'ok'|'bad', why}]
+  function stockPendRender() {
+    var box = document.getElementById('__stock_pend');
+    if (!box) return;
+    var P = __stock.pending, nOk = 0, h = '';
+    P.forEach(function (p, i) {
+      if (p.st === 'ok') nOk++;
+      var col = p.st === 'ok' ? '#067647' : p.st === 'bad' ? '#d92d20' : '#667085';
+      var txt = p.st === 'ok' ? '추가 가능' : p.st === 'bad' ? p.why : 'awms 조회 중…';
+      h += '<div style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid #f2f4f7' + (p.st === 'bad' ? ';background:#fef3f2' : '') + '">' +
+        '<div style="flex:1;min-width:0"><div style="font-family:monospace;font-size:15px;font-weight:700' + (p.st === 'bad' ? ';text-decoration:line-through;color:#98a2b3' : '') + '">' + stockEsc(p.mac) + '</div>' +
+        '<div style="font-size:12px;color:' + col + '">' + stockEsc(p.kind ? p.kind + ' · ' : '') + stockEsc(txt) + '</div></div>' +
+        '<button data-rm="' + i + '" style="width:34px;height:34px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;font-size:16px;color:#667085">×</button></div>';
+    });
+    box.innerHTML = h || '<div style="padding:10px 4px;font-size:13px;color:#98a2b3">[스캔] 을 누르면 카메라가 뜹니다. 한 개 읽으면 저절로 닫히고 여기 쌓입니다.</div>';
+    Array.prototype.forEach.call(box.querySelectorAll('button[data-rm]'), function (bt) {
+      bt.onclick = function () { __stock.pending.splice(+bt.getAttribute('data-rm'), 1); stockPendRender(); };
+    });
+    var sv = document.getElementById('__stock_save');
+    if (sv) {
+      var waiting = P.some(function (p) { return p.st === 'wait'; });
+      sv.textContent = waiting ? '조회 중…' : '저장 (' + nOk + '개)';
+      sv.disabled = !nOk || waiting;
+      sv.style.opacity = sv.disabled ? '0.45' : '1';
+    }
+  }
+  function stockPendAdd(raw) {
+    var mac = stockNorm(raw);
+    var b = __stock.data && __stock.data.build;
+    var why = stockCheckLocal(mac, b, __stock.pending);
+    var p = { mac: mac || String(raw || ''), kind: mac ? stockKind(mac) : '', st: why ? 'bad' : 'wait', why: why };
+    if (p.kind.indexOf('미분류') === 0) p.kind = '';
+    __stock.pending.unshift(p);
+    stockPendRender();
+    if (why) { rec({ stage: 'stock-pend-bad', mac: mac, why: why }); return; }
+    stockGet('/ami/mob/mtl/mobMtl4000/selectBarcdQr?vFclCl=M&vUnitCode=10&vBarcdQr=' + encodeURIComponent(mac), 'MOBMTL')
+      .then(function (j) {
+        if (Array.isArray(j) && j.length === 0) { p.st = 'ok'; }
+        else { p.st = 'bad'; p.why = 'awms 등록 모뎀 — 장부에 이미 있음'; }
+      })
+      .catch(function (e) { p.st = 'bad'; p.why = 'awms 조회 실패 — 다시 넣어 주세요 (' + e.message + ')'; })
+      .then(function () { stockPendRender(); });
+  }
+  function stockPendSave() {
+    var ok = __stock.pending.filter(function (p) { return p.st === 'ok'; });
+    if (!ok.length) return;
+    var now = Date.now(), body = {};
+    ok.forEach(function (p) { body[p.mac] = { type: p.kind, addedAt: now, note: '', by: __stock.me }; });
+    var sv = document.getElementById('__stock_save');
+    if (sv) { sv.disabled = true; sv.textContent = '저장 중…'; }
+    // 한 번의 PATCH — 부모 노드를 통째로 바꾸지 않는다(폰에서 넣은 다른 맥은 그대로)
+    fetch(STOCK_FB + encodeURIComponent(__stock.me) + '/offbook.json',
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function (r) { if (!r.ok) throw new Error('Firebase HTTP ' + r.status); return r.json(); })
+      .then(function () {
+        rec({ stage: 'stock-off-save', n: ok.length });
+        __stock.pending = [];
+        stockPendRender();
+        var msg = document.getElementById('__stock_pendmsg');
+        if (msg) { msg.textContent = ok.length + '개 저장함'; msg.style.color = '#067647'; }
+        stockLoad();
+      })
+      .catch(function (e) {
+        var msg = document.getElementById('__stock_pendmsg');
+        if (msg) { msg.textContent = '저장 실패 — 목록은 그대로 둠 (' + e.message + ')'; msg.style.color = '#d92d20'; }
+        stockPendRender();
+      });
+  }
+  function stockAddPanelHtml() {
+    return '<div id="__stock_addpanel" style="display:none;background:#fff;border:1px solid #d0d5dd;border-radius:12px;padding:10px;margin-bottom:12px">' +
+      '<div style="font-size:15px;font-weight:800;margin-bottom:2px">자재 추가 (따로장부)</div>' +
+      '<div style="font-size:12px;color:#667085;margin-bottom:8px">awms 에 없는 모뎀만 들어갑니다 · [저장] 전에는 아무것도 기록하지 않음</div>' +
+      '<button id="__stock_scan" style="width:100%;height:52px;border:0;border-radius:10px;background:#344054;color:#fff;font-size:17px;font-weight:800">스캔</button>' +
+      '<div style="display:flex;gap:6px;margin-top:8px"><input id="__stock_mac" autocomplete="off" autocapitalize="characters" placeholder="손으로 넣기" ' +
+      'style="flex:1;min-width:0;height:40px;border:1px solid #d0d5dd;border-radius:9px;padding:0 10px;font-size:15px;font-family:monospace">' +
+      '<button id="__stock_put" style="height:40px;border:1px solid #d0d5dd;border-radius:9px;background:#fff;padding:0 14px;font-size:14px;font-weight:700">넣기</button></div>' +
+      '<div id="__stock_pend" style="margin-top:8px"></div>' +
+      '<div id="__stock_pendmsg" style="min-height:18px;margin-top:6px;font-size:13px;font-weight:700"></div>' +
+      '<button id="__stock_save" style="width:100%;height:46px;border:0;border-radius:10px;background:#175cd3;color:#fff;font-size:16px;font-weight:800;margin-top:4px">저장 (0개)</button>' +
+      '</div>';
+  }
+  function stockWireAddPanel(ov) {
+    var panel = ov.querySelector('#__stock_addpanel'), inp = ov.querySelector('#__stock_mac');
+    ov.querySelector('#__stock_addbtn').onclick = function () {
+      var open = panel.style.display === 'none';
+      panel.style.display = open ? 'block' : 'none';
+      if (!open) window.__stockScanCb = null;
+      stockPendRender();
+    };
+    ov.querySelector('#__stock_scan').onclick = function () {
+      var msg = ov.querySelector('#__stock_pendmsg');
+      msg.textContent = '';
+      if (!(window.AndroidScanner && window.AndroidScanner.scan)) { msg.textContent = '스캐너 없음 — 손으로 넣으세요'; msg.style.color = '#b54708'; return; }
+      // 모뎀 라벨 QR(자재 ID 줄) / 바코드 — awms 칸에 넣을 때와 같은 변환(convertForField)
+      window.__stockScanCb = function (raw) { if (raw) stockPendAdd(convertForField('MAC_MODEM', raw)); };
       window.AndroidScanner.scan();
     };
-    w.querySelector('#__stock_ok').onclick = function () {
-      var m = stockNorm(inp.value), note = String(w.querySelector('#__stock_note').value || '').trim().slice(0, 100);
-      if (!m) { say('맥을 넣으세요', '#d92d20'); return; }
-      var fe = macFormatError(m, true);
-      if (fe) { say('맥 오류 — ' + fe.reason, '#d92d20'); return; }
-      var kd = stockKind(m);
-      if (kd.indexOf('미분류') === 0) { say('종류를 모르는 앞자리 — 추가 안 함', '#d92d20'); return; }
-      var b = __stock.data && __stock.data.build;
-      if (!b) { say('목록을 아직 못 불러옴 — 다시 열어 주세요', '#d92d20'); return; }
-      if (b.ledger[m]) { say('awms 등록 모뎀 — 장부에 이미 있음', '#d92d20'); return; }
-      if (b.off.some(function (o) { return o.mac === m; })) { say('이미 따로장부에 있음', '#b54708'); return; }
-      say('awms 자재 조회 중…', '#667085');
-      stockGet('/ami/mob/mtl/mobMtl4000/selectBarcdQr?vFclCl=M&vUnitCode=10&vBarcdQr=' + encodeURIComponent(m), 'MOBMTL')
-        .then(function (j) {
-          if (!(Array.isArray(j) && j.length === 0)) {
-            rec({ stage: 'stock-off-refuse', mac: m });
-            say('awms 등록 모뎀 — 장부에 이미 있음', '#d92d20');
-            return;
-          }
-          return stockFb(__stock.me, m, 'PUT', { type: kd, addedAt: Date.now(), note: note, by: __stock.me }).then(function () {
-            rec({ stage: 'stock-off-add', mac: m, kind: kd });
-            say('추가함 — ' + m + ' (' + kd + ')', '#067647');
-            inp.value = ''; w.querySelector('#__stock_note').value = '';
-            stockLoad();
-          });
-        })
-        .catch(function (e) { say('조회·저장 실패 — 추가 안 함 (' + e.message + ')', '#d92d20'); });
-    };
+    var put = function () { if (inp.value.trim()) { stockPendAdd(inp.value); inp.value = ''; } };
+    ov.querySelector('#__stock_put').onclick = put;
+    inp.onkeydown = function (e) { if (e.key === 'Enter') put(); };
+    ov.querySelector('#__stock_save').onclick = stockPendSave;
+    stockPendRender();
   }
 
   function openStockPage() {
     if (document.getElementById('__helper_stock')) return;
     __stock.me = stockMe();
     if (!__stock.me || TESTER_IDS.indexOf(__stock.me) < 0) return;
+    __stock.pending = [];
     var ov = document.createElement('div');
     ov.id = '__helper_stock';
     ov.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#f9fafb;overflow-y:auto;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#101828;' +
@@ -2545,11 +2610,15 @@ function parseValue(text) {
       '<button id="__stock_reload" style="height:36px;border:1px solid #d0d5dd;border-radius:9px;background:#fff;padding:0 10px;font-size:13px">새로고침</button>' +
       '<button id="__stock_close" style="height:36px;border:0;border-radius:9px;background:#1e3a8a;color:#fff;padding:0 12px;font-size:13px;font-weight:700">닫기</button></div>' +
       '<button id="__stock_addbtn" style="width:100%;height:44px;border:0;border-radius:10px;background:#175cd3;color:#fff;font-size:15px;font-weight:800;margin-bottom:10px">자재 추가</button>' +
+      stockAddPanelHtml() +
       '<div id="__stock_body"></div>';
     document.body.appendChild(ov);
-    ov.querySelector('#__stock_close').onclick = function () { ov.remove(); };
+    ov.querySelector('#__stock_close').onclick = function () {
+      if (__stock.pending.some(function (p) { return p.st === 'ok'; }) && !confirm('저장 안 한 자재가 있습니다. 닫을까요?')) return;
+      window.__stockScanCb = null; ov.remove();
+    };
     ov.querySelector('#__stock_reload').onclick = stockLoad;
-    ov.querySelector('#__stock_addbtn').onclick = stockAddDialog;
+    stockWireAddPanel(ov);
     rec({ stage: 'stock-open' });
     stockLoad();
   }
