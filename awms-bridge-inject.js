@@ -3182,7 +3182,6 @@ function parseValue(text) {
     }).catch(function (e) { __wc.err = String(e && e.message || e); rec({ stage: 'wc-fail', day: day, msg: __wc.err }); wcRender(); });
   }
   var WC_DOT = { red: '#f04438', yellow: '#f79009', green: '#12b76a', grey: '#98a2b3' };
-  var WC_SECS = [['list', '리스트 대조'], ['comm', '통신방식·분기'], ['form', '번호·모뎀']];
   function wcRender() {
     var box = document.getElementById('__wc_body');
     if (!box) return;
@@ -3191,29 +3190,20 @@ function parseValue(text) {
     if (__wc.err) { box.innerHTML = '<div style="padding:16px;color:#d92d20;font-weight:700">조회 실패</div>'; return; }
     var R = __wc.res;
     if (!R) { box.innerHTML = '<div style="padding:20px;text-align:center;color:#667085">조회 중…</div>'; return; }
-    var esc = stockEsc, h = '', n = { red: 0, yellow: 0 }, badMac = {};
-    R.items.forEach(function (x) { if (n[x.lv] != null) { n[x.lv]++; if (x.mac) badMac[x.mac] = 1; } });
-    var okN = Math.max(0, R.sum.modems - Object.keys(badMac).length);
-    var chip = function (v, t, c) { return '<div style="flex:1;background:#fff;border:1px solid #eaecf0;border-radius:10px;text-align:center;padding:7px 0;font-size:12px;color:#475467"><b style="display:block;font-size:19px;color:' + c + '">' + v + '</b>' + t + '</div>'; };
-    h += '<div style="display:flex;gap:6px;margin-bottom:10px">' + chip(okN, '정상 모뎀', '#067647') + chip(n.yellow, '확인', '#b54708') + chip(n.red, '조치', '#d92d20') + '</div>';
-    var dv = R.sum.div, dn = { M1010: '신설', M1030: '기설', M1020: '교체' };
-    h += '<div style="font-size:12px;color:#475467;margin:0 2px 10px">계기 ' + R.sum.meters + ' · 마스터 ' + R.sum.masters + ' · 슬레이브 ' + R.sum.slaves +
-      Object.keys(dv).map(function (k) { return ' · ' + (dn[k] || k) + ' ' + dv[k]; }).join('') + '</div>';
-    var rank = { red: 0, yellow: 1, grey: 2, green: 3 };
-    WC_SECS.forEach(function (s) {
-      var xs = R.items.filter(function (x) { return x.sec === s[0]; }).sort(function (a, b) { return rank[a.lv] - rank[b.lv]; });
-      h += '<div style="background:#fff;border:1px solid #eaecf0;border-radius:12px;margin-bottom:10px;overflow:hidden">' +
-        '<div style="padding:8px 10px;font-size:14px;font-weight:700;background:#f2f4f7;color:#344054">' + s[1] + '</div>';
-      if (!xs.length) h += '<div style="display:flex;gap:8px;padding:8px 10px;font-size:14px"><span style="width:10px;height:10px;border-radius:50%;margin-top:5px;background:#12b76a;flex:none"></span><b>이상 없음</b></div>';
-      xs.forEach(function (x) {
-        var dat = (x.meters || []).join(' / ') + (x.addr ? ' · ' + x.addr : '') + (x.data ? ' · ' + x.data : '') + (x.mac && !x.addr ? ' · ' + x.mac : '');
-        h += '<div style="display:flex;gap:8px;padding:8px 10px;border-top:1px solid #f2f4f7;font-size:14px;align-items:flex-start">' +
-          '<span style="width:10px;height:10px;border-radius:50%;margin-top:5px;background:' + WC_DOT[x.lv] + ';flex:none"></span><div style="min-width:0">' +
-          '<div style="font-weight:700">' + esc(x.kind) + '</div><div style="font-family:monospace;font-size:12px;color:#344054;word-break:break-all">' + esc(dat) + '</div>' +
-          (x.todo ? '<div style="font-size:12px;color:#d92d20;margin-top:2px">' + esc(x.todo) + '</div>' : '') + '</div></div>';
-      });
-      h += '</div>';
+    // 문제(빨강·노랑)만 — 통과한 것·칸 나눔 없음(영준님 2026-11-16 "작업중에 문제되는것만, 통관된건 표시할 필요조차 없음")
+    var esc = stockEsc, h = '', rank = { red: 0, yellow: 1 };
+    var xs = R.items.filter(function (x) { return x.lv === 'red' || x.lv === 'yellow'; }).sort(function (a, b) { return rank[a.lv] - rank[b.lv]; });
+    h += '<div style="font-size:12px;color:#475467;margin:0 2px 8px">계기 ' + R.sum.meters + ' · 마스터 ' + R.sum.masters + ' · 슬레이브 ' + R.sum.slaves + '</div>';
+    h += '<div style="background:#fff;border:1px solid #eaecf0;border-radius:12px;margin-bottom:10px;overflow:hidden">';
+    if (!xs.length) h += '<div style="padding:14px 10px;font-size:15px;font-weight:700;color:#067647;text-align:center">문제 없음</div>';
+    xs.forEach(function (x, i) {
+      var dat = (x.meters || []).join(' / ') + (x.addr ? ' · ' + x.addr : '') + (x.data ? ' · ' + x.data : '') + (x.mac && !x.addr ? ' · ' + x.mac : '');
+      h += '<div style="display:flex;gap:8px;padding:8px 10px;' + (i ? 'border-top:1px solid #f2f4f7;' : '') + 'font-size:14px;align-items:flex-start">' +
+        '<span style="width:10px;height:10px;border-radius:50%;margin-top:5px;background:' + WC_DOT[x.lv] + ';flex:none"></span><div style="min-width:0">' +
+        '<div style="font-weight:700">' + esc(x.kind) + '</div><div style="font-family:monospace;font-size:12px;color:#344054;word-break:break-all">' + esc(dat) + '</div>' +
+        (x.todo ? '<div style="font-size:12px;color:#d92d20;margin-top:2px">' + esc(x.todo) + '</div>' : '') + '</div></div>';
     });
+    h += '</div>';
     var td = 'padding:6px 6px;border-top:1px solid #f2f4f7;text-align:right;white-space:nowrap;';
     var c = R.stock || {}, tu = 0, th = 0, rowsH = '';
     STOCK_ROWS.forEach(function (r) {
