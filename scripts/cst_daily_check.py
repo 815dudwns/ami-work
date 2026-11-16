@@ -444,12 +444,12 @@ def app_check(day, rows, ship, idx, details, jobs, rep, done_site_meters):
         handled = any(m in done_site_meters for m in in_list)
         if out_list and not handled:
             if in_list:
-                msg = f"리스트 밖 계기 {len(out_list)}대 {out_list} (같은 모뎀 리스트 계기 {len(in_list)}대)"
+                msg = f"리스트 없음 계기 {len(out_list)}대 {out_list} (같은 모뎀 리스트 계기 {len(in_list)}대)"
             else:
                 msg = f"리스트에 없는 계기 {out_list} — 계기교체로 새 번호일 수 있다"
             # ★not yellow yet — every out-of-list meter goes through the slot-5 photo read first
-            #   (영준님 2026-11-14 "리스트 밖이면 5번 ocr 과정해야함"); resolve_outlist() decides
-            rep.add("outlist", "awms", msg, "계기 사진으로 번호 확인", kind="리스트 밖", meters=out_list, mac=mac, meter=out_list[0])
+            #   (영준님 2026-11-14 "리스트 없음이면 5번 ocr 과정해야함"); resolve_outlist() decides
+            rep.add("outlist", "awms", msg, "계기 사진으로 번호 확인", kind="리스트 없음", meters=out_list, mac=mac, meter=out_list[0])
 
         # photos (아미큐 rows)
         src = sorted({"아미큐" if r["INSTR_NUM"] in via else "아미큐 외(헬퍼·화면)" for r in rs})
@@ -560,15 +560,15 @@ def map_check(sites, rows, idx, rep):
                 rep.add("yellow", "map", f"{t} {k} 개별불가 {m} 메모 번호 {sorted(nums)} 가 awms 에 없다",
                         "메모 번호 확인", kind="메모 번호 없음", key=k, meter=m)
         out_list = sorted(reg - set(ms) - stands_in)
-        # 영준님 3규칙(2026-11-14): 리스트 = awms 면 통과 / 리스트 밖 awms 는 사진 판독 /
-        #   리스트 완료인데 awms 없음 = 누락(빨강) — 리스트 밖 계기가 같이 있어도 누락은 누락(275-1)
+        # 영준님 3규칙(2026-11-14): 리스트 = awms 면 통과 / 리스트 없음 awms 는 사진 판독 /
+        #   리스트 완료인데 awms 없음 = 누락(빨강) — 리스트 없음 계기가 같이 있어도 누락은 누락(275-1)
         if missing:
             rep.add("red", "map", f"{t} {k} 누락 — 리스트 {len(ms)}대 중 {len(missing)}대 awms 없음 {missing}"
-                    + (f" (리스트 밖 {len(out_list)}대 등록 {out_list})" if out_list else ""),
+                    + (f" (리스트 없음 {len(out_list)}대 등록 {out_list})" if out_list else ""),
                     f"{', '.join(missing)} 추가 등록, 현장에 없으면 개별불가", kind="누락", key=k, meters=missing)
         if out_list:
-            rep.add("outlist", "map", f"{t} {k} 리스트 {len(ms)}대 / 등록 {len(reg)}대 — 리스트 밖 {len(out_list)}대 {out_list}",
-                    "계기 사진으로 번호 확인", kind="리스트 밖", key=k, meters=out_list)
+            rep.add("outlist", "map", f"{t} {k} 리스트 {len(ms)}대 / 등록 {len(reg)}대 — 리스트 없음 {len(out_list)}대 {out_list}",
+                    "계기 사진으로 번호 확인", kind="리스트 없음", key=k, meters=out_list)
     done = states.get("complete", 0)
     print(f"   완료 {done}곳 · 불가 {states.get('fail', 0)}곳"
           + "".join(f" · {s} {n}곳" for s, n in states.items() if s not in ("complete", "fail")) + "\n")
@@ -696,7 +696,7 @@ def ocr_check(day, rows, ship, idx, details, photo_map, rep, outdir, groups_div,
     # meter numbers, slot 5, masters and slaves
     def listed(n):
         return [x for x in idx.get(n, []) if x["l"] != "a"]
-    # 영준님 3규칙: 리스트에 있는 계기는 awms 에 있으면 통과 — 판독은 리스트 밖 계기만
+    # 영준님 3규칙: 리스트에 있는 계기는 awms 에 있으면 통과 — 판독은 리스트 없음 계기만
     tg, nophoto = [], []
     for r in [r for r in today if not listed(r["INSTR_NUM"])]:
         p = get_photo(r["INSTR_NUM"], "5", photo_map, details, outdir)
@@ -724,7 +724,7 @@ def ocr_check(day, rows, ship, idx, details, photo_map, rep, outdir, groups_div,
             rep.items.remove(x)
     verdict = {k: v[0] for k, v in res.items()}
     verdict.update({n: "nophoto" for n in nophoto})
-    print(f"   리스트 밖 계기 사진 {len(tg)}장: 일치 {sum(v[0] == 'ok' for v in res.values())} · 다름 {len(bad)} · 판독 못함 {len(none)}"
+    print(f"   리스트 없음 계기 사진 {len(tg)}장: 일치 {sum(v[0] == 'ok' for v in res.values())} · 다름 {len(bad)} · 판독 못함 {len(none)}"
           + (f" {none}" if none else "") + (f" · 사진 없음 {len(nophoto)} {nophoto}" if nophoto else ""))
     # MAC, slot 4, 기설 + not in my 출고 ledger
     own = ship.get("rows") or {}
@@ -763,7 +763,7 @@ def resolve_outlist(rep, verdict):
         # out-of-list meters read without an item of their own (기설 master = the old modem's 대표계기)
         for m, v in sorted(verdict.items()):
             if m not in covered and v in ("none", "nophoto"):
-                rep.add("yellow", "ocr", f"리스트 밖 {m} — 사진 판독 못 함" + (" (사진 없음)" if v == "nophoto" else ""),
+                rep.add("yellow", "ocr", f"리스트 없음 {m} — 사진 판독 못 함" + (" (사진 없음)" if v == "nophoto" else ""),
                         "계기 사진으로 번호 확인", meter=m)
     for x in list(rep.items):
         if x["level"] != "outlist":
@@ -777,9 +777,9 @@ def resolve_outlist(rep, verdict):
         if all(v == "ok" for v in vs.values()):
             where = x.get("key") or f"모뎀 {x.get('mac', '')}"
             x["level"], x["todo"] = "green", ""
-            x["msg"] = f"{where} 리스트 밖 {len(ms)}대 {ms} — 사진 번호 확인 일치"
+            x["msg"] = f"{where} 리스트 없음 {len(ms)}대 {ms} — 사진 번호 확인 일치"
         elif unread:
-            x["level"], x["msg"] = "yellow", f"{x['msg']} — 리스트 밖 + 사진 판독 못 함 {unread}"
+            x["level"], x["msg"] = "yellow", f"{x['msg']} — 리스트 없음 + 사진 판독 못 함 {unread}"
         else:
             rep.items.remove(x)
 

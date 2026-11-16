@@ -212,7 +212,7 @@ def _():
     return not rep.of("red"), rep
 
 
-@case("리스트 밖 계기 섞인 모뎀 = 사진 판독 대기(묶어서)")
+@case("리스트 없음 계기 섞인 모뎀 = 사진 판독 대기(묶어서)")
 def _():
     rs = base()
     s2 = row("25530024655", "E0AEED953741", modem="20")
@@ -220,7 +220,7 @@ def _():
     for r in rs[:3]:
         r["MB_REG_CNT"] = "3"
     rep = run(rs, {**BUNGI_OK, "25530024655": {"BUNGI": "0.5"}})
-    return has(rep, "outlist", "리스트 밖 계기 1대", "25530024655"), rep
+    return has(rep, "outlist", "리스트 없음 계기 1대", "25530024655"), rep
 
 
 WS = "서울특별시 마포구 신수동 257-1|미조치"
@@ -261,7 +261,7 @@ def _():
     ws = {"서울특별시 마포구 신수동 275-1|미조치lte": {"state": "complete", "updatedAt": "2026-11-13T15:13:07+09:00",
                                                     "updatedByName": "우영준"}}
     rep = run(group(m, ss), {n: {"BUNGI": "0.5"} for n in ("25530026782", "25530024655")}, ws)
-    ok = has(rep, "red", "누락", "25530018556") and has(rep, "outlist", "리스트 밖 2대")
+    ok = has(rep, "red", "누락", "25530018556") and has(rep, "outlist", "리스트 없음 2대")
     C.resolve_outlist(rep, {"25530024655": "ok", "47450039041": "ok"})
     ok = ok and has(rep, "green", "275-1", "사진 번호 확인 일치") and not rep.of("yellow")
     return ok, rep
@@ -287,35 +287,35 @@ def outlist_rep():
     return run(rs, {**BUNGI_OK, "25530024655": {"BUNGI": "0.5"}})
 
 
-@case("리스트 밖 + 사진 일치 = 초록")
+@case("리스트 없음 + 사진 일치 = 초록")
 def _():
     rep = outlist_rep()
     C.resolve_outlist(rep, {"25530024655": "ok"})
-    return has(rep, "green", "리스트 밖 1대", "사진 번호 확인 일치") and not rep.of("yellow"), rep
+    return has(rep, "green", "리스트 없음 1대", "사진 번호 확인 일치") and not rep.of("yellow"), rep
 
 
-@case("리스트 밖 + 판독 실패 = 노랑")
+@case("리스트 없음 + 판독 실패 = 노랑")
 def _():
     rep = outlist_rep()
     C.resolve_outlist(rep, {"25530024655": "none"})
     return has(rep, "yellow", "사진 판독 못 함", "25530024655"), rep
 
 
-@case("리스트 밖 + 사진 없음 = 노랑")
+@case("리스트 없음 + 사진 없음 = 노랑")
 def _():
     rep = outlist_rep()
     C.resolve_outlist(rep, {})
     return has(rep, "yellow", "사진 판독 못 함"), rep
 
 
-@case("리스트 밖 + 사진 번호 다름 = 이 항목 빼고 판독 항목에 맡김")
+@case("리스트 없음 + 사진 번호 다름 = 이 항목 빼고 판독 항목에 맡김")
 def _():
     rep = outlist_rep()
     C.resolve_outlist(rep, {"25530024655": "bad"})
-    return not [x for x in rep.items if "리스트 밖" in x["msg"]], rep
+    return not [x for x in rep.items if "리스트 없음" in x["msg"]], rep
 
 
-@case("리스트 밖 + 판독 안 함(--no-ocr) = 노랑")
+@case("리스트 없음 + 판독 안 함(--no-ocr) = 노랑")
 def _():
     rep = outlist_rep()
     C.resolve_outlist(rep, None)

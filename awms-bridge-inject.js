@@ -3055,7 +3055,7 @@ function parseValue(text) {
       var dept = head.DEPT2 || '', inList = [], outList = [], keys = {};
       rs.forEach(function (r) {
         var xs = L[r.INSTR_NUM] || [];
-        if (!xs.length && String(r.MODEM_DIV) === '10' && r.WORK_DIV === 'M1030') return;   // 기설 마스터 = 원래 리스트 밖
+        if (!xs.length && String(r.MODEM_DIV) === '10' && r.WORK_DIV === 'M1030') return;   // 기설 마스터 = 원래 리스트 없음
         (xs.length ? inList : outList).push(r.INSTR_NUM);
         xs.forEach(function (x) {
           keys[x.a + '|' + x.c] = 1;
@@ -3088,7 +3088,7 @@ function parseValue(text) {
         miss.forEach(function (x) { typoList[x] = 1; });
         add(miss.length ? 'red' : 'yellow', 'list', '번호 1자리 차이', { mac: g.mac, meters: [m].concat(miss.length ? miss : hit) });
       });
-      if (rest.length) add('yellow', 'list', '리스트 밖', { mac: g.mac, meters: rest });
+      if (rest.length) add('yellow', 'list', '리스트 없음', { mac: g.mac, meters: rest });
     });
     Object.keys(touched).sort().forEach(function (k) {
       var all = SM[k] || [], miss = all.filter(function (x) { return !aw[x] && !typoList[x]; }).sort();
@@ -3182,7 +3182,7 @@ function parseValue(text) {
     }).catch(function (e) { __wc.err = String(e && e.message || e); rec({ stage: 'wc-fail', day: day, msg: __wc.err }); wcRender(); });
   }
   var WC_DOT = { red: '#f04438', yellow: '#f79009', green: '#12b76a', grey: '#98a2b3' };
-  var WC_SECS = [['list', '리스트 대조'], ['comm', '통신방식·분기'], ['form', '등록 형식']];
+  var WC_SECS = [['list', '리스트 대조'], ['comm', '통신방식·분기'], ['form', '번호·모뎀']];
   function wcRender() {
     var box = document.getElementById('__wc_body');
     if (!box) return;
@@ -3233,7 +3233,7 @@ function parseValue(text) {
       h += '<tr' + (d.day === __wc.day ? ' style="font-weight:800"' : '') + '><td style="' + td + 'text-align:left">' + wcFmtDay(d.day) + '</td><td style="' + td + '">' + d.sites + (d.noSite ? ' +' + d.noSite : '') +
         '</td><td style="' + td + '">' + d.masters + '</td><td style="' + td + '">' + d.slaves + '</td></tr>';
     });
-    h += '</table></div><div style="font-size:11px;color:#98a2b3;margin:0 2px 12px">awms 등록 기준 · 사진 판독 없음 · 개소 +N = 리스트 밖 모뎀</div>';
+    h += '</table></div><div style="font-size:11px;color:#98a2b3;margin:0 2px 12px">awms 등록 기준 · 사진 판독 없음 · 개소 +N = 리스트 없는 모뎀</div>';
     box.innerHTML = h;
   }
   function wcPanelHtml() {
