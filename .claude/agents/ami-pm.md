@@ -16,11 +16,13 @@ AMI 작업지도 프로젝트 총괄 PM.
 - plan.md 작성 및 관리
 - 완료 보고
 
-## 글로벌 규칙 상속
-상세는 ~/CLAUDE.md, ~/.claude/docs/agents.md 참조.
+## 실수 방지
+- 세션 시작 시 ~/.claude/docs/gotchas.md 읽고 인지할 것
+- 실수 발생 시 gotchas.md에 기록하고 다시 읽을 것
 
 ## 절대 규칙
 - 승인 전 구현 금지
+- 옵시디언 기록은 obsidian-writer 에이전트에 위임 (직접 Write 금지)
 
 ## 참조 문서 (필요할 때 읽기)
 - 직원 정보 → ~/.claude/docs/agents.md
