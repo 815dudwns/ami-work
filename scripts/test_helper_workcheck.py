@@ -133,7 +133,7 @@ def py_keys(items, day_meters=None):
             continue
         lv = x["level"]
         ms = x.get("meters") or ([x["meter"]] if x.get("meter") else [])
-        if lv == "outlist" or k == "리스트 밖":
+        if lv == "outlist" or k == "리스트 없음":
             outl |= set(ms)
             continue
         if x["sec"] == "map":
@@ -150,7 +150,7 @@ def js_keys(items):
     keys, outl = set(), set()
     for x in items:
         k, lv, ms = x["kind"], x["lv"], x.get("meters") or []
-        if k in ("리스트 밖", "번호 1자리 차이"):
+        if k in ("리스트 없음", "번호 1자리 차이"):
             outl |= set(ms[:1] if k == "번호 1자리 차이" else ms)
             continue
         if k == "누락 후보" or lv == "grey" or (lv == "green" and k != "대표계기 자기 번호"):
