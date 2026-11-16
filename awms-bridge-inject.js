@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v102'; // v102: beta 빌드 전용(__otpNative) — 자재 현황 화면 [작업 검사]: 그날 내 awms 등록을 맥 작업검사(cst_daily_check)와 같은 규칙으로 판정(빨강 할 일·노랑·초록, 사진 판독·지도 완료 없음, 뒷자리 2자리 중복·같은 주소 리스트 계기로 번호 1자리 차이·누락 후보, 모뎀 사용·일별 작업 현황), awms 읽기만. v101: 헬퍼 첫 화면 [자재 현황](앱 1.0.82~) — 앱이 남긴 표시가 있으면 로그인 뒤 자재 현황을 바로 엶. v100: 자재 현황 전 작업자 공개(로그인 아이디만 있으면 — 기록은 각자 helperStock/<USER_ID>). v99: 로그인 진단 — POST /login 응답(상태·success·이동 주소·오류 코드, 값·계정은 안 실음)과 OTP 자동 입력 시각을 Firebase 로그에 남김(간헐 '로그인 화면으로 되돌아감' 원인 확인용) · 네이티브에 OTP 가 없는 빌드(__otpNative=false)면 OTP 요청 표시 없음. v98: 사진 크게 보기(전 작업자 · 헬퍼만) — awms 사진 칸이 새 창(window.open·<a target=_blank>)으로 여는 사진을 같은 화면 위에 띄움, 닫기·이전/다음(지금 행 1 작업전·2 모뎀맥·3 계기·4 집합)·두 손가락 확대·두 번 톡 2배·옆으로 밀기, 저장 흐름 무관 · v96 리스트 지사 안내('리스트 지사 X — 지금 Y' + [X 로 바꾸기]) 전 작업자 공개(__featOn, 자재 현황은 테스터 그대로) · 맥 형식 검사(macFormatError) 사유와 [맥 오류] 상자 제안 줄('한 글자 차이 — X 여부 라벨 재확인 필요')을 명사형으로 — 설비등록 [맥 오류] 상자(전 작업자)와 자재 현황 화면이 같은 문구(허용 외 문자·LTE MAC 자릿수·자릿수 부족/초과·미사용 앞자리·847207 7번째 자리). v97: 테스터 전용 자재 현황 화면(코드명 자재관리, 화면 문구 업무체 — 재고·사용 완료·별도 관리 자재·자재 등록) — 헬퍼 홈 [자재 현황] 버튼. 내 모뎀(출고 20·인계 40, 본인 인계·6/22 이전 출고·소유 N·교체로 뗀 옛 모뎀 뺌) - 시공 목록 맥 = 보유/사용, 종류는 my_stock.kind() 와 같은 규칙(E 추정 없음, 전부 AE), 종류별 보유 awms·따로장부·합계·오늘 사용 표, 자재 추가 = [스캔] 한 번에 한 개(카메라 저절로 닫힘) 대기 목록에 쌓고 들어올 때 검사(형식·종류·내 출고/인계·awms 자재 []·따로장부·목록 중복, 거절 줄은 이유 표시·저장 안 함), [저장] 한 번 PATCH 로 Firebase helperStock/<USER_ID>/offbook/<MAC> 에 기록(awms 에 들어오면 'awms 에 들어옴' 표시, 한 번만 셈). awms 는 읽기만(selectList·selectBarcdQr·getMainList). v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v103'; // v103: 작업 검사에 지도 대조(영준님 2026-11-16 '리스트 = 지도', '완료인지 불가인지가 중요') — 그날 내가 지도에 완료 친 개소 ↔ awms(누락 빨강·지도 없음·개별불가 메모 1자리 차이/번호 없음·지도 계기 없음, 맥 map_check 와 같은 규칙), 그날 등록한 지도 계기 주소가 완료도 불가도 아님 = '지도 완료 안 함' · 불가/개별불가인데 등록 = '지도 불가'(노랑), workStatus 는 그날 바뀐 기록 + 그날 등록 주소 상태키만 읽음, 화면 문구 '리스트' -> '지도', 누락 후보 없앰, beta 빌드 전용 그대로. v102: beta 빌드 전용(__otpNative) — 자재 현황 화면 [작업 검사]: 그날 내 awms 등록을 맥 작업검사(cst_daily_check)와 같은 규칙으로 판정(빨강 할 일·노랑·초록, 사진 판독·지도 완료 없음, 뒷자리 2자리 중복·같은 주소 리스트 계기로 번호 1자리 차이·누락 후보, 모뎀 사용·일별 작업 현황), awms 읽기만. v101: 헬퍼 첫 화면 [자재 현황](앱 1.0.82~) — 앱이 남긴 표시가 있으면 로그인 뒤 자재 현황을 바로 엶. v100: 자재 현황 전 작업자 공개(로그인 아이디만 있으면 — 기록은 각자 helperStock/<USER_ID>). v99: 로그인 진단 — POST /login 응답(상태·success·이동 주소·오류 코드, 값·계정은 안 실음)과 OTP 자동 입력 시각을 Firebase 로그에 남김(간헐 '로그인 화면으로 되돌아감' 원인 확인용) · 네이티브에 OTP 가 없는 빌드(__otpNative=false)면 OTP 요청 표시 없음. v98: 사진 크게 보기(전 작업자 · 헬퍼만) — awms 사진 칸이 새 창(window.open·<a target=_blank>)으로 여는 사진을 같은 화면 위에 띄움, 닫기·이전/다음(지금 행 1 작업전·2 모뎀맥·3 계기·4 집합)·두 손가락 확대·두 번 톡 2배·옆으로 밀기, 저장 흐름 무관 · v96 리스트 지사 안내('리스트 지사 X — 지금 Y' + [X 로 바꾸기]) 전 작업자 공개(__featOn, 자재 현황은 테스터 그대로) · 맥 형식 검사(macFormatError) 사유와 [맥 오류] 상자 제안 줄('한 글자 차이 — X 여부 라벨 재확인 필요')을 명사형으로 — 설비등록 [맥 오류] 상자(전 작업자)와 자재 현황 화면이 같은 문구(허용 외 문자·LTE MAC 자릿수·자릿수 부족/초과·미사용 앞자리·847207 7번째 자리). v97: 테스터 전용 자재 현황 화면(코드명 자재관리, 화면 문구 업무체 — 재고·사용 완료·별도 관리 자재·자재 등록) — 헬퍼 홈 [자재 현황] 버튼. 내 모뎀(출고 20·인계 40, 본인 인계·6/22 이전 출고·소유 N·교체로 뗀 옛 모뎀 뺌) - 시공 목록 맥 = 보유/사용, 종류는 my_stock.kind() 와 같은 규칙(E 추정 없음, 전부 AE), 종류별 보유 awms·따로장부·합계·오늘 사용 표, 자재 추가 = [스캔] 한 번에 한 개(카메라 저절로 닫힘) 대기 목록에 쌓고 들어올 때 검사(형식·종류·내 출고/인계·awms 자재 []·따로장부·목록 중복, 거절 줄은 이유 표시·저장 안 함), [저장] 한 번 PATCH 로 Firebase helperStock/<USER_ID>/offbook/<MAC> 에 기록(awms 에 들어오면 'awms 에 들어옴' 표시, 한 번만 셈). awms 는 읽기만(selectList·selectBarcdQr·getMainList). v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
   var FEAT_RELEASED = true;   // [v89] released input checks on for every helper user (see __featOn)
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
@@ -2774,10 +2774,13 @@ function parseValue(text) {
   //   (scripts/cst_daily_check.py)와 같은 규칙으로 판정. 빨강 = 고칠 것(할 일 한 줄) / 노랑 = 볼 것 / 초록 = 메모·숫자.
   //   ★규칙 원본은 cst-input/backend/cst_rules.py(맥 → 통신방식·계기유형·분기)와 cst_daily_check.py app_check.
   //     여기 규칙을 고치면 저쪽도 — scripts/test_helper_workcheck.py 가 둘을 대조한다(함수 단위 + 하루치 대조).
-  //   맥 검사와 다른 점: 사진 판독(OCR) 없음 · 지도 완료(workStatus) 안 봄 — 대신 같은 주소 리스트 계기로
-  //     '번호 1자리 차이'·'누락 후보'를 노랑으로 낸다. 아미큐 보관함·자재 대조(지난 검사 재고)도 없음.
+  //   지도(= 리스트, 영준님 2026-11-16) 대조도 맥과 같다: 그날 내가 지도에 완료 친 개소 ↔ awms(누락 빨강·지도 없음·개별불가 메모),
+  //     그날 등록한 지도 계기의 주소가 완료도 불가도 아님 / 불가인데 등록. workStatus 는 읽기만.
+  //   맥 검사와 다른 점: 사진 판독(OCR) 없음 — 대신 지도 없는 계기가 같은 주소 지도 계기와 한 자리 차이면 '번호 1자리 차이'.
+  //     아미큐 보관함·자재 대조(지난 검사 재고)도 없음.
   //   읽는 것: getMainList(올해, 달마다) · getDetail(그날 슬레이브 + 뒷자리 겹치는 앞선 슬레이브의 분기) ·
   //     자재 현황이 이미 받은 출고/인계·별도 관리 자재 · data/search-index.json(리스트·주소·지사) · 리스트 이름표(__names).
+  //     + ami-work workStatus(그날 바뀐 기록 + 그날 등록 주소 상태키, REST GET).
   //   쓰는 것: 없음(Firebase 로그 rec 만).
   // [v102-wc-begin] 순수 판정 — 화면·통신 없음(시험에서 node 로 돌린다)
   var WC_TYPE_MAP = { '17': 'E', '19': 'EA', '25': 'G', '26': 'G', '27': 'G', '45': 'G', '46': 'G', '47': 'G',
@@ -2847,10 +2850,10 @@ function parseValue(text) {
     }
     return out;
   }
-  // 주소|리스트 -> 그 리스트 계기 (중복 없이)
-  function wcSiteMeters(si, names, keys) {
+  // 주소|리스트 -> 그 리스트 계기 (중복 없이). withA = 옛 완료 아카이브('a')도 — 지도 상태키 '' 는 실효·옛 완료 둘 다(맥 by_addr 와 같다)
+  function wcSiteMeters(si, names, keys, withA) {
     var rows = si.rows, slots = si.slots, sites = si.sites, out = {}, seen = {}, ok = [], i;
-    for (i = 0; i < slots.length; i++) ok.push(slots[i][0] !== 'a' && Object.prototype.hasOwnProperty.call(names, slots[i][0]));
+    for (i = 0; i < slots.length; i++) ok.push(slots[i][0] === 'a' ? !!withA : Object.prototype.hasOwnProperty.call(names, slots[i][0]));
     for (i = 0; i < rows.length; i += 3) {
       if (!ok[rows[i + 2]] || !rows[i]) continue;
       var k = sites[rows[i + 1]][0] + '|' + slots[rows[i + 2]][0];
@@ -2917,15 +2920,47 @@ function parseValue(text) {
     '등록수 다름': '슬레이브 추가 또는 행 정리', 'DCU 없음': 'DCU ID 입력 후 재저장', '계기유형 오류': '계기유형 수정 후 재저장',
     '통신방식 오류': '통신방식 수정 후 재저장', '아미고 짝': '모뎀·계기 짝 확인', '슬레이브 구분': '작업구분 신설로 재저장',
     '슬레이브 맥 다름': '마스터 맥으로 재저장', '대표계기 다름': '대표계기 확인', '분기 오류': '분기 수정 후 재저장',
-    '뒷자리 중복': '통신 불가 — 현장 확인', '번호 1자리 차이': '계기 사진 확인 후 바른 번호로 새 행 등록'
+    '뒷자리 중복': '통신 불가 — 현장 확인', '번호 1자리 차이': '계기 사진 확인 후 바른 번호로 새 행 등록',
+    '누락': '추가 등록 · 현장에 없으면 개별불가', '지도 계기 없음': '주소·지도 확인'
   };
-  // inp = {day, rows(올해 getMainList), details{계기: getDetail 행}, own{MAC: {owned}}, off{MAC: 1}, si(search-index), names}
+  // 지도 상태키 = 주소 + '|' + 리스트 이름(레지스트리 status category). '' = 실효·옛 완료(맨 주소). 맥 cst_daily_check NS_LIST 와 같은 표
+  //   — 레지스트리에 리스트가 늘면 여기도(scripts/test_helper_workcheck.py 가 NS_LIST 와 대조).
+  var WC_NS_CODES = { '': ['s', 'a'], '선조치': ['p'], '고압': ['g'], '합동': ['h'], 'skt': ['k'], '장애': ['j'], 'LP무기록': ['n'],
+                      '미청구': ['m'], '미청구불가': ['u'], '미조치': ['c'], '미조치lte': ['l'], '광명': ['w'] };
+  var WC_PRE_SPLIT = { '미조치': ['l'] };   // 11/10~11/12 엔 미조치(lte)도 '주소|미조치' 를 썼다
+  function wcNsCodes(ns) { return (WC_NS_CODES[ns] || ['s']).concat(WC_PRE_SPLIT[ns] || []); }
+  function wcStateKeys(addr, code) {
+    var ns = null, k, out = [];
+    for (k in WC_NS_CODES) if (ns === null && WC_NS_CODES[k].indexOf(code) >= 0) ns = k;
+    if (ns === null) return out;
+    out.push(ns === '' ? addr : addr + '|' + ns);
+    for (k in WC_PRE_SPLIT) if (WC_PRE_SPLIT[k].indexOf(code) >= 0) out.push(addr + '|' + k);
+    return out;
+  }
+  // js/ws-format.js encodeKey 와 같은 치환
+  function wcEncodeKey(s) {
+    return String(s).replace(/\./g, '_dot_').replace(/#/g, '_hash_').replace(/\$/g, '_dollar_').replace(/\[/g, '_lb_').replace(/\]/g, '_rb_').replace(/\//g, '_sl_');
+  }
+  var WC_SEOUL = '서울특별시 ';
+  function wcFullAddr(a) { return a.indexOf(WC_SEOUL) === 0 ? a : WC_SEOUL + a; }
+  // 그날 등록한 지도 계기 주소의 상태키 — 폰은 그날 바뀐 기록(syncAt)만 받으므로 이 키들은 따로 하나씩 읽는다
+  function wcStateWants(day, rows, si, names) {
+    var want = {}, out = {};
+    rows.forEach(function (r) { if (r.WORK_DATE === day) want[r.INSTR_NUM] = 1; });
+    var L = wcListRows(si, names, want);
+    Object.keys(L).forEach(function (no) {
+      L[no].forEach(function (x) { wcStateKeys(wcFullAddr(x.a), x.c).forEach(function (k) { out[wcEncodeKey(k)] = 1; }); });
+    });
+    return Object.keys(out);
+  }
+  // inp = {day, rows(올해 getMainList), details{계기: getDetail 행}, own{MAC: {owned}}, off{MAC: 1}, si(search-index), names,
+  //        ws{인코딩된 상태키: workStatus 기록}(그날 바뀐 것 + 그날 등록 주소 키), me(지도 로그인 이름 — 맥 ME 와 같은 판정)}
   function wcCheck(inp) {
     var day = inp.day, rows = inp.rows || [], det = inp.details || {}, own = inp.own || {}, off = inp.off || {};
     var items = [], seenItem = {};
     var add = function (lv, sec, kind, o) {
       o = o || {};
-      var k = lv + '|' + kind + '|' + (o.meters || []).join(',') + '|' + (o.mac || '');
+      var k = lv + '|' + kind + '|' + (o.meters || []).join(',') + '|' + (o.mac || '') + '|' + (o.addr || '');
       if (seenItem[k]) return;
       seenItem[k] = 1;
       o.lv = lv; o.sec = sec; o.kind = kind;
@@ -2945,6 +2980,29 @@ function parseValue(text) {
       if (mb) { var bk = mb + '|' + mac; (bound[bk] = bound[bk] || {})[r.INSTR_NUM] = 1; }
     });
     var L = inp.si ? wcListRows(inp.si, inp.names || {}, want) : {};
+    // ── 지도 ↔ awms (cst_daily_check map_sites) — 그날 내가 지도에 친 개소와 그 지도 계기
+    var ws = inp.ws || {}, me = inp.me || '', iso = day.slice(0, 4) + '-' + day.slice(4, 6) + '-' + day.slice(6, 8);
+    var strip = function (a) { return a.indexOf(WC_SEOUL) === 0 ? a.slice(WC_SEOUL.length) : a; };
+    var mine = [], mkeys = {};
+    Object.keys(ws).forEach(function (k) {
+      var v = ws[k] || {};
+      if (String(v.updatedAt || '').indexOf(iso) !== 0 || !me || v.updatedByName !== me) return;
+      var p = k.indexOf('|'), s = { k: k, v: v, addr: p < 0 ? k : k.slice(0, p), ns: p < 0 ? '' : k.slice(p + 1) };
+      s.added = !!(v.site && typeof v.site === 'object');
+      if (!s.added) wcNsCodes(s.ns).forEach(function (c) { mkeys[strip(s.addr) + '|' + c] = 1; });
+      mine.push(s);
+    });
+    var SMa = inp.si ? wcSiteMeters(inp.si, inp.names || {}, mkeys, true) : {};
+    var doneMeters = {};
+    mine.forEach(function (s) {
+      if (s.added) s.ms = Object.keys(s.v.added_meters || {}).sort();   // 지도에서 더한 개소 — 계기는 added_meters 에만
+      else {
+        var cs = wcNsCodes(s.ns);
+        s.ms = [];
+        for (var i = 0; i < cs.length && !s.ms.length; i++) s.ms = SMa[strip(s.addr) + '|' + cs[i]] || [];
+      }
+      if (s.v.state === 'complete') s.ms.forEach(function (m) { doneMeters[m] = 1; });
+    });
     var cnt = {};
     today.forEach(function (r) { cnt[r.INSTR_NUM] = (cnt[r.INSTR_NUM] || 0) + 1; });
     var groups = {}, order = [];
@@ -2955,7 +3013,6 @@ function parseValue(text) {
     });
     var sum = { meters: today.length, masters: 0, slaves: 0, div: {}, modems: order.length };
     var deferred = [];       // [{mac, outList, keys}] — 같은 주소 리스트 계기를 한 번에 찾는다
-    var touched = {};        // 오늘 리스트 계기가 등록된 주소|리스트 -> 1
     order.forEach(function (mac) {
       var rs = groups[mac];
       var ms = rs.filter(function (r) { return String(r.MODEM_DIV) === '10'; });
@@ -3055,24 +3112,23 @@ function parseValue(text) {
       var dept = head.DEPT2 || '', inList = [], outList = [], keys = {};
       rs.forEach(function (r) {
         var xs = L[r.INSTR_NUM] || [];
-        if (!xs.length && String(r.MODEM_DIV) === '10' && r.WORK_DIV === 'M1030') return;   // 기설 마스터 = 원래 리스트 없음
+        if (!xs.length && String(r.MODEM_DIV) === '10' && r.WORK_DIV === 'M1030') return;   // 기설 마스터 = 원래 지도 없음
         (xs.length ? inList : outList).push(r.INSTR_NUM);
         xs.forEach(function (x) {
           keys[x.a + '|' + x.c] = 1;
-          touched[x.a + '|' + x.c] = 1;
           if (WC_DEPT_NM[dept] && x.j.indexOf(WC_DEPT_NM[dept]) !== 0) add('red', 'form', '지사 다름', { mac: mac, meters: [r.INSTR_NUM], data: WC_DEPT_NM[dept] + ' / ' + x.j });
         });
       });
       // 번호 1자리 차이 후보 주소 = 이 모뎀에 묶인 다른 날 리스트 계기 주소도 포함
-      if (outList.length) {
+      var handled = inList.some(function (m) { return doneMeters[m]; });   // 지도 쪽에서 판정(아래)
+      if (outList.length && !handled) {
         wcMembers(master, rs, rows, mac).forEach(function (r) { (L[r.INSTR_NUM] || []).forEach(function (x) { keys[x.a + '|' + x.c] = 1; }); });
         deferred.push({ mac: mac, outList: outList, keys: keys });
       }
     });
-    // 같은 주소 리스트 계기 — 번호 1자리 차이 / 누락 후보
+    // 같은 주소 지도 계기 — 번호 1자리 차이
     var need = {};
     deferred.forEach(function (g) { for (var k in g.keys) need[k] = 1; });
-    for (var k0 in touched) need[k0] = 1;
     var SM = inp.si ? wcSiteMeters(inp.si, inp.names || {}, need) : {};
     var typoList = {};
     deferred.forEach(function (g) {
@@ -3088,12 +3144,67 @@ function parseValue(text) {
         miss.forEach(function (x) { typoList[x] = 1; });
         add(miss.length ? 'red' : 'yellow', 'list', '번호 1자리 차이', { mac: g.mac, meters: [m].concat(miss.length ? miss : hit) });
       });
-      if (rest.length) add('yellow', 'list', '리스트 없음', { mac: g.mac, meters: rest });
+      if (rest.length) add('yellow', 'list', '지도 없음', { mac: g.mac, meters: rest });
     });
-    Object.keys(touched).sort().forEach(function (k) {
-      var all = SM[k] || [], miss = all.filter(function (x) { return !aw[x] && !typoList[x]; }).sort();
-      if (miss.length) add('yellow', 'list', '누락 후보', { meters: miss, addr: k.split('|')[0], data: ((inp.names || {})[k.split('|')[1]] || k.split('|')[1]) + ' · 리스트 ' + all.length + ' / 미등록 ' + miss.length });
+    // 지도 완료 개소 ↔ awms (cst_daily_check map_check) — 같은 리스트 계기만, 개별불가 메모, 누락 빨강
+    var macOf = {}, byMac = {}, giseol = {};
+    rows.forEach(function (r) {
+      var m = wcUp(r.MAC_MODEM);
+      (macOf[r.INSTR_NUM] = macOf[r.INSTR_NUM] || {})[m] = 1;
+      (byMac[m] = byMac[m] || {})[r.INSTR_NUM] = 1;
+      if (String(r.MODEM_DIV) === '10' && r.WORK_DIV === 'M1030') giseol[r.INSTR_NUM] = 1;
     });
+    var cmp2 = function (a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0); };
+    mine.forEach(function (s) {
+      if (s.v.state !== 'complete') return;
+      var key = s.k, ms = s.ms, inMs = {};
+      if (!ms.length) { add('red', 'map', '지도 계기 없음', { meters: [], addr: key }); return; }
+      ms.forEach(function (m) { inMs[m] = 1; });
+      var failed = s.v.failedMeters || {}, macs = {}, reg = {}, n;
+      ms.forEach(function (m) { if (aw[m]) for (var x in macOf[m]) macs[x] = 1; });
+      for (var mc in macs) for (n in byMac[mc]) reg[n] = 1;
+      for (n in giseol) if (!inMs[n]) delete reg[n];
+      for (n in reg) if (!inMs[n] && L[n] && L[n].length) delete reg[n];   // 한 모뎀이 두 지도 개소에 걸친 경우 — 다른 개소 계기
+      var regList = Object.keys(reg), missing = [], standsIn = {};
+      ms.forEach(function (m) {
+        if (aw[m]) return;
+        if (!Object.prototype.hasOwnProperty.call(failed, m)) { if (missing.indexOf(m) < 0) missing.push(m); return; }
+        var raw = failed[m];
+        var txt = !raw ? '' : (typeof raw === 'object' ? JSON.stringify(raw) : String(raw));
+        var nums = {};
+        (txt.toUpperCase().match(/[0-9A-Z]{11}/g) || []).forEach(function (x) { nums[x] = 1; });
+        var nl = Object.keys(nums).sort(), hit = nl.filter(function (x) { return aw[x]; }), near = [];
+        var pool = regList.length ? regList : Object.keys(aw);
+        nl.filter(function (x) { return !aw[x]; }).forEach(function (nn) { pool.forEach(function (x) { if (wcOneOff(nn, x)) near.push([nn, x]); }); });
+        near.sort(cmp2);
+        if (hit.length) standsIn[hit[0]] = 1;
+        else if (near.length) { standsIn[near[0][1]] = 1; add('yellow', 'map', '메모 1자리 차이', { meters: [near[0][1]], addr: key, data: '메모 ' + near[0][0] }); }
+        else if (nl.length) add('yellow', 'map', '메모 번호 없음', { meters: [m], addr: key, data: '메모 ' + nl.join(' ') });
+      });
+      var outL = regList.filter(function (x) { return !inMs[x] && !standsIn[x]; }).sort();
+      if (missing.length) add('red', 'map', '누락', { meters: missing.sort(), addr: key });
+      if (outL.length) add('yellow', 'map', '지도 없음', { meters: outL, addr: key });
+    });
+    // 그날 등록한 지도 계기 ↔ 그 주소 지도 상태(누가 쳤든) (cst_daily_check map_state_check)
+    var stTodo = {}, stBad = {};
+    today.forEach(function (r) {
+      var no = r.INSTR_NUM, xs = L[no] || [], found = [], first = '';
+      xs.forEach(function (x) {
+        var ks = wcStateKeys(wcFullAddr(x.a), x.c);
+        for (var i = 0; i < ks.length; i++) {
+          if (!first) first = ks[i];
+          var v = ws[wcEncodeKey(ks[i])];
+          if (v) { found.push([ks[i], v]); break; }
+        }
+      });
+      if (!xs.length) return;
+      var fail = found.filter(function (f) { return f[1].state === 'fail' || Object.prototype.hasOwnProperty.call(f[1].failedMeters || {}, no); });
+      if (fail.length) (stBad[fail[0][0]] = stBad[fail[0][0]] || []).push(no);
+      else if (!found.some(function (f) { return f[1].state === 'complete'; })) (stTodo[first] = stTodo[first] || []).push(no);
+    });
+    var uniq = function (a) { return a.filter(function (x, i) { return a.indexOf(x) === i; }).sort(); };
+    Object.keys(stTodo).sort().forEach(function (k) { add('yellow', 'map', '지도 완료 안 함', { meters: uniq(stTodo[k]), addr: k }); });
+    Object.keys(stBad).sort().forEach(function (k) { add('yellow', 'map', '지도 불가', { meters: uniq(stBad[k]), addr: k }); });
     // 모뎀 사용(신설 마스터, 종류별) · 일별 작업 현황
     var use = {}, used = {};
     today.forEach(function (r) {
@@ -3139,6 +3250,30 @@ function parseValue(text) {
       setTimeout(fin, 15000);
     });
   }
+  // 지도 상태(ami-work workStatus) — 읽기만. 그날 0시(KST)부터 바뀐 기록(syncAt 색인, 지도와 같은 길) + 그날 등록 주소의 상태키 하나씩
+  var WC_WS = 'https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app/workStatus/charger4eleccar';
+  function wcLoadWs(day, keys) {
+    var start = Date.UTC(+day.slice(0, 4), +day.slice(4, 6) - 1, +day.slice(6, 8)) - 9 * 3600 * 1000;
+    return fetch(WC_WS + '.json?orderBy=%22syncAt%22&startAt=' + start)
+      .then(function (r) { if (!r.ok) throw new Error('지도 HTTP ' + r.status); return r.json(); })
+      .then(function (ws) {
+        ws = ws || {};
+        var todo = keys.filter(function (k) { return !ws[k]; }), i = 0;
+        var worker = function () {
+          if (i >= todo.length) return Promise.resolve();
+          var k = todo[i++];
+          return fetch(WC_WS + '/' + encodeURIComponent(k) + '.json').then(function (r) { return r.ok ? r.json() : null; })
+            .catch(function () { return null; }).then(function (v) { if (v) ws[k] = v; return worker(); });
+        };
+        return Promise.all([worker(), worker(), worker(), worker()]).then(function () { return ws; });
+      });
+  }
+  // 지도 로그인 이름 = 맥 검사 ME 와 같은 판정(updatedByName). awms USER_ID -> 이름(헬퍼 사용자), 없으면 awms 세션 이름
+  var WC_ME_NAME = { '273584': '우영준', '729201': '장진교', '231918': '윤용운', '876359': '마삼환', '529199': '이용택' };
+  function wcMe() {
+    if (WC_ME_NAME[__stock.me]) return WC_ME_NAME[__stock.me];
+    try { var vm = getAwmsVM(), s = vm && (vm.session || (vm.$root && vm.$root.session)); return String((s && (s.USER_NM || s.USER_NAME)) || ''); } catch (e) { return ''; }
+  }
   function wcDetail(r) {
     var q = 'FLAG=M10&DEPT1=' + encodeURIComponent(r.DEPT1 || '3970') + '&BUSI_NUM=' + encodeURIComponent(r.BUSI_NUM || '') +
       '&DATA_NUM=' + encodeURIComponent(r.DATA_NUM || '') + '&EXT_DCU_ID=&INSTR_NUM=' + encodeURIComponent(r.INSTR_NUM || '') +
@@ -3159,6 +3294,7 @@ function parseValue(text) {
   function wcRun(day, fresh) {
     __wc.day = day; __wc.res = null; __wc.err = '';
     if (fresh) { __wc.rows = null; __wc.det = {}; }
+    __wc.ws = null;
     wcRender();
     var year = day.slice(0, 4), today = stockYmd();
     var rowsP = (__wc.rows && __wc.rowsYear === year) ? Promise.resolve(__wc.rows)
@@ -3168,15 +3304,16 @@ function parseValue(text) {
     });
     Promise.all([rowsP, wcLoadSI(), wcLoadNames(), stockP]).then(function (a) {
       var rows = a[0];
-      return wcDetails(wcDetailWants(day, rows)).then(function () {
-        var b = a[3] || {}, off = {};
+      return Promise.all([wcDetails(wcDetailWants(day, rows)), wcLoadWs(day, wcStateWants(day, rows, a[1], a[2]))]).then(function (z) {
+        var b = a[3] || {}, off = {}, me = wcMe();
         (b.off || []).forEach(function (o) { off[o.mac] = 1; });
-        var res = wcCheck({ day: day, rows: rows, details: __wc.det, own: b.own || {}, off: off, si: a[1], names: a[2] });
+        var res = wcCheck({ day: day, rows: rows, details: __wc.det, own: b.own || {}, off: off, si: a[1], names: a[2], ws: z[1], me: me });
+        if (!me) res.items.unshift({ lv: 'yellow', sec: 'map', kind: '지도 이름 미상', meters: [], data: '지도 완료 대조 안 함' });
         res.stock = b.counts || null;
         __wc.res = res;
         var n = { red: 0, yellow: 0 };
         res.items.forEach(function (x) { if (n[x.lv] != null) n[x.lv]++; });
-        rec({ stage: 'wc-run', day: day, meters: res.sum.meters, red: n.red, yellow: n.yellow, noStock: !a[3] });
+        rec({ stage: 'wc-run', day: day, meters: res.sum.meters, red: n.red, yellow: n.yellow, noStock: !a[3], ws: Object.keys(z[1] || {}).length, me: !!me });
         wcRender();
       });
     }).catch(function (e) { __wc.err = String(e && e.message || e); rec({ stage: 'wc-fail', day: day, msg: __wc.err }); wcRender(); });
@@ -3197,7 +3334,8 @@ function parseValue(text) {
     h += '<div style="background:#fff;border:1px solid #eaecf0;border-radius:12px;margin-bottom:10px;overflow:hidden">';
     if (!xs.length) h += '<div style="padding:14px 10px;font-size:15px;font-weight:700;color:#067647;text-align:center">문제 없음</div>';
     xs.forEach(function (x, i) {
-      var dat = (x.meters || []).join(' / ') + (x.addr ? ' · ' + x.addr : '') + (x.data ? ' · ' + x.data : '') + (x.mac && !x.addr ? ' · ' + x.mac : '');
+      var ad = x.addr ? String(x.addr).split('|')[0].replace(/^서울특별시 /, '') : '';   // 상태키 '주소|리스트' -> 주소만
+      var dat = (x.meters || []).join(' / ') + (ad ? ' · ' + ad : '') + (x.data ? ' · ' + x.data : '') + (x.mac && !ad ? ' · ' + x.mac : '');
       h += '<div style="display:flex;gap:8px;padding:8px 10px;' + (i ? 'border-top:1px solid #f2f4f7;' : '') + 'font-size:14px;align-items:flex-start">' +
         '<span style="width:10px;height:10px;border-radius:50%;margin-top:5px;background:' + WC_DOT[x.lv] + ';flex:none"></span><div style="min-width:0">' +
         '<div style="font-weight:700">' + esc(x.kind) + '</div><div style="font-family:monospace;font-size:12px;color:#344054;word-break:break-all">' + esc(dat) + '</div>' +
@@ -3223,7 +3361,7 @@ function parseValue(text) {
       h += '<tr' + (d.day === __wc.day ? ' style="font-weight:800"' : '') + '><td style="' + td + 'text-align:left">' + wcFmtDay(d.day) + '</td><td style="' + td + '">' + d.sites + (d.noSite ? ' +' + d.noSite : '') +
         '</td><td style="' + td + '">' + d.masters + '</td><td style="' + td + '">' + d.slaves + '</td></tr>';
     });
-    h += '</table></div><div style="font-size:11px;color:#98a2b3;margin:0 2px 12px">awms 등록 기준 · 사진 판독 없음 · 개소 +N = 리스트 없는 모뎀</div>';
+    h += '</table></div><div style="font-size:11px;color:#98a2b3;margin:0 2px 12px">awms 등록 기준 · 사진 판독 없음 · 개소 +N = 지도 없는 모뎀</div>';
     box.innerHTML = h;
   }
   function wcPanelHtml() {

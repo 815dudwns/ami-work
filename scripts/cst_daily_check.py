@@ -444,12 +444,12 @@ def app_check(day, rows, ship, idx, details, jobs, rep, done_site_meters):
         handled = any(m in done_site_meters for m in in_list)
         if out_list and not handled:
             if in_list:
-                msg = f"리스트 없음 계기 {len(out_list)}대 {out_list} (같은 모뎀 리스트 계기 {len(in_list)}대)"
+                msg = f"지도 없음 계기 {len(out_list)}대 {out_list} (같은 모뎀 리스트 계기 {len(in_list)}대)"
             else:
                 msg = f"리스트에 없는 계기 {out_list} — 계기교체로 새 번호일 수 있다"
             # ★not yellow yet — every out-of-list meter goes through the slot-5 photo read first
-            #   (영준님 2026-11-14 "리스트 없음이면 5번 ocr 과정해야함"); resolve_outlist() decides
-            rep.add("outlist", "awms", msg, "계기 사진으로 번호 확인", kind="리스트 없음", meters=out_list, mac=mac, meter=out_list[0])
+            #   (영준님 2026-11-14 "지도 없음이면 5번 ocr 과정해야함"); resolve_outlist() decides
+            rep.add("outlist", "awms", msg, "계기 사진으로 번호 확인", kind="지도 없음", meters=out_list, mac=mac, meter=out_list[0])
 
         # photos (아미큐 rows)
         src = sorted({"아미큐" if r["INSTR_NUM"] in via else "아미큐 외(헬퍼·화면)" for r in rs})
@@ -531,7 +531,7 @@ def map_check(sites, rows, idx, rep):
             continue
         t = v.get("updatedAt", "")[11:16]
         if not ms:
-            rep.add("red", "map", f"{t} {k} 완료인데 리스트 계기를 못 찾았다", "주소·리스트 확인", kind="리스트 계기 없음", key=k)
+            rep.add("red", "map", f"{t} {k} 완료인데 지도 계기를 못 찾았다", "주소·지도 확인", kind="지도 계기 없음", key=k)
             continue
         failed = v.get("failedMeters") or {}
         macs = set().union(*[mac_of[m] for m in ms if m in aw])
@@ -560,20 +560,71 @@ def map_check(sites, rows, idx, rep):
                 rep.add("yellow", "map", f"{t} {k} 개별불가 {m} 메모 번호 {sorted(nums)} 가 awms 에 없다",
                         "메모 번호 확인", kind="메모 번호 없음", key=k, meter=m)
         out_list = sorted(reg - set(ms) - stands_in)
-        # 영준님 3규칙(2026-11-14): 리스트 = awms 면 통과 / 리스트 없음 awms 는 사진 판독 /
-        #   리스트 완료인데 awms 없음 = 누락(빨강) — 리스트 없음 계기가 같이 있어도 누락은 누락(275-1)
+        # 영준님 3규칙(2026-11-14): 리스트 = awms 면 통과 / 지도 없음 awms 는 사진 판독 /
+        #   리스트 완료인데 awms 없음 = 누락(빨강) — 지도 없음 계기가 같이 있어도 누락은 누락(275-1)
         if missing:
             rep.add("red", "map", f"{t} {k} 누락 — 리스트 {len(ms)}대 중 {len(missing)}대 awms 없음 {missing}"
-                    + (f" (리스트 없음 {len(out_list)}대 등록 {out_list})" if out_list else ""),
+                    + (f" (지도 없음 {len(out_list)}대 등록 {out_list})" if out_list else ""),
                     f"{', '.join(missing)} 추가 등록, 현장에 없으면 개별불가", kind="누락", key=k, meters=missing)
         if out_list:
-            rep.add("outlist", "map", f"{t} {k} 리스트 {len(ms)}대 / 등록 {len(reg)}대 — 리스트 없음 {len(out_list)}대 {out_list}",
-                    "계기 사진으로 번호 확인", kind="리스트 없음", key=k, meters=out_list)
+            rep.add("outlist", "map", f"{t} {k} 리스트 {len(ms)}대 / 등록 {len(reg)}대 — 지도 없음 {len(out_list)}대 {out_list}",
+                    "계기 사진으로 번호 확인", kind="지도 없음", key=k, meters=out_list)
     done = states.get("complete", 0)
     print(f"   완료 {done}곳 · 불가 {states.get('fail', 0)}곳"
           + "".join(f" · {s} {n}곳" for s, n in states.items() if s not in ("complete", "fail")) + "\n")
     return {"complete": done, "fail": states.get("fail", 0), "other": {s: n for s, n in states.items()
                                                                       if s not in ("complete", "fail")}}
+
+
+# ── 2b. 지도 상태 ↔ 그날 awms 등록 ────────────────────────────────────────────
+#   영준님 2026-11-16 "리스트 = 지도", "완료인지 불가인지가 중요". 그날 awms 에 등록한 지도 계기마다 그 주소의 지도 상태
+#   (누가 쳤든) — 완료도 불가도 아님 = 노랑 '지도 완료 안 함' / 개소 불가 또는 그 계기 개별불가 = 노랑 '지도 불가'.
+#   상태키 = 주소 + '|' + 리스트 이름(레지스트리 status category, 실효·옛 완료는 맨 주소). 옛 공유 키(미조치)도 본다.
+#   ★헬퍼 작업 검사(awms-bridge-inject.js wcMapState)와 같은 규칙 — scripts/test_helper_workcheck.py 가 대조.
+CODE_NS = {}
+for _ns, _codes in NS_LIST.items():
+    for _c in _codes:
+        CODE_NS.setdefault(_c, _ns)
+
+
+def state_keys(addr, code):
+    ns = CODE_NS.get(code)
+    if ns is None:
+        return []
+    ks = [addr if ns == "" else f"{addr}|{ns}"]
+    for old, codes in PRE_SPLIT_FALLBACK.items():
+        if code in codes:
+            ks.append(f"{addr}|{old}")
+    return ks
+
+
+def map_state_check(day, rows, idx, ws, rep):
+    from status_key import encode_key
+    todo, bad = defaultdict(list), defaultdict(list)
+    for r in [r for r in rows if r.get("WORK_DATE") == day]:
+        no = r["INSTR_NUM"]
+        xs = [x for x in idx.get(no, []) if x["l"] != "a"]
+        if not xs:
+            continue
+        found, first = [], None
+        for x in xs:
+            for k in state_keys(x["주소"], x["l"]):
+                first = first or k
+                v = ws.get(encode_key(k))
+                if v:
+                    found.append((k, v))
+                    break
+        fail = [k for k, v in found if v.get("state") == "fail" or no in (v.get("failedMeters") or {})]
+        if fail:
+            bad[fail[0]].append(no)
+        elif not any(v.get("state") == "complete" for _, v in found):
+            todo[first].append(no)
+    for k, ms in sorted(todo.items()):
+        rep.add("yellow", "map", f"{k} 지도 완료 안 함 — 오늘 awms 등록 {sorted(set(ms))}",
+                "지도에 완료(또는 불가) 표시", kind="지도 완료 안 함", key=k, meters=sorted(set(ms)))
+    for k, ms in sorted(bad.items()):
+        rep.add("yellow", "map", f"{k} 지도 불가인데 오늘 awms 등록 {sorted(set(ms))}",
+                "지도 불가·개별불가와 등록 중 어느 쪽이 맞는지 확인", kind="지도 불가", key=k, meters=sorted(set(ms)))
 
 
 # ── 3. photo OCR (our engine) ─────────────────────────────────────────────────
@@ -696,7 +747,7 @@ def ocr_check(day, rows, ship, idx, details, photo_map, rep, outdir, groups_div,
     # meter numbers, slot 5, masters and slaves
     def listed(n):
         return [x for x in idx.get(n, []) if x["l"] != "a"]
-    # 영준님 3규칙: 리스트에 있는 계기는 awms 에 있으면 통과 — 판독은 리스트 없음 계기만
+    # 영준님 3규칙: 리스트에 있는 계기는 awms 에 있으면 통과 — 판독은 지도 없음 계기만
     tg, nophoto = [], []
     for r in [r for r in today if not listed(r["INSTR_NUM"])]:
         p = get_photo(r["INSTR_NUM"], "5", photo_map, details, outdir)
@@ -724,7 +775,7 @@ def ocr_check(day, rows, ship, idx, details, photo_map, rep, outdir, groups_div,
             rep.items.remove(x)
     verdict = {k: v[0] for k, v in res.items()}
     verdict.update({n: "nophoto" for n in nophoto})
-    print(f"   리스트 없음 계기 사진 {len(tg)}장: 일치 {sum(v[0] == 'ok' for v in res.values())} · 다름 {len(bad)} · 판독 못함 {len(none)}"
+    print(f"   지도 없음 계기 사진 {len(tg)}장: 일치 {sum(v[0] == 'ok' for v in res.values())} · 다름 {len(bad)} · 판독 못함 {len(none)}"
           + (f" {none}" if none else "") + (f" · 사진 없음 {len(nophoto)} {nophoto}" if nophoto else ""))
     # MAC, slot 4, 기설 + not in my 출고 ledger
     own = ship.get("rows") or {}
@@ -763,7 +814,7 @@ def resolve_outlist(rep, verdict):
         # out-of-list meters read without an item of their own (기설 master = the old modem's 대표계기)
         for m, v in sorted(verdict.items()):
             if m not in covered and v in ("none", "nophoto"):
-                rep.add("yellow", "ocr", f"리스트 없음 {m} — 사진 판독 못 함" + (" (사진 없음)" if v == "nophoto" else ""),
+                rep.add("yellow", "ocr", f"지도 없음 {m} — 사진 판독 못 함" + (" (사진 없음)" if v == "nophoto" else ""),
                         "계기 사진으로 번호 확인", meter=m)
     for x in list(rep.items):
         if x["level"] != "outlist":
@@ -777,9 +828,9 @@ def resolve_outlist(rep, verdict):
         if all(v == "ok" for v in vs.values()):
             where = x.get("key") or f"모뎀 {x.get('mac', '')}"
             x["level"], x["todo"] = "green", ""
-            x["msg"] = f"{where} 리스트 없음 {len(ms)}대 {ms} — 사진 번호 확인 일치"
+            x["msg"] = f"{where} 지도 없음 {len(ms)}대 {ms} — 사진 번호 확인 일치"
         elif unread:
-            x["level"], x["msg"] = "yellow", f"{x['msg']} — 리스트 없음 + 사진 판독 못 함 {unread}"
+            x["level"], x["msg"] = "yellow", f"{x['msg']} — 지도 없음 + 사진 판독 못 함 {unread}"
         else:
             rep.items.remove(x)
 
@@ -880,6 +931,7 @@ def main():
     done_site_meters = {m for _, v, ms in sites if v.get("state") == "complete" for m in ms}
     summary, modems = app_check(a.day, rows, ship, idx, details, jobs, rep, done_site_meters)
     mp = map_check(sites, rows, idx, rep)
+    map_state_check(a.day, rows, idx, ws, rep)
     groups_div = {}
     for r in day_rows:
         if r.get("MODEM_DIV") == "10":

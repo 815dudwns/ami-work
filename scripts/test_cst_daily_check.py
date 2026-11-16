@@ -212,7 +212,7 @@ def _():
     return not rep.of("red"), rep
 
 
-@case("리스트 없음 계기 섞인 모뎀 = 사진 판독 대기(묶어서)")
+@case("지도 없음 계기 섞인 모뎀 = 사진 판독 대기(묶어서)")
 def _():
     rs = base()
     s2 = row("25530024655", "E0AEED953741", modem="20")
@@ -220,7 +220,7 @@ def _():
     for r in rs[:3]:
         r["MB_REG_CNT"] = "3"
     rep = run(rs, {**BUNGI_OK, "25530024655": {"BUNGI": "0.5"}})
-    return has(rep, "outlist", "리스트 없음 계기 1대", "25530024655"), rep
+    return has(rep, "outlist", "지도 없음 계기 1대", "25530024655"), rep
 
 
 WS = "서울특별시 마포구 신수동 257-1|미조치"
@@ -261,7 +261,7 @@ def _():
     ws = {"서울특별시 마포구 신수동 275-1|미조치lte": {"state": "complete", "updatedAt": "2026-11-13T15:13:07+09:00",
                                                     "updatedByName": "우영준"}}
     rep = run(group(m, ss), {n: {"BUNGI": "0.5"} for n in ("25530026782", "25530024655")}, ws)
-    ok = has(rep, "red", "누락", "25530018556") and has(rep, "outlist", "리스트 없음 2대")
+    ok = has(rep, "red", "누락", "25530018556") and has(rep, "outlist", "지도 없음 2대")
     C.resolve_outlist(rep, {"25530024655": "ok", "47450039041": "ok"})
     ok = ok and has(rep, "green", "275-1", "사진 번호 확인 일치") and not rep.of("yellow")
     return ok, rep
@@ -287,35 +287,35 @@ def outlist_rep():
     return run(rs, {**BUNGI_OK, "25530024655": {"BUNGI": "0.5"}})
 
 
-@case("리스트 없음 + 사진 일치 = 초록")
+@case("지도 없음 + 사진 일치 = 초록")
 def _():
     rep = outlist_rep()
     C.resolve_outlist(rep, {"25530024655": "ok"})
-    return has(rep, "green", "리스트 없음 1대", "사진 번호 확인 일치") and not rep.of("yellow"), rep
+    return has(rep, "green", "지도 없음 1대", "사진 번호 확인 일치") and not rep.of("yellow"), rep
 
 
-@case("리스트 없음 + 판독 실패 = 노랑")
+@case("지도 없음 + 판독 실패 = 노랑")
 def _():
     rep = outlist_rep()
     C.resolve_outlist(rep, {"25530024655": "none"})
     return has(rep, "yellow", "사진 판독 못 함", "25530024655"), rep
 
 
-@case("리스트 없음 + 사진 없음 = 노랑")
+@case("지도 없음 + 사진 없음 = 노랑")
 def _():
     rep = outlist_rep()
     C.resolve_outlist(rep, {})
     return has(rep, "yellow", "사진 판독 못 함"), rep
 
 
-@case("리스트 없음 + 사진 번호 다름 = 이 항목 빼고 판독 항목에 맡김")
+@case("지도 없음 + 사진 번호 다름 = 이 항목 빼고 판독 항목에 맡김")
 def _():
     rep = outlist_rep()
     C.resolve_outlist(rep, {"25530024655": "bad"})
-    return not [x for x in rep.items if "리스트 없음" in x["msg"]], rep
+    return not [x for x in rep.items if "지도 없음" in x["msg"]], rep
 
 
-@case("리스트 없음 + 판독 안 함(--no-ocr) = 노랑")
+@case("지도 없음 + 판독 안 함(--no-ocr) = 노랑")
 def _():
     rep = outlist_rep()
     C.resolve_outlist(rep, None)
@@ -466,6 +466,32 @@ def _():
         lst(n, "서울특별시 마포구 구수동 1")
     rep = run(group(m, [s1]), {})
     return not has(rep, "red", "뒷자리"), rep
+
+
+@case("지도 상태 — 완료 아님·불가·개별불가 = 노랑, 완료 = 없음")
+def _():
+    rs = base()
+    ws = {"서울특별시 마포구 구수동 1|미조치": {"state": "complete", "failedMeters": {"48190262687": "출입불가"},
+                                         "updatedAt": "2026-11-12T10:00:00+09:00", "updatedByName": "장진교"},
+          "서울특별시 마포구 구수동 2|미조치lte": {"state": "fail", "updatedAt": "2026-11-13T10:00:00+09:00",
+                                            "updatedByName": "우영준"}}
+    run(rs, BUNGI_OK, ws)          # the helper parity test runs the same rows + ws through the phone
+    rep = C.Report()
+    C.map_state_check(DAY, rs, IDX, ws, rep)
+    ok = (has(rep, "yellow", "지도 불가", "48190262687") and has(rep, "yellow", "지도 불가", "47452030837")
+          and has(rep, "yellow", "지도 완료 안 함", "45520006380") and not has(rep, "yellow", "48190262997"))
+    return ok, rep
+
+
+@case("지도 상태 — 옛 공유 키(주소|미조치)에 완료 = lte 계기도 완료로 본다")
+def _():
+    rs = base()
+    ws = {"서울특별시 마포구 구수동 1|미조치": {"state": "complete"}, "서울특별시 마포구 구수동 2|미조치": {"state": "complete"},
+          "서울특별시 마포구 신수동 361|미조치lte": {"state": "complete"}}
+    run(rs, BUNGI_OK, ws)
+    rep = C.Report()
+    C.map_state_check(DAY, rs, IDX, ws, rep)
+    return not rep.items, rep
 
 
 def main():

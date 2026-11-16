@@ -2,7 +2,7 @@
 """Helper inject v102 작업 검사 — parity with the Mac check (scripts/cst_daily_check.py), no network.
 
     python3 scripts/test_helper_workcheck.py                    # function parity + every synthetic case
-    python3 scripts/test_helper_workcheck.py --fixture DIR      # + one real day: DIR/rows.json details.json ws_day.json
+    python3 scripts/test_helper_workcheck.py --fixture DIR      # + one real day: DIR/rows.json details.json ws_full.json (or ws_day.json)
                                                                 #   (day = --day, default 20261116), prints the phone result
 
 1. Functions: the inject's wcMacSuffix / wcInferS / wcInferM / wcSlaveBungi / wcMacErr (between
@@ -14,8 +14,8 @@
 3. Fixture: same comparison on a real day. Python = app_check + map_check with --no-ocr semantics (archive jobs
    off — 아미큐 보관함 items are Mac-only). List-outside meters are compared as a set over the day's rows:
    Mac (awms + map side) vs phone (리스트 밖 + 번호 1자리 차이).
-Not compared (by design): Mac map-side 누락 / 메모 items (phone does not read workStatus), phone 누락 후보
-(Mac has no such item), OCR, stock reconcile, grey and plain green notes.
+Map side (2026-11-16) is compared too: 누락 · 지도 없음 · 메모 1자리 차이 · 메모 번호 없음 · 지도 계기 없음 ·
+지도 완료 안 함 · 지도 불가. Not compared (by design): OCR, stock reconcile, grey and plain green notes.
 Fixtures hold awms rows (customer data) — keep them outside the repo.
 """
 import argparse
@@ -97,7 +97,10 @@ def test_functions():
         s, i = k.split("|")
         if tuple(v) != R.slave_bungi(s, i):
             bad.append(("bungi", k, v, R.slave_bungi(s, i)))
-    print(f"{'PASS' if not bad else 'FAIL'} 함수 대조 — 맥 {len(macs)} · 계기 {len(meters)}")
+    ns = node("console.log(JSON.stringify([WC_NS_CODES, WC_PRE_SPLIT]));", {})
+    if {k: tuple(v) for k, v in ns[0].items()} != C.NS_LIST or {k: tuple(v) for k, v in ns[1].items()} != C.PRE_SPLIT_FALLBACK:
+        bad.append(("ns table", ns, C.NS_LIST, C.PRE_SPLIT_FALLBACK))
+    print(f"{'PASS' if not bad else 'FAIL'} 함수 대조 — 맥 {len(macs)} · 계기 {len(meters)} · 상태키 이름표")
     for b in bad[:20]:
         print("      ", b)
     return not bad
@@ -133,14 +136,12 @@ def py_keys(items, day_meters=None):
             continue
         lv = x["level"]
         ms = x.get("meters") or ([x["meter"]] if x.get("meter") else [])
-        if lv == "outlist" or k == "리스트 없음":
+        if lv == "outlist" or k == "지도 없음":
             outl |= set(ms)
-            continue
-        if x["sec"] == "map":
             continue
         if lv == "green" and k != "대표계기 자기 번호":
             continue
-        keys.add((lv, k, x.get("mac", ""), () if k in MAC_LEVEL else tuple(sorted(ms))))
+        keys.add((lv, k, x.get("mac", ""), () if k in MAC_LEVEL else tuple(sorted(set(ms)))))
     if day_meters is not None:
         outl &= day_meters
     return keys, outl
@@ -150,18 +151,18 @@ def js_keys(items):
     keys, outl = set(), set()
     for x in items:
         k, lv, ms = x["kind"], x["lv"], x.get("meters") or []
-        if k in ("리스트 없음", "번호 1자리 차이"):
+        if k in ("지도 없음", "번호 1자리 차이"):
             outl |= set(ms[:1] if k == "번호 1자리 차이" else ms)
             continue
         if k == "누락 후보" or lv == "grey" or (lv == "green" and k != "대표계기 자기 번호"):
             continue
-        keys.add((lv, k, x.get("mac", ""), () if k in MAC_LEVEL else tuple(sorted(ms))))
+        keys.add((lv, k, x.get("mac", ""), () if k in MAC_LEVEL else tuple(sorted(set(ms)))))
     return keys, outl
 
 
-def js_check(day, rows, details, own, off, si, names):
-    return node("console.log(JSON.stringify(wcCheck({day:IN.day,rows:IN.rows,details:IN.det,own:IN.own,off:IN.off,si:IN.si,names:IN.names})));",
-                {"day": day, "rows": rows, "det": details, "own": own, "off": off, "si": si, "names": names})
+def js_check(day, rows, details, own, off, si, names, ws=None, me=C.ME):
+    return node("console.log(JSON.stringify(wcCheck({day:IN.day,rows:IN.rows,details:IN.det,own:IN.own,off:IN.off,si:IN.si,names:IN.names,ws:IN.ws,me:IN.me})));",
+                {"day": day, "rows": rows, "det": details, "own": own, "off": off, "si": si, "names": names, "ws": ws or {}, "me": me})
 
 
 def compare(name, py_items, js_res, day_meters=None):
@@ -190,9 +191,12 @@ def test_cases():
 
     def run(rows, details=None, ws=None):
         rep = orig(rows, details, ws)
+        snap = json.loads(json.dumps(rep.items))      # snapshot — a case may run the OCR step on it later
+        extra = C.Report()                            # the map-state check is not part of the Mac test's run()
+        C.map_state_check(T.DAY, rows, T.IDX, ws or {}, extra)
         si, names = si_from_idx(T.IDX)
-        res = js_check(T.DAY, rows, details or {}, T.SHIP.get("rows") or {}, {m: 1 for m in C.offbook()}, si, names)
-        results.append((json.loads(json.dumps(rep.items)), res))   # snapshot — a case may run the OCR step on it later
+        res = js_check(T.DAY, rows, details or {}, T.SHIP.get("rows") or {}, {m: 1 for m in C.offbook()}, si, names, ws or {})
+        results.append((snap + extra.items, res))
         return rep
     T.run = run
     bad = 0
@@ -210,7 +214,8 @@ def test_cases():
 
 # ── 2b. phone-only items (no Mac counterpart) ─────────────────────────────────
 def test_phone_only():
-    """번호 1자리 차이 (red when the list meter is not in awms, yellow when it is) and 누락 후보."""
+    """번호 1자리 차이 (red when the map meter is not in awms, yellow when it is). 누락 후보 was dropped 2026-11-16 —
+    the map side (누락 red, 지도 완료 안 함) covers it."""
     import test_cst_daily_check as T
     T.IDX.clear()
     m = T.row("48190262997", "E0AEED953741")
@@ -225,10 +230,9 @@ def test_phone_only():
                    T.SHIP["rows"], {}, si, names)
     got = {(x["lv"], x["kind"], tuple(x.get("meters") or [])) for x in res["items"] if x["sec"] == "list"}
     want = {("red", "번호 1자리 차이", ("48190262688", "48190262687")),
-            ("yellow", "번호 1자리 차이", ("48190262555", "48190262565")),
-            ("yellow", "누락 후보", ("48190262111",))}
+            ("yellow", "번호 1자리 차이", ("48190262555", "48190262565"))}
     ok = got == want
-    print(f"{'PASS' if ok else 'FAIL'} 폰 전용 — 번호 1자리 차이(빨강·노랑) · 누락 후보(오타 후보 계기는 빼고)")
+    print(f"{'PASS' if ok else 'FAIL'} 폰 전용 — 번호 1자리 차이(빨강·노랑)")
     if not ok:
         print("       got ", sorted(got))
         print("       want", sorted(want))
@@ -240,7 +244,8 @@ def test_phone_only():
 def test_fixture(fx, day):
     rows = json.loads((fx / "rows.json").read_text())
     details = json.loads((fx / "details.json").read_text())
-    ws = json.loads((fx / "ws_day.json").read_text())
+    wsf = fx / "ws_full.json" if (fx / "ws_full.json").exists() else fx / "ws_day.json"
+    ws = json.loads(wsf.read_text())
     ship = C.fetch_ship(refresh=False)
     idx = C.list_index()
     rep = C.Report()
@@ -249,11 +254,12 @@ def test_fixture(fx, day):
         done = {m for _, v, ms in sites if v.get("state") == "complete" for m in ms}
         C.app_check(day, rows, ship, idx, details, [], rep, done)
         C.map_check(sites, rows, idx, rep)
+        C.map_state_check(day, rows, idx, ws, rep)
     si = json.loads((ROOT / "data/search-index.json").read_text())
     names = json.loads((ROOT / "data/meter-list-index.json").read_text())["__names"]
-    res = js_check(day, rows, details, ship.get("rows") or {}, {m: 1 for m in C.offbook()}, si, names)
+    res = js_check(day, rows, details, ship.get("rows") or {}, {m: 1 for m in C.offbook()}, si, names, ws)
     day_meters = {r["INSTR_NUM"] for r in rows if r.get("WORK_DATE") == day}
-    ok = compare(f"하루 대조 {day} (맥 --no-ocr vs 폰)", rep.items, res, day_meters)
+    ok = compare(f"하루 대조 {day} (맥 --no-ocr vs 폰, 지도 포함)", rep.items, res)
     # list 지사 parity: search-index jisa vs stats 지사 for the day's list meters
     js_j = defaultdict(set)
     for i in range(0, len(si["rows"]), 3):
