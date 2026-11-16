@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v103'; // v103: 작업 검사에 지도 대조(영준님 2026-11-16 '리스트 = 지도', '완료인지 불가인지가 중요') — 그날 내가 지도에 완료 친 개소 ↔ awms(누락 빨강·지도 없음·개별불가 메모 1자리 차이/번호 없음·지도 계기 없음, 맥 map_check 와 같은 규칙), 그날 등록한 지도 계기 주소가 완료도 불가도 아님 = '지도 완료 안 함' · 불가/개별불가인데 등록 = '지도 불가'(노랑), workStatus 는 그날 바뀐 기록 + 그날 등록 주소 상태키만 읽음, 화면 문구 '리스트' -> '지도', 누락 후보 없앰, beta 빌드 전용 그대로. v102: beta 빌드 전용(__otpNative) — 자재 현황 화면 [작업 검사]: 그날 내 awms 등록을 맥 작업검사(cst_daily_check)와 같은 규칙으로 판정(빨강 할 일·노랑·초록, 사진 판독·지도 완료 없음, 뒷자리 2자리 중복·같은 주소 리스트 계기로 번호 1자리 차이·누락 후보, 모뎀 사용·일별 작업 현황), awms 읽기만. v101: 헬퍼 첫 화면 [자재 현황](앱 1.0.82~) — 앱이 남긴 표시가 있으면 로그인 뒤 자재 현황을 바로 엶. v100: 자재 현황 전 작업자 공개(로그인 아이디만 있으면 — 기록은 각자 helperStock/<USER_ID>). v99: 로그인 진단 — POST /login 응답(상태·success·이동 주소·오류 코드, 값·계정은 안 실음)과 OTP 자동 입력 시각을 Firebase 로그에 남김(간헐 '로그인 화면으로 되돌아감' 원인 확인용) · 네이티브에 OTP 가 없는 빌드(__otpNative=false)면 OTP 요청 표시 없음. v98: 사진 크게 보기(전 작업자 · 헬퍼만) — awms 사진 칸이 새 창(window.open·<a target=_blank>)으로 여는 사진을 같은 화면 위에 띄움, 닫기·이전/다음(지금 행 1 작업전·2 모뎀맥·3 계기·4 집합)·두 손가락 확대·두 번 톡 2배·옆으로 밀기, 저장 흐름 무관 · v96 리스트 지사 안내('리스트 지사 X — 지금 Y' + [X 로 바꾸기]) 전 작업자 공개(__featOn, 자재 현황은 테스터 그대로) · 맥 형식 검사(macFormatError) 사유와 [맥 오류] 상자 제안 줄('한 글자 차이 — X 여부 라벨 재확인 필요')을 명사형으로 — 설비등록 [맥 오류] 상자(전 작업자)와 자재 현황 화면이 같은 문구(허용 외 문자·LTE MAC 자릿수·자릿수 부족/초과·미사용 앞자리·847207 7번째 자리). v97: 테스터 전용 자재 현황 화면(코드명 자재관리, 화면 문구 업무체 — 재고·사용 완료·별도 관리 자재·자재 등록) — 헬퍼 홈 [자재 현황] 버튼. 내 모뎀(출고 20·인계 40, 본인 인계·6/22 이전 출고·소유 N·교체로 뗀 옛 모뎀 뺌) - 시공 목록 맥 = 보유/사용, 종류는 my_stock.kind() 와 같은 규칙(E 추정 없음, 전부 AE), 종류별 보유 awms·따로장부·합계·오늘 사용 표, 자재 추가 = [스캔] 한 번에 한 개(카메라 저절로 닫힘) 대기 목록에 쌓고 들어올 때 검사(형식·종류·내 출고/인계·awms 자재 []·따로장부·목록 중복, 거절 줄은 이유 표시·저장 안 함), [저장] 한 번 PATCH 로 Firebase helperStock/<USER_ID>/offbook/<MAC> 에 기록(awms 에 들어오면 'awms 에 들어옴' 표시, 한 번만 셈). awms 는 읽기만(selectList·selectBarcdQr·getMainList). v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v104'; // v104: 작업 검사 속도(beta 빌드 전용 그대로) — getDetail 은 슬레이브만(분기), 보낸 행(WORK_STEP 29) 상세를 IndexedDB 에 계정마다 따로 캐시(분기·사진 ID 3~6 만, 25/28 은 매번 받음, 계정 바뀌면 그 계정 것으로), IndexedDB 가 안 되면 캐시 없이 동작, 폰은 사진을 안 받음, 지도 없음 = 노랑 표시만(맥과 같은 판정). v103: 작업 검사에 지도 대조(영준님 2026-11-16 '리스트 = 지도', '완료인지 불가인지가 중요') — 그날 내가 지도에 완료 친 개소 ↔ awms(누락 빨강·지도 없음·개별불가 메모 1자리 차이/번호 없음·지도 계기 없음, 맥 map_check 와 같은 규칙), 그날 등록한 지도 계기 주소가 완료도 불가도 아님 = '지도 완료 안 함' · 불가/개별불가인데 등록 = '지도 불가'(노랑), workStatus 는 그날 바뀐 기록 + 그날 등록 주소 상태키만 읽음, 화면 문구 '리스트' -> '지도', 누락 후보 없앰, beta 빌드 전용 그대로. v102: beta 빌드 전용(__otpNative) — 자재 현황 화면 [작업 검사]: 그날 내 awms 등록을 맥 작업검사(cst_daily_check)와 같은 규칙으로 판정(빨강 할 일·노랑·초록, 사진 판독·지도 완료 없음, 뒷자리 2자리 중복·같은 주소 리스트 계기로 번호 1자리 차이·누락 후보, 모뎀 사용·일별 작업 현황), awms 읽기만. v101: 헬퍼 첫 화면 [자재 현황](앱 1.0.82~) — 앱이 남긴 표시가 있으면 로그인 뒤 자재 현황을 바로 엶. v100: 자재 현황 전 작업자 공개(로그인 아이디만 있으면 — 기록은 각자 helperStock/<USER_ID>). v99: 로그인 진단 — POST /login 응답(상태·success·이동 주소·오류 코드, 값·계정은 안 실음)과 OTP 자동 입력 시각을 Firebase 로그에 남김(간헐 '로그인 화면으로 되돌아감' 원인 확인용) · 네이티브에 OTP 가 없는 빌드(__otpNative=false)면 OTP 요청 표시 없음. v98: 사진 크게 보기(전 작업자 · 헬퍼만) — awms 사진 칸이 새 창(window.open·<a target=_blank>)으로 여는 사진을 같은 화면 위에 띄움, 닫기·이전/다음(지금 행 1 작업전·2 모뎀맥·3 계기·4 집합)·두 손가락 확대·두 번 톡 2배·옆으로 밀기, 저장 흐름 무관 · v96 리스트 지사 안내('리스트 지사 X — 지금 Y' + [X 로 바꾸기]) 전 작업자 공개(__featOn, 자재 현황은 테스터 그대로) · 맥 형식 검사(macFormatError) 사유와 [맥 오류] 상자 제안 줄('한 글자 차이 — X 여부 라벨 재확인 필요')을 명사형으로 — 설비등록 [맥 오류] 상자(전 작업자)와 자재 현황 화면이 같은 문구(허용 외 문자·LTE MAC 자릿수·자릿수 부족/초과·미사용 앞자리·847207 7번째 자리). v97: 테스터 전용 자재 현황 화면(코드명 자재관리, 화면 문구 업무체 — 재고·사용 완료·별도 관리 자재·자재 등록) — 헬퍼 홈 [자재 현황] 버튼. 내 모뎀(출고 20·인계 40, 본인 인계·6/22 이전 출고·소유 N·교체로 뗀 옛 모뎀 뺌) - 시공 목록 맥 = 보유/사용, 종류는 my_stock.kind() 와 같은 규칙(E 추정 없음, 전부 AE), 종류별 보유 awms·따로장부·합계·오늘 사용 표, 자재 추가 = [스캔] 한 번에 한 개(카메라 저절로 닫힘) 대기 목록에 쌓고 들어올 때 검사(형식·종류·내 출고/인계·awms 자재 []·따로장부·목록 중복, 거절 줄은 이유 표시·저장 안 함), [저장] 한 번 PATCH 로 Firebase helperStock/<USER_ID>/offbook/<MAC> 에 기록(awms 에 들어오면 'awms 에 들어옴' 표시, 한 번만 셈). awms 는 읽기만(selectList·selectBarcdQr·getMainList). v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
   var FEAT_RELEASED = true;   // [v89] released input checks on for every helper user (see __featOn)
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
@@ -3282,18 +3282,80 @@ function parseValue(text) {
       .then(function (d) { return Array.isArray(d) ? (d[0] || {}) : (d || {}); })
       .catch(function (e) { return { _err: String(e && e.message || e) }; });
   }
-  function wcDetails(list) {
-    var todo = list.filter(function (r) { return !__wc.det[r.INSTR_NUM]; }), i = 0;
-    var worker = function () {
-      if (i >= todo.length) return Promise.resolve();
-      var r = todo[i++];
-      return wcDetail(r).then(function (d) { __wc.det[r.INSTR_NUM] = d; return worker(); });
-    };
-    return Promise.all([worker(), worker(), worker(), worker()]);
+  // v104: getDetail 캐시(IndexedDB, 계정마다 따로 — 레코드 키 = USER_ID). 보낸 행(WORK_STEP 29)은 awms 가 수정을 막아
+  //   한 번 받으면 끝, 25/28 은 매번 받는다. 작은 칸만(분기·사진 ID 3~6 — 사진 대조를 나중에 붙일 때 다시 안 받게).
+  //   맥 cst_daily_check DetailCache 와 같은 규칙. ★IndexedDB 가 안 되면(사생활 모드·용량·오류) 캐시 없이 그대로 받는다.
+  var WC_DB = 'awmsHelperWc', WC_DB_STORE = 'detail', WC_DET_FIELDS = ['BUNGI', 'ATCH_FILE_ID_3', 'ATCH_FILE_ID_4', 'ATCH_FILE_ID_5', 'ATCH_FILE_ID_6', 'WORK_STEP'];
+  function wcCacheKey(r) { return String(r.BUSI_NUM || '') + '|' + String(r.INSTR_NUM || '') + '|' + wcUp(r.MAC_MODEM); }
+  function wcSlim(d) { var o = {}; WC_DET_FIELDS.forEach(function (f) { if (d[f] !== undefined) o[f] = d[f]; }); return o; }
+  function wcDbOpen() {
+    return new Promise(function (ok) {
+      try {
+        if (!window.indexedDB) return ok(null);
+        var t = setTimeout(function () { ok(null); }, 3000);
+        var q = window.indexedDB.open(WC_DB, 1);
+        q.onupgradeneeded = function () { try { q.result.createObjectStore(WC_DB_STORE); } catch (e) {} };
+        q.onsuccess = function () { clearTimeout(t); ok(q.result); };
+        q.onerror = q.onblocked = function () { clearTimeout(t); ok(null); };
+      } catch (e) { ok(null); }
+    });
+  }
+  function wcCacheGet(uid) {
+    if (!uid) return Promise.resolve({});
+    return wcDbOpen().then(function (db) {
+      return new Promise(function (ok) {
+        try {
+          if (!db) return ok({});
+          var q = db.transaction(WC_DB_STORE, 'readonly').objectStore(WC_DB_STORE).get(uid);
+          q.onsuccess = function () { var v = q.result; ok(v && typeof v === 'object' ? v : {}); };
+          q.onerror = function () { ok({}); };
+        } catch (e) { ok({}); }
+      });
+    }).catch(function () { return {}; });
+  }
+  function wcCachePut(uid, data) {
+    if (!uid) return Promise.resolve(false);
+    return wcDbOpen().then(function (db) {
+      return new Promise(function (ok) {
+        try {
+          if (!db) return ok(false);
+          var tx = db.transaction(WC_DB_STORE, 'readwrite');
+          tx.objectStore(WC_DB_STORE).put(data, uid);
+          tx.oncomplete = function () { ok(true); };
+          tx.onerror = tx.onabort = function () { ok(false); };
+        } catch (e) { ok(false); }
+      });
+    }).catch(function () { return false; });
+  }
+  function wcDetails(list, uid) {
+    var todo = list.filter(function (r) { return !__wc.det[r.INSTR_NUM]; }), i = 0, st = { hit: 0, got: 0 };
+    return wcCacheGet(uid).then(function (cache) {
+      var dirty = false, rest = [];
+      todo.forEach(function (r) {
+        var c = String(r.WORK_STEP || '') === '29' ? cache[wcCacheKey(r)] : null;
+        if (c) { __wc.det[r.INSTR_NUM] = c; st.hit++; } else rest.push(r);
+      });
+      var worker = function () {
+        if (i >= rest.length) return Promise.resolve();
+        var r = rest[i++];
+        return wcDetail(r).then(function (d) {
+          __wc.det[r.INSTR_NUM] = d; st.got++;
+          if (!d._err && String(r.WORK_STEP || '') === '29' && String(d.WORK_STEP || '29') === '29' && Object.keys(d).length) {
+            cache[wcCacheKey(r)] = wcSlim(d); dirty = true;
+          }
+          return worker();
+        });
+      };
+      return Promise.all([worker(), worker(), worker(), worker()]).then(function () {
+        return (dirty ? wcCachePut(uid, cache) : Promise.resolve(false)).then(function () { return st; });
+      });
+    });
   }
   function wcRun(day, fresh) {
     __wc.day = day; __wc.res = null; __wc.err = '';
-    if (fresh) { __wc.rows = null; __wc.det = {}; }
+    var uid = stockMe();
+    if (fresh || __wc.uid !== uid) { __wc.rows = null; __wc.det = {}; }   // 계정이 바뀌면 그 계정 것으로 처음부터
+    __wc.uid = uid;
     __wc.ws = null;
     wcRender();
     var year = day.slice(0, 4), today = stockYmd();
@@ -3304,7 +3366,7 @@ function parseValue(text) {
     });
     Promise.all([rowsP, wcLoadSI(), wcLoadNames(), stockP]).then(function (a) {
       var rows = a[0];
-      return Promise.all([wcDetails(wcDetailWants(day, rows)), wcLoadWs(day, wcStateWants(day, rows, a[1], a[2]))]).then(function (z) {
+      return Promise.all([wcDetails(wcDetailWants(day, rows), uid), wcLoadWs(day, wcStateWants(day, rows, a[1], a[2]))]).then(function (z) {
         var b = a[3] || {}, off = {}, me = wcMe();
         (b.off || []).forEach(function (o) { off[o.mac] = 1; });
         var res = wcCheck({ day: day, rows: rows, details: __wc.det, own: b.own || {}, off: off, si: a[1], names: a[2], ws: z[1], me: me });
@@ -3313,7 +3375,7 @@ function parseValue(text) {
         __wc.res = res;
         var n = { red: 0, yellow: 0 };
         res.items.forEach(function (x) { if (n[x.lv] != null) n[x.lv]++; });
-        rec({ stage: 'wc-run', day: day, meters: res.sum.meters, red: n.red, yellow: n.yellow, noStock: !a[3], ws: Object.keys(z[1] || {}).length, me: !!me });
+        rec({ stage: 'wc-run', day: day, meters: res.sum.meters, red: n.red, yellow: n.yellow, noStock: !a[3], ws: Object.keys(z[1] || {}).length, me: !!me, detHit: (z[0] || {}).hit, detGot: (z[0] || {}).got });
         wcRender();
       });
     }).catch(function (e) { __wc.err = String(e && e.message || e); rec({ stage: 'wc-fail', day: day, msg: __wc.err }); wcRender(); });

@@ -7,7 +7,11 @@
     python3 scripts/cst_daily_check.py --json-out /tmp/relay/cst_check/x.json
 
 Needs a live awms session (아미큐 맥세션) unless the offline inputs are given (--rows-file,
---detail-file, --ws-file — tests only). Everything is fetched fresh on every run.
+--detail-file, --ws-file — tests only). Everything is fetched fresh on every run, except getDetail of
+sent rows (WORK_STEP 29 — awms does not let them change): those are kept in a permanent per-account cache
+~/.ami-cst-archive/detail_cache/<USER_ID>.json (outside the repo, small fields only). 25/28 rows are always
+fetched again. getDetail is asked only where it is needed — slaves (분기) and the suspicious items whose
+photo is read (영준님 2026-11-16, 67s -> see the speed order).
 
 Result = traffic light. 초록 = numbers only, nothing to do. 노랑 = a person looks (photo attached).
 빨강 = fix it (a 'todo' sentence). Console + JSON (default /tmp/relay/cst_check/<day>.json, outside
@@ -25,19 +29,22 @@ Checks (영준님 checklist 2026-11-14)
       Not red: slaves added on another day to an existing master (sometimes the 대표계기 itself is
       entered as a slave so the master is not re-registered). Same MAC on two masters = 노랑.
     - 기설 M1030: MAC format (cst_rules.mac_format_error) and kind() known; a MAC still unused in my
-      own stock = '신설인데 기설로' 빨강; MAC photo OCR for every 기설.
+      own stock = '신설인데 기설로' 빨강; MAC photo OCR only for a suspicious 기설 MAC (below).
     - 교체 M1020: registered by 영준님 by hand — out of the new-install rules, counted only.
     - meter number: law ^[0-9A-Z]{2}[0-9]{9}$, type code (3-4th digits) in the cst_rules table,
-      in a map list, 지사 = list 지사. An out-of-list meter is decided by its slot-5 photo read:
-      photo = awms number -> 초록, unread / no photo -> 노랑, different -> the 오타 rule.
+      in a map list, 지사 = list 지사. An out-of-list meter = 노랑 '지도 없음', display only (영준님
+      2026-11-16 "추가계기들(지도에 없는)은 표시만" — supersedes the 2026-11-14 "지도 없음 -> 5번 OCR").
     - 계기유형 INST_M / 통신방식 INST_S / slave BUNGI vs what the backend would have sent = 빨강.
  2. Map: places I marked complete that day vs awms, same list only. 개별불가 memo number found in
     awms = resolved; memo one digit off an awms number = 노랑 '메모 오타 의심'.
     영준님 3 rules (2026-11-14): list meter in awms = pass (no photo read) / out-of-list meter in awms =
-    slot-5 photo read / list place complete but a list meter not in awms = 빨강 '누락' (even when
-    out-of-list meters were registered there — 신수동 275-1).
- 3. Photo OCR with our engine (Apple Vision; Google Vision is not used): meter number on slot 5 for
-    out-of-list meters only, MAC on slot 4 for 기설 and MACs not in my 출고 ledger. Confusable
+    노랑 '지도 없음' (display only) / list place complete but a list meter not in awms = 빨강 '누락' (even
+    when out-of-list meters were registered there — 신수동 275-1).
+ 3. Photo OCR with our engine (Apple Vision; Google Vision is not used) — suspicious items only, nothing is
+    downloaded pre-emptively (영준님 2026-11-16): meter number on slot 5 for a typo candidate (an
+    out-of-list meter one character off a list meter that awms does not have) and for a meter number
+    whose format or type code is wrong; MAC on slot 4 for a 기설 MAC with a format error or found in
+    neither my 출고 ledger nor an earlier awms row, and for a 신설 MAC outside both ledgers. Confusable
     letters are folded (B=8 O=0 S=5 D=0 I=1) and a miss is read again at 2x, then the barcode on the
     photo (zbarimg) — 노랑 only when the original read, the 2x read and the barcode all disagree.
  4. Material (today only): today's use by type (신설 masters, kind()) + stock, and
@@ -160,18 +167,95 @@ def list_index():
     return idx
 
 
-def fetch_details(rows):
-    """INSTR_NUM -> getDetail row (BUNGI, ATCH_FILE_ID_4/5). Read-only GET."""
+# ── getDetail cache ───────────────────────────────────────────────────────────
+#   ★보낸 행(WORK_STEP 29)은 awms 가 수정을 막으므로 한 번 받으면 끝(영준님 2026-11-16 승인). 25/28 은 바뀔 수 있어 매번 받는다.
+#   KDN 이 지운 행은 getMainList 에 안 나올 뿐이라 정리하지 않는다. 고객 자료라 레포 밖에 둔다.
+#   ★폰 헬퍼 작업 검사(awms-bridge-inject.js wcDetails)도 같은 규칙 — IndexedDB, 계정마다 따로.
+CACHE_DIR = ARCHIVE / "detail_cache"
+CACHE_FIELDS = ("BUNGI", "ATCH_FILE_ID_3", "ATCH_FILE_ID_4", "ATCH_FILE_ID_5", "ATCH_FILE_ID_6", "WORK_STEP")
+
+
+def cache_key(r):
+    return f"{r.get('BUSI_NUM') or ''}|{r.get('INSTR_NUM') or ''}|{(r.get('MAC_MODEM') or '').upper()}"
+
+
+def slim(d):
+    return {f: d[f] for f in CACHE_FIELDS if f in d}
+
+
+def user_id(rows):
+    """The session account = the worker on my own rows (getMainList returns only mine)."""
+    c = Counter(str(r.get("WORKER1_SEQ") or "") for r in rows if r.get("WORKER1_SEQ"))
+    return c.most_common(1)[0][0] if c else ""
+
+
+class DetailCache:
+    def __init__(self, uid, root=None):
+        self.path = (root or CACHE_DIR) / f"{uid or 'unknown'}.json"
+        self.dirty = False
+        self.hits = self.fetched = 0
+        try:
+            self.data = json.loads(self.path.read_text())
+        except Exception:
+            self.data = {}
+
+    def get(self, r):
+        if str(r.get("WORK_STEP") or "") != "29":
+            return None
+        return self.data.get(cache_key(r))
+
+    def put(self, r, d):
+        if (str(r.get("WORK_STEP") or "") == "29" and str(d.get("WORK_STEP") or "29") == "29"
+                and "_err" not in d and d):
+            self.data[cache_key(r)] = slim(d)
+            self.dirty = True
+
+    def save(self):
+        if not self.dirty:
+            return
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.data, ensure_ascii=False))
+            tmp.replace(self.path)
+            self.dirty = False
+        except Exception as e:
+            print(f"[주의] 상세 캐시 저장 실패: {e}")
+
+
+def fetch_details(rows, cache=None):
+    """INSTR_NUM -> getDetail row (BUNGI, ATCH_FILE_ID_3..6). Read-only GET; sent rows come from the cache."""
+    out, todo, seen = {}, [], set()
+    for r in rows:
+        k = cache_key(r)
+        if k in seen:
+            continue
+        seen.add(k)
+        c = cache.get(r) if cache else None
+        if c is not None:
+            out[r["INSTR_NUM"]] = dict(c)
+            cache.hits += 1
+        else:
+            todo.append(r)
+    if not todo:
+        return out
     h = A.headers()
 
     def one(r):
         try:
             d = A.detail(r, h)
-            return r["INSTR_NUM"], (d[0] if isinstance(d, list) and d else (d or {}))
+            return r, (d[0] if isinstance(d, list) and d else (d or {}))
         except Exception as e:
-            return r["INSTR_NUM"], {"_err": str(e)[:120]}
+            return r, {"_err": str(e)[:120]}
     with ThreadPoolExecutor(6) as ex:
-        return dict(ex.map(one, rows))
+        for r, d in ex.map(one, todo):
+            out[r["INSTR_NUM"]] = d
+            if cache:
+                cache.fetched += 1
+                cache.put(r, d)
+    if cache:
+        cache.save()
+    return out
 
 
 def archive_jobs(day):
@@ -447,9 +531,8 @@ def app_check(day, rows, ship, idx, details, jobs, rep, done_site_meters):
                 msg = f"지도 없음 계기 {len(out_list)}대 {out_list} (같은 모뎀 리스트 계기 {len(in_list)}대)"
             else:
                 msg = f"리스트에 없는 계기 {out_list} — 계기교체로 새 번호일 수 있다"
-            # ★not yellow yet — every out-of-list meter goes through the slot-5 photo read first
-            #   (영준님 2026-11-14 "지도 없음이면 5번 ocr 과정해야함"); resolve_outlist() decides
-            rep.add("outlist", "awms", msg, "계기 사진으로 번호 확인", kind="지도 없음", meters=out_list, mac=mac, meter=out_list[0])
+            # level 'outlist' until resolve_outlist() — it becomes 노랑 display only; a typo candidate is photo-read first
+            rep.add("outlist", "awms", msg, "", kind="지도 없음", meters=out_list, mac=mac, meter=out_list[0])
 
         # photos (아미큐 rows)
         src = sorted({"아미큐" if r["INSTR_NUM"] in via else "아미큐 외(헬퍼·화면)" for r in rs})
@@ -560,7 +643,7 @@ def map_check(sites, rows, idx, rep):
                 rep.add("yellow", "map", f"{t} {k} 개별불가 {m} 메모 번호 {sorted(nums)} 가 awms 에 없다",
                         "메모 번호 확인", kind="메모 번호 없음", key=k, meter=m)
         out_list = sorted(reg - set(ms) - stands_in)
-        # 영준님 3규칙(2026-11-14): 리스트 = awms 면 통과 / 지도 없음 awms 는 사진 판독 /
+        # 영준님 3규칙(2026-11-14, 2026-11-16 개정): 리스트 = awms 면 통과 / 지도 없음 awms 는 노랑 표시만 /
         #   리스트 완료인데 awms 없음 = 누락(빨강) — 지도 없음 계기가 같이 있어도 누락은 누락(275-1)
         if missing:
             rep.add("red", "map", f"{t} {k} 누락 — 리스트 {len(ms)}대 중 {len(missing)}대 awms 없음 {missing}"
@@ -568,7 +651,7 @@ def map_check(sites, rows, idx, rep):
                     f"{', '.join(missing)} 추가 등록, 현장에 없으면 개별불가", kind="누락", key=k, meters=missing)
         if out_list:
             rep.add("outlist", "map", f"{t} {k} 리스트 {len(ms)}대 / 등록 {len(reg)}대 — 지도 없음 {len(out_list)}대 {out_list}",
-                    "계기 사진으로 번호 확인", kind="지도 없음", key=k, meters=out_list)
+                    "", kind="지도 없음", key=k, meters=out_list)
     done = states.get("complete", 0)
     print(f"   완료 {done}곳 · 불가 {states.get('fail', 0)}곳"
           + "".join(f" · {s} {n}곳" for s, n in states.items() if s not in ("complete", "fail")) + "\n")
@@ -692,16 +775,17 @@ def barcodes(path):
     return " ".join(out.split())
 
 
-def get_photo(meter, slot, photo_map, details, outdir):
+def get_photo(meter, slot, photo_map, details, outdir, fetch=True):
+    """fetch=False = only what is already here (아미큐 archive, a photo downloaded earlier this run)."""
     p = photo_map.get((meter, slot))
     if p:
         return p
-    fid = (details.get(meter) or {}).get(f"ATCH_FILE_ID_{slot}") or ""
-    if not fid:
-        return None
     dst = outdir / f"{meter}_{slot}.jpg"
     if dst.exists():
         return dst
+    fid = (details.get(meter) or {}).get(f"ATCH_FILE_ID_{slot}") or ""
+    if not fid or not fetch:
+        return None
     try:
         h = A.headers()
         with urllib.request.urlopen(urllib.request.Request(
@@ -738,21 +822,84 @@ def two_pass(targets, read, match, outdir):
     return res
 
 
-def ocr_check(day, rows, ship, idx, details, photo_map, rep, outdir, groups_div, extra=()):
-    """Returns {meter: ok/bad/none/nophoto} for the slot-5 read. `extra` = rows of other days that are
-    out-of-list meters of today's modems — they are read too (resolve_outlist needs a verdict)."""
+def near_site(no, cands, aw):
+    """Same-address list meters one character off `no` (confusable letters folded) that awms does not have —
+    the only out-of-list meters whose photo is worth reading. ★같은 주소만: 리스트 전체에서 찾으면 연번이 촘촘해
+    거의 다 걸린다(2026-11-16 실측 13대 중 11대). 폰 '번호 1자리 차이'(wcCheck)와 같은 주소 범위."""
+    f = fold(no)
+    return sorted({x for x in cands if x != no and x not in aw and one_off(f, fold(x))})
+
+
+def ocr_targets(day, rows, ship, idx, rep, groups_div):
+    """Suspicious items only (영준님 2026-11-16) -> (meter rows for slot 5, master rows for slot 4).
+    slot 5: typo candidate = an out-of-list meter of a 지도 없음 item with a near same-address list meter (near_site), or a
+            meter number against the law / with an unknown type code.
+    slot 4: 기설 MAC with a format error or in neither my 출고 ledger nor an earlier awms row;
+            신설 MAC in neither my 출고 ledger nor the off-book ledger."""
+    aw = {r["INSTR_NUM"] for r in rows}
+    by_no = {}
+    for r in rows:
+        if r.get("WORK_DATE") == day or r["INSTR_NUM"] not in by_no:
+            by_no[r["INSTR_NUM"]] = r
     today = [r for r in rows if r.get("WORK_DATE") == day and groups_div.get((r.get("MAC_MODEM") or "").upper()) != "M1020"]
-    today += [r for r in extra if r not in today]
-    print("== 3. 사진 판독 (우리 엔진 · 원본 + 2배 확대)")
-    # meter numbers, slot 5, masters and slaves
+    by_addr = defaultdict(set)
+    for n, xs in idx.items():
+        for x in xs:
+            if x["l"] != "a":
+                by_addr[(x["주소"], x["l"])].add(n)
+    rows_by_mac = defaultdict(list)
+    for r in rows:
+        rows_by_mac[(r.get("MAC_MODEM") or "").upper()].append(r)
+    want = {}
+    for x in rep.items:
+        if x["level"] != "outlist":
+            continue
+        # 같은 주소 = 이 항목 모뎀에 묶인 지도 계기 주소(모든 날짜) + 지도 완료 개소 주소
+        macs = {x.get("mac") or ""} | {(by_no[m].get("MAC_MODEM") or "").upper() for m in x.get("meters") or [] if m in by_no}
+        places = {(y["주소"], y["l"]) for mac in macs - {""} for r in rows_by_mac[mac]
+                  for y in idx.get(r["INSTR_NUM"], []) if y["l"] != "a"}
+        if x.get("key"):
+            addr, _, ns = x["key"].partition("|")
+            places |= {(addr, c) for c in NS_LIST.get(ns, ()) + PRE_SPLIT_FALLBACK.get(ns, ())}
+        cands = set().union(*[by_addr.get(pl, set()) for pl in places]) if places else set()
+        for m in x.get("meters") or []:
+            if m in by_no and near_site(m, cands, aw):
+                want.setdefault(m, by_no[m])
+    for r in today:
+        no = r["INSTR_NUM"]
+        if not METER_LAW.fullmatch(no) or no[2:4] not in R._TYPE_MAP:
+            want.setdefault(no, r)
+    own, ob = ship.get("rows") or {}, offbook()
+    earlier = {(r.get("MAC_MODEM") or "").upper() for r in rows if (r.get("WORK_DATE") or "") < day}
+    macs, seen = [], set()
+    for r in today:
+        mac = (r.get("MAC_MODEM") or "").upper()
+        if r.get("MODEM_DIV") != "10" or mac in seen:
+            continue
+        div = r.get("WORK_DIV")
+        if div == "M1030":
+            sus = bool(R.mac_format_error(mac)) or (mac not in own and mac not in earlier)
+        elif div == "M1010":
+            sus = mac not in own and mac not in ob
+        else:
+            sus = False
+        if sus:
+            seen.add(mac)
+            macs.append(r)
+    return list(want.values()), macs
+
+
+def ocr_check(rows, idx, details, photo_map, rep, outdir, meter_rows, mac_rows):
+    """Returns {meter: ok/bad/none/nophoto} for the slot-5 read of `meter_rows` (ocr_targets)."""
+    print(f"== 3. 사진 판독 (의심 항목만 — 계기 {len(meter_rows)} · 모뎀맥 {len(mac_rows)} · 우리 엔진 원본 + 2배 확대)")
+
     def listed(n):
         return [x for x in idx.get(n, []) if x["l"] != "a"]
-    # 영준님 3규칙: 리스트에 있는 계기는 awms 에 있으면 통과 — 판독은 지도 없음 계기만
     tg, nophoto = [], []
-    for r in [r for r in today if not listed(r["INSTR_NUM"])]:
+    for r in meter_rows:
         p = get_photo(r["INSTR_NUM"], "5", photo_map, details, outdir)
         (tg.append((r["INSTR_NUM"], r["INSTR_NUM"], p)) if p else nophoto.append(r["INSTR_NUM"]))
-    res = two_pass(tg, ocr_meters, lambda w, g: bool(g) and fold(w) == fold(g), outdir)
+    res = two_pass(tg, ocr_meters, lambda w, g: bool(g) and fold(w) == fold(g), outdir) if tg else {}
     bad = {k: v for k, v in res.items() if v[0] == "bad"}
     none = sorted(k for k, v in res.items() if v[0] == "none")
     path_of = {k: p for k, _, p in tg}
@@ -765,74 +912,57 @@ def ocr_check(day, rows, ship, idx, details, photo_map, rep, outdir, groups_div,
             # awms 48190186029, photo and list 48190186039 — the typo itself happened to be another place's list meter)
             typo[g] = no
             rep.add("red", "ocr", f"awms 계기번호 {no} 오타 — 사진은 {g}, 리스트({listed(g)[0]['주소']})도 {g}",
-                    f"바른 번호 {g} 로 새 행 등록(/awms-mac-fix)", photos=[path_of[no]], meter=no, meters=[no, g])
+                    f"바른 번호 {g} 로 새 행 등록(/awms-mac-fix)", photos=[path_of[no]], kind="계기번호 오타",
+                    meter=no, meters=[no, g])
         else:
             rep.add("yellow", "ocr", f"계기 사진 판독 {g1 or '-'} / 확대 {g2 or '-'} — awms {no}",
-                    "사진 보고 계기번호 확인", photos=[path_of[no]], meter=no)
+                    "사진 보고 계기번호 확인", photos=[path_of[no]], kind="사진 번호 다름", meter=no)
     # the map side reported the list meter as 'not in awms' — it is the same meter, keep one item
     for x in list(rep.items):
         if x["sec"] == "map" and x["level"] != "green" and x.get("meters") and set(x["meters"]) <= set(typo):
             rep.items.remove(x)
     verdict = {k: v[0] for k, v in res.items()}
     verdict.update({n: "nophoto" for n in nophoto})
-    print(f"   지도 없음 계기 사진 {len(tg)}장: 일치 {sum(v[0] == 'ok' for v in res.values())} · 다름 {len(bad)} · 판독 못함 {len(none)}"
+    print(f"   계기 사진 {len(tg)}장: 일치 {sum(v[0] == 'ok' for v in res.values())} · 다름 {len(bad)} · 판독 못함 {len(none)}"
           + (f" {none}" if none else "") + (f" · 사진 없음 {len(nophoto)} {nophoto}" if nophoto else ""))
-    # MAC, slot 4, 기설 + not in my 출고 ledger
-    own = ship.get("rows") or {}
     tg = []
-    seen = set()
-    for r in today:
+    for r in mac_rows:
         mac = (r.get("MAC_MODEM") or "").upper()
-        if r.get("MODEM_DIV") != "10" or mac in seen:
-            continue
-        if r.get("WORK_DIV") == "M1030" or mac not in own:
-            seen.add(mac)
-            p = get_photo(r["INSTR_NUM"], "4", photo_map, details, outdir)
-            if p:
-                tg.append((r["INSTR_NUM"], mac, p))
-            else:
-                rep.add("yellow", "ocr", f"{DIV_NM.get(r.get('WORK_DIV'), '')} {r['INSTR_NUM']} 맥 {mac} 모뎀맥 사진 없음",
-                        "사진 확인", mac=mac, meter=r["INSTR_NUM"])
-    res = two_pass(tg, ocr_lines, lambda w, g: fold(w) in fold(g), outdir)
+        p = get_photo(r["INSTR_NUM"], "4", photo_map, details, outdir)
+        if p:
+            tg.append((r["INSTR_NUM"], mac, p))
+        else:
+            rep.add("yellow", "ocr", f"{DIV_NM.get(r.get('WORK_DIV'), '')} {r['INSTR_NUM']} 맥 {mac} 모뎀맥 사진 없음",
+                    "사진 확인", kind="맥 사진 없음", mac=mac, meter=r["INSTR_NUM"])
+    res = two_pass(tg, ocr_lines, lambda w, g: fold(w) in fold(g), outdir) if tg else {}
     for (no, mac, p) in tg:
-        v = res[no]
-        if v[0] != "ok":
+        if res[no][0] != "ok":
             rep.add("yellow", "ocr", f"모뎀맥 사진에서 {mac} 를 못 찾음(원본·확대 둘 다) — 계기 {no}",
-                    "사진 보고 맥 확인", photos=[p], mac=mac, meter=no)
-    print(f"   모뎀맥 사진 {len(tg)}장(기설 + 출고장부 밖): 일치 {sum(res[n][0] == 'ok' for n, _, _ in tg)}"
+                    "사진 보고 맥 확인", photos=[p], kind="맥 사진 다름", mac=mac, meter=no)
+    print(f"   모뎀맥 사진 {len(tg)}장: 일치 {sum(res[n][0] == 'ok' for n, _, _ in tg)}"
           f" · 못 찾음 {sum(res[n][0] != 'ok' for n, _, _ in tg)}\n")
     return verdict
 
 
 def resolve_outlist(rep, verdict):
-    """Out-of-list meters, after the slot-5 read (영준님 2026-11-14 — list meters are not read at all):
-    photo = awms number for all -> 초록 / any unread or no photo -> 노랑 '사진 판독 못 함' /
-    a different number -> the read itself already made the item (오타 빨강 or 노랑 + 사진), drop this one.
-    verdict None = OCR was not run (--no-ocr) -> 노랑 as before."""
-    covered = {m for x in rep.items if x["level"] == "outlist" for m in x.get("meters") or []}
-    if verdict is not None:
-        # out-of-list meters read without an item of their own (기설 master = the old modem's 대표계기)
-        for m, v in sorted(verdict.items()):
-            if m not in covered and v in ("none", "nophoto"):
-                rep.add("yellow", "ocr", f"지도 없음 {m} — 사진 판독 못 함" + (" (사진 없음)" if v == "nophoto" else ""),
-                        "계기 사진으로 번호 확인", meter=m)
+    """Out-of-list meters = 노랑 '지도 없음', display only (영준님 2026-11-16 "추가계기들(지도에 없는)은 표시만").
+    Only typo candidates were read (ocr_targets): a meter whose photo reads another number leaves this item (the
+    read made its own item — 오타 빨강 or 노랑 + 사진); a candidate whose photo could not be read is named.
+    verdict None = OCR was not run (--no-ocr) — same display."""
+    verdict = verdict or {}
     for x in list(rep.items):
         if x["level"] != "outlist":
             continue
-        ms = x.get("meters") or []
-        if verdict is None:
-            x["level"], x["msg"] = "yellow", x["msg"] + " (사진 판독 안 함)"
-            continue
-        vs = {m: verdict.get(m, "nophoto") for m in ms}
-        unread = [m for m, v in vs.items() if v in ("none", "nophoto")]
-        if all(v == "ok" for v in vs.values()):
-            where = x.get("key") or f"모뎀 {x.get('mac', '')}"
-            x["level"], x["todo"] = "green", ""
-            x["msg"] = f"{where} 지도 없음 {len(ms)}대 {ms} — 사진 번호 확인 일치"
-        elif unread:
-            x["level"], x["msg"] = "yellow", f"{x['msg']} — 지도 없음 + 사진 판독 못 함 {unread}"
-        else:
+        ms = [m for m in x.get("meters") or [] if verdict.get(m) != "bad"]
+        if not ms:
             rep.items.remove(x)
+            continue
+        unread = [m for m in ms if verdict.get(m) in ("none", "nophoto")]
+        x["level"] = "yellow"
+        if ms != (x.get("meters") or []):
+            x["meters"] = ms
+        if unread:
+            x["msg"] += f" — 번호 1자리 차이 리스트 계기 있음, 사진 판독 못 함 {unread}"
 
 
 # ── 4. material ───────────────────────────────────────────────────────────────
@@ -918,14 +1048,20 @@ def main():
         urllib.request.urlopen(WS_URL, timeout=120).read())
     idx = list_index()
     day_rows = [r for r in rows if r.get("WORK_DATE") == a.day]
+    t0 = datetime.datetime.now().timestamp()
+    cache = None
     if a.detail_file:
         details = json.loads(Path(a.detail_file).read_text())
     elif offline:
         details = {}
     else:
-        details = fetch_details(day_rows + dup_detail_rows(a.day, rows))
+        # 분기가 필요한 행만 — 그날 슬레이브 + 뒷자리 겹치는 앞선 슬레이브. 마스터는 분기가 없다.
+        cache = DetailCache(user_id(rows))
+        details = fetch_details([r for r in day_rows if r.get("MODEM_DIV") != "10"] + dup_detail_rows(a.day, rows), cache)
+    t_det = datetime.datetime.now().timestamp() - t0
     print(f"[{a.day}] awms 올해 {len(rows)}행 · 출고장부 {len(ship.get('rows') or {})} · 지도 {len(ws)}키"
-          + (" — 시험 입력" if offline else " — 방금 받음") + "\n")
+          + (" — 시험 입력" if offline else " — 방금 받음")
+          + (f" · 상세 캐시 {cache.hits} / 새로 받음 {cache.fetched}" if cache else "") + "\n")
     rep = Report()
     sites = map_sites(a.day, ws, idx)
     done_site_meters = {m for _, v, ms in sites if v.get("state") == "complete" for m in ms}
@@ -938,22 +1074,25 @@ def main():
             groups_div[(r.get("MAC_MODEM") or "").upper()] = r.get("WORK_DIV")
     photo_map = archive_photo_map(jobs)
     verdict = None
+    t1 = datetime.datetime.now().timestamp()
     if not a.no_ocr:
-        # out-of-list meters registered on another day (older slaves of today's modems) are read too
-        want = {m for x in rep.items if x["level"] == "outlist" for m in x.get("meters") or []}
-        have = {r["INSTR_NUM"] for r in day_rows}
-        extra = [r for r in rows if r["INSTR_NUM"] in want - have]
-        if extra and not offline and not a.detail_file:
-            details.update(fetch_details(extra))
-        verdict = ocr_check(a.day, rows, ship, idx, details, photo_map, rep, photodir, groups_div, extra)
+        meter_rows, mac_rows = ocr_targets(a.day, rows, ship, idx, rep, groups_div)
+        need = [r for r, slot in [(r, "5") for r in meter_rows] + [(r, "4") for r in mac_rows]
+                if (r["INSTR_NUM"], slot) not in photo_map and r["INSTR_NUM"] not in details]
+        if need and not offline and not a.detail_file:
+            details.update(fetch_details(need, cache))
+        verdict = ocr_check(rows, idx, details, photo_map, rep, photodir, meter_rows, mac_rows)
+    t_ocr = datetime.datetime.now().timestamp() - t1
     resolve_outlist(rep, verdict)
-    # every 노랑/빨강 about a meter carries its nameplate photo (slot 5) so a person can look at once
+    # a 노랑/빨강 about a meter carries its nameplate photo (slot 5) when one is already here — no new download
     for x in rep.items:
         if x["level"] != "green" and not x["photos"]:
             for no in (x.get("meters") or [x.get("meter")])[:6]:
-                ph = get_photo(no, "5", photo_map, details, photodir) if no else None
+                ph = get_photo(no, "5", photo_map, details, photodir, fetch=False) if no else None
                 if ph:
                     x["photos"].append(str(ph))
+    if cache:
+        print(f"[시간] 상세 {t_det:.1f}초 · 사진 판독 {t_ocr:.1f}초 · 상세 캐시 {cache.hits} / 새로 받음 {cache.fetched}")
     stock = None
     if a.day == today and not a.no_stock and not offline:
         # roll the modem stock forward with today's receipts/installs (영준님 2026-11-10)

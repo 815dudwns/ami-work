@@ -240,6 +240,58 @@ def test_phone_only():
     return ok
 
 
+# ── 2c. getDetail cache (IndexedDB, per account) ─────────────────────────────
+CACHE_PROG = r"""
+var calls = [];
+function wcDetail(r) { calls.push(r.INSTR_NUM); return Promise.resolve({ BUNGI: '0.5', ATCH_FILE_ID_5: 'F5', WORK_STEP: r.WORK_STEP, CUST_NO: 'x' }); }
+var __wc = { det: {} };
+function memDB() {   // smallest IndexedDB: one store, async callbacks
+  var data = {};
+  var later = function (f) { setTimeout(f, 0); };
+  var store = function (tx) { return {
+    get: function (k) { var q = {}; later(function () { q.result = data[k] ? JSON.parse(data[k]) : undefined; q.onsuccess && q.onsuccess(); }); return q; },
+    put: function (v, k) { data[k] = JSON.stringify(v); later(function () { tx.oncomplete && tx.oncomplete(); }); } }; };
+  var db = { transaction: function () { var tx = {}; tx.objectStore = function () { return store(tx); }; later(function () { if (!tx._p) tx.oncomplete && tx.oncomplete(); }); return tx; } };
+  return { data: data, open: function () { var q = { result: db }; later(function () { q.onupgradeneeded && q.onupgradeneeded(); q.onsuccess && q.onsuccess(); }); return q; } };
+}
+var rows = [{ BUSI_NUM: 'B', INSTR_NUM: '48190262687', MAC_MODEM: 'e0aeed953741', WORK_STEP: '29' },
+            { BUSI_NUM: 'B', INSTR_NUM: '48190262688', MAC_MODEM: 'E0AEED953741', WORK_STEP: '25' }];
+var out = {};
+function run(uid) { __wc.det = {}; calls = []; return wcDetails(rows, uid).then(function (st) { return { st: st, calls: calls.slice(), b: (__wc.det['48190262687'] || {}).BUNGI }; }); }
+var window = {};
+run('111').then(function (r) { out.none = r;
+  window.indexedDB = { open: function () { throw new Error('blocked'); } };
+  return run('111'); }).then(function (r) { out.throws = r;
+  var m = memDB(); window.indexedDB = m; out.mem = m;
+  return run('111'); }).then(function (r) { out.first = r; out.stored = JSON.parse(out.mem.data['111']);
+  return run('111'); }).then(function (r) { out.second = r;
+  return run('222'); }).then(function (r) { out.other = r; delete out.mem; console.log(JSON.stringify(out)); });
+"""
+
+
+def test_cache():
+    t = INJECT.read_text()
+    src = "function wcUp(s) { return String(s || '').toUpperCase(); }\n" + t[t.index("  var WC_DB = "):t.index("  function wcRun(")]
+    r = subprocess.run(["node", "-e", src + CACHE_PROG],
+                       capture_output=True, text=True)
+    if r.returncode:
+        print("FAIL 상세 캐시 — node 실패\n" + r.stderr[-1500:])
+        return False
+    o = json.loads(r.stdout)
+    k29 = "B|48190262687|E0AEED953741"
+    ok = (o["none"]["st"] == {"hit": 0, "got": 2} and o["none"]["b"] == "0.5"           # IndexedDB 없음 = 그대로 받음
+          and o["throws"]["st"] == {"hit": 0, "got": 2}                                    # IndexedDB 오류 = 그대로 받음
+          and o["first"]["st"] == {"hit": 0, "got": 2}
+          and o["stored"] == {k29: {"BUNGI": "0.5", "ATCH_FILE_ID_5": "F5", "WORK_STEP": "29"}}   # 29 만, 작은 칸만
+          and o["second"]["st"] == {"hit": 1, "got": 1} and o["second"]["calls"] == ["48190262688"]
+          and o["second"]["b"] == "0.5"
+          and o["other"]["st"] == {"hit": 0, "got": 2})                                    # 다른 계정 = 따로
+    print(f"{'PASS' if ok else 'FAIL'} 폰 상세 캐시 — 29 만·작은 칸만·계정마다 따로·IndexedDB 없거나 오류면 캐시 없이")
+    if not ok:
+        print("       ", json.dumps(o, ensure_ascii=False)[:1500])
+    return ok
+
+
 # ── 3. one real day ───────────────────────────────────────────────────────────
 def test_fixture(fx, day):
     rows = json.loads((fx / "rows.json").read_text())
@@ -285,6 +337,7 @@ def main():
     ok = test_functions()
     ok = test_cases() and ok
     ok = test_phone_only() and ok
+    ok = test_cache() and ok
     if a.fixture:
         ok = test_fixture(Path(a.fixture), a.day) and ok
     print("PASS" if ok else "FAIL")

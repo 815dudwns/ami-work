@@ -6,6 +6,7 @@
 실측 사례(2026-11-12·11-13)를 줄여 만든 행에 한 가지씩 틀린 값을 넣고, 그 규칙만 걸리는지 본다.
 """
 import io
+import json
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -212,7 +213,7 @@ def _():
     return not rep.of("red"), rep
 
 
-@case("지도 없음 계기 섞인 모뎀 = 사진 판독 대기(묶어서)")
+@case("지도 없음 계기 섞인 모뎀 = 지도 없음 항목(묶어서)")
 def _():
     rs = base()
     s2 = row("25530024655", "E0AEED953741", modem="20")
@@ -251,7 +252,7 @@ def _():
     return has(rep, "green", "해결") and not rep.of("yellow") and not rep.of("red"), rep
 
 
-@case("리스트 1대 없음 + 리스트 밖 = 빨강 누락, 리스트 밖은 사진 판독 (11/13 신수동 275-1)")
+@case("리스트 1대 없음 + 리스트 밖 = 빨강 누락, 리스트 밖은 노랑 표시만 (11/13 신수동 275-1)")
 def _():
     m = row("47450039041", "01254535719", dcu="")
     ss = [row(n, "01254535719", modem="20") for n in ("25530026782", "25530024655")]
@@ -262,8 +263,8 @@ def _():
                                                     "updatedByName": "우영준"}}
     rep = run(group(m, ss), {n: {"BUNGI": "0.5"} for n in ("25530026782", "25530024655")}, ws)
     ok = has(rep, "red", "누락", "25530018556") and has(rep, "outlist", "지도 없음 2대")
-    C.resolve_outlist(rep, {"25530024655": "ok", "47450039041": "ok"})
-    ok = ok and has(rep, "green", "275-1", "사진 번호 확인 일치") and not rep.of("yellow")
+    C.resolve_outlist(rep, {})
+    ok = ok and has(rep, "yellow", "275-1", "지도 없음 2대") and has(rep, "red", "누락")
     return ok, rep
 
 
@@ -287,42 +288,36 @@ def outlist_rep():
     return run(rs, {**BUNGI_OK, "25530024655": {"BUNGI": "0.5"}})
 
 
-@case("지도 없음 + 사진 일치 = 초록")
+@case("지도 없음 = 노랑 표시만, 사진 판독 없음 (영준님 2026-11-16)")
 def _():
     rep = outlist_rep()
-    C.resolve_outlist(rep, {"25530024655": "ok"})
-    return has(rep, "green", "지도 없음 1대", "사진 번호 확인 일치") and not rep.of("yellow"), rep
+    C.resolve_outlist(rep, {})
+    return (has(rep, "yellow", "지도 없음 계기 1대", "25530024655") and not has(rep, "yellow", "사진")
+            and not rep.of("outlist")), rep
 
 
-@case("지도 없음 + 판독 실패 = 노랑")
+@case("지도 없음 + 판독 안 함(--no-ocr) = 같은 노랑")
+def _():
+    rep = outlist_rep()
+    C.resolve_outlist(rep, None)
+    return has(rep, "yellow", "지도 없음 계기 1대") and not rep.of("outlist"), rep
+
+
+@case("지도 없음 오타 후보 + 판독 실패 = 노랑에 판독 못 함")
 def _():
     rep = outlist_rep()
     C.resolve_outlist(rep, {"25530024655": "none"})
     return has(rep, "yellow", "사진 판독 못 함", "25530024655"), rep
 
 
-@case("지도 없음 + 사진 없음 = 노랑")
-def _():
-    rep = outlist_rep()
-    C.resolve_outlist(rep, {})
-    return has(rep, "yellow", "사진 판독 못 함"), rep
-
-
-@case("지도 없음 + 사진 번호 다름 = 이 항목 빼고 판독 항목에 맡김")
+@case("지도 없음 오타 후보 + 사진 번호 다름 = 이 항목 빼고 판독 항목에 맡김")
 def _():
     rep = outlist_rep()
     C.resolve_outlist(rep, {"25530024655": "bad"})
     return not [x for x in rep.items if "지도 없음" in x["msg"]], rep
 
 
-@case("지도 없음 + 판독 안 함(--no-ocr) = 노랑")
-def _():
-    rep = outlist_rep()
-    C.resolve_outlist(rep, None)
-    return has(rep, "yellow", "사진 판독 안 함"), rep
-
-
-@case("지도: 리스트 밖만 더 있음(빠진 것 없음) = 사진으로 판정, 사진 일치면 초록")
+@case("지도: 리스트 밖만 더 있음(빠진 것 없음) = 노랑 표시만, 빨강 없음")
 def _():
     m = row("A0550070511", "01264263971", dcu="")
     ss = [row(n, "01264263971", modem="20") for n in ("25190712322", "25190712868")]
@@ -332,25 +327,62 @@ def _():
     ws = {"서울특별시 마포구 신수동 421-12|미조치": {"state": "complete", "updatedAt": "2026-11-13T11:08:06+09:00",
                                                   "updatedByName": "우영준"}}
     rep = run(group(m, ss), {n: {"BUNGI": "0.5"} for n in ("25190712322", "25190712868")}, ws)
-    C.resolve_outlist(rep, {"A0550070511": "ok"})
-    return has(rep, "green", "421-12", "사진 번호 확인 일치") and not rep.of("yellow") and not rep.of("red"), rep
+    C.resolve_outlist(rep, {})
+    return has(rep, "yellow", "421-12", "지도 없음 1대") and not rep.of("red"), rep
 
 
-@case("기설 마스터(리스트 밖, 항목 없음) 판독 못 함 = 노랑")
+def targets(rs, rep=None, ship=None):
+    rep = rep or C.Report()
+    gd = {(r.get("MAC_MODEM") or "").upper(): r.get("WORK_DIV") for r in rs if r.get("WORK_DATE") == DAY and r.get("MODEM_DIV") == "10"}
+    ms, macs = C.ocr_targets(DAY, rs, ship or SHIP, IDX, rep, gd)
+    return sorted(r["INSTR_NUM"] for r in ms), sorted((r.get("MAC_MODEM") or "").upper() for r in macs)
+
+
+@case("사진 판독 대상 — 지도 없음은 같은 주소 1자리 차이 지도 계기(awms 에 없음)가 있을 때만")
 def _():
-    rep = C.Report()
-    C.resolve_outlist(rep, {"06190038568": "none", "47452015946": "ok"})
-    return has(rep, "yellow", "06190038568", "사진 판독 못 함") and len(rep.items) == 1, rep
+    rep = outlist_rep()
+    rs = base()
+    s2 = row("25530024655", "E0AEED953741", modem="20")
+    rs.insert(2, s2)
+    none_near = targets(rs, rep)[0] == []
+    lst("25530024656", "서울특별시 마포구 구수동 9")            # one off but another address -> not read
+    far = targets(rs, rep)[0] == []
+    addr = IDX["48190262997"][0]["주소"]
+    lst("25530024657", addr)                                     # same address as the modem's list meters -> read
+    near = targets(rs, rep)[0] == ["25530024655"]
+    other = row("25530024657", "E0AEED900000", modem="20", day="20261101")
+    serial = targets(rs + [other], rep)[0] == []                 # the near one is in awms = next serial number
+    return none_near and far and near and serial, None
 
 
-@case("리스트 계기는 사진 판독 안 함, 리스트 밖만 판독")
+@case("사진 판독 대상 — 계기번호 형식·타입코드 이상은 늘 판독")
+def _():
+    m = row("4819026299A", "E0AEED953741")
+    m2 = row("48990262997", "E0AEED953742")
+    return targets([m, m2])[0] == ["4819026299A", "48990262997"], None
+
+
+@case("사진 판독 대상 — 기설 맥은 형식 오류이거나 출고장부·앞선 awms 둘 다 없을 때만")
+def _():
+    ok_ship = row("48190262997", "E0AEED953741", div="M1030")                 # 출고장부에 있음
+    seen = row("48190262998", "E0AEED111111", div="M1030")                    # 앞선 날 awms 에 있음
+    old = row("48190262000", "E0AEED111111", day="20261101")
+    unknown = row("48190262999", "E0AEED222222", div="M1030")                 # 둘 다 없음 -> 판독
+    bad = row("48190262996", "E0AEEX953741", div="M1030")                     # 형식 오류 -> 판독
+    new_out = row("48190262995", "E0AEED333333")                              # 신설, 장부 둘 다 없음 -> 판독
+    new_in = row("48190262994", "E0AEED999999")                               # 신설, 출고장부 있음
+    got = targets([ok_ship, seen, old, unknown, bad, new_out, new_in])[1]
+    return got == sorted(["E0AEED222222", "E0AEEX953741", "E0AEED333333"]), got
+
+
+@case("사진 판독은 판독 대상만 읽는다")
 def _():
     rs = base()
     s2 = row("25530024655", "E0AEED953741", modem="20")
     rs.insert(2, s2)
     seen = []
     old_tp, old_gp = C.two_pass, C.get_photo
-    C.get_photo = lambda meter, slot, *a: f"/x/{meter}_{slot}.jpg"
+    C.get_photo = lambda meter, slot, *a, **k: f"/x/{meter}_{slot}.jpg"
 
     def fake(targets, read, match, outdir):
         seen.append([k for k, _, _ in targets])
@@ -358,10 +390,41 @@ def _():
     C.two_pass = fake
     try:
         with redirect_stdout(io.StringIO()):
-            v = C.ocr_check(DAY, rs, SHIP, IDX, {}, {}, C.Report(), Path("/tmp"), {})
+            v = C.ocr_check(rs, IDX, {}, {}, C.Report(), Path("/tmp"), [s2], [])
     finally:
         C.two_pass, C.get_photo = old_tp, old_gp
     return seen and seen[0] == ["25530024655"] and set(v) == {"25530024655"}, None
+
+
+@case("상세 캐시 — 보낸 행(29)만, 작은 칸만, 계정마다 파일 따로, 두 번째는 awms 안 부름")
+def _():
+    import tempfile
+    calls = []
+    old_d, old_h = C.A.detail, C.A.headers
+    C.A.headers = lambda: {}
+
+    def fake(r, h):
+        calls.append(r["INSTR_NUM"])
+        return [{"BUNGI": "0.5", "ATCH_FILE_ID_5": "F5", "WORK_STEP": r["WORK_STEP"], "CUST_NO": "x", "ETC1": "x"}]
+    C.A.detail = fake
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            rs = [dict(row("48190262687", "E0AEED953741", modem="20"), WORK_STEP="29", BUSI_NUM="B"),
+                  dict(row("48190262688", "E0AEED953741", modem="20"), WORK_STEP="25", BUSI_NUM="B")]
+            c1 = C.DetailCache("111", Path(td))
+            d1 = C.fetch_details(rs, c1)
+            stored = json.loads((Path(td) / "111.json").read_text())
+            c2 = C.DetailCache("111", Path(td))
+            d2 = C.fetch_details(rs, c2)
+            c3 = C.DetailCache("222", Path(td))
+            C.fetch_details(rs[:1], c3)
+    finally:
+        C.A.detail, C.A.headers = old_d, old_h
+    ok = (calls == ["48190262687", "48190262688", "48190262688", "48190262687"]
+          and list(stored.values()) == [{"BUNGI": "0.5", "ATCH_FILE_ID_5": "F5", "WORK_STEP": "29"}]
+          and c2.hits == 1 and c2.fetched == 1 and d2["48190262687"]["BUNGI"] == "0.5"
+          and d1["48190262688"].get("CUST_NO") == "x" and c3.fetched == 1)
+    return ok, (calls, stored)
 
 
 @case("다른 날 마스터에 슬레이브 대표계기 = 자기 번호 = 초록 메모(빨강 아님)")
