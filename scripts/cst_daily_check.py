@@ -194,8 +194,8 @@ def archive_photo_map(jobs):
 # ── 뒷자리 2자리 중복 ─────────────────────────────────────────────────────────
 #   ★폰 헬퍼 작업 검사(awms-bridge-inject.js wcSuffixDups)와 같은 규칙 — 고치면 둘 다, scripts/test_helper_workcheck.py 가 대조.
 #   한 모뎀 = 마스터 + 그 마스터에 묶인 행(모든 날짜, MB_METER_ID) + 오늘 행. 유선 쪽 = 분기 0.5 슬레이브와 마스터.
-#   무선 = 분기 '무선' 슬레이브(아미고 모뎀의 아미고 슬레이브만 고를 수 있다 — 나머지는 0.5 강제)와
-#   아미고 모뎀의 아미고 마스터(통신방식 92, SMGW-C). 맵 상세의 끝 2자리 중복 표시(js/detail.js)와 같은 끝 2자리.
+#   슬레이브는 getDetail 실제 분기가 0.5 인 것만 유선 쪽(못 읽은 것은 빼고 센다). 마스터는 유선 쪽 —
+#   단 아미고 모뎀의 아미고 마스터(통신방식 92, SMGW-C)는 무선으로 둔다(영준님 확인 대기). 맵 상세의 끝 2자리 중복 표시(js/detail.js)와 같은 끝 2자리.
 #   오늘 행이 하나라도 낀 중복만 낸다.
 def group_members(master, rs, rows, mac):
     out = {}
@@ -210,16 +210,15 @@ def group_members(master, rs, rows, mac):
 
 
 def wired(r, master, exp_suffix, details):
-    """True = 유선(0.5) 쪽, False = 무선, None = 분기를 못 읽음."""
+    """True = 유선(0.5) 쪽, False = 아님, None = 분기를 못 읽음.
+    ★슬레이브는 awms 에 실제 들어간 분기(getDetail BUNGI)로만 본다 — 규칙상 값(0.5 강제·아미고 무선)으로 추정하지 않는다.
+      아미큐는 아미고 모뎀의 아미고 슬레이브도 0.5 로 강제해 넣는 경우가 있다(영준님 2026-11-16)."""
     if master and r["INSTR_NUM"] == master["INSTR_NUM"]:
         return exp_suffix != "92"
-    auto, can_pick = R.slave_bungi(exp_suffix, R.infer_inst_m(r["INSTR_NUM"]))
-    if not can_pick:
-        return True
     d = details.get(r["INSTR_NUM"]) or {}
     if "BUNGI" not in d:
         return None
-    return str(d.get("BUNGI") or "") != "무선"
+    return str(d.get("BUNGI") or "") == "0.5"
 
 
 def suffix_dups(master, rs, rows, mac, exp_suffix, details):
