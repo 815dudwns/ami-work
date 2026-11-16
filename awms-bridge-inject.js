@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v101'; // v101: 헬퍼 첫 화면 [자재 현황](앱 1.0.82~) — 앱이 남긴 표시가 있으면 로그인 뒤 자재 현황을 바로 엶. v100: 자재 현황 전 작업자 공개(로그인 아이디만 있으면 — 기록은 각자 helperStock/<USER_ID>). v99: 로그인 진단 — POST /login 응답(상태·success·이동 주소·오류 코드, 값·계정은 안 실음)과 OTP 자동 입력 시각을 Firebase 로그에 남김(간헐 '로그인 화면으로 되돌아감' 원인 확인용) · 네이티브에 OTP 가 없는 빌드(__otpNative=false)면 OTP 요청 표시 없음. v98: 사진 크게 보기(전 작업자 · 헬퍼만) — awms 사진 칸이 새 창(window.open·<a target=_blank>)으로 여는 사진을 같은 화면 위에 띄움, 닫기·이전/다음(지금 행 1 작업전·2 모뎀맥·3 계기·4 집합)·두 손가락 확대·두 번 톡 2배·옆으로 밀기, 저장 흐름 무관 · v96 리스트 지사 안내('리스트 지사 X — 지금 Y' + [X 로 바꾸기]) 전 작업자 공개(__featOn, 자재 현황은 테스터 그대로) · 맥 형식 검사(macFormatError) 사유와 [맥 오류] 상자 제안 줄('한 글자 차이 — X 여부 라벨 재확인 필요')을 명사형으로 — 설비등록 [맥 오류] 상자(전 작업자)와 자재 현황 화면이 같은 문구(허용 외 문자·LTE MAC 자릿수·자릿수 부족/초과·미사용 앞자리·847207 7번째 자리). v97: 테스터 전용 자재 현황 화면(코드명 자재관리, 화면 문구 업무체 — 재고·사용 완료·별도 관리 자재·자재 등록) — 헬퍼 홈 [자재 현황] 버튼. 내 모뎀(출고 20·인계 40, 본인 인계·6/22 이전 출고·소유 N·교체로 뗀 옛 모뎀 뺌) - 시공 목록 맥 = 보유/사용, 종류는 my_stock.kind() 와 같은 규칙(E 추정 없음, 전부 AE), 종류별 보유 awms·따로장부·합계·오늘 사용 표, 자재 추가 = [스캔] 한 번에 한 개(카메라 저절로 닫힘) 대기 목록에 쌓고 들어올 때 검사(형식·종류·내 출고/인계·awms 자재 []·따로장부·목록 중복, 거절 줄은 이유 표시·저장 안 함), [저장] 한 번 PATCH 로 Firebase helperStock/<USER_ID>/offbook/<MAC> 에 기록(awms 에 들어오면 'awms 에 들어옴' 표시, 한 번만 셈). awms 는 읽기만(selectList·selectBarcdQr·getMainList). v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v102'; // v102: 테스터 전용 — 자재 현황 화면 [작업 검사]: 그날 내 awms 등록을 맥 작업검사(cst_daily_check)와 같은 규칙으로 판정(빨강 할 일·노랑·초록, 사진 판독·지도 완료 없음, 뒷자리 2자리 중복·같은 주소 리스트 계기로 번호 1자리 차이·누락 후보, 모뎀 사용·일별 작업 현황), awms 읽기만. v101: 헬퍼 첫 화면 [자재 현황](앱 1.0.82~) — 앱이 남긴 표시가 있으면 로그인 뒤 자재 현황을 바로 엶. v100: 자재 현황 전 작업자 공개(로그인 아이디만 있으면 — 기록은 각자 helperStock/<USER_ID>). v99: 로그인 진단 — POST /login 응답(상태·success·이동 주소·오류 코드, 값·계정은 안 실음)과 OTP 자동 입력 시각을 Firebase 로그에 남김(간헐 '로그인 화면으로 되돌아감' 원인 확인용) · 네이티브에 OTP 가 없는 빌드(__otpNative=false)면 OTP 요청 표시 없음. v98: 사진 크게 보기(전 작업자 · 헬퍼만) — awms 사진 칸이 새 창(window.open·<a target=_blank>)으로 여는 사진을 같은 화면 위에 띄움, 닫기·이전/다음(지금 행 1 작업전·2 모뎀맥·3 계기·4 집합)·두 손가락 확대·두 번 톡 2배·옆으로 밀기, 저장 흐름 무관 · v96 리스트 지사 안내('리스트 지사 X — 지금 Y' + [X 로 바꾸기]) 전 작업자 공개(__featOn, 자재 현황은 테스터 그대로) · 맥 형식 검사(macFormatError) 사유와 [맥 오류] 상자 제안 줄('한 글자 차이 — X 여부 라벨 재확인 필요')을 명사형으로 — 설비등록 [맥 오류] 상자(전 작업자)와 자재 현황 화면이 같은 문구(허용 외 문자·LTE MAC 자릿수·자릿수 부족/초과·미사용 앞자리·847207 7번째 자리). v97: 테스터 전용 자재 현황 화면(코드명 자재관리, 화면 문구 업무체 — 재고·사용 완료·별도 관리 자재·자재 등록) — 헬퍼 홈 [자재 현황] 버튼. 내 모뎀(출고 20·인계 40, 본인 인계·6/22 이전 출고·소유 N·교체로 뗀 옛 모뎀 뺌) - 시공 목록 맥 = 보유/사용, 종류는 my_stock.kind() 와 같은 규칙(E 추정 없음, 전부 AE), 종류별 보유 awms·따로장부·합계·오늘 사용 표, 자재 추가 = [스캔] 한 번에 한 개(카메라 저절로 닫힘) 대기 목록에 쌓고 들어올 때 검사(형식·종류·내 출고/인계·awms 자재 []·따로장부·목록 중복, 거절 줄은 이유 표시·저장 안 함), [저장] 한 번 PATCH 로 Firebase helperStock/<USER_ID>/offbook/<MAC> 에 기록(awms 에 들어오면 'awms 에 들어옴' 표시, 한 번만 셈). awms 는 읽기만(selectList·selectBarcdQr·getMainList). v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
   var FEAT_RELEASED = true;   // [v89] released input checks on for every helper user (see __featOn)
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
@@ -2493,7 +2493,7 @@ function parseValue(text) {
     var bump = function (kd, f) { counts[kd] = counts[kd] || { awms: 0, off: 0 }; counts[kd][f]++; };
     for (i = 0; i < list.length; i++) if (!list[i].used) bump(list[i].kind, 'awms');
     for (i = 0; i < offList.length; i++) if (!offList[i].inAwms && !offList[i].used) bump(offList[i].kind, 'off');
-    return { list: list, off: offList, counts: counts, todayUsed: todayUsed, drop: drop, ledger: ledger };
+    return { list: list, off: offList, counts: counts, todayUsed: todayUsed, drop: drop, ledger: ledger, own: rows };   // [v102] own = 출고·인계 맥 전부(소유 여부) — 작업 검사가 씀
   }
   // [v97-build-end]
 
@@ -2768,6 +2768,498 @@ function parseValue(text) {
     stockPendRender();
   }
 
+
+  // ===== [v102] 작업 검사 BEGIN (테스터 전용 · awms 읽기만 · OCR 없음) =====
+  //   영준님 2026-11-16: 자재 현황 화면 안에 [작업 검사] — 그날 내 awms 등록(MOBCST getMainList)을 맥 작업검사
+  //   (scripts/cst_daily_check.py)와 같은 규칙으로 판정. 빨강 = 고칠 것(할 일 한 줄) / 노랑 = 볼 것 / 초록 = 메모·숫자.
+  //   ★규칙 원본은 cst-input/backend/cst_rules.py(맥 → 통신방식·계기유형·분기)와 cst_daily_check.py app_check.
+  //     여기 규칙을 고치면 저쪽도 — scripts/test_helper_workcheck.py 가 둘을 대조한다(함수 단위 + 하루치 대조).
+  //   맥 검사와 다른 점: 사진 판독(OCR) 없음 · 지도 완료(workStatus) 안 봄 — 대신 같은 주소 리스트 계기로
+  //     '번호 1자리 차이'·'누락 후보'를 노랑으로 낸다. 아미큐 보관함·자재 대조(지난 검사 재고)도 없음.
+  //   읽는 것: getMainList(올해, 달마다) · getDetail(그날 슬레이브 + 뒷자리 겹치는 앞선 슬레이브의 분기) ·
+  //     자재 현황이 이미 받은 출고/인계·별도 관리 자재 · data/search-index.json(리스트·주소·지사) · 리스트 이름표(__names).
+  //   쓰는 것: 없음(Firebase 로그 rec 만).
+  // [v102-wc-begin] 순수 판정 — 화면·통신 없음(시험에서 node 로 돌린다)
+  var WC_TYPE_MAP = { '17': 'E', '19': 'EA', '25': 'G', '26': 'G', '27': 'G', '45': 'G', '46': 'G', '47': 'G',
+                      '52': 'Amigo', '53': 'Amigo', '54': 'Amigo', '55': 'Amigo' };
+  var WC_TYPE_TO_INSTM = { E: 'HW4020', EA: 'HW4040', G: 'HW4030', Amigo: 'HW4050' };
+  var WC_BUNGI = ['무선', '0.5'];
+  var WC_DEPT_NM = { '3600': '마포용산', '3500': '서대문은평', '7793': '서울본부직할', '3100': '광진성동',
+                     '3400': '노원도봉', '4080': '강북성북', '3000': '동대문중랑' };
+  var WC_LAW = /^[0-9A-Z]{2}[0-9]{9}$/;
+  var WC_FOLD = { B: '8', O: '0', S: '5', D: '0', I: '1' };
+  function wcFold(s) { return String(s || '').toUpperCase().replace(/[^0-9A-Z]/g, '').replace(/[BOSDI]/g, function (c) { return WC_FOLD[c]; }); }
+  function wcOneOff(a, b) {
+    if (a.length !== b.length) return false;
+    var d = 0;
+    for (var i = 0; i < a.length; i++) if (a.charAt(i) !== b.charAt(i)) d++;
+    return d === 1;
+  }
+  // cst_rules.infer_inst_m
+  function wcInferM(no) {
+    var s = String(no || '');
+    while (s.length < 11) s = '0' + s;
+    return WC_TYPE_TO_INSTM[WC_TYPE_MAP[s.slice(2, 4)]] || 'HW4010';
+  }
+  // cst_rules._mac_raw_suffix
+  function wcMacSuffix(mac) {
+    var raw = String(mac || '').replace(/\D/g, ''), m = String(mac || '').toUpperCase().replace(/[^0-9A-F]/g, '');
+    if (/^012\d{8}$/.test(raw)) return 'LTE';
+    if (m.indexOf('847207') === 0) {
+      var c = m.charAt(6);
+      if (c === '0') return ['E3', 'E4', 'D9'].indexOf(m.slice(7, 9)) >= 0 ? '10' : '90';
+      if (c === 'E') return '90';
+      if (c && 'BCD'.indexOf(c) >= 0) return '10';
+    }
+    if (m.indexOf('E0AEED') === 0) return '10';
+    if (m.indexOf('44B433') === 0 || m.indexOf('0014B0') === 0) return '20';
+    if (m.indexOf('AC5E8C') === 0) return '90';
+    return '';
+  }
+  // cst_rules.infer_inst_s
+  function wcInferS(instM, mac) {
+    if (!instM) return '';
+    var s = wcMacSuffix(mac);
+    if (!s || s === 'SKIP') return '';
+    if (s === 'LTE') return instM + (instM === 'HW4050' ? '92' : '70');
+    return instM + s;
+  }
+  // cst_rules.slave_bungi -> [자동값, 고를 수 있음]
+  function wcSlaveBungi(msuf, sm) { var can = msuf === '92' && sm === 'HW4050'; return [can ? '무선' : '0.5', can]; }
+  // cst_rules.mac_format_error 와 같은 판정(문구는 v85 macFormatError 명사형). '' = 정상
+  function wcMacErr(mac) {
+    var s = String(mac || '').replace(/[\s:\-*]/g, '').toUpperCase();
+    if (!s) return '비어 있음';
+    var e = macFormatError(s, true);
+    return e ? e.reason : '';
+  }
+  function wcUp(s) { return String(s || '').toUpperCase(); }
+
+  // search-index -> 계기별 리스트 행 [{c, a, j}]. 'a'(옛 완료 아카이브)와 이름표 밖 코드(광명·LP무기록)는 빼고
+  //   리스트 아카이브(합동 3일 지난 분 등)는 넣는다 — 맥 검사 stats-site-index 와 같은 범위.
+  function wcListRows(si, names, want) {
+    var rows = si.rows, slots = si.slots, sites = si.sites, out = {}, ok = [], i;
+    for (i = 0; i < slots.length; i++) ok.push(slots[i][0] !== 'a' && Object.prototype.hasOwnProperty.call(names, slots[i][0]));
+    for (i = 0; i < rows.length; i += 3) {
+      if (!ok[rows[i + 2]] || !want[rows[i]]) continue;
+      var st = sites[rows[i + 1]];
+      (out[rows[i]] = out[rows[i]] || []).push({ c: slots[rows[i + 2]][0], a: st[0], j: si.jisa[st[4]] || '' });
+    }
+    return out;
+  }
+  // 주소|리스트 -> 그 리스트 계기 (중복 없이)
+  function wcSiteMeters(si, names, keys) {
+    var rows = si.rows, slots = si.slots, sites = si.sites, out = {}, seen = {}, ok = [], i;
+    for (i = 0; i < slots.length; i++) ok.push(slots[i][0] !== 'a' && Object.prototype.hasOwnProperty.call(names, slots[i][0]));
+    for (i = 0; i < rows.length; i += 3) {
+      if (!ok[rows[i + 2]] || !rows[i]) continue;
+      var k = sites[rows[i + 1]][0] + '|' + slots[rows[i + 2]][0];
+      if (!keys[k] || seen[k + '#' + rows[i]]) continue;
+      seen[k + '#' + rows[i]] = 1;
+      (out[k] = out[k] || []).push(rows[i]);
+    }
+    return out;
+  }
+  // 한 모뎀 = 마스터 + 그 마스터에 묶인 행(모든 날짜) + 오늘 행 (cst_daily_check.group_members)
+  function wcMembers(master, rs, rows, mac) {
+    var out = [], seen = {};
+    var put = function (r) { if (!seen[r.INSTR_NUM]) { seen[r.INSTR_NUM] = 1; out.push(r); } };
+    if (master) {
+      put(master);
+      for (var i = 0; i < rows.length; i++) if (wcUp(rows[i].MAC_MODEM) === mac && rows[i].MB_METER_ID === master.INSTR_NUM) put(rows[i]);
+    }
+    rs.forEach(put);
+    return out;
+  }
+  // 유선(0.5) 쪽인지 — true / false(무선) / null(분기 못 읽음) (cst_daily_check.wired)
+  function wcWired(r, master, expSuf, det) {
+    if (master && r.INSTR_NUM === master.INSTR_NUM) return expSuf !== '92';
+    var sb = wcSlaveBungi(expSuf, wcInferM(r.INSTR_NUM));
+    if (!sb[1]) return true;
+    var d = det[r.INSTR_NUM];
+    if (!d || !Object.prototype.hasOwnProperty.call(d, 'BUNGI')) return null;
+    return String(d.BUNGI || '') !== '무선';
+  }
+  // 뒷자리 2자리 중복 — 같은 모뎀의 유선 쪽 계기끼리 끝 2자리가 같으면 통신이 안 된다. 오늘 행이 낀 것만 (cst_daily_check.suffix_dups)
+  function wcSuffixDups(master, rs, rows, mac, expSuf, det) {
+    var today = {}, by = {}, out = [];
+    rs.forEach(function (r) { today[r.INSTR_NUM] = 1; });
+    wcMembers(master, rs, rows, mac).forEach(function (r) {
+      if (wcWired(r, master, expSuf, det) && r.INSTR_NUM.length >= 2) (by[r.INSTR_NUM.slice(-2)] = by[r.INSTR_NUM.slice(-2)] || []).push(r.INSTR_NUM);
+    });
+    Object.keys(by).sort().forEach(function (s) {
+      var ms = by[s].slice().sort();
+      if (ms.length > 1 && ms.some(function (m) { return today[m]; })) out.push([s, ms]);
+    });
+    return out;
+  }
+  // 분기를 더 받아야 하는 행 = 그날 모뎀의 앞선 슬레이브 중 같은 모뎀 다른 행과 끝 2자리가 겹치는 것 (cst_daily_check.dup_detail_rows)
+  function wcDetailWants(day, rows) {
+    var macs = {}, by = {}, out = [], i;
+    for (i = 0; i < rows.length; i++) if (rows[i].WORK_DATE === day) { macs[wcUp(rows[i].MAC_MODEM)] = 1; if (String(rows[i].MODEM_DIV) !== '10') out.push(rows[i]); }
+    for (i = 0; i < rows.length; i++) {
+      var m = wcUp(rows[i].MAC_MODEM);
+      if (macs[m]) (by[m + '|' + String(rows[i].INSTR_NUM).slice(-2)] = by[m + '|' + String(rows[i].INSTR_NUM).slice(-2)] || []).push(rows[i]);
+    }
+    Object.keys(by).forEach(function (k) {
+      var rs = by[k], u = {};
+      rs.forEach(function (r) { u[r.INSTR_NUM] = 1; });
+      if (Object.keys(u).length > 1) rs.forEach(function (r) { if (r.WORK_DATE !== day && String(r.MODEM_DIV) !== '10') out.push(r); });
+    });
+    return out;
+  }
+
+  // 할 일(빨강) — 짧은 명사구
+  var WC_TODO = {
+    '번호 형식': '바른 번호로 새 행 등록', '타입코드': '계기 사진 확인 후 새 행 등록', '중복 등록': '중복 행 정리 (KDN 삭제 요청)',
+    '지사 다름': '지사 수정 후 재저장', '남의 자재': '자재 인계 확인', '장부 밖 맥': '모뎀맥 사진 확인',
+    '기설 맥 오류': '모뎀맥 사진 확인 후 새 행 등록', '기설 맥 미상': '모뎀맥 사진 확인', '기설 의심': '신설 재등록 여부 확인',
+    '등록수 다름': '슬레이브 추가 또는 행 정리', 'DCU 없음': 'DCU ID 입력 후 재저장', '계기유형 오류': '계기유형 수정 후 재저장',
+    '통신방식 오류': '통신방식 수정 후 재저장', '아미고 짝': '모뎀·계기 짝 확인', '슬레이브 구분': '작업구분 신설로 재저장',
+    '슬레이브 맥 다름': '마스터 맥으로 재저장', '대표계기 다름': '대표계기 확인', '분기 오류': '분기 수정 후 재저장',
+    '뒷자리 중복': '통신 불가 — 현장 확인', '번호 1자리 차이': '계기 사진 확인 후 바른 번호로 새 행 등록'
+  };
+  // inp = {day, rows(올해 getMainList), details{계기: getDetail 행}, own{MAC: {owned}}, off{MAC: 1}, si(search-index), names}
+  function wcCheck(inp) {
+    var day = inp.day, rows = inp.rows || [], det = inp.details || {}, own = inp.own || {}, off = inp.off || {};
+    var items = [], seenItem = {};
+    var add = function (lv, sec, kind, o) {
+      o = o || {};
+      var k = lv + '|' + kind + '|' + (o.meters || []).join(',') + '|' + (o.mac || '');
+      if (seenItem[k]) return;
+      seenItem[k] = 1;
+      o.lv = lv; o.sec = sec; o.kind = kind;
+      if (lv === 'red' && WC_TODO[kind]) o.todo = WC_TODO[kind];
+      items.push(o);
+    };
+    var today = rows.filter(function (r) { return r.WORK_DATE === day; });
+    var mastersByMac = {}, byMeterMaster = {}, bound = {}, aw = {}, want = {};
+    rows.forEach(function (r) {
+      aw[r.INSTR_NUM] = 1; want[r.INSTR_NUM] = 1;
+      var mac = wcUp(r.MAC_MODEM);
+      if (String(r.MODEM_DIV) === '10' && r.MAC_MODEM) {
+        (mastersByMac[mac] = mastersByMac[mac] || []).push(r);
+        if (!byMeterMaster[r.INSTR_NUM]) byMeterMaster[r.INSTR_NUM] = r;
+      }
+      var mb = r.MB_METER_ID || (String(r.MODEM_DIV) === '10' ? r.INSTR_NUM : '');
+      if (mb) { var bk = mb + '|' + mac; (bound[bk] = bound[bk] || {})[r.INSTR_NUM] = 1; }
+    });
+    var L = inp.si ? wcListRows(inp.si, inp.names || {}, want) : {};
+    var cnt = {};
+    today.forEach(function (r) { cnt[r.INSTR_NUM] = (cnt[r.INSTR_NUM] || 0) + 1; });
+    var groups = {}, order = [];
+    today.slice().sort(function (a, b) { return (a.REG_DATE || 0) - (b.REG_DATE || 0); }).forEach(function (r) {
+      var mac = wcUp(r.MAC_MODEM);
+      if (!groups[mac]) { groups[mac] = []; order.push(mac); }
+      groups[mac].push(r);
+    });
+    var sum = { meters: today.length, masters: 0, slaves: 0, div: {}, modems: order.length };
+    var deferred = [];       // [{mac, outList, keys}] — 같은 주소 리스트 계기를 한 번에 찾는다
+    var touched = {};        // 오늘 리스트 계기가 등록된 주소|리스트 -> 1
+    order.forEach(function (mac) {
+      var rs = groups[mac];
+      var ms = rs.filter(function (r) { return String(r.MODEM_DIV) === '10'; });
+      var ss = rs.filter(function (r) { return String(r.MODEM_DIV) !== '10'; });
+      sum.masters += ms.length; sum.slaves += ss.length;
+      var head = ms[0] || rs[0], div = head.WORK_DIV || '';
+      if (ms.length) sum.div[div] = (sum.div[div] || 0) + 1;
+      if (ms.length && div === 'M1020') { add('grey', 'form', '교체', { mac: mac, meters: [head.INSTR_NUM] }); return; }
+      var master = ms.length ? head : null;
+      if (!ms.length) {
+        var mbid = '';
+        for (var i = 0; i < rs.length; i++) if (rs[i].MB_METER_ID) { mbid = rs[i].MB_METER_ID; break; }
+        var cand = (mastersByMac[mac] || []).filter(function (m) { return m.WORK_DATE !== day; });
+        master = byMeterMaster[mbid] || cand[0] || null;
+        if (master) {
+          add('green', 'form', '기존 모뎀', { mac: mac, meters: [master.INSTR_NUM], data: master.WORK_DATE });
+          if (rs.some(function (r) { return r.INSTR_NUM === master.INSTR_NUM; })) add('green', 'form', '대표계기 슬레이브', { mac: mac, meters: [master.INSTR_NUM] });
+        } else add('grey', 'form', '마스터 미확인', { mac: mac, meters: [rs[0].INSTR_NUM] });
+      }
+      var mdiv = master ? (master.WORK_DIV || '') : div;
+      rs.forEach(function (r) {
+        var no = r.INSTR_NUM;
+        if (!WC_LAW.test(no)) add('red', 'form', '번호 형식', { mac: mac, meters: [no] });
+        else if (!WC_TYPE_MAP[no.slice(2, 4)]) add('red', 'form', '타입코드', { mac: mac, meters: [no], data: no.slice(2, 4) });
+        if (cnt[no] > 1) add('red', 'form', '중복 등록', { mac: mac, meters: [no], data: cnt[no] + '행' });
+      });
+      if (ms.length > 1) add('yellow', 'form', '마스터 2개', { mac: mac, meters: ms.map(function (r) { return r.INSTR_NUM; }) });
+      if (ms.length) {
+        var mine = {};
+        ms.forEach(function (r) { mine[r.INSTR_NUM] = 1; });
+        var others = {};
+        (mastersByMac[mac] || []).forEach(function (m) { if (!mine[m.INSTR_NUM]) others[m.INSTR_NUM] = 1; });
+        var ol = Object.keys(others).sort();
+        if (ol.length) add('yellow', 'form', '맥 재사용', { mac: mac, meters: ol });
+      }
+      // 자재
+      if (ms.length && div === 'M1010') {
+        var sr = own[mac];
+        if (!sr && !off[mac]) add('red', 'form', '장부 밖 맥', { mac: mac, meters: [head.INSTR_NUM] });
+        else if (sr && !sr.owned) add('red', 'form', '남의 자재', { mac: mac, meters: [head.INSTR_NUM] });
+      }
+      if (ms.length && div === 'M1030') {
+        var err = wcMacErr(mac);
+        if (err) add('red', 'form', '기설 맥 오류', { mac: mac, meters: [head.INSTR_NUM], data: err });
+        else if (stockKind(mac).indexOf('미분류') === 0) add('red', 'form', '기설 맥 미상', { mac: mac, meters: [head.INSTR_NUM] });
+        var sr2 = own[mac];
+        var before = (mastersByMac[mac] || []).filter(function (m) { return (m.WORK_DIV === 'M1010' || m.WORK_DIV === 'M1020') && m.INSTR_NUM !== head.INSTR_NUM; });
+        if (sr2 && sr2.owned && !before.length) add('red', 'form', '기설 의심', { mac: mac, meters: [head.INSTR_NUM] });
+      }
+      // 마스터 — 등록수·DCU·계기유형·통신방식
+      var expSuf = '';
+      if (master) {
+        var mNo = master.INSTR_NUM;
+        if (ms.length) {
+          var b = bound[mNo + '|' + mac] || {}, nb = Object.keys(b).length + (b[mNo] ? 0 : 1);
+          var f = parseFloat(master.MB_REG_CNT || 0), reg = isNaN(f) ? -1 : Math.trunc(f);
+          if (reg !== nb) add('red', 'form', '등록수 다름', { mac: mac, meters: [mNo], data: reg + ' / ' + nb });
+          if (div === 'M1010' && mac.indexOf('012') !== 0 && !master.DCU_ID) add('red', 'form', 'DCU 없음', { mac: mac, meters: [mNo] });
+        }
+        var expM = wcInferM(mNo), expS = wcInferS(expM, mac);
+        expSuf = expS ? expS.slice(-2) : String(master.INST_S || '').slice(-2);
+        if (ms.length) {
+          if ((master.INST_M || '') !== expM) add('red', 'comm', '계기유형 오류', { mac: mac, meters: [mNo], data: (master.INST_M || '-') + ' / ' + expM });
+          if (!expS) add('yellow', 'comm', '통신방식 미상', { mac: mac, meters: [mNo] });
+          else if ((master.INST_S || '') !== expS) add('red', 'comm', '통신방식 오류', { mac: mac, meters: [mNo], data: (master.INST_S || '-') + ' / ' + expS });
+          if (mac.indexOf('012') === 0) {
+            var amigoMeter = expM === 'HW4050', amigoModem = stockKind(mac).indexOf('AMIGO') >= 0;
+            if (amigoMeter !== amigoModem) add('red', 'comm', '아미고 짝', { mac: mac, meters: [mNo], data: stockKind(mac) });
+          }
+        }
+      }
+      // 슬레이브
+      ss.forEach(function (r) {
+        var no = r.INSTR_NUM;
+        if ((mdiv === 'M1010' || mdiv === 'M1030') && r.WORK_DIV !== 'M1010') add('red', 'form', '슬레이브 구분', { mac: mac, meters: [no] });
+        var mb = r.MB_METER_ID || '', mrow = byMeterMaster[mb];
+        if (mb && mrow && wcUp(mrow.MAC_MODEM) !== mac) add('red', 'form', '슬레이브 맥 다름', { mac: mac, meters: [no] });
+        if (master && mb && mb !== master.INSTR_NUM && !mrow) {
+          // 영준님이 일부러 쓰는 방법 — 다른 날 마스터에 슬레이브를 더할 때 대표계기 칸에 자기 번호
+          if (mb === no && master.WORK_DATE !== day) add('green', 'form', '대표계기 자기 번호', { mac: mac, meters: [no], data: master.INSTR_NUM });
+          else add('red', 'form', '대표계기 다름', { mac: mac, meters: [no], data: mb + ' / ' + master.INSTR_NUM });
+        }
+        var em = wcInferM(no);
+        if ((r.INST_M || '') !== em) add('red', 'comm', '계기유형 오류', { mac: mac, meters: [no], data: (r.INST_M || '-') + ' / ' + em });
+        if (expSuf && (r.INST_S || '') !== em + expSuf) add('red', 'comm', '통신방식 오류', { mac: mac, meters: [no], data: (r.INST_S || '-') + ' / ' + em + expSuf });
+        var d = det[no];
+        if (!d || d._err || !Object.prototype.hasOwnProperty.call(d, 'BUNGI')) add('grey', 'comm', '분기 미확인', { mac: mac, meters: [no] });
+        else {
+          var sb = wcSlaveBungi(expSuf, em), bg = String(d.BUNGI || '');
+          if ((sb[1] && WC_BUNGI.indexOf(bg) < 0) || (!sb[1] && bg !== sb[0])) add('red', 'comm', '분기 오류', { mac: mac, meters: [no], data: (bg || '-') + ' / ' + (sb[1] ? '무선·0.5' : '0.5') });
+        }
+      });
+      wcSuffixDups(master, rs, rows, mac, expSuf, det).forEach(function (x) {
+        add('red', 'comm', '뒷자리 중복', { mac: mac, meters: x[1], data: '끝 ' + x[0] });
+      });
+      // 지사·리스트
+      var dept = head.DEPT2 || '', inList = [], outList = [], keys = {};
+      rs.forEach(function (r) {
+        var xs = L[r.INSTR_NUM] || [];
+        if (!xs.length && String(r.MODEM_DIV) === '10' && r.WORK_DIV === 'M1030') return;   // 기설 마스터 = 원래 리스트 밖
+        (xs.length ? inList : outList).push(r.INSTR_NUM);
+        xs.forEach(function (x) {
+          keys[x.a + '|' + x.c] = 1;
+          touched[x.a + '|' + x.c] = 1;
+          if (WC_DEPT_NM[dept] && x.j.indexOf(WC_DEPT_NM[dept]) !== 0) add('red', 'form', '지사 다름', { mac: mac, meters: [r.INSTR_NUM], data: WC_DEPT_NM[dept] + ' / ' + x.j });
+        });
+      });
+      // 번호 1자리 차이 후보 주소 = 이 모뎀에 묶인 다른 날 리스트 계기 주소도 포함
+      if (outList.length) {
+        wcMembers(master, rs, rows, mac).forEach(function (r) { (L[r.INSTR_NUM] || []).forEach(function (x) { keys[x.a + '|' + x.c] = 1; }); });
+        deferred.push({ mac: mac, outList: outList, keys: keys });
+      }
+    });
+    // 같은 주소 리스트 계기 — 번호 1자리 차이 / 누락 후보
+    var need = {};
+    deferred.forEach(function (g) { for (var k in g.keys) need[k] = 1; });
+    for (var k0 in touched) need[k0] = 1;
+    var SM = inp.si ? wcSiteMeters(inp.si, inp.names || {}, need) : {};
+    var typoList = {};
+    deferred.forEach(function (g) {
+      var rest = [];
+      g.outList.forEach(function (m) {
+        var fm = wcFold(m), hit = [];
+        for (var k in g.keys) (SM[k] || []).forEach(function (x) {
+          if (x !== m && hit.indexOf(x) < 0 && wcOneOff(fm, wcFold(x))) hit.push(x);
+        });
+        if (!hit.length) { rest.push(m); return; }
+        hit.sort();
+        var miss = hit.filter(function (x) { return !aw[x]; });
+        miss.forEach(function (x) { typoList[x] = 1; });
+        add(miss.length ? 'red' : 'yellow', 'list', '번호 1자리 차이', { mac: g.mac, meters: [m].concat(miss.length ? miss : hit) });
+      });
+      if (rest.length) add('yellow', 'list', '리스트 밖', { mac: g.mac, meters: rest });
+    });
+    Object.keys(touched).sort().forEach(function (k) {
+      var all = SM[k] || [], miss = all.filter(function (x) { return !aw[x] && !typoList[x]; }).sort();
+      if (miss.length) add('yellow', 'list', '누락 후보', { meters: miss, addr: k.split('|')[0], data: ((inp.names || {})[k.split('|')[1]] || k.split('|')[1]) + ' · 리스트 ' + all.length + ' / 미등록 ' + miss.length });
+    });
+    // 모뎀 사용(신설 마스터, 종류별) · 일별 작업 현황
+    var use = {}, used = {};
+    today.forEach(function (r) {
+      if (String(r.MODEM_DIV) === '10' && r.WORK_DIV === 'M1010' && !used[r.INSTR_NUM]) { used[r.INSTR_NUM] = 1; var kd = stockKind(wcUp(r.MAC_MODEM)); use[kd] = (use[kd] || 0) + 1; }
+    });
+    var dayMap = {};
+    rows.forEach(function (r) {
+      var wd = r.WORK_DATE;
+      if (!wd || wd > day) return;
+      var D = dayMap[wd] = dayMap[wd] || { day: wd, masters: 0, slaves: 0, macs: {}, sites: {} };
+      if (String(r.MODEM_DIV) === '10') D.masters++; else D.slaves++;
+      var mac = wcUp(r.MAC_MODEM), xs = L[r.INSTR_NUM] || [];
+      if (xs.length) { D.sites[xs[0].a] = 1; D.macs[mac] = 'site'; } else if (!D.macs[mac]) D.macs[mac] = 'none';
+    });
+    var days = Object.keys(dayMap).sort().reverse().slice(0, 7).map(function (d) {
+      var D = dayMap[d], noSite = 0;
+      for (var m in D.macs) if (D.macs[m] === 'none') noSite++;
+      return { day: d, masters: D.masters, slaves: D.slaves, sites: Object.keys(D.sites).length, noSite: noSite };
+    });
+    return { items: items, sum: sum, use: use, days: days };
+  }
+  // [v102-wc-end]
+
+  var __wc = { day: '', rows: null, rowsYear: '', si: null, det: {}, res: null, err: '' };
+  function wcFmtDay(d) {
+    var w = '일월화수목금토'.charAt(new Date(Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8))).getUTCDay());
+    return d.slice(4, 6) + '/' + d.slice(6) + ' (' + w + ')';
+  }
+  function wcShift(d, n) {
+    var t = new Date(Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8)) + n * 86400000);
+    return t.toISOString().slice(0, 10).replace(/-/g, '');
+  }
+  function wcLoadSI() {
+    if (__wc.si) return Promise.resolve(__wc.si);
+    return fetch('https://815dudwns.github.io/ami-work/data/search-index.json', { cache: 'no-cache' })
+      .then(function (r) { if (!r.ok) throw new Error('리스트 HTTP ' + r.status); return r.json(); })
+      .then(function (j) { __wc.si = j; return j; });
+  }
+  function wcLoadNames() {
+    return new Promise(function (ok) {
+      var done = false, fin = function () { if (!done) { done = true; ok(LIST_NAMES); } };
+      try { loadMeterIndex(fin); } catch (e) { fin(); }
+      setTimeout(fin, 15000);
+    });
+  }
+  function wcDetail(r) {
+    var q = 'FLAG=M10&DEPT1=' + encodeURIComponent(r.DEPT1 || '3970') + '&BUSI_NUM=' + encodeURIComponent(r.BUSI_NUM || '') +
+      '&DATA_NUM=' + encodeURIComponent(r.DATA_NUM || '') + '&EXT_DCU_ID=&INSTR_NUM=' + encodeURIComponent(r.INSTR_NUM || '') +
+      '&MAC_MODEM=' + encodeURIComponent(r.MAC_MODEM || '') + '&EXT_FCTY_ID=' + encodeURIComponent(r.EXT_FCTY_ID || '');   // ★'-' 그대로
+    return stockGet('/ami/mob/cst/mobCst1000/getDetail?' + q, 'MOBCST')
+      .then(function (d) { return Array.isArray(d) ? (d[0] || {}) : (d || {}); })
+      .catch(function (e) { return { _err: String(e && e.message || e) }; });
+  }
+  function wcDetails(list) {
+    var todo = list.filter(function (r) { return !__wc.det[r.INSTR_NUM]; }), i = 0;
+    var worker = function () {
+      if (i >= todo.length) return Promise.resolve();
+      var r = todo[i++];
+      return wcDetail(r).then(function (d) { __wc.det[r.INSTR_NUM] = d; return worker(); });
+    };
+    return Promise.all([worker(), worker(), worker(), worker()]);
+  }
+  function wcRun(day, fresh) {
+    __wc.day = day; __wc.res = null; __wc.err = '';
+    if (fresh) { __wc.rows = null; __wc.det = {}; }
+    wcRender();
+    var year = day.slice(0, 4), today = stockYmd();
+    var rowsP = (__wc.rows && __wc.rowsYear === year) ? Promise.resolve(__wc.rows)
+      : stockMain(year + '0101', year === today.slice(0, 4) ? today : year + '1231').then(function (rs) { __wc.rows = rs; __wc.rowsYear = year; return rs; });
+    var stockP = (__stock.data && __stock.data.build) ? Promise.resolve(__stock.data.build) : new Promise(function (ok) {
+      var n = 0, t = setInterval(function () { n++; if ((__stock.data && __stock.data.build) || n > 90) { clearInterval(t); ok(__stock.data && __stock.data.build); } }, 500);
+    });
+    Promise.all([rowsP, wcLoadSI(), wcLoadNames(), stockP]).then(function (a) {
+      var rows = a[0];
+      return wcDetails(wcDetailWants(day, rows)).then(function () {
+        var b = a[3] || {}, off = {};
+        (b.off || []).forEach(function (o) { off[o.mac] = 1; });
+        var res = wcCheck({ day: day, rows: rows, details: __wc.det, own: b.own || {}, off: off, si: a[1], names: a[2] });
+        res.stock = b.counts || null;
+        __wc.res = res;
+        var n = { red: 0, yellow: 0 };
+        res.items.forEach(function (x) { if (n[x.lv] != null) n[x.lv]++; });
+        rec({ stage: 'wc-run', day: day, meters: res.sum.meters, red: n.red, yellow: n.yellow, noStock: !a[3] });
+        wcRender();
+      });
+    }).catch(function (e) { __wc.err = String(e && e.message || e); rec({ stage: 'wc-fail', day: day, msg: __wc.err }); wcRender(); });
+  }
+  var WC_DOT = { red: '#f04438', yellow: '#f79009', green: '#12b76a', grey: '#98a2b3' };
+  var WC_SECS = [['list', '리스트 대조'], ['comm', '통신방식·분기'], ['form', '등록 형식']];
+  function wcRender() {
+    var box = document.getElementById('__wc_body');
+    if (!box) return;
+    var dl = document.getElementById('__wc_day');
+    if (dl) dl.textContent = wcFmtDay(__wc.day);
+    if (__wc.err) { box.innerHTML = '<div style="padding:16px;color:#d92d20;font-weight:700">조회 실패</div>'; return; }
+    var R = __wc.res;
+    if (!R) { box.innerHTML = '<div style="padding:20px;text-align:center;color:#667085">조회 중…</div>'; return; }
+    var esc = stockEsc, h = '', n = { red: 0, yellow: 0 }, badMac = {};
+    R.items.forEach(function (x) { if (n[x.lv] != null) { n[x.lv]++; if (x.mac) badMac[x.mac] = 1; } });
+    var okN = Math.max(0, R.sum.modems - Object.keys(badMac).length);
+    var chip = function (v, t, c) { return '<div style="flex:1;background:#fff;border:1px solid #eaecf0;border-radius:10px;text-align:center;padding:7px 0;font-size:12px;color:#475467"><b style="display:block;font-size:19px;color:' + c + '">' + v + '</b>' + t + '</div>'; };
+    h += '<div style="display:flex;gap:6px;margin-bottom:10px">' + chip(okN, '정상 모뎀', '#067647') + chip(n.yellow, '확인', '#b54708') + chip(n.red, '조치', '#d92d20') + '</div>';
+    var dv = R.sum.div, dn = { M1010: '신설', M1030: '기설', M1020: '교체' };
+    h += '<div style="font-size:12px;color:#475467;margin:0 2px 10px">계기 ' + R.sum.meters + ' · 마스터 ' + R.sum.masters + ' · 슬레이브 ' + R.sum.slaves +
+      Object.keys(dv).map(function (k) { return ' · ' + (dn[k] || k) + ' ' + dv[k]; }).join('') + '</div>';
+    var rank = { red: 0, yellow: 1, grey: 2, green: 3 };
+    WC_SECS.forEach(function (s) {
+      var xs = R.items.filter(function (x) { return x.sec === s[0]; }).sort(function (a, b) { return rank[a.lv] - rank[b.lv]; });
+      h += '<div style="background:#fff;border:1px solid #eaecf0;border-radius:12px;margin-bottom:10px;overflow:hidden">' +
+        '<div style="padding:8px 10px;font-size:14px;font-weight:700;background:#f2f4f7;color:#344054">' + s[1] + '</div>';
+      if (!xs.length) h += '<div style="display:flex;gap:8px;padding:8px 10px;font-size:14px"><span style="width:10px;height:10px;border-radius:50%;margin-top:5px;background:#12b76a;flex:none"></span><b>이상 없음</b></div>';
+      xs.forEach(function (x) {
+        var dat = (x.meters || []).join(' / ') + (x.addr ? ' · ' + x.addr : '') + (x.data ? ' · ' + x.data : '') + (x.mac && !x.addr ? ' · ' + x.mac : '');
+        h += '<div style="display:flex;gap:8px;padding:8px 10px;border-top:1px solid #f2f4f7;font-size:14px;align-items:flex-start">' +
+          '<span style="width:10px;height:10px;border-radius:50%;margin-top:5px;background:' + WC_DOT[x.lv] + ';flex:none"></span><div style="min-width:0">' +
+          '<div style="font-weight:700">' + esc(x.kind) + '</div><div style="font-family:monospace;font-size:12px;color:#344054;word-break:break-all">' + esc(dat) + '</div>' +
+          (x.todo ? '<div style="font-size:12px;color:#d92d20;margin-top:2px">' + esc(x.todo) + '</div>' : '') + '</div></div>';
+      });
+      h += '</div>';
+    });
+    var td = 'padding:6px 6px;border-top:1px solid #f2f4f7;text-align:right;white-space:nowrap;';
+    var c = R.stock || {}, tu = 0, th = 0, rowsH = '';
+    STOCK_ROWS.forEach(function (r) {
+      var u = R.use[r[0]] || 0, v = c[r[0]] ? c[r[0]].awms + c[r[0]].off : 0;
+      tu += u; th += v;
+      if (u || v) rowsH += '<tr><td style="' + td + 'text-align:left">' + esc(r[1]) + '</td><td style="' + td + '">' + u + '</td><td style="' + td + '">' + v + '</td></tr>';
+    });
+    Object.keys(R.use).forEach(function (k) {
+      if (!STOCK_ROWS.some(function (r) { return r[0] === k; })) { tu += R.use[k]; rowsH += '<tr><td style="' + td + 'text-align:left">' + esc(k) + '</td><td style="' + td + '">' + R.use[k] + '</td><td style="' + td + '">-</td></tr>'; }
+    });
+    h += '<div style="background:#fff;border:1px solid #eaecf0;border-radius:12px;margin-bottom:10px;overflow:hidden"><div style="padding:8px 10px;font-size:14px;font-weight:700;background:#f2f4f7;color:#344054">모뎀 사용</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:13px"><tr style="color:#475467"><th style="' + td + 'text-align:left">자재</th><th style="' + td + '">신설</th><th style="' + td + '">재고</th></tr>' + rowsH +
+      '<tr style="font-weight:800"><td style="' + td + 'text-align:left">총계</td><td style="' + td + '">' + tu + '</td><td style="' + td + '">' + (R.stock ? th : '-') + '</td></tr></table></div>';
+    h += '<div style="background:#fff;border:1px solid #eaecf0;border-radius:12px;margin-bottom:6px;overflow:hidden"><div style="padding:8px 10px;font-size:14px;font-weight:700;background:#f2f4f7;color:#344054">일별 작업 현황</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:13px"><tr style="color:#475467"><th style="' + td + 'text-align:left">일자</th><th style="' + td + '">개소</th><th style="' + td + '">마스터</th><th style="' + td + '">슬레이브</th></tr>';
+    R.days.forEach(function (d) {
+      h += '<tr' + (d.day === __wc.day ? ' style="font-weight:800"' : '') + '><td style="' + td + 'text-align:left">' + wcFmtDay(d.day) + '</td><td style="' + td + '">' + d.sites + (d.noSite ? ' +' + d.noSite : '') +
+        '</td><td style="' + td + '">' + d.masters + '</td><td style="' + td + '">' + d.slaves + '</td></tr>';
+    });
+    h += '</table></div><div style="font-size:11px;color:#98a2b3;margin:0 2px 12px">awms 등록 기준 · 사진 판독 없음 · 개소 +N = 리스트 밖 모뎀</div>';
+    box.innerHTML = h;
+  }
+  function wcPanelHtml() {
+    return '<div id="__wc_panel" style="display:none;margin-bottom:12px">' +
+      '<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">' +
+      '<button id="__wc_prev" style="height:36px;border:1px solid #d0d5dd;border-radius:9px;background:#fff;padding:0 10px;font-size:13px">이전</button>' +
+      '<div id="__wc_day" style="flex:1;text-align:center;font-weight:800;font-size:16px;background:#fff;border:1px solid #d0d5dd;border-radius:9px;height:36px;line-height:36px"></div>' +
+      '<button id="__wc_next" style="height:36px;border:1px solid #d0d5dd;border-radius:9px;background:#fff;padding:0 10px;font-size:13px">다음</button>' +
+      '<button id="__wc_reload" style="height:36px;border:1px solid #d0d5dd;border-radius:9px;background:#fff;padding:0 10px;font-size:13px">새로고침</button></div>' +
+      '<div id="__wc_body"></div></div>';
+  }
+  function wcWire(ov) {
+    var btn = ov.querySelector('#__wc_btn');
+    if (!btn) return;
+    var panel = ov.querySelector('#__wc_panel');
+    btn.onclick = function () {
+      var open = panel.style.display === 'none';
+      panel.style.display = open ? 'block' : 'none';
+      if (open && !__wc.res && !__wc.err) { rec({ stage: 'wc-open' }); wcRun(__wc.day || stockYmd(), false); }
+    };
+    ov.querySelector('#__wc_prev').onclick = function () { wcRun(wcShift(__wc.day || stockYmd(), -1), false); };
+    ov.querySelector('#__wc_next').onclick = function () { var t = stockYmd(), d = wcShift(__wc.day || t, 1); if (d <= t) wcRun(d, false); };
+    ov.querySelector('#__wc_reload').onclick = function () { wcRun(__wc.day || stockYmd(), true); };
+  }
+  // ===== [v102] 작업 검사 END =====
+
   function openStockPage() {
     if (document.getElementById('__helper_stock')) return;
     __stock.me = stockMe();
@@ -2783,6 +3275,8 @@ function parseValue(text) {
       '<button id="__stock_close" style="height:36px;border:0;border-radius:9px;background:#1e3a8a;color:#fff;padding:0 12px;font-size:13px;font-weight:700">닫기</button></div>' +
       '<button id="__stock_addbtn" style="width:100%;height:44px;border:0;border-radius:10px;background:#175cd3;color:#fff;font-size:15px;font-weight:800;margin-bottom:10px">자재 등록</button>' +
       stockAddPanelHtml() +
+      (TESTER_IDS.indexOf(String(__stock.me)) > -1 ?   // [v102] 작업 검사 — 테스터 전용
+        '<button id="__wc_btn" style="width:100%;height:44px;border:1px solid #175cd3;border-radius:10px;background:#fff;color:#175cd3;font-size:15px;font-weight:800;margin-bottom:10px">작업 검사</button>' + wcPanelHtml() : '') +
       '<div id="__stock_body"></div>';
     document.body.appendChild(ov);
     ov.querySelector('#__stock_close').onclick = function () {
@@ -2791,6 +3285,7 @@ function parseValue(text) {
     };
     ov.querySelector('#__stock_reload').onclick = stockLoad;
     stockWireAddPanel(ov);
+    wcWire(ov);
     rec({ stage: 'stock-open' });
     stockLoad();
   }

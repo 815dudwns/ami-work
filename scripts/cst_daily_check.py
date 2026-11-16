@@ -191,6 +191,59 @@ def archive_photo_map(jobs):
     return out
 
 
+# ── 뒷자리 2자리 중복 ─────────────────────────────────────────────────────────
+#   ★폰 헬퍼 작업 검사(awms-bridge-inject.js wcSuffixDups)와 같은 규칙 — 고치면 둘 다, scripts/test_helper_workcheck.py 가 대조.
+#   한 모뎀 = 마스터 + 그 마스터에 묶인 행(모든 날짜, MB_METER_ID) + 오늘 행. 유선 쪽 = 분기 0.5 슬레이브와 마스터.
+#   무선 = 분기 '무선' 슬레이브(아미고 모뎀의 아미고 슬레이브만 고를 수 있다 — 나머지는 0.5 강제)와
+#   아미고 모뎀의 아미고 마스터(통신방식 92, SMGW-C). 맵 상세의 끝 2자리 중복 표시(js/detail.js)와 같은 끝 2자리.
+#   오늘 행이 하나라도 낀 중복만 낸다.
+def group_members(master, rs, rows, mac):
+    out = {}
+    if master:
+        out[master["INSTR_NUM"]] = master
+        for r in rows:
+            if (r.get("MAC_MODEM") or "").upper() == mac and r.get("MB_METER_ID") == master["INSTR_NUM"]:
+                out.setdefault(r["INSTR_NUM"], r)
+    for r in rs:
+        out.setdefault(r["INSTR_NUM"], r)
+    return list(out.values())
+
+
+def wired(r, master, exp_suffix, details):
+    """True = 유선(0.5) 쪽, False = 무선, None = 분기를 못 읽음."""
+    if master and r["INSTR_NUM"] == master["INSTR_NUM"]:
+        return exp_suffix != "92"
+    auto, can_pick = R.slave_bungi(exp_suffix, R.infer_inst_m(r["INSTR_NUM"]))
+    if not can_pick:
+        return True
+    d = details.get(r["INSTR_NUM"]) or {}
+    if "BUNGI" not in d:
+        return None
+    return str(d.get("BUNGI") or "") != "무선"
+
+
+def suffix_dups(master, rs, rows, mac, exp_suffix, details):
+    today = {r["INSTR_NUM"] for r in rs}
+    by = defaultdict(list)
+    for r in group_members(master, rs, rows, mac):
+        if wired(r, master, exp_suffix, details) and len(r["INSTR_NUM"]) >= 2:
+            by[r["INSTR_NUM"][-2:]].append(r["INSTR_NUM"])
+    return [(s, sorted(ms)) for s, ms in sorted(by.items()) if len(ms) > 1 and today & set(ms)]
+
+
+def dup_detail_rows(day, rows):
+    """Older rows on today's modems whose last 2 digits collide with another row of the same modem — their
+    분기 is needed for suffix_dups (today's rows are fetched anyway)."""
+    macs = {(r.get("MAC_MODEM") or "").upper() for r in rows if r.get("WORK_DATE") == day}
+    by = defaultdict(list)
+    for r in rows:
+        m = (r.get("MAC_MODEM") or "").upper()
+        if m in macs:
+            by[(m, r["INSTR_NUM"][-2:])].append(r)
+    return [r for rs in by.values() if len({x["INSTR_NUM"] for x in rs}) > 1 for r in rs
+            if r.get("WORK_DATE") != day and r.get("MODEM_DIV") != "10"]
+
+
 # ── 1. awms rows ──────────────────────────────────────────────────────────────
 def app_check(day, rows, ship, idx, details, jobs, rep, done_site_meters):
     today = [r for r in rows if r.get("WORK_DATE") == day]
@@ -258,45 +311,45 @@ def app_check(day, rows, ship, idx, details, jobs, rep, done_site_meters):
         for r in rs:
             no = r["INSTR_NUM"]
             if not METER_LAW.fullmatch(no):
-                rep.add("red", "awms", f"계기번호 형식 위반 {no}", "바른 계기번호로 새 행 등록(/awms-mac-fix)", **ctx)
+                rep.add("red", "awms", f"계기번호 형식 위반 {no}", "바른 계기번호로 새 행 등록(/awms-mac-fix)", kind="번호 형식", **dict(ctx, meter=no))
             elif no[2:4] not in R._TYPE_MAP:
                 rep.add("red", "awms", f"계기번호 {no} 타입코드 {no[2:4]} 는 awms 계기유형 표에 없다",
-                        "사진으로 계기번호 확인 후 바른 번호로 새 행 등록", **ctx)
+                        "사진으로 계기번호 확인 후 바른 번호로 새 행 등록", kind="타입코드", **dict(ctx, meter=no))
             if cnt[no] > 1:
-                rep.add("red", "awms", f"오늘 같은 계기 {no} 가 {cnt[no]}행", "중복 행 정리(KDN 삭제 요청)", **ctx)
+                rep.add("red", "awms", f"오늘 같은 계기 {no} 가 {cnt[no]}행", "중복 행 정리(KDN 삭제 요청)", kind="중복 등록", **dict(ctx, meter=no))
 
         if len(ms) > 1:
             rep.add("yellow", "awms", f"같은 맥 마스터 {len(ms)}개 {[r['INSTR_NUM'] for r in ms]}",
-                    "같은 함체가 맞는지 사진 확인", **ctx)
+                    "같은 함체가 맞는지 사진 확인", kind="마스터 2개", **ctx)
         if ms:
             others = sorted({m["INSTR_NUM"] for m in masters_by_mac.get(mac, [])} - {r["INSTR_NUM"] for r in ms})
             if others:
                 rep.add("yellow", "awms", f"같은 맥이 올해 다른 마스터에도 있다 {others}",
-                        "맥 오독·재사용인지 사진 확인", **ctx)
+                        "맥 오독·재사용인지 사진 확인", kind="맥 재사용", **ctx)
 
         # MAC / material
         if ms and div == "M1010":
             sr = own_rows.get(mac)
             if not sr and mac not in ob:
                 rep.add("red", "awms", f"신설 맥 {mac} 이 출고장부·따로장부 둘 다 없다 — 맥 오독 의심",
-                        "모뎀맥 사진으로 맥 확인, 틀렸으면 바른 맥으로 새 행 등록", **ctx)
+                        "모뎀맥 사진으로 맥 확인, 틀렸으면 바른 맥으로 새 행 등록", kind="장부 밖 맥", **ctx)
             elif sr and not sr.get("owned"):
-                rep.add("red", "awms", f"신설 맥 {mac} 이 내 소유가 아니다", "자재 인계 확인", **ctx)
+                rep.add("red", "awms", f"신설 맥 {mac} 이 내 소유가 아니다", "자재 인계 확인", kind="남의 자재", **ctx)
         if ms and div == "M1030":
             err = R.mac_format_error(mac)
             if err:
                 rep.add("red", "awms", f"기설 맥 {mac} 형식 오류 — {err['reason']}"
                         + (f" (후보 {err['suggest']})" if err.get("suggest") else ""),
-                        "모뎀맥 사진으로 맥 확인 후 바른 맥으로 새 행 등록", **ctx)
+                        "모뎀맥 사진으로 맥 확인 후 바른 맥으로 새 행 등록", kind="기설 맥 오류", **ctx)
             elif kind(mac).startswith("미분류"):
                 rep.add("red", "awms", f"기설 맥 {mac} 이 어떤 모뎀인지 모른다({kind(mac)})",
-                        "모뎀맥 사진으로 맥 확인", **ctx)
+                        "모뎀맥 사진으로 맥 확인", kind="기설 맥 미상", **ctx)
             sr = own_rows.get(mac)
             mine_before = [m for m in masters_by_mac.get(mac, [])
                            if m.get("WORK_DIV") in ("M1010", "M1020") and m["INSTR_NUM"] != head["INSTR_NUM"]]
             if sr and sr.get("owned") and not mine_before:
                 rep.add("red", "awms", f"기설 맥 {mac} 이 내 미사용 재고 모뎀이다 — 신설인데 기설로 넣은 것 같다",
-                        "신설(M1010)로 다시 등록할지 확인", **ctx)
+                        "신설(M1010)로 다시 등록할지 확인", kind="기설 의심", **ctx)
 
         # master: MB_REG_CNT, DCU_ID, 계기유형·통신방식
         exp_suffix = ""
@@ -310,27 +363,27 @@ def app_check(day, rows, ship, idx, details, jobs, rep, done_site_meters):
                     reg = -1
                 if reg != n_bound:
                     rep.add("red", "awms", f"마스터 {m_no} 등록수(MB_REG_CNT) {reg} 인데 묶인 계기 {n_bound}대",
-                            "빠진 슬레이브 추가 또는 남는 행 정리", **ctx)
+                            "빠진 슬레이브 추가 또는 남는 행 정리", kind="등록수 다름", **ctx)
                 if div == "M1010" and not mac.startswith("012") and not master.get("DCU_ID"):
-                    rep.add("red", "awms", f"PLC 계열 신설 {m_no} DCU_ID 빈값", "변대주(DCU ID) 넣어 다시 저장", **ctx)
+                    rep.add("red", "awms", f"PLC 계열 신설 {m_no} DCU_ID 빈값", "변대주(DCU ID) 넣어 다시 저장", kind="DCU 없음", **ctx)
             exp_m = R.infer_inst_m(m_no)
             exp_s = R.infer_inst_s(exp_m, mac)
             exp_suffix = exp_s[-2:] if exp_s else str(master.get("INST_S") or "")[-2:]
             if ms:
                 if (master.get("INST_M") or "") != exp_m:
                     rep.add("red", "awms", f"마스터 {m_no} 계기유형 awms {master.get('INST_M')} — 계기번호로는 {exp_m}",
-                            "계기유형 고쳐 다시 저장", **ctx)
+                            "계기유형 고쳐 다시 저장", kind="계기유형 오류", **ctx)
                 if not exp_s:
                     rep.add("yellow", "awms", f"마스터 {m_no} 맥 {mac} 통신방식을 맥으로 못 정함 — awms {comm_name(master.get('INST_S'))}",
-                            "모뎀 종류 확인", **ctx)
+                            "모뎀 종류 확인", kind="통신방식 미상", **ctx)
                 elif (master.get("INST_S") or "") != exp_s:
                     rep.add("red", "awms", f"마스터 {m_no} 통신방식 awms {master.get('INST_S')}({comm_name(master.get('INST_S'))})"
-                            f" — 맥·계기로는 {exp_s}({comm_name(exp_s)})", "통신방식 고쳐 다시 저장", **ctx)
+                            f" — 맥·계기로는 {exp_s}({comm_name(exp_s)})", "통신방식 고쳐 다시 저장", kind="통신방식 오류", **ctx)
                 if mac.startswith("012"):
                     k, amigo_meter = kind(mac), exp_m == "HW4050"
                     if amigo_meter != ("AMIGO" in k):
                         rep.add("red", "awms", f"{'아미고' if amigo_meter else '아미고 아닌'} 계기 {m_no} 인데 모뎀은 {k}",
-                                "모뎀·계기 짝 확인", **ctx)
+                                "모뎀·계기 짝 확인", kind="아미고 짝", **ctx)
 
         # slaves
         for r in ss:
@@ -338,22 +391,28 @@ def app_check(day, rows, ship, idx, details, jobs, rep, done_site_meters):
             sctx = {"mac": mac, "meter": no}
             if mdiv in ("M1010", "M1030") and r.get("WORK_DIV") != "M1010":
                 rep.add("red", "awms", f"슬레이브 {no} 작업구분 {DIV_NM.get(r.get('WORK_DIV'), r.get('WORK_DIV'))} — 신설(M1010)이어야 한다",
-                        "작업구분 신설로 고쳐 다시 저장", **sctx)
+                        "작업구분 신설로 고쳐 다시 저장", kind="슬레이브 구분", **sctx)
             mb = r.get("MB_METER_ID") or ""
             mrow = by_meter_master.get(mb)
             if mb and mrow and (mrow.get("MAC_MODEM") or "").upper() != mac:
                 rep.add("red", "awms", f"슬레이브 {no} 맥 {mac} 이 마스터 {mb} 맥 {mrow.get('MAC_MODEM')} 과 다르다",
-                        "슬레이브 맥을 마스터 맥으로 고쳐 다시 저장", **sctx)
+                        "슬레이브 맥을 마스터 맥으로 고쳐 다시 저장", kind="슬레이브 맥 다름", **sctx)
             if master and mb and mb != master["INSTR_NUM"] and not mrow:
-                rep.add("red", "awms", f"슬레이브 {no} 대표계기 {mb} 가 이 모뎀 마스터 {master['INSTR_NUM']} 와 다르다",
-                        "대표계기 확인", **sctx)
+                if mb == no and master.get("WORK_DATE") != day:
+                    # ★영준님이 일부러 쓰는 방법(2026-11-16): 다른 날 마스터에 슬레이브를 더할 때 대표계기 칸에 자기 번호를
+                    #   넣는다(마스터 재등록이 꼬이지 않게). 같은 맥의 앞선 마스터가 있으면 정상 — 초록 메모
+                    rep.add("green", "awms", f"슬레이브 {no} 대표계기 = 자기 번호 — 마스터 {master['INSTR_NUM']} "
+                            f"({master.get('WORK_DATE')}) 모뎀에 추가, 정상", kind="대표계기 자기 번호", **sctx)
+                else:
+                    rep.add("red", "awms", f"슬레이브 {no} 대표계기 {mb} 가 이 모뎀 마스터 {master['INSTR_NUM']} 와 다르다",
+                            "대표계기 확인", kind="대표계기 다름", **sctx)
             exp_m = R.infer_inst_m(no)
             if (r.get("INST_M") or "") != exp_m:
                 rep.add("red", "awms", f"슬레이브 {no} 계기유형 awms {r.get('INST_M')} — 계기번호로는 {exp_m}",
-                        "계기유형 고쳐 다시 저장", **sctx)
+                        "계기유형 고쳐 다시 저장", kind="계기유형 오류", **sctx)
             if exp_suffix and (r.get("INST_S") or "") != exp_m + exp_suffix:
                 rep.add("red", "awms", f"슬레이브 {no} 통신방식 awms {r.get('INST_S')} — 마스터 따라 {exp_m + exp_suffix}",
-                        "통신방식 고쳐 다시 저장", **sctx)
+                        "통신방식 고쳐 다시 저장", kind="통신방식 오류", **sctx)
             d = details.get(no)
             if d is None or "_err" in (d or {}) or "BUNGI" not in (d or {}):
                 notes.append(f"슬레이브 {no} 분기 확인 못함(상세 없음)")
@@ -363,7 +422,12 @@ def app_check(day, rows, ship, idx, details, jobs, rep, done_site_meters):
                 if (can_pick and b not in R.BUNGI_CHOICES) or (not can_pick and b != auto):
                     rep.add("red", "awms", f"슬레이브 {no} 분기 awms '{b}' — "
                             + ("아미고 모뎀 아미고 슬레이브라 무선 또는 0.5" if can_pick else "0.5 강제"),
-                            "분기 고쳐 다시 저장", **sctx)
+                            "분기 고쳐 다시 저장", kind="분기 오류", **sctx)
+
+        # 뒷자리 2자리 중복 (영준님 2026-11-16) — 같은 모뎀의 유선(분기 0.5) 계기끼리 끝 2자리가 같으면 통신이 안 된다
+        for suf, dms in suffix_dups(master, rs, rows, mac, exp_suffix, details):
+            rep.add("red", "awms", f"뒷자리 {suf} 중복 {dms} — 유선(0.5) 쪽 계기끼리 끝 2자리가 같다, 통신 안 됨",
+                    "통신 안 됨 — 현장 확인", kind="뒷자리 중복", mac=mac, meter=dms[0], meters=dms)
 
         # 지사 / list membership
         dept = head.get("DEPT2", "")
@@ -377,7 +441,7 @@ def app_check(day, rows, ship, idx, details, jobs, rep, done_site_meters):
                 lists.append(x["l"])
                 if dept in DEPT_NM and not x["지사"].startswith(DEPT_NM[dept]):
                     rep.add("red", "awms", f"지사 불일치 {r['INSTR_NUM']}: awms {DEPT_NM[dept]} / 리스트 {x['지사']}",
-                            "지사 고쳐 다시 저장", mac=mac, meter=r["INSTR_NUM"])
+                            "지사 고쳐 다시 저장", kind="지사 다름", mac=mac, meter=r["INSTR_NUM"])
         handled = any(m in done_site_meters for m in in_list)
         if out_list and not handled:
             if in_list:
@@ -386,12 +450,12 @@ def app_check(day, rows, ship, idx, details, jobs, rep, done_site_meters):
                 msg = f"리스트에 없는 계기 {out_list} — 계기교체로 새 번호일 수 있다"
             # ★not yellow yet — every out-of-list meter goes through the slot-5 photo read first
             #   (영준님 2026-11-14 "리스트 밖이면 5번 ocr 과정해야함"); resolve_outlist() decides
-            rep.add("outlist", "awms", msg, "계기 사진으로 번호 확인", meters=out_list, mac=mac, meter=out_list[0])
+            rep.add("outlist", "awms", msg, "계기 사진으로 번호 확인", kind="리스트 밖", meters=out_list, mac=mac, meter=out_list[0])
 
         # photos (아미큐 rows)
         src = sorted({"아미큐" if r["INSTR_NUM"] in via else "아미큐 외(헬퍼·화면)" for r in rs})
         if ms and head["INSTR_NUM"] in via and len(via[head["INSTR_NUM"]][1].get("photos") or {}) < 4:
-            rep.add("red", "awms", f"마스터 {head['INSTR_NUM']} 사진 4장 미만", "사진 채워 다시 저장", **ctx)
+            rep.add("red", "awms", f"마스터 {head['INSTR_NUM']} 사진 4장 미만", "사진 채워 다시 저장", kind="사진 부족", **ctx)
 
         flag = len(rep.items) > before
         print(f"{tm:%H:%M} {head['INSTR_NUM']} {DIV_NM.get(div, div)} {role} 슬{len(ss) if ms else len(ss) - 1} "
@@ -468,7 +532,7 @@ def map_check(sites, rows, idx, rep):
             continue
         t = v.get("updatedAt", "")[11:16]
         if not ms:
-            rep.add("red", "map", f"{t} {k} 완료인데 리스트 계기를 못 찾았다", "주소·리스트 확인", key=k)
+            rep.add("red", "map", f"{t} {k} 완료인데 리스트 계기를 못 찾았다", "주소·리스트 확인", kind="리스트 계기 없음", key=k)
             continue
         failed = v.get("failedMeters") or {}
         macs = set().union(*[mac_of[m] for m in ms if m in aw])
@@ -492,20 +556,20 @@ def map_check(sites, rows, idx, rep):
                 n, x = near[0]
                 stands_in.add(x)
                 rep.add("yellow", "map", f"{t} {k} 개별불가 {m} 메모 번호 {n} 와 awms {x} 가 한 자리 다르다 — 메모 오타 의심",
-                        "계기 사진으로 어느 쪽이 맞는지 보고 메모(또는 awms)를 고친다", key=k, meter=x)
+                        "계기 사진으로 어느 쪽이 맞는지 보고 메모(또는 awms)를 고친다", kind="메모 1자리 차이", key=k, meter=x)
             elif nums:
                 rep.add("yellow", "map", f"{t} {k} 개별불가 {m} 메모 번호 {sorted(nums)} 가 awms 에 없다",
-                        "메모 번호 확인", key=k, meter=m)
+                        "메모 번호 확인", kind="메모 번호 없음", key=k, meter=m)
         out_list = sorted(reg - set(ms) - stands_in)
         # 영준님 3규칙(2026-11-14): 리스트 = awms 면 통과 / 리스트 밖 awms 는 사진 판독 /
         #   리스트 완료인데 awms 없음 = 누락(빨강) — 리스트 밖 계기가 같이 있어도 누락은 누락(275-1)
         if missing:
             rep.add("red", "map", f"{t} {k} 누락 — 리스트 {len(ms)}대 중 {len(missing)}대 awms 없음 {missing}"
                     + (f" (리스트 밖 {len(out_list)}대 등록 {out_list})" if out_list else ""),
-                    f"{', '.join(missing)} 추가 등록, 현장에 없으면 개별불가", key=k, meters=missing)
+                    f"{', '.join(missing)} 추가 등록, 현장에 없으면 개별불가", kind="누락", key=k, meters=missing)
         if out_list:
             rep.add("outlist", "map", f"{t} {k} 리스트 {len(ms)}대 / 등록 {len(reg)}대 — 리스트 밖 {len(out_list)}대 {out_list}",
-                    "계기 사진으로 번호 확인", key=k, meters=out_list)
+                    "계기 사진으로 번호 확인", kind="리스트 밖", key=k, meters=out_list)
     done = states.get("complete", 0)
     print(f"   완료 {done}곳 · 불가 {states.get('fail', 0)}곳"
           + "".join(f" · {s} {n}곳" for s, n in states.items() if s not in ("complete", "fail")) + "\n")
@@ -809,7 +873,7 @@ def main():
     elif offline:
         details = {}
     else:
-        details = fetch_details(day_rows)
+        details = fetch_details(day_rows + dup_detail_rows(a.day, rows))
     print(f"[{a.day}] awms 올해 {len(rows)}행 · 출고장부 {len(ship.get('rows') or {})} · 지도 {len(ws)}키"
           + (" — 시험 입력" if offline else " — 방금 받음") + "\n")
     rep = Report()
