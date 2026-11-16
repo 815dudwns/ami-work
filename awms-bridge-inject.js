@@ -2873,14 +2873,14 @@ function parseValue(text) {
   }
   // 유선(0.5) 쪽인지 — true / false / null(분기 못 읽음) (cst_daily_check.wired)
   //   ★슬레이브는 getDetail 실제 BUNGI 로만 — 규칙상 값으로 추정하지 않는다(아미큐는 아미고 슬레이브도 0.5 로 넣기도 한다).
-  //   마스터는 유선 쪽, 아미고 모뎀 아미고 마스터(92)만 무선으로 둔다(영준님 확인 대기).
+  //   마스터는 그 계기에 모뎀을 직접 꽂은 것이라 분기가 없다 — 비교에서 뺀다(영준님 2026-11-16).
   function wcWired(r, master, expSuf, det) {
-    if (master && r.INSTR_NUM === master.INSTR_NUM) return expSuf !== '92';
+    if (master && r.INSTR_NUM === master.INSTR_NUM) return false;
     var d = det[r.INSTR_NUM];
     if (!d || !Object.prototype.hasOwnProperty.call(d, 'BUNGI')) return null;
     return String(d.BUNGI || '') === '0.5';
   }
-  // 뒷자리 2자리 중복 — 같은 모뎀의 유선 쪽 계기끼리 끝 2자리가 같으면 통신이 안 된다. 오늘 행이 낀 것만 (cst_daily_check.suffix_dups)
+  // 뒷자리 2자리 중복 — 같은 모뎀의 분기 0.5(485선) 슬레이브끼리 끝 2자리가 같으면 통신이 안 된다. 오늘 행이 낀 것만 (cst_daily_check.suffix_dups)
   function wcSuffixDups(master, rs, rows, mac, expSuf, det) {
     var today = {}, by = {}, out = [];
     rs.forEach(function (r) { today[r.INSTR_NUM] = 1; });

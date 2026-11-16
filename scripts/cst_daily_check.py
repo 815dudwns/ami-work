@@ -193,9 +193,9 @@ def archive_photo_map(jobs):
 
 # ── 뒷자리 2자리 중복 ─────────────────────────────────────────────────────────
 #   ★폰 헬퍼 작업 검사(awms-bridge-inject.js wcSuffixDups)와 같은 규칙 — 고치면 둘 다, scripts/test_helper_workcheck.py 가 대조.
-#   한 모뎀 = 마스터 + 그 마스터에 묶인 행(모든 날짜, MB_METER_ID) + 오늘 행. 유선 쪽 = 분기 0.5 슬레이브와 마스터.
-#   슬레이브는 getDetail 실제 분기가 0.5 인 것만 유선 쪽(못 읽은 것은 빼고 센다). 마스터는 유선 쪽 —
-#   단 아미고 모뎀의 아미고 마스터(통신방식 92, SMGW-C)는 무선으로 둔다(영준님 확인 대기). 맵 상세의 끝 2자리 중복 표시(js/detail.js)와 같은 끝 2자리.
+#   한 모뎀 = 마스터 + 그 마스터에 묶인 행(모든 날짜, MB_METER_ID) + 오늘 행.
+#   비교 대상 = getDetail 실제 분기가 0.5(485선 연결)인 슬레이브끼리만 — 아미고 포함, 무선·못 읽은 것은 뺀다.
+#   마스터는 그 계기에 모뎀을 직접 꽂은 것이라 분기가 없어 비교에서 뺀다(영준님 2026-11-16). 맵 상세의 끝 2자리 중복 표시(js/detail.js)와 같은 끝 2자리.
 #   오늘 행이 하나라도 낀 중복만 낸다.
 def group_members(master, rs, rows, mac):
     out = {}
@@ -210,11 +210,11 @@ def group_members(master, rs, rows, mac):
 
 
 def wired(r, master, exp_suffix, details):
-    """True = 유선(0.5) 쪽, False = 아님, None = 분기를 못 읽음.
+    """True = 비교 대상(분기 0.5 슬레이브), False = 아님(마스터·무선 등), None = 분기를 못 읽음.
     ★슬레이브는 awms 에 실제 들어간 분기(getDetail BUNGI)로만 본다 — 규칙상 값(0.5 강제·아미고 무선)으로 추정하지 않는다.
       아미큐는 아미고 모뎀의 아미고 슬레이브도 0.5 로 강제해 넣는 경우가 있다(영준님 2026-11-16)."""
     if master and r["INSTR_NUM"] == master["INSTR_NUM"]:
-        return exp_suffix != "92"
+        return False    # 마스터 = 그 계기에 모뎀을 직접 꽂은 것, 분기가 없다(영준님 2026-11-16) — 비교에서 뺀다
     d = details.get(r["INSTR_NUM"]) or {}
     if "BUNGI" not in d:
         return None
@@ -423,9 +423,9 @@ def app_check(day, rows, ship, idx, details, jobs, rep, done_site_meters):
                             + ("아미고 모뎀 아미고 슬레이브라 무선 또는 0.5" if can_pick else "0.5 강제"),
                             "분기 고쳐 다시 저장", kind="분기 오류", **sctx)
 
-        # 뒷자리 2자리 중복 (영준님 2026-11-16) — 같은 모뎀의 유선(분기 0.5) 계기끼리 끝 2자리가 같으면 통신이 안 된다
+        # 뒷자리 2자리 중복 (영준님 2026-11-16) — 같은 모뎀의 분기 0.5 슬레이브끼리 끝 2자리가 같으면 통신이 안 된다
         for suf, dms in suffix_dups(master, rs, rows, mac, exp_suffix, details):
-            rep.add("red", "awms", f"뒷자리 {suf} 중복 {dms} — 유선(0.5) 쪽 계기끼리 끝 2자리가 같다, 통신 안 됨",
+            rep.add("red", "awms", f"뒷자리 {suf} 중복 {dms} — 분기 0.5 슬레이브끼리 끝 2자리가 같다, 통신 안 됨",
                     "통신 안 됨 — 현장 확인", kind="뒷자리 중복", mac=mac, meter=dms[0], meters=dms)
 
         # 지사 / list membership
