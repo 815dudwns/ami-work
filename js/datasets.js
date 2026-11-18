@@ -93,12 +93,14 @@ const DATASET_REGISTRY = [
     //     주석 처리가 아니라 onMap:false 인 이유는 장애 항목 주석과 같다.
     { code: 'g', file: './data/gapap-data.json', category: '고압', label: '고', uiLabel: '고압철거',
       onMap: false },
-    // 합동시공 — 다른 지역 계기팀이 계기만 갈고 간 개소(모뎀 미시공). 매일 그날치가 쌓이므로
-    //   dateField 를 주면 카테고리 밑에 날짜 체크박스 트리가 자동 생성된다(populateCategoryFilter).
-    //   ★지도에는 최근 며칠치만 남기고 오래된 작업일은 백업으로 뺀다(build_hapdong_data.py).
-    //     통계는 누적 실적이라 그 백업까지 분모에 넣는다.
+    // 합동시공 — 다른 지역 계기팀이 계기만 갈고 간 개소(모뎀 미시공). 매일 그날치가 쌓인다.
+    //   ★2026-11-17 날짜 트리 없앰(영준님 "합동 날짜 리스트는 없애고 합동리스트만 남길것임") —
+    //     dateField 를 빼서 populateCategoryFilter 가 날짜 체크박스를 만들지 않는다. 옛 저장값
+    //     (ami_selected_dates_합동)이 남아 있어도 dateField 가 없으면 loadMarkers 가 날짜로 거르지 않는다.
+    //   ★같은 날부터 지도에서 빼지 않고 쌓는다(build_hapdong_data.py STACK_MODE). 11/11 이전에
+    //     백업으로 간 것은 백업에 그대로 있고, 통계는 누적 실적이라 그 백업까지 분모에 넣는다.
     { code: 'h', file: './data/hapdong-data.json', category: '합동', label: '합', uiLabel: '합동시공',
-      dateField: '작업일', archives: ['./data/hapdong-data-archive.json'] },
+      archives: ['./data/hapdong-data-archive.json'] },
     // SKT 중계기 — SKT 중계기가 붙은 개소에 AMI 모뎀을 설치해 달라는 요청(주덕기 반장 2026-08-21).
     //   ★올라간 것은 **미작업 41건뿐**이다. 완료 187·작업불요 53 을 함께 올리면 할 일이 묻힌다
     //   (영준님 지시). 원본 281건은 data/skt-full-20260814.json 에 따로 보관한다.

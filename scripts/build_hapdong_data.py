@@ -18,7 +18,12 @@
 사용:
     python3 scripts/build_hapdong_data.py                 # inbox 의 raw 전부 병합
     python3 scripts/build_hapdong_data.py data/inbox_hapdong/hapdong_raw_20260819.json
-    python3 scripts/build_hapdong_data.py <raw> --no-archive   # 이번만 보존 경계를 적용하지 않는다
+    python3 scripts/build_hapdong_data.py <raw> --no-archive   # (쌓기 모드에서는 효과 없음 — 아래)
+
+★2026-11-17 보존 폐지 — 쌓기 모드(STACK_MODE)가 기본이다(영준님 "이제부터 합동은 날마다 넣고
+  빼는게 아닌 스택처럼 쌓을것임 ... 3일이 지나도 내리지 않을거임. 이번년도 거의 끝물이라").
+  새 수집분은 지도 파일에 계속 쌓이고, 이미 백업에 간 것(11/11 이전)은 돌아오지 않는다.
+  아래 --no-archive 설명은 STACK_MODE=False 로 되돌렸을 때만 의미가 있다.
 
 ★--no-archive 는 **부분 반영**용이다(2026-09-17 신설).
   하루치를 한 지사만 먼저 올릴 때처럼, 새 작업일의 물량이 아직 적은 채로 보존 경계가 밀리면
@@ -67,6 +72,22 @@ WORKERS = 8
 #     달력으로 세면 주말 낀 월요일마다 목·금 물량이 손도 못 대고 사라진다.
 #     예) 최신 작업일이 화요일이면 보존은 화·월·직전 금요일이다.
 RETAIN_BUSINESS_DAYS = 3
+
+# ─── 쌓기 모드 (2026-11-17 영준님 지시 — 보존 경계 폐지) ─────────────────────
+#   "이제부터 합동은 날마다 넣고 빼는게 아닌 스택처럼 쌓을것임. 합동 날짜 리스트는 없애고
+#    합동리스트만 남길것임. 매일 업로드는 동일하지만 3일이 지나도 내리지 않을거임. 이번년도 거의 끝물이라."
+#   ★True 면 RETAIN_BUSINESS_DAYS 로 백업에 빼지 않는다. 지도 = 백업에 없는 것 전부.
+#   ★백업으로 되돌아가는 길을 막는 축은 둘이다(둘 다 지킨다):
+#     1) 백업 파일에 이미 있는 키(CONS_TGT_SEQNO)는 백업에 남는다 — 지도로 안 돌아온다.
+#     2) 작업일이 STACK_FROM 보다 앞선 건은 백업에 없더라도 지도에 올리지 않는다.
+#        inbox 에는 8/19 부터 raw 가 다 남아 있어, 백업에서 손으로 지운 건이나 백업에 없는 옛 건이
+#        키만 보면 '새 건'으로 되살아난다. 그런 건은 종전처럼 백업으로 보낸다(건수를 찍는다).
+#     cutoff 를 그냥 비우면 백업 전체가 지도로 돌아온다(--no-archive 설명의 실측 4,731건) — 그래서 고정 경계다.
+#   ★STACK_FROM = 쌓기로 바꾼 시점 지도 파일의 최소 작업일(11/16 수집판: 11/12·11/13·11/16).
+#   ★백업 파일은 새 키가 생길 때만 다시 쓴다 — 아니면 손대지 않는다(통계 분모가 읽는다).
+#   되돌리려면 STACK_MODE = False (종전 3영업일 보존).
+STACK_MODE = True
+STACK_FROM = '20261112'
 
 # ─── 영업일 판정 ────────────────────────────────────────────────────────────
 # 토·일 + 공휴일은 영업일이 아니다. 보존 기간을 세는 데도, 주말 등재분을 직전 영업일로
@@ -281,6 +302,7 @@ def _watch_query_shape(fname, rows):
 #     보존기간을 넘긴 작업일은 예외 없이 백업으로 간다. 경계는 RETAIN_BUSINESS_DAYS 하나뿐이다.
 #     손으로 올리는 마지노선도 없앴다(빠뜨리면 지도가 계속 불어난다).
 #   ※빠진 것은 여전히 백업 파일에 남고 통계 분모에도 들어간다. workStatus 는 손대지 않는다.
+#   ★2026-11-17 부터는 쌓기 모드(STACK_MODE)라 보존기간으로 빼지 않는다 — 위 STACK_MODE 주석.
 
 # 종로 보강 원천 — 종로맵 대장. awms FMPMTR 응답에는 변대주·DCU 정보가 없지만
 #   종로는 우리 데이터가 따로 있다(영준님 지시 2026-08-19).
@@ -927,6 +949,12 @@ def fill_empty_addresses(recs):
     print(f'[주소보충] 원본 빈 주소 {n}건을 {ADDR_FILL_SOURCE} 주소로 채움 (보충 파일 {len(fill)}건)', flush=True)
 
 
+def _rec_key(e):
+    """병합·백업 판정 공용 키 — CONS_TGT_SEQNO, 없으면 계기번호|작업일."""
+    k = e.get('CONS_TGT_SEQNO')
+    return str(k) if k is not None else f"{e.get('계기번호')}|{e.get('작업일')}"
+
+
 def main():
     args = sys.argv[1:]
     no_archive = '--no-archive' in args
@@ -1044,14 +1072,15 @@ def main():
     #      여기서 같이 들고 있어야 보존 기간을 늘렸을 때 그대로 돌아온다.
     existing = []
     _live_before = json.loads(OUT.read_text(encoding='utf-8')) if OUT.exists() else []
+    _archive_before = json.loads(ARCHIVE.read_text(encoding='utf-8')) if ARCHIVE.exists() else []
+    _archive_keys = {_rec_key(e) for e in _archive_before}
     for _src in (ARCHIVE, OUT):
         if _src.exists():
             existing += json.loads(_src.read_text(encoding='utf-8'))
     by_key = {}
     order = []
     for e in existing + recs:
-        k = e.get('CONS_TGT_SEQNO')
-        k = str(k) if k is not None else f"{e.get('계기번호')}|{e.get('작업일')}"
+        k = _rec_key(e)
         if k not in by_key:
             order.append(k)
         else:
@@ -1083,7 +1112,10 @@ def main():
     #    시간만 지나면 지도에서 사라지는 것을 막는다(영준님 정정 2026-08-24).
     days = sorted({str(e.get('작업일') or '') for e in merged if str(e.get('작업일') or '').isdigit()})
     cutoff = ''
-    if no_archive:
+    if STACK_MODE:
+        cutoff = STACK_FROM
+        print(f'★쌓기 모드 — 지도에서 빼지 않는다. 백업에 있는 것·작업일 {STACK_FROM} 이전은 지도에 안 올린다.')
+    elif no_archive:
         # 지금 지도에 있는 것의 최소 작업일을 그대로 경계로 쓴다 — 아무것도 새로 빠지지 않고,
         #   이미 백업에 있던 것도 돌아오지 않는다.
         _cur = [str(e.get('작업일') or '') for e in _live_before if str(e.get('작업일') or '').isdigit()]
@@ -1102,9 +1134,25 @@ def main():
 
     # 경계는 보존기간 하나뿐이다 — 착수 여부를 보지 않는다(영준님 2026-09-07).
     def _keep(e):
+        if STACK_MODE and _rec_key(e) in _archive_keys:
+            return False                         # 이미 백업에 간 것은 돌아오지 않는다
         return not cutoff or str(e.get('작업일') or '') >= cutoff
     live = [e for e in merged if _keep(e)]
     archived = [e for e in merged if not _keep(e)]
+    _archive_new = [e for e in archived if _rec_key(e) not in _archive_keys]
+    _archive_write = True
+    if STACK_MODE:
+        _back = [e for e in live if _rec_key(e) in _archive_keys]   # 0 이어야 한다(구조상)
+        print(f'[쌓기] 백업에서 지도로 돌아온 것 {len(_back)}건 · 백업에 새로 들어갈 것 {len(_archive_new)}건'
+              + (f' (작업일 {STACK_FROM} 이전인데 백업에 없던 것: '
+                 f'{dict(collections.Counter(e.get("작업일") for e in _archive_new))})' if _archive_new else ''))
+        if _back:
+            print('  ★백업 키가 지도에 섞였다 — 저장하지 않는다', file=sys.stderr)
+            sys.exit(2)
+        # 새 키가 없으면 백업 파일은 손대지 않는다(바이트 그대로).
+        _archive_write = bool(_archive_new)
+        if not _archive_write:
+            archived = _archive_before
 
     # ── 주소 접두 정규화 + 같은 지번 좌표 통합 (영준님 2026-09-21) ──────────
     #   미청구·불가 빌더와 **같은 함수**를 쓴다. 지금 합동은 분열이 0 이지만
@@ -1120,14 +1168,17 @@ def main():
         print(f'  (주소 정규화 건너뜀: {e})')
 
     OUT.write_text(json.dumps(live, ensure_ascii=False, indent=1), encoding='utf-8')
-    if archived or ARCHIVE.exists():
+    if _archive_write and (archived or ARCHIVE.exists()):
         ARCHIVE.write_text(json.dumps(archived, ensure_ascii=False, indent=1), encoding='utf-8')
 
-    import collections
     print()
-    print(f'보존 영업일 {RETAIN_BUSINESS_DAYS}일 — 지도에 남길 최소 작업일 {cutoff or "(전체)"}')
+    if STACK_MODE:
+        print(f'쌓기 모드 — 지도 하한 {STACK_FROM}, 빼지 않음 · 백업 파일 '
+              + ('다시 씀' if _archive_write else '손대지 않음'))
+    else:
+        print(f'보존 영업일 {RETAIN_BUSINESS_DAYS}일 — 지도에 남길 최소 작업일 {cutoff or "(전체)"}')
     print(f'  지도 {len(live):,}건 / 백업 {len(archived):,}건 -> {ARCHIVE.name}')
-    if archived:
+    if archived and not STACK_MODE:
         print('  백업으로 뺀 작업일:', dict(collections.Counter(e['작업일'] for e in archived)))
     print(f'저장: {OUT} — 지도 {len(live):,}건 (병합 총 {len(merged):,} · 신규/갱신 {len(recs):,})')
     print(f"좌표: exact={stat['exact']} approximate={stat['approximate']} "
