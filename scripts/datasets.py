@@ -32,7 +32,8 @@ DATASETS = [
     # 2026-11-17 dateField 뺌 — 날짜 트리 없앰(영준님 지시). js/datasets.js 주석 참조
     {"code": "h", "file": "data/hapdong-data.json", "category": "합동", "uiLabel": "합동시공",
      "archives": ["data/hapdong-data-archive.json"]},
-    {"code": "k", "file": "data/skt-data.json", "category": "skt", "uiLabel": "SKT"},
+    # 2026-11-19 지도 메뉴에서 내림(onMap False, 영준님) — 파일·workStatus 그대로. js/datasets.js 주석 참조
+    {"code": "k", "file": "data/skt-data.json", "category": "skt", "uiLabel": "SKT", "onMap": False},
     # 한 레코드가 계기 묶음이라 통계 인덱스에서 계기 단위로 펼친다.
     # 장애 지도 내림(2026-09-09) — 미착수 0건. 파일·workStatus 는 남긴다.
     #   onMap=False 라 통계 분모에는 그대로 있다. js/datasets.js 주석 참조

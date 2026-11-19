@@ -112,7 +112,9 @@ const DATASET_REGISTRY = [
     // SKT 중계기 — SKT 중계기가 붙은 개소에 AMI 모뎀을 설치해 달라는 요청(주덕기 반장 2026-08-21).
     //   ★올라간 것은 **미작업 41건뿐**이다. 완료 187·작업불요 53 을 함께 올리면 할 일이 묻힌다
     //   (영준님 지시). 원본 281건은 data/skt-full-20260814.json 에 따로 보관한다.
-    { code: 'k', file: './data/skt-data.json', category: 'skt', label: 'SK', uiLabel: 'SKT' },
+    //   ★2026-11-19 지도 메뉴에서 내렸다(onMap:false, 영준님 "Skt 내리자") — 파일·workStatus 는 그대로,
+    //     통계 분모·리스트 라벨은 남는다.
+    { code: 'k', file: './data/skt-data.json', category: 'skt', label: 'SK', uiLabel: 'SKT', onMap: false },
     // 장애 — 주덕기 과장 '모뎀작업리스트' 첫 시트(장애 대상). 다른 데이터셋과 단위가 다르다:
     //   한 레코드 = 모뎀 MAC 그룹 하나(계기가 아니라). `계기목록`에 그 그룹 계기가 전부 들어 있고,
     //   장애 시트에 있던 계기만 `장애:true` 다. 나머지는 시트2(모뎀작업리스트)에서 끌어온 정상 계기다.
