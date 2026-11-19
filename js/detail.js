@@ -1324,8 +1324,7 @@ function renderMetersList() {
         }
         // 13) 한산교체 — 하자 한산 계기(이미 교체됨, 2026-11-19). 계기번호는 철거된 한산 계기다(새 번호는 안 왔다).
         if (meter.category === '한산교체') {
-            subParts.push('<span style="font-weight:700;">계기번호 = 철거 한산 계기</span>');
-            if (meter.순번) subParts.push(`순번 ${escHtml(meter.순번)}`);
+            // '계기번호 = 철거 한산 계기' 문구·순번은 2026-11-19 뺐다(영준님). 순번은 데이터 파일에만 남는다.
             if (meter.LP1 || meter.LP2) subParts.push(`LP1 ${escHtml(meter.LP1 || '-')} · LP2 ${escHtml(meter.LP2 || '-')}`);
             if (meter.동호수) subParts.push(`<span style="font-weight:700;">동호수 ${escHtml(meter.동호수)}</span>`);
             // 비고('하자 대상 한산 계기(교체 완료됨)')는 위 공통 칸(파랑 비고)이 이미 찍는다
