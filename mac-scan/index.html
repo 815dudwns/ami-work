@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>모뎀맥 스캐너</title>
+<meta name="theme-color" content="#111827">
+<style>
+:root{
+  --bg:#111827; --panel:#1f2937; --line:#374151; --fg:#f9fafb; --sub:#9ca3af;
+  --ok:#16a34a; --dup:#d97706; --bad:#dc2626; --acc:#2563eb;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+button{font:inherit;border:0;border-radius:10px;padding:12px 14px;background:var(--panel);color:var(--fg)}
+button.pri{background:var(--acc)} button.danger{background:var(--bad)}
+.top{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.top h1{font-size:17px;margin:0;flex:1}
+.cnt{font-size:15px;color:var(--sub)}
+.cam{position:relative;background:#000;width:100%;aspect-ratio:4/3;overflow:hidden}
+.cam video{width:100%;height:100%;object-fit:cover}
+.frame{position:absolute;left:8%;right:8%;top:38%;height:24%;border:3px solid #fff;border-radius:8px;
+  box-shadow:0 0 0 2000px rgba(0,0,0,.45);transition:border-color .15s}
+.frame.ok{border-color:var(--ok)} .frame.dup{border-color:var(--dup)} .frame.bad{border-color:var(--bad)}
+.hint{position:absolute;left:0;right:0;bottom:8px;text-align:center;font-size:13px;color:#e5e7eb}
+.msg{margin:10px 12px;padding:14px;border-radius:12px;background:var(--panel);font-size:18px;min-height:58px}
+.msg.ok{background:var(--ok)} .msg.dup{background:var(--dup)} .msg.bad{background:var(--bad)}
+.msg small{display:block;font-size:13px;opacity:.9;margin-top:4px}
+.row{display:flex;gap:8px;padding:0 12px}
+.row input{flex:1;min-width:0;font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+.recent{padding:6px 12px 90px}
+.item{display:flex;justify-content:space-between;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);font-size:15px}
+.item .mac{font-family:ui-monospace,Menlo,monospace;letter-spacing:.02em}
+.item .k{color:var(--sub);font-size:13px;text-align:right}
+.sheet{position:fixed;inset:0;background:var(--bg);display:none;flex-direction:column;z-index:10}
+.sheet.on{display:flex}
+.sheet .body{flex:1;overflow:auto;padding:12px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:7px 4px;border-bottom:1px solid var(--line);text-align:left}
+td.mono{font-family:ui-monospace,Menlo,monospace}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.sec{font-size:13px;color:var(--sub);margin:16px 0 6px}
+.x{background:none;color:var(--sub);padding:4px 8px}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>모뎀맥 스캐너</h1>
+  <span class="cnt" id="cnt">0개</span>
+  <button id="btnSet">설정</button>
+</div>
+
+<div class="cam">
+  <video id="video" playsinline muted></video>
+  <div class="frame" id="frame"></div>
+  <div class="hint" id="hint">맥 바코드를 네모 칸 안에 맞추세요</div>
+</div>
+
+<div class="msg" id="msg">카메라를 켜는 중…</div>
+
+<div class="row">
+  <input id="manual" placeholder="손으로 입력 (맥)" autocapitalize="characters" autocomplete="off">
+  <button class="pri" id="btnAdd">추가</button>
+</div>
+
+<div class="recent" id="recent"></div>
+
+<div class="sheet" id="sheet">
+  <div class="top"><h1>설정 · 데이터</h1><button id="btnClose">닫기</button></div>
+  <div class="body">
+    <div class="sec">종류별 개수</div>
+    <table id="sumTbl"></table>
+    <div class="btns">
+      <button class="pri" id="btnShare">CSV 공유</button>
+      <button id="btnCopy">텍스트 복사</button>
+      <button id="btnDown">CSV 내려받기</button>
+      <button class="danger" id="btnClear">전체 삭제</button>
+    </div>
+    <div class="sec">잘못 찍힌 기록 (저장 안 됨, 최근 30개)</div>
+    <table id="badTbl"></table>
+    <div class="sec">저장된 맥 전체 (최근 순)</div>
+    <table id="allTbl"></table>
+  </div>
+</div>
+
+<script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script>
+// ── 맥 규칙: 아미큐 CollectScreen.kt normMac / isMacValid / MAC_OUI_KNOWN, scripts/my_stock.py kind() 와 같다 ──
+const OUI = ['E0AEED','847207','AC5E8C','44B433','0014B0'];
+const AMIGO = ['012497','012498','012536','012642'];
+const GTYPE = ['012540','012545','012556'];
+
+function normMac(raw){
+  const s = String(raw||'').replace(/\*/g,'').trim();
+  const d = s.replace(/\D/g,'');
+  if (/^012\d{8}$/.test(d)) return d;
+  if (/G1S3/i.test(s) && d.length >= 8) return '012' + d.slice(-8);
+  return s.replace(/[:\-\s]/g,'').toUpperCase();
+}
+function check(mac){
+  if (/^012\d{8}$/.test(mac)) return {ok:true};
+  if (/^\d+$/.test(mac) && mac.startsWith('012')) return {ok:false, why:`LTE 맥은 012+8자리(11자리) — 지금 ${mac.length}자리`};
+  if (!/^[0-9A-F]+$/.test(mac)) return {ok:false, why:'맥에 들어갈 수 없는 글자가 있음 (0-9, A-F 만)'};
+  if (mac.length !== 12) return {ok:false, why:`맥은 12자리 — 지금 ${mac.length}자리 (다른 바코드를 찍었을 수 있음)`};
+  if (!OUI.includes(mac.slice(0,6))) return {ok:false, why:`앞 6자리 ${mac.slice(0,6)} 는 모뎀 맥이 아님`};
+  if (mac.startsWith('847207') && !'0BCDE'.includes(mac[6])) return {ok:false, why:'847207 다음 자리가 0·B·C·D·E 가 아님'};
+  return {ok:true};
+}
+function kind(m){
+  if (m.startsWith('012')){
+    if (AMIGO.includes(m.slice(0,6))) return 'LTE 아미고';
+    if (GTYPE.includes(m.slice(0,6))) return 'LTE G타입';
+    return 'LTE AE';
+  }
+  if (m.startsWith('AC5E8C')) return m.slice(6,8)==='B0' ? 'IoT-PLC 아미고' : 'IoT-PLC';
+  if (m.startsWith('8472070')) return ['E3','E4','D9'].includes(m.slice(7,9)) ? 'PLC' : 'IoT-PLC';
+  if (m.startsWith('847207E')) return 'IoT-PLC';
+  if (m.startsWith('E0AEED') || /^847207[BCD]/.test(m)) return 'PLC';
+  if (m.startsWith('44B433') || m.startsWith('0014B0')) return 'HPGP';
+  return '미분류';
+}
+
+// ── 저장 (이 폰 브라우저에만) ──
+const KEY='macscan_v1', BADKEY='macscan_bad_v1';
+function load(k){ try{ return JSON.parse(localStorage.getItem(k)||'[]'); }catch(e){ return []; } }
+function save(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){ show('bad','저장 실패 — 브라우저 저장공간 확인', String(e)); } }
+let items = load(KEY);   // [{mac, kind, at}]
+let bads  = load(BADKEY);
+
+function now(){ return new Date().toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false}); }
+
+// ── 알림 (소리·진동·색) ──
+let actx;
+function beep(freq, ms, times=1){
+  try{
+    actx = actx || new (window.AudioContext||window.webkitAudioContext)();
+    for (let i=0;i<times;i++){
+      const o=actx.createOscillator(), g=actx.createGain();
+      o.frequency.value=freq; o.connect(g); g.connect(actx.destination);
+      const t=actx.currentTime + i*(ms/1000+0.08);
+      g.gain.setValueAtTime(0.25,t); o.start(t); o.stop(t+ms/1000);
+    }
+  }catch(e){}
+}
+const $=id=>document.getElementById(id);
+function show(cls, text, sub){
+  $('msg').className='msg '+(cls||'');
+  $('msg').innerHTML = esc(text) + (sub?`<small>${esc(sub)}</small>`:'');
+  $('frame').className='frame '+(cls||'');
+  clearTimeout(show.t); show.t=setTimeout(()=>{$('frame').className='frame';},700);
+}
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// ── 한 번 읽힌 값 처리 ──
+let lastRaw='', lastAt=0;
+function handle(raw, fromCam){
+  const t=Date.now();
+  if (fromCam && raw===lastRaw && t-lastAt<2500) return;   // 같은 바코드를 계속 비추는 동안 반복 알림 막기
+  lastRaw=raw; lastAt=t;
+  const mac=normMac(raw), c=check(mac);
+  if (!c.ok){
+    bads.unshift({raw:String(raw), why:c.why, at:now()}); bads=bads.slice(0,30); save(BADKEY,bads);
+    show('bad','잘못 찍힘: '+(mac||raw), c.why);
+    beep(220,250,2); navigator.vibrate && navigator.vibrate([300,100,300]);
+    return;
+  }
+  const idx=items.findIndex(x=>x.mac===mac);
+  if (idx>=0){
+    show('dup','이미 찍음: '+mac, `${items.length-idx}번째로 저장된 것 · ${items[idx].at}`);
+    beep(520,120,2); navigator.vibrate && navigator.vibrate([80,60,80]);
+    return;
+  }
+  const k=kind(mac);
+  items.push({mac, kind:k, at:now()}); save(KEY,items);
+  show('ok',`저장 ${items.length}번: ${mac}`, k);
+  beep(1200,90); navigator.vibrate && navigator.vibrate(60);
+  render();
+}
+
+function render(){
+  $('cnt').textContent=items.length+'개';
+  $('recent').innerHTML = items.slice(-8).reverse().map((x,i)=>
+    `<div class="item"><span class="mac">${items.length-i}. ${x.mac}</span><span class="k">${x.kind}</span></div>`).join('');
+}
+
+// ── 카메라 + 가운데 칸만 읽기 ──
+const video=$('video'), canvas=document.createElement('canvas'), ctx=canvas.getContext('2d',{willReadFrequently:true});
+let detector=null, zx=null, busy=false;
+
+async function initDecoder(){
+  if ('BarcodeDetector' in window){
+    try{
+      const f=await BarcodeDetector.getSupportedFormats();
+      const want=['code_93','code_128','code_39','qr_code','data_matrix','itf','codabar'].filter(x=>f.includes(x));
+      if (want.includes('code_93') || want.includes('code_128')){ detector=new BarcodeDetector({formats:want}); return 'native'; }
+    }catch(e){}
+  }
+  if (window.ZXing){
+    const hints=new Map();
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.CODE_93,ZXing.BarcodeFormat.CODE_128,
+      ZXing.BarcodeFormat.CODE_39,ZXing.BarcodeFormat.QR_CODE,ZXing.BarcodeFormat.DATA_MATRIX]);
+    hints.set(ZXing.DecodeHintType.TRY_HARDER,true);
+    zx=new ZXing.MultiFormatReader(); zx.setHints(hints);
+    return 'zxing';
+  }
+  return null;
+}
+
+async function tick(){
+  if (!busy && video.readyState>=2){
+    busy=true;
+    try{
+      const vw=video.videoWidth, vh=video.videoHeight;
+      // 화면의 네모 칸(가로 84%, 세로 38~62%)에 맞는 영역만 잘라서 읽는다 — 스티커의 다른 바코드를 피함
+      const r=video.getBoundingClientRect(), sc=Math.max(r.width/vw, r.height/vh);
+      const dispW=vw*sc, dispH=vh*sc, offX=(dispW-r.width)/2, offY=(dispH-r.height)/2;
+      const fx=(r.width*0.08+offX)/sc, fy=(r.height*0.38+offY)/sc, fw=(r.width*0.84)/sc, fh=(r.height*0.24)/sc;
+      canvas.width=Math.round(fw); canvas.height=Math.round(fh);
+      ctx.drawImage(video,fx,fy,fw,fh,0,0,canvas.width,canvas.height);
+      if (detector){
+        const codes=await detector.detect(canvas);
+        if (codes.length) handle(codes[0].rawValue, true);
+      } else if (zx){
+        const lum=new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+        const bmp=new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum));
+        try{ handle(zx.decode(bmp).getText(), true); }catch(e){}
+      }
+    }catch(e){}
+    busy=false;
+  }
+  setTimeout(tick, 120);
+}
+
+async function start(){
+  render();
+  const mode=await initDecoder();
+  if (!mode){ show('bad','이 브라우저는 바코드를 못 읽음','크롬으로 열어 주세요. 손 입력은 됩니다.'); return; }
+  try{
+    const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},focusMode:'continuous'},audio:false});
+    video.srcObject=st; await video.play();
+    show('', '찍을 준비 됨', mode==='native'?'연속으로 찍으면 됩니다':'연속으로 찍으면 됩니다 (보조 판독기)');
+    tick();
+  }catch(e){
+    show('bad','카메라를 못 켬', '카메라 권한을 허용해 주세요. '+e.name);
+  }
+}
+
+// ── 손 입력 ──
+$('btnAdd').onclick=()=>{ const v=$('manual').value.trim(); if(v){ handle(v,false); $('manual').value=''; } };
+$('manual').addEventListener('keydown',e=>{ if(e.key==='Enter') $('btnAdd').click(); });
+
+// ── 설정 · 데이터 ──
+function csv(){
+  const head='순번,MAC,종류,찍은시각';
+  return '﻿'+[head, ...items.map((x,i)=>`${i+1},${x.mac},${x.kind},${x.at}`)].join('\r\n');
+}
+function fname(){ const d=new Date().toLocaleString('sv-SE',{timeZone:'Asia/Seoul'}).replace(/[-: ]/g,'').slice(0,12); return `모뎀맥_${items.length}개_${d}.csv`; }
+function openSheet(){
+  const by={}; items.forEach(x=>by[x.kind]=(by[x.kind]||0)+1);
+  $('sumTbl').innerHTML='<tr><th>종류</th><th>개수</th></tr>'+Object.entries(by).sort((a,b)=>b[1]-a[1])
+    .map(([k,n])=>`<tr><td>${k}</td><td>${n}</td></tr>`).join('')+`<tr><th>합계</th><th>${items.length}</th></tr>`;
+  $('badTbl').innerHTML = bads.length ? '<tr><th>찍힌 값</th><th>이유</th><th>시각</th></tr>'+bads.map(b=>
+    `<tr><td class="mono">${esc(b.raw)}</td><td>${esc(b.why)}</td><td>${b.at.slice(-8)}</td></tr>`).join('') : '<tr><td>없음</td></tr>';
+  $('allTbl').innerHTML='<tr><th>#</th><th>MAC</th><th>종류</th><th></th></tr>'+items.map((x,i)=>({x,i})).reverse().map(({x,i})=>
+    `<tr><td>${i+1}</td><td class="mono">${x.mac}</td><td>${x.kind}</td><td><button class="x" data-del="${x.mac}">삭제</button></td></tr>`).join('');
+  $('sheet').classList.add('on');
+}
+$('btnSet').onclick=openSheet;
+$('btnClose').onclick=()=>$('sheet').classList.remove('on');
+$('allTbl').onclick=e=>{
+  const m=e.target.dataset && e.target.dataset.del; if(!m) return;
+  if (!confirm(m+' 를 지울까요?')) return;
+  items=items.filter(x=>x.mac!==m); save(KEY,items); render(); openSheet();
+};
+$('btnShare').onclick=async()=>{
+  if (!items.length) return alert('저장된 맥이 없습니다');
+  const file=new File([csv()], fname(), {type:'text/csv'});
+  try{
+    if (navigator.canShare && navigator.canShare({files:[file]})) await navigator.share({files:[file], title:fname()});
+    else await navigator.share({title:fname(), text:csv().replace('﻿','')});
+  }catch(e){ if (e.name!=='AbortError') alert('공유가 안 됩니다 — [텍스트 복사] 나 [CSV 내려받기] 를 쓰세요'); }
+};
+$('btnCopy').onclick=async()=>{
+  try{ await navigator.clipboard.writeText(csv().replace('﻿','')); alert(items.length+'개 복사됨'); }
+  catch(e){ alert('복사 실패: '+e.name); }
+};
+$('btnDown').onclick=()=>{
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv()],{type:'text/csv'})); a.download=fname(); a.click();
+};
+$('btnClear').onclick=()=>{
+  if (!items.length) return;
+  if (!confirm(`저장된 ${items.length}개를 전부 지울까요? 먼저 공유해 두세요.`)) return;
+  if (!confirm('정말 전부 지웁니다.')) return;
+  items=[]; bads=[]; save(KEY,items); save(BADKEY,bads); render(); openSheet();
+};
+
+start();
+</script>
+</body>
+</html>
