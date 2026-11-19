@@ -23,6 +23,8 @@
 /* 미조치(lte)(2026-11-10) — 진초록. 미조치(에메랄드 #10b981)와 같은 초록 계열이되 확실히 어둡게(영준님 "초록인데 조금 색다르게").
    근사 노랑·추가 청록·25미청구 분홍과 겹치지 않는다. 미완 리스트라 흰 원 유지(green 규칙) */
 .custom-marker.lte         .pin-body { fill: #166534; }
+/* 한산교체(2026-11-19) — 갈색. 녹·노·빨·파·회·보라·분홍·청록·진초록 어느 리스트 색과도 겹치지 않는다. 미완 리스트라 흰 원 유지 */
+.custom-marker.hansan      .pin-body { fill: #92400e; }
 
 /* 리스트1(미완·폴백): 흰 원 표시 / 리스트2(완료·보류·불가): 꽉찬 핀 */
 .pin-circle { display: none; }
@@ -36,6 +38,7 @@
 .custom-marker.seonjochi .pin-circle,
 .custom-marker.michunggu .pin-circle,
 .custom-marker.lte .pin-circle,
+.custom-marker.hansan .pin-circle,
 .custom-marker.added .pin-circle { display: block; }
 
 .marker-number { position: absolute; top: 3px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: bold; color: white; line-height: 1; pointer-events: none; }
@@ -47,6 +50,7 @@
 .custom-marker.seonjochi .marker-number,
 .custom-marker.michunggu .marker-number,
 .custom-marker.lte .marker-number,
+.custom-marker.hansan .marker-number,
 .custom-marker.added .marker-number { color: #1f2937; }
 .custom-marker.skt .marker-number { color: #ffffff; font-size: 9px; top: 4px; font-weight: 800; }
 .custom-marker.tou .marker-number { color: #ffffff; font-size: 9px; top: 4px; font-weight: 800; }

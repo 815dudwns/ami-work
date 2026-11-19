@@ -74,8 +74,16 @@ const DATASET_REGISTRY = [
     //   생성 scripts/build_seonjochi_data.py
     //   ★defaultOn — 업데이트 후 모두에게 켜진 채로(기존 선택 저장된 작업자 포함, 영준님 2026-10-30).
     { code: 'p', file: './data/seonjochi-data.json', category: '선조치', label: '선', uiLabel: '선조치',
-      // ★2026-11-07 지도 메뉴에서 내렸다(onMap:false) — 남은 계기 0, 통계 줄은 아카이브로 남는다.
-      statsLabel: '선조치', defaultOn: true, onMap: false, markerColor: 'seonjochi', archivesGlob: 'data/seonjochi-completed-archive-*.json' },
+      // 2026-11-07 지도 메뉴에서 내렸다가(남은 계기 0) 2026-11-19 11/12 요청분 21계기로 다시 올렸다(onMap 기본).
+      //   10/28 판 53계기는 다 끝나 아카이브(20261107)에 그대로 — 되살리지 않는다.
+      statsLabel: '선조치', defaultOn: true, markerColor: 'seonjochi', archivesGlob: 'data/seonjochi-completed-archive-*.json' },
+    // 한산교체 — 하자 한산 계기, 이미 다른 계기로 교체됨(주덕기 과장 2026-11-18 "계기 불량 교체", 영준님 2026-11-19 "올려라").
+    //   파일의 계기번호 = **철거된 한산 계기**다(새 계기번호는 안 왔다). 상세에 '철거 한산 계기' 로 적는다.
+    //   상태키 '주소|한산교체'(맨 주소 아님 — 다른 리스트 옛 완료를 물려받지 않게). 마커 = 갈색(markerColor 'hansan').
+    //   이번 업데이트에 모두 켜진 채로(defaultOn). kmtest 에는 안 보인다(공개 리스트 = 전용 그룹 제외).
+    //   생성 scripts/build_hansan_data.py
+    { code: 'e', file: './data/hansan-data.json', category: '한산교체', label: null, uiLabel: '한산교체',
+      statsLabel: '한산교체', defaultOn: true, markerColor: 'hansan' },
     // 재방문은 2026-09-09 리스트업에서 폐기했다. 주소 단위 workStatus 로 '재' 를 붙이던 목록이라
     //   한 계기 완료가 그 주소 전체에 '재' 를 씌웠다(창천동 5-49 20계기 전건 오탐). 계기 단위로 다시
     //   세니 127건 중 재방문으로 남을 것이 하나도 없었다 — 82건은 애초에 미착수(실효), 43건은 이미 처리됨.

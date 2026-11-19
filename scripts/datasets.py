@@ -19,8 +19,11 @@ DATASETS = [
     # 선조치 — KDN 보강공사 추가분(2026-10-30). 상태키 '주소|선조치'.
     #   2026-11-02 통계에 자기 리스트로 넣음(noStats 뺌, 영준님 "통계도 선조치 안 해 놨네").
     {"code": "p", "file": "data/seonjochi-data.json", "category": "선조치", "uiLabel": "선조치",
-     "statsLabel": "선조치", "archivesGlob": "data/seonjochi-completed-archive-*.json",
-     "onMap": False},  # 2026-11-07 지도 메뉴에서 내림(남은 계기 0)
+     "statsLabel": "선조치", "archivesGlob": "data/seonjochi-completed-archive-*.json"},
+    # 2026-11-07 지도에서 내렸다가 2026-11-19 11/12 요청분으로 다시 올림
+    # 한산교체 — 하자 한산 계기(이미 교체됨), 계기번호 = 철거 한산 계기. 상태키 '주소|한산교체'. js/datasets.js 주석 참조
+    {"code": "e", "file": "data/hansan-data.json", "category": "한산교체", "uiLabel": "한산교체",
+     "statsLabel": "한산교체"},
     # 재방문 폐기(2026-09-09) — js/datasets.js 주석 참조
     # 고압철거 지도 내림(2026-09-09) — 남은 할 일 0건. "미착수 4건" 은 키 이스케이프 오판이었다.
     #   파일·workStatus 는 남기고 onMap=False 라 통계 분모에는 그대로 있다. js/datasets.js 주석 참조

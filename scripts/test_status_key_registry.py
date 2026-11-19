@@ -12,6 +12,8 @@ data/ files:
   4. legacy keys are kept: every list gives the key it gave before, except KEY_MOVED lists, whose key is the
      pre-split key with only the category suffix changed (the address part must not move — Firebase records
      of 11/10~11/12 are copied to the new key by scripts/migrate_michochi_lte_keys.py on that rule)
+     A list born after the hand list (not in LEGACY_NAMESPACED_CATEGORIES nor KEY_MOVED — 한산교체 2026-11-19) has
+     no old records; it must key on its own category ('주소|<category>'), never the plain address.
 
   python3 scripts/test_status_key_registry.py      # PASS / FAIL
 JS == Python is scripts/test_status_key_parity.py (run both).
@@ -68,11 +70,17 @@ def main():
         legacy = keys([dict(r, category=KEY_MOVED.get(r["category"], r["category"])) for r in rows])
     finally:
         S.NAMESPACED_CATEGORIES = saved
-    per, bad, moved = Counter(), Counter(), Counter()
+    per, bad, moved, born = Counter(), Counter(), Counter(), Counter()
+    plain = {d["category"] for d in DATASETS if d.get("plainKey")}
     for r, a, b in zip(rows, legacy, new):
         cat = r["category"]
         per[cat] += 1
-        if cat in KEY_MOVED:
+        if cat not in S.LEGACY_NAMESPACED_CATEGORIES and cat not in KEY_MOVED and cat not in plain:
+            if b.endswith(S.STATUS_KEY_SEP + cat):
+                born[cat] += 1
+            else:
+                bad[cat] += 1
+        elif cat in KEY_MOVED:
             want = a[: -len(KEY_MOVED[cat])] + cat if a.endswith(S.STATUS_KEY_SEP + KEY_MOVED[cat]) else None
             if b != want:
                 bad[cat] += 1
@@ -81,7 +89,7 @@ def main():
         elif a != b:
             bad[cat] += 1
     print(f"rows {len(rows):,} · per list {dict(per)}")
-    print(f"moved lists (suffix only) {dict(moved)}")
+    print(f"moved lists (suffix only) {dict(moved)} · new lists (own key) {dict(born)}")
     if bad:
         problems.append(f"keys changed vs legacy rule: {dict(bad)}")
 

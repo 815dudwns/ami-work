@@ -813,7 +813,8 @@ function aggregateRework(addresses) {
 //     우선순위가 실제로 보인다(불가가 마지막에 그려져 미청구를 가리던 문제, 2026-09-20).
 //   ★선조치(KDN 보강 추가분, 2026-10-30)이 맨 앞 — 실효·합동과 같은 주소에 겹쳐도 가려지면 안 된다.
 //   ★미조치(2026-11-07)는 맨 뒤 — 다른 리스트와 같은 주소가 많아 위에 그려지면 그쪽 마커를 가린다.
-const MARKER_PRIORITY = ['선조치', '합동', '실효', 'skt', '미청구', '미청구불가', '추가', '미조치'];
+//   한산교체(2026-11-19)는 미조치 바로 앞 — 미조치와 같은 주소가 있어도 가려지지 않게.
+const MARKER_PRIORITY = ['선조치', '합동', '실효', 'skt', '미청구', '미청구불가', '추가', '한산교체', '미조치'];
 function markerPriority(category) {
     const i = MARKER_PRIORITY.indexOf(category);
     return i === -1 ? MARKER_PRIORITY.length : i;

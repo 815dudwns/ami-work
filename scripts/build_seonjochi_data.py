@@ -5,9 +5,12 @@ What it is: sites that already have a modem (기시설). 한전 asked for a redo
 the field must file it in the app as 교체 (replacement), not 신규 (new install).
 
 Source (main worktree inbox, gitignored):
-  data/inbox_jdg_20261030/보강 대상 선조치 요청(261028)_복사본.xlsx  Sheet1
-  columns: 순번 요청일 지사 계기번호 주소 비고 변대주명 LP1 LP2 완료여부 (unnamed: 'x.xx 요청완료')
-  All rows go in — old requests (8/21~9/23) included. 영준님 decides later if those drop.
+  2026-11-19 — data/inbox_jdg_20261118/복사본 보강 대상 선조치 요청(261112)_v2.xlsx  Sheet1 (주덕기 과장 11/18 "계기 불량 교체")
+    columns: 순번 요청일 지사 (계기번호, header empty) 주소 비고 변대주명 LP1 LP2 완료여부 (unnamed: 'x.xx 요청완료')
+    Only rows with a real 요청일 (11/12, 21 rows) are 선조치. 요청일 '(한산)' rows are the 한산교체 list
+    (scripts/build_hansan_data.py). The file masks the meter number with '*' ('0553*0323637') and wraps the
+    address in '*' — both stripped. The earlier 10/28 file's 53 rows are all done (seonjochi archive 20261107) and
+    are not rebuilt.
 
 Output: data/seonjochi-data.json  (one record per meter; site key 주소 = 지번주소)
   js/datasets.js code 'p', category '선조치' -> status key '주소|선조치' (namespaced: these addresses
@@ -38,7 +41,7 @@ import openpyxl
 
 ROOT = Path(__file__).resolve().parent.parent
 MAIN = Path('/Users/woodelight/Projects/ami-work')
-SRC = MAIN / 'data/inbox_jdg_20261030/보강 대상 선조치 요청(261028)_복사본.xlsx'
+SRC = MAIN / 'data/inbox_jdg_20261118/복사본 보강 대상 선조치 요청(261112)_v2.xlsx'
 DB = MAIN / 'data/ami.db'
 OUT = ROOT / 'data/seonjochi-data.json'
 GEO_CACHE = ROOT / 'data/inbox_seonjochi/geocode-cache.json'
@@ -65,7 +68,7 @@ def clean(v):
 
 
 def norm_meter(v):
-    s = ws(v).replace(' ', '').replace('-', '').upper()
+    s = ws(v).replace(' ', '').replace('-', '').replace('*', '').upper()
     return s.zfill(11) if s.isdigit() else s
 
 
@@ -114,11 +117,72 @@ def parse_addr(raw):
     return None
 
 
+def unstar(raw):
+    """'*강북구 미아동  838-21 501호  *' -> '강북구 미아동 838-21 501호' (별표·전각 공백·겹친 공백)."""
+    return ws(str(raw if raw is not None else '').replace('*', ' ').replace('\u3000', ' '))
+
+
+def parse_addr_any(raw):
+    """parse_addr + the two shapes it cannot read, never dropping a row ->
+    (지번 or None, 도로명, 동호수, how). how '' = normal /
+    'road_only' = '(창동 )' — 지번 is taken from the geocoder answer for the road address /
+    'dong_only' = '대흥동  번지' — no lot number: 지번 = '서울특별시 <구> <동>', coordinates forced approximate."""
+    a = unstar(raw)
+    p = parse_addr(a)
+    if p:
+        return p + ('',)
+    gu = a.split(' ')[0] if a else ''
+    if not gu.endswith('구'):
+        return None
+    m = re.match(rf'^(?P<road>.+?)\s*\(\s*{DONG}\s*\)\s*(?P<out>.*)$', a)
+    if m:
+        return None, f"서울특별시 {m.group('road')}", ws(m.group('out')).lstrip('/ ').strip(), 'road_only'
+    m = re.match(rf'^\S+구\s+{DONG}(?:\s*번지)?\s*(?P<out>.*)$', a)
+    if m:
+        return f"서울특별시 {gu} {m.group('dong')}", '', ws(m.group('out')).lstrip('/ ').strip(), 'dong_only'
+    return None
+
+
+def geocode_rows(out, cache_path, how_of):
+    """Fill 주소/지번주소 (road_only) and lat/lng/좌표정확도 in place. Cache = {query: hit}. Rows are never dropped."""
+    from geocode_cascade import resolve
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache = json.loads(cache_path.read_text(encoding='utf-8')) if cache_path.exists() else {}
+
+    def hit(jibun, road):
+        k = jibun or ('road:' + road)
+        if k not in cache:
+            h = resolve(jibun=jibun, road=road)
+            cache[k] = {'acc': h.accuracy, 'lat': h.lat, 'lng': h.lng, 'method': h.method,
+                        'road': h.road or '', 'jibun': h.jibun or ''}
+        return cache[k]
+    for x in out:
+        if how_of(x) == 'road_only':
+            g = hit('', x['도로명주소'])
+            j = re.sub(r'^서울\s', '서울특별시 ', g['jibun'] or '')
+            if not re.match(r'^서울특별시 \S+구 \S+ \S+', j):
+                sys.exit(f"★도로명만 있는 주소 {x['주소_원문']} 의 지번을 지오코더가 못 줬다 — 손으로 확인")
+            x['주소'] = x['지번주소'] = j
+    sites = {}
+    for x in out:
+        sites.setdefault(x['주소'], x['도로명주소'])
+    for a, road in sites.items():
+        hit(a, road)
+    cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding='utf-8')
+    for x in out:
+        g = cache[x['주소']]
+        x['lat'], x['lng'] = g['lat'], g['lng']
+        x['좌표정확도'] = 'exact' if g['acc'] == 'exact' and how_of(x) != 'dong_only' else 'approximate'
+    return {a: cache[a] for a in sites}
+
+
 def load_source():
     wb = openpyxl.load_workbook(SRC, data_only=True)
     ws_ = wb['Sheet1']
     rows = list(ws_.iter_rows(values_only=True))
     head = [ws(h) if h is not None else '' for h in rows[0]]
+    if '계기번호' not in head and len(head) > 3 and head[3] == '':
+        head[3] = '계기번호'     # 11/12 판은 계기번호 열 머리가 비어 있다(순번 요청일 지사 _ 주소 ...)
     out = []
     for r in rows[1:]:
         if all(v is None for v in r):
@@ -194,22 +258,23 @@ def enrich(out):
 
 def main():
     head, src = load_source()
+    src = [r for r in src if hasattr(r.get('요청일'), 'strftime')]   # '(한산)' rows = build_hansan_data.py
     out = []
     bad_addr = []
     for r in src:
         m = norm_meter(r.get('계기번호'))
-        p = parse_addr(r.get('주소'))
+        p = parse_addr_any(r.get('주소'))
         if not p:
             bad_addr.append((m, r.get('주소')))
             continue
-        jibun, road, extra = p
+        jibun, road, extra, how = p
         req = r.get('요청일')
         req = req.strftime('%Y-%m-%d') if hasattr(req, 'strftime') else ws(req)
         jisa = ws(r.get('지사'))
         out.append({
             '지사': JISA_FIX.get(jisa, jisa),
             '주소': jibun, '지번주소': jibun, '도로명주소': road, '동호수': extra,
-            '주소_원문': ws(r.get('주소')),
+            '주소_원문': unstar(r.get('주소')), '_how': how,
             '계기번호': m, '계기타입': TYPE_BY_CODE.get(m[2:4], ''),
             '고객번호': '', '변대주': clean(r.get('변대주명')), '변대주번호': '', 'DCUID': '',
             '통신방식': '', '모뎀MAC': '',
@@ -224,25 +289,13 @@ def main():
     hits = enrich(out)
 
     # ── 좌표 ──
-    from geocode_cascade import resolve
-    GEO_CACHE.parent.mkdir(parents=True, exist_ok=True)
-    cache = json.loads(GEO_CACHE.read_text(encoding='utf-8')) if GEO_CACHE.exists() else {}
-    sites = {}
+    geo = geocode_rows(out, GEO_CACHE, lambda x: x['_how'])
+    sites = geo
+    cache = geo
     for x in out:
-        if not sites.get(x['주소']):
-            sites[x['주소']] = x['도로명주소']
-    for a, road in sites.items():
-        if a in cache:
-            continue
-        h = resolve(jibun=a, road=road)
-        cache[a] = {'acc': h.accuracy, 'lat': h.lat, 'lng': h.lng, 'method': h.method,
-                    'road': h.road or '', 'jibun': h.jibun or ''}
-    GEO_CACHE.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding='utf-8')
-    for x in out:
-        g = cache[x['주소']]
-        x['lat'], x['lng'] = g['lat'], g['lng']
-        x['좌표정확도'] = 'exact' if g['acc'] == 'exact' else 'approximate'
         x['보강출처'] = ' · '.join(x['보강출처'])
+        print(f"  주소 보정 {x['계기번호']} {x['주소_원문']} -> {x['주소']}") if x['_how'] else None
+        x.pop('_how')
 
     # ── 원본 대조 ──
     src_m = [norm_meter(r.get('계기번호')) for r in src]
