@@ -108,3 +108,13 @@ cst-input/backend/auth_off
 cst-input/backend/offbook_stock.json
 cst-input/backend/stock_checkpoint.json
 data/inbox_yun_*/*.xlsx
+
+# 2026-11-20 security switch: plain data is never committed — GitHub Pages serves the whole repo.
+#   The map reads the encrypted copies in enc/ (scripts/publish_enc_data.py). Plain files stay on the
+#   Mac disk only. Kept public: the two helper label indexes, the site-data version stamp, notices.
+/data/*
+!/data/meter-list-index.json
+!/data/meter-jisa-index.json
+!/data/site-data.version.json
+!/data/notices.json
+!/data/notices-gwangmyeong.json
