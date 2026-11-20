@@ -2,34 +2,83 @@
   "rules": {
     ".read": false,
     ".write": false,
-
     "workStatus": {
-      ".read": "auth != null",
+      ".read": "auth != null && auth.token.email_verified == true && auth.token.email.endsWith('@ami-work.local')",
       "$dataset": {
         ".indexOn": "syncAt",
-        "$addr": { ".write": "auth != null" }
+        "$addr": {
+          ".write": "auth != null && auth.token.email_verified == true && auth.token.email.endsWith('@ami-work.local')"
+        }
       }
     },
-    "collect_handoff": { ".read": "auth != null", ".write": "auth != null" },
-    "mapSecret": { ".read": "auth != null", ".write": false },
-
+    "collect_handoff": {
+      ".read": "auth != null && auth.token.email_verified == true && auth.token.email.endsWith('@ami-work.local')",
+      ".write": "auth != null && auth.token.email_verified == true && auth.token.email.endsWith('@ami-work.local')"
+    },
+    "mapSecret": {
+      ".read": "auth != null && auth.token.email_verified == true && auth.token.email.endsWith('@ami-work.local')",
+      ".write": false
+    },
     "siteData": {
       ".read": false,
-      "charger4eleccar": { ".indexOn": ["계기번호", "도로명주소", "주소"] }
+      "charger4eleccar": {
+        ".indexOn": [
+          "계기번호",
+          "도로명주소",
+          "주소"
+        ]
+      }
     },
-    "siteDataArchive": { ".read": false },
-
-    "awmsOtp": { ".read": true, ".write": true },
-    "helperStock": { ".read": true, ".write": true },
-    "cstBackend": { ".read": true, ".write": true },
-    "valBackend": { ".read": true, ".write": true },
-    "awmslog": { ".read": true, ".write": true },
-    "awmscomplete": { ".read": true, ".write": true },
-    "awmsDoneMeters": { ".read": true, ".write": true },
-    "blogagent_review": { ".read": true, ".write": true },
-    "dartDisclosures": { ".read": true, ".write": true },
-    "dartDisclosuresRealtime": { ".read": true, ".write": true },
-    "test": { ".read": true, ".write": true },
-    "$other": { ".read": true, ".write": true }
+    "siteDataArchive": {
+      ".read": false
+    },
+    "awmsOtp": {
+      ".read": true,
+      ".write": true
+    },
+    "helperStock": {
+      ".read": true,
+      ".write": true
+    },
+    "cstBackend": {
+      ".read": true,
+      ".write": false
+    },
+    "valBackend": {
+      ".read": true,
+      ".write": false
+    },
+    "awmslog": {
+      ".read": true,
+      ".write": true
+    },
+    "awmscomplete": {
+      ".read": false,
+      ".write": true
+    },
+    "awmsDoneMeters": {
+      ".read": true,
+      ".write": true
+    },
+    "blogagent_review": {
+      ".read": true,
+      ".write": true
+    },
+    "dartDisclosures": {
+      ".read": true,
+      ".write": true
+    },
+    "dartDisclosuresRealtime": {
+      ".read": true,
+      ".write": true
+    },
+    "test": {
+      ".read": false,
+      ".write": false
+    },
+    "$other": {
+      ".read": false,
+      ".write": false
+    }
   }
 }

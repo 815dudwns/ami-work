@@ -118,3 +118,16 @@ data/inbox_yun_*/*.xlsx
 !/data/site-data.version.json
 !/data/notices.json
 !/data/notices-gwangmyeong.json
+
+# 2026-11-21 security (Fable C3): customer data, awms captures and sessions never go to the public repo.
+#   Local copies stay on the Mac disk. awms-poc/ holds CDP recordings, cookie tools and the awms API notes.
+/ami_data_coords.json
+*.har
+/reports/addr-*.html
+/research/awms-poc/
+/research/awms-qr-reader/raw/
+/research/*.json
+/research/*.html
+/research/*.txt
+/worker/
+/logs/

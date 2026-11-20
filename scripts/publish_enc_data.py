@@ -29,6 +29,7 @@ Key: ~/.ami-secrets/map_data_key.b64 (outside git, 32 random bytes base64). Neve
     python3 scripts/publish_enc_data.py --init-key      # dry run; --init-key --go creates the key file once
     python3 scripts/publish_enc_data.py --push-key      # dry run; --push-key --go = LIVE write RTDB mapSecret/dataKey
     python3 scripts/publish_enc_data.py --check         # decrypt every enc file and compare with data/
+    python3 scripts/publish_enc_data.py --rotate        # dry run; --rotate --go = new key (old kept as .b64.<time>) + re-encrypt all
     python3 scripts/publish_enc_data.py --list-untrack <out.txt>   # tracked data/ files to git rm --cached at deploy
 
 --push-key --go is a live Firebase write (PM runs it at deploy, step 2 of the run order).
@@ -111,6 +112,23 @@ def main():
         os.chmod(KEY_FILE, 0o600)
         print(f'created {KEY_FILE}')
         return
+    if '--rotate' in a:
+        # New key -> re-encrypt everything. The old key file is kept beside it (.b64.<time>) for rollback.
+        #   Order at deploy: commit + push the new enc/ FIRST, then --push-key --go (phones fetch the key per
+        #   page load; between the two steps a fresh load fails to decrypt until the key is pushed — keep it short).
+        import time as _t
+        if not KEY_FILE.exists():
+            sys.exit(f'★no key file {KEY_FILE} to rotate')
+        old_path = KEY_FILE.with_name(KEY_FILE.name + '.' + _t.strftime('%Y%m%d_%H%M%S'))
+        if not go:
+            print(f'[dry-run] would move {KEY_FILE.name} -> {old_path.name}, create a new key, re-encrypt all files')
+            return
+        os.rename(KEY_FILE, old_path)
+        KEY_FILE.write_text(base64.b64encode(os.urandom(32)).decode())
+        os.chmod(KEY_FILE, 0o600)
+        print(f'rotated: old key kept as {old_path.name} (mode {oct(old_path.stat().st_mode & 0o777)}) · new key written')
+        a = [x for x in a if x != '--rotate']   # fall through: re-encrypt everything with the new key
+
     if '--push-key' in a:
         key = load_key()
         target = os.environ.get('AMI_RTDB_EMULATOR')   # tests: http://127.0.0.1:9000?ns=...

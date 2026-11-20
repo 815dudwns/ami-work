@@ -8,8 +8,12 @@ Source: ~/.ami-secrets/map_accounts_20261120.json (outside git, read only). Its 
                                        disabled only with --disable-dropped --go)
 
 Each account becomes:
-  uid = id · email = '<id>@ami-work.local' · password = pw · displayName = name
-  custom claim {'role': role or 'user'}   (js/auth.js reads name and role from here)
+  uid = uid (or id) · email = '<login>@ami-work.local' · password = pw · displayName = name
+  custom claims {'role': role or 'user', 'mapId': uid}   (js/auth.js: session id = mapId, name, role)
+  - 2026-11-21 scheme: login = awms id (6 digits; admin stays 'admin'), uid stays userNN so work records
+    (updatedBy), AUTH_GROUPS and stats keep the same ids. Source file has {uid, login, name, role, pw};
+    an older file with only {id, pw} still works (login = uid = id).
+  - An existing user (same uid) is UPDATED in place: email, password, name, verified, claims.
 
 Passwords are never printed, logged or written anywhere else.
 
@@ -27,7 +31,7 @@ import os
 import sys
 from pathlib import Path
 
-SRC = Path.home() / '.ami-secrets' / 'map_accounts_20261120.json'
+SRC = Path.home() / '.ami-secrets' / 'map_accounts_20261121.json'
 SA_KEY = Path('/Users/woodelight/Projects/ami-work/ami-work-1c49a-firebase-adminsdk-fbsvc-8ce17a057a.json')
 DOMAIN = 'ami-work.local'
 PROJECT = 'ami-work-1c49a'
@@ -43,7 +47,13 @@ def main():
     pending = [p.get('id') for p in d.get('pending') or []]
     dropped = list(d.get('dropped') or [])
 
+    for x in accounts:   # 2026-11-21 shape {uid, login, ...}; older shape {id, ...}
+        x.setdefault('id', x.get('uid'))
+        x.setdefault('login', x['id'])
     ids = [x['id'] for x in accounts]
+    logins = [str(x['login']).lower() for x in accounts]
+    if len(set(logins)) != len(logins):
+        sys.exit('★source rejected — duplicate login id')
     bad = [x['id'] for x in accounts if len(str(x.get('pw') or '')) < 6]
     dup = sorted({i for i in ids if ids.count(i) > 1})
     clash = sorted(set(ids) & (set(dropped) | set(pending)))
@@ -78,18 +88,19 @@ def main():
         role = x.get('role') or 'user'
         u = existing(uid)
         state = 'new' if u is None else ('exists' if not isinstance(u, str) else u)
-        print(f'{tag}{where} {uid:<8} {state:<8} name={"yes" if x.get("name") else "NO"} role={role}')
+        print(f'{tag}{where} {uid:<8} {state:<8} name={"yes" if x.get("name") else "NO"} role={role} '
+              f'login={"same as uid" if str(x["login"]) == uid else "awms id"}')
         if not go:
             continue
-        kw = dict(email=f'{uid}@{DOMAIN}', password=str(x['pw']), display_name=x.get('name') or uid,
-                  email_verified=True, disabled=False)
+        kw = dict(email=f'{str(x["login"]).lower()}@{DOMAIN}', password=str(x['pw']),
+                  display_name=x.get('name') or uid, email_verified=True, disabled=False)
         if u is None:
             auth.create_user(uid=uid, **kw)
             made += 1
         else:
             auth.update_user(uid, **kw)
             updated += 1
-        auth.set_custom_user_claims(uid, {'role': role})
+        auth.set_custom_user_claims(uid, {'role': role, 'mapId': uid})
 
     for uid in pending:
         print(f'{tag}{where} {uid:<8} pending  — not created')

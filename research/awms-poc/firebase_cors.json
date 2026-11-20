@@ -1,7 +1,0 @@
-[
-  {
-    "origin": ["https://awms.kdn.com"],
-    "method": ["GET"],
-    "maxAgeSeconds": 3600
-  }
-]

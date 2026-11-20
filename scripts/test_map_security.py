@@ -14,7 +14,7 @@ What it checks:
      With login: workStatus read + write and the data key are allowed, siteData stays refused,
      mapSecret stays read-only.
   2. encryption — publish_enc_data.encrypt/decrypt round trip, deterministic output, wrong key fails.
-A throwaway emulator account is created here (uid sec-test). No live Firebase call is made.
+Throwaway emulator accounts are created here (sec-test, sec-unverified, sec-other). No live Firebase call is made.
 """
 import json
 import os
@@ -50,17 +50,33 @@ def check(name, got, want):
         fails.append(name)
 
 
-def id_token():
-    def post(path, body):
-        r = urllib.request.Request(f'{AUTH}/identitytoolkit.googleapis.com/v1/{path}?key=fake',
-                                   data=json.dumps(body).encode(), headers={'Content-Type': 'application/json'})
-        with urllib.request.urlopen(r, timeout=20) as x:
-            return json.loads(x.read())
-    body = {'email': 'sec-test@ami-work.local', 'password': 'sec-test-pw', 'returnSecureToken': True}
-    try:
-        return post('accounts:signUp', body)['idToken']
-    except urllib.error.HTTPError:
-        return post('accounts:signInWithPassword', body)['idToken']
+def _sign_in(email, pw):
+    r = urllib.request.Request(f'{AUTH}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=fake',
+                               data=json.dumps({'email': email, 'password': pw, 'returnSecureToken': True}).encode(),
+                               headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(r, timeout=20) as x:
+        return json.loads(x.read())['idToken']
+
+
+def id_tokens():
+    """Three emulator users made with the admin SDK: verified @ami-work.local (allowed), unverified
+    @ami-work.local and verified @other.example (both refused by the 2026-11-21 gate)."""
+    os.environ['FIREBASE_AUTH_EMULATOR_HOST'] = '127.0.0.1:9099'
+    import firebase_admin
+    from firebase_admin import auth
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(options={'projectId': 'ami-work-1c49a'})
+    out = {}
+    for name, email, verified in [('ok', 'sec-test@ami-work.local', True),
+                                  ('unverified', 'sec-unverified@ami-work.local', False),
+                                  ('otherdomain', 'sec-other@other.example', True)]:
+        try:
+            u = auth.get_user_by_email(email)
+            auth.update_user(u.uid, password='sec-test-pw', email_verified=verified)
+        except auth.UserNotFoundError:
+            auth.create_user(email=email, password='sec-test-pw', email_verified=verified)
+        out[name] = _sign_in(email, 'sec-test-pw')
+    return out
 
 
 def main():
@@ -73,7 +89,8 @@ def main():
     req('PUT', 'mapSecret/dataKey', 'dGVzdA==', owner=True)
     req('PUT', 'workStatus/charger4eleccar/sec-test', {'state': 'complete', 'syncAt': 1}, owner=True)
     req('PUT', 'siteData/charger4eleccar/0', {'주소': 'x'}, owner=True)
-    tok = id_token()
+    toks = id_tokens()
+    tok = toks['ok']
 
     print('-- without login')
     check('workStatus read', req('GET', 'workStatus/charger4eleccar'), 401)
@@ -84,10 +101,26 @@ def main():
     check('siteData read', req('GET', 'siteData/charger4eleccar'), 401)
     check('root read', req('GET', ''), 401)
     for p in ['awmsOtp/sec-test', 'helperStock/sec-test', 'cstBackend', 'valBackend', 'blogagent_review/sec-test',
-              'awmslog/sec-test', 'dartDisclosures/sec-test']:
+              'awmslog/sec-test', 'dartDisclosures/sec-test', 'awmsDoneMeters']:
         check(f'{p} read (unchanged, open)', req('GET', p), 200)
-    for p in ['awmsOtp/sec-test', 'helperStock/sec-test/offbook', 'blogagent_review/sec-test']:
+    for p in ['awmsOtp/sec-test', 'helperStock/sec-test/offbook', 'blogagent_review/sec-test',
+              'awmscomplete/sec-test', 'awmsDoneMeters']:
         check(f'{p} write (unchanged, open)', req('PUT', p, {'t': 1}), 200)
+    print('-- closed 2026-11-21 (Fable H2)')
+    check('cstBackend write', req('PUT', 'cstBackend', {'url': 'https://evil.example'}), 401)
+    check('valBackend write', req('PUT', 'valBackend', {'url': 'https://evil.example'}), 401)
+    check('awmscomplete read', req('GET', 'awmscomplete'), 401)
+    check('test read', req('GET', 'test'), 401)
+    check('test write', req('PUT', 'test/x', 1), 401)
+    check('$other read', req('GET', 'somethingRandom123'), 401)
+    check('$other write', req('PUT', 'somethingRandom123', 1), 401)
+
+    print('-- logged in but not allowed (2026-11-21 gate: verified @ami-work.local only)')
+    for name in ('unverified', 'otherdomain'):
+        t = toks[name]
+        check(f'{name}: workStatus read', req('GET', 'workStatus/charger4eleccar', token=t), 401)
+        check(f'{name}: workStatus write', req('PUT', 'workStatus/charger4eleccar/sec-x', {'state': 'x'}, token=t), 401)
+        check(f'{name}: mapSecret read', req('GET', 'mapSecret/dataKey', token=t), 401)
 
     print('-- logged in')
     check('workStatus read', req('GET', 'workStatus/charger4eleccar', token=tok), 200)

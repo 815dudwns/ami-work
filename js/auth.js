@@ -53,6 +53,8 @@ async function authLogin(id, pw) {
     if (!fa) return { ok: false, error: '로그인 모듈을 불러오지 못했습니다. 새로고침해 주세요.' };
     id = String(id || '').trim().toLowerCase();
     if (!id || !pw) return { ok: false, error: '아이디 또는 비밀번호가 올바르지 않습니다.' };
+    // ★2026-11-21 로그인 아이디 = awms 아이디(6자리). 옛 userNN·kdnNN 을 넣으면 바뀐 것을 알려 준다(관리자는 admin 그대로).
+    if (/^(user|kdn)\d+$/.test(id)) return { ok: false, error: '로그인 아이디가 바뀌었습니다. awms 아이디(숫자 6자리)로 로그인해 주세요.' };
     try {
         await fa.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
         const cred = await fa.signInWithEmailAndPassword(id + '@' + AMI_AUTH_EMAIL_DOMAIN, pw);
@@ -66,14 +68,17 @@ async function authLogin(id, pw) {
     }
 }
 
-/** Firebase 사용자 -> 화면 세션 {id,name,role}. 아이디 = 이메일 앞부분. */
+/** Firebase 사용자 -> 화면 세션 {id,name,role}.
+ *  ★세션 id 는 로그인 아이디(awms 아이디)가 아니라 **기록용 아이디 userNN** 이다(2026-11-21) — claim 'mapId',
+ *    없으면 계정 uid(= userNN). updatedBy·AUTH_GROUPS·통계 작업자별 기록이 예전 그대로 이어진다. */
 async function _authSessionFromUser(user) {
-    let role = 'user';
+    let role = 'user', mapId = '';
     try {
         const t = await user.getIdTokenResult();
         if (t && t.claims && t.claims.role) role = String(t.claims.role);
+        if (t && t.claims && t.claims.mapId) mapId = String(t.claims.mapId);
     } catch (e) { /* 역할을 못 읽으면 일반 사용자 */ }
-    const id = String(user.email || '').split('@')[0];
+    const id = mapId || user.uid || String(user.email || '').split('@')[0];
     return { id, name: user.displayName || id, role };
 }
 
