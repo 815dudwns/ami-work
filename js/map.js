@@ -120,8 +120,8 @@ async function loadSiteDataCached(file) {
         } catch (e) { /* IDB 실패 → 풀 fetch */ }
     }
 
-    const r = await fetch(file, { cache: 'no-cache' });
-    const text = r.ok ? await r.text() : '[]';
+    const r = await fetch(amiDataUrl(file), { cache: 'no-cache' });
+    const text = r.ok ? await amiResponseText(r) : '[]';
     // ★정상 응답이고 해석에 성공한 **배열**일 때만 캐시한다. 실패 응답의 '[]' 를 캐시하면
     //   다음 데이터 배포 전까지 그 폰에서 실효 리스트가 통째로 사라졌다(2026-10-19 감사).
     let parsed;
@@ -148,7 +148,7 @@ async function loadListCached(file) {
     const key = 'list:' + file;
     let tag = null;
     try {
-        const h = await fetch(file, { method: 'HEAD', cache: 'no-store' });
+        const h = await fetch(amiDataUrl(file), { method: 'HEAD', cache: 'no-store' });
         if (h.ok) tag = h.headers.get('etag') || h.headers.get('last-modified');
     } catch (e) { /* 못 받으면 캐시 판정 없이 받아 온다 */ }
     if (tag && typeof idbGet === 'function') {
@@ -160,8 +160,8 @@ async function loadListCached(file) {
             }
         } catch (e) { /* IDB 실패 → 받아 온다 */ }
     }
-    const r = await fetch(file, { cache: 'no-cache' });
-    const text = r.ok ? await r.text() : '[]';
+    const r = await fetch(amiDataUrl(file), { cache: 'no-cache' });
+    const text = r.ok ? await amiResponseText(r) : '[]';
     let parsed;
     try { parsed = JSON.parse(text); } catch (e) { parsed = null; }
     if (!r.ok || !Array.isArray(parsed)) {
@@ -1451,8 +1451,8 @@ function loadSearchIndex() {
     if (_searchIdx) return Promise.resolve(_searchIdx);
     if (_searchIdxP) return _searchIdxP;
     const t0 = performance.now();
-    _searchIdxP = fetch('./data/search-index.json', { cache: 'no-cache' })
-        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    _searchIdxP = fetch(amiDataUrl('./data/search-index.json'), { cache: 'no-cache' })
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return amiResponseJson(r); })
         .then(raw => {
             const slots = raw.slots.map(([code, kind]) => {
                 const reg = DATASET_REGISTRY.find(d => d.code === code) || null;

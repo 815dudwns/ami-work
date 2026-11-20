@@ -81,6 +81,13 @@ BACKEND = "http://127.0.0.1:8766"
 WS_URL = ("https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app"
           "/workStatus/charger4eleccar.json")
 ME = "우영준"
+
+
+def _ws_authed(url):
+    """workStatus needs auth once the 2026-11-20 rules are live (scripts/fb_rest.py)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from fb_rest import authed
+    return authed(url)
 DEPT_NM = {"3600": "마포용산", "3500": "서대문은평", "7793": "서울본부직할", "3100": "광진성동",
            "3400": "노원도봉", "4080": "강북성북", "3000": "동대문중랑"}
 DIV_NM = {"M1010": "신설", "M1020": "교체", "M1030": "기설"}
@@ -1045,7 +1052,7 @@ def main():
     rows = json.loads(Path(a.rows_file).read_text()) if a.rows_file else fetch_rows(a.day)
     ship = fetch_ship(refresh=not offline)
     ws = json.loads(Path(a.ws_file).read_text()) if a.ws_file else json.loads(
-        urllib.request.urlopen(WS_URL, timeout=120).read())
+        urllib.request.urlopen(_ws_authed(WS_URL), timeout=120).read())
     idx = list_index()
     day_rows = [r for r in rows if r.get("WORK_DATE") == a.day]
     t0 = datetime.datetime.now().timestamp()

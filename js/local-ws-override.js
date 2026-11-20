@@ -36,9 +36,9 @@
     // workStatus 를 로컬 파일로 채운다. initMap 이 loadMarkers 뒤에 이걸 부르고,
     // 그 다음 전체 재도색이 돌기 때문에 화면에 그대로 반영된다.
     initFirebase = async function () {
-        const res = await fetch(file, { cache: 'no-cache' });
+        const res = await fetch(amiDataUrl(file), { cache: 'no-cache' });
         if (!res.ok) throw new Error('localws 파일 로드 실패: ' + res.status);
-        workStatus = await res.json();
+        workStatus = await amiResponseJson(res);
         console.warn('[localws] 적용 완료 — 주소키', Object.keys(workStatus).length, '개');
 
         // 갈린 주소가 실제로 마커별 키를 갖는지 콘솔에 요약

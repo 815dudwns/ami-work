@@ -66,7 +66,8 @@ def main():
     go = '--go' in args
     day = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y%m%d')
     if '--pull' in args:
-        ws = json.load(urllib.request.urlopen(WS_URL))
+        from fb_rest import authed   # rules need auth from 2026-11-20 (scripts/fb_rest.py)
+        ws = json.load(urllib.request.urlopen(authed(WS_URL)))
         print(f'workStatus pulled {len(ws):,} keys')
     else:
         ws = json.load(open([a for a in args if not a.startswith('--')][0]))

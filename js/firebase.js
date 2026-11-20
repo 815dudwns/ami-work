@@ -296,9 +296,7 @@ function flushEventQueueNow() {
 // ── Firebase 초기화 및 DB 연결 ─────────────────────────────────
 function initFirebaseApp() {
     try {
-        const app = firebase.apps.length
-            ? firebase.app()
-            : firebase.initializeApp(firebaseConfig);
+        const app = amiFbApp();   // js/fb-config.js — 한 번만 만들고, 시험 때는 에뮬레이터에 붙인다
         db = firebase.database(app);
         statusRef = db.ref('workStatus/' + WS_DATASET);   // 소속별 경로(js/config.js) — 광명은 gwangmyeong
         console.log('[Firebase] 초기화 완료');
@@ -1016,7 +1014,11 @@ async function auditDeletions(force) {
         //   once('value', null, {shallow:true}) 로 부르면 세 번째 인자를 조용히 무시하고
         //   전량(2.4MB)을 내려받는다 — 아끼려고 넣은 대조가 되레 제일 비싼 호출이 된다.
         //   (2026-08-19 실측으로 잡았다. 키만 받으면 634KB, 전량의 20.8%다.)
-        const url = firebaseConfig.databaseURL + '/workStatus/' + WS_DATASET + '.json?shallow=true';
+        // ★rules 가 auth != null 이라 로그인 토큰을 붙인다(2026-11-20). 토큰이 없으면 이번 대조는 건너뛴다.
+        const tok = (typeof authIdToken === 'function') ? await authIdToken() : null;
+        if (!tok) return;
+        const q = [amiRtdbRestQuery(), 'shallow=true', 'auth=' + encodeURIComponent(tok)].filter(Boolean).join('&');
+        const url = amiRtdbRestBase() + '/workStatus/' + WS_DATASET + '.json?' + q;
         const res = await fetch(url);
         if (!res.ok) return;
         const serverKeys = await res.json();
@@ -1215,6 +1217,9 @@ async function initFirebase() {
     console.log('[Firebase] initFirebase 시작');
 
     const firebaseOk = initFirebaseApp();
+    // ★RTDB 에 붙기 전에 Firebase 로그인 상태가 정해지길 기다린다(2026-11-20) — rules 가 auth != null 이라
+    //   토큰 없이 먼저 붙으면 리스너가 permission_denied 로 취소된다. 로그인은 기기에 저장돼 있어 오프라인도 바로 끝난다.
+    if (typeof authReady === 'function') await authReady();
 
     // 1순위: 로컬 보관소(IndexedDB, 없으면 옛 localStorage 에서 이전)
     const local = await loadStatusStored();
@@ -1224,9 +1229,9 @@ async function initFirebase() {
         // 2순위: data/work-status.json — 강북 기록의 옛 정적 사본이라 강북 경로일 때만
         try {
             if (WS_DATASET !== 'charger4eleccar') throw new Error('소속 경로(' + WS_DATASET + ') — 강북 정적 사본 안 씀');
-            const res = await fetch('./data/work-status.json');
+            const res = await fetch(amiDataUrl('./data/work-status.json'));
             if (!res.ok) throw new Error('fetch 실패: ' + res.status);
-            const data = await res.json();
+            const data = await amiResponseJson(res);
             workStatus = data;
             persistStatus(0);
             console.log('[Local] data/work-status.json 로드 완료, 주소수:', Object.keys(workStatus).length);

@@ -1,14 +1,7 @@
 // config.js — Firebase 설정값 및 상수
 
-const firebaseConfig = {
-    apiKey: "AIzaSyAqVaYGYLjT4qa8nQToYlSqnqtlgoFauWU",
-    authDomain: "ami-work-1c49a.firebaseapp.com",
-    databaseURL: "https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "ami-work-1c49a",
-    storageBucket: "ami-work-1c49a.firebasestorage.app",
-    messagingSenderId: "734048538037",
-    appId: "1:734048538037:web:5514cb0a78ea03a4571dfc"
-};
+// ★정본은 js/fb-config.js AMI_FB_CONFIG(로그인이 먼저 써야 해서 옮겼다). 사본을 두지 않는다.
+const firebaseConfig = AMI_FB_CONFIG;
 
 // ── 소속별 작업기록 경로 (2026-10-31, 소속 설계 0단계) ──────────────────────
 //   광명(전용 그룹 kmtest)은 기록을 workStatus/gwangmyeong 에 따로 쓴다 — 강북 기록(charger4eleccar)과

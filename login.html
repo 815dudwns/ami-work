@@ -54,16 +54,23 @@
         </div>
     </div>
 
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="js/fb-config.js?v=20261120a"></script>
     <script src="js/auth.js?v=20261120a"></script>
     <script>
         // 이미 로그인된 상태면 바로 map.html로 이동
         (function () {
+            // 화면 세션 + Firebase 로그인 둘 다 있을 때만 바로 지도로(전환 전 세션만 있으면 여기서 로그인)
             if (authGetSession()) {
-                window.location.href = 'map.html';
+                authReady().then(u => {
+                    if (u) window.location.href = 'map.html';
+                    else localStorage.removeItem(AUTH_KEY);
+                });
             }
         })();
 
-        function handleLogin(e) {
+        async function handleLogin(e) {
             e.preventDefault();
             const id  = document.getElementById('input-id').value.trim();
             const pw  = document.getElementById('input-pw').value;
@@ -75,7 +82,7 @@
             btn.disabled = true;
             btn.textContent = '로그인 중...';
 
-            const result = authLogin(id, pw);
+            const result = await authLogin(id, pw);
 
             if (result.ok) {
                 window.location.href = 'map.html';

@@ -1,47 +1,15 @@
-// auth.js — 인증 관련 로직 (하드코딩 계정)
-
-// 계정 목록 — 기존 user 번호 유지 + 신규 조장 2명 추가
-const ACCOUNTS = [
-    { id: 'admin',  pw: '1201', name: '우영준', role: 'admin' },
-    { id: 'user01', pw: '1111', name: '김민성', role: 'user' },  // 도봉 부조장
-    { id: 'user02', pw: '1111', name: '이영길', role: 'user' },  // 도봉 조장
-    { id: 'user03', pw: '1111', name: '김상권', role: 'user' },  // 광진 부조장
-    { id: 'user04', pw: '1111', name: '김지호', role: 'user' },  // 동대문 부조장
-    { id: 'user05', pw: '1111', name: '장성훈', role: 'user' },  // 동대문 조장
-    { id: 'user06', pw: '1111', name: '조은규', role: 'user' },  // 중구 조장
-    { id: 'user07', pw: '1111', name: '장진교', role: 'user' },  // 종로 조장
-    { id: 'user08', pw: '1111', name: '이규재', role: 'user' },  // 은평 조장
-    { id: 'user09', pw: '1890', name: '윤용운', role: 'user' },  // 광진 조장 (작업자 총괄)
-    { id: 'user10', pw: '1111', name: '이종우', role: 'user' },  // 마포 조장
-    { id: 'user11', pw: '1111', name: '최창호', role: 'user' },  // 중랑 조장
-    { id: 'user12', pw: '1111', name: '우희근', role: 'user' },  // 강북 조장
-    { id: 'user13', pw: '1111', name: '양선왕', role: 'user' },  // 성북 조장 (신규)
-    { id: 'user14', pw: '1111', name: '이용택', role: 'user' },  // 노원 조장 (신규)
-    { id: 'user15', pw: '1111', name: '정수화', role: 'user' },  // 강북 부조장 (우희근 짝)
-    { id: 'user16', pw: '1111', name: '안지홍', role: 'user' },  // 성북 부조장 (양선왕 짝)
-    { id: 'user17', pw: '1111', name: '박성준', role: 'user' },  // 중랑 부조장 (최창호 짝)
-    { id: 'user18', pw: '1111', name: '정재윤', role: 'user' },  // 마포 부조장 (이종우 짝)
-    { id: 'user19', pw: '1111', name: '마삼환', role: 'user' },  // 중구 부조장 (조은규 짝)
-    { id: 'user20', pw: '1111', name: '김영진', role: 'user' },  // 은평 부조장 (이규재 짝)
-    { id: 'user21', pw: '1111', name: '이기순', role: 'user' },  // 노원 부조장 (이용택 짝)
-    { id: 'user22', pw: '1111', name: '김윤준', role: 'user' },
-    { id: 'user23', pw: '1111', name: '이현규', role: 'user' },
-    { id: 'user24', pw: '1111', name: '김춘동', role: 'user' },
-    { id: 'user25', pw: '1111', name: '신완식', role: 'user' },
-    { id: 'user26', pw: '1111', name: '안병삼', role: 'user' },
-    { id: 'user27', pw: '1111', name: '장재혁', role: 'user' },  // 2026-10-01 발급
-    // 종로 부조장 = 우영준(영준님 본인) = admin 계정으로 겸임 (별도 user 발급 안 함)
-    // --- KDN 계정 (발주처 담당자 — 작업자가 아니라 userNN 번호를 쓰지 않는다) ---
-    { id: 'kdn01', pw: '1111', name: '주덕기', role: 'user' },
-    // --- validator 계정 (데이터검증 사장님·직원용) ---
-    // ★ 영준님이 실제 계정으로 교체할 것 (id/pw/name 모두)
-    { id: 'validator01', pw: '9999', name: '검증담당자', role: 'validator' },
-    // ── 다른 회사(광명 샘플) — 2026-10-30 영준님 지시 ──
-    //   광명 작업은 다른 회사가 한다(그쪽 awms 계정으로 등록). 이 계정은 광명 리스트**만** 본다 —
-    //   AUTH_EXCLUSIVE 참고. 우리 리스트(실효·합동·25미청구·25년불가·SKT)는 안 보이고,
-    //   우리 계정(관리자 포함)에는 광명이 안 보인다.
-    { id: 'kmtest', pw: '1111', name: '광명', role: 'user' },
-];
+// auth.js — 로그인 (2026-11-20 보안 전환: Firebase Authentication 이메일/비밀번호)
+//
+// ★비밀번호 목록이 더 이상 이 파일에 없다. 예전엔 평문 계정표(ACCOUNTS)를 공개 레포에 두고
+//   브라우저에서 비교했다 — 누구나 파일을 열면 모든 비밀번호가 보였다.
+//   지금은 아이디 -> '<아이디>@ami-work.local' 로 바꿔 Firebase 에 로그인하고,
+//   이름은 계정 displayName, 역할(admin/user)은 계정 custom claim 'role' 에서 읽는다.
+//   계정 만들기·바꾸기 = scripts/create_map_accounts.py(원본 ~/.ami-secrets, 레포 밖).
+// ★화면 코드는 여전히 authGetSession() 을 동기로 부른다 — 로그인에 성공하면 {id,name,role} 을
+//   예전과 같은 자리(localStorage 'ami_auth')에 적어 둔다. 진짜 확인은 Firebase 로그인 상태다
+//   (authRequire 가 확인해, 로그인이 없으면 세션을 지우고 로그인 화면으로 보낸다).
+// ★데이터(RTDB·암호화 데이터 키)는 Firebase 로그인 토큰이 있어야 읽힌다 — 세션 값을 손으로
+//   적어 넣어도 데이터는 안 열린다.
 
 const AUTH_KEY = 'ami_auth';
 // 강제 로그아웃 버전 — ★긴급(보안/중대버그)시에만 값을 올린다. 평소 배포에는 절대 건드리지 않는다.
@@ -59,21 +27,78 @@ const FORCE_LOGOUT_VERSION_KEY = 'ami_force_logout_version';
 //   전부 켜져 25미청구(14.5MB)·불가(6.7MB)까지 받고 마커가 폭증해 느려졌다(영준님 '속도가 왜 이리 느려졌냐').
 const UI_STATE_KEYS = ['ami_map_view'];
 
+function _authFb() {
+    try {
+        if (typeof amiFbApp !== 'function' || !amiFbApp() || !firebase.auth) return null;
+        return firebase.auth(amiFbApp());
+    } catch (e) { return null; }
+}
+
+function _authErrorText(e) {
+    const c = (e && e.code) || '';
+    if (/network-request-failed/.test(c)) return '인터넷 연결을 확인해 주세요.';
+    if (/too-many-requests/.test(c)) return '시도가 많아 잠시 막혔습니다. 잠시 뒤 다시 해 주세요.';
+    if (/user-disabled/.test(c)) return '사용이 중지된 계정입니다.';
+    return '아이디 또는 비밀번호가 올바르지 않습니다.';
+}
+
 /**
- * 로그인 시도
+ * 로그인 시도 — Firebase Authentication. ★비동기(Promise)다.
  * @param {string} id
  * @param {string} pw
- * @returns {{ ok: boolean, error?: string }}
+ * @returns {Promise<{ ok: boolean, error?: string }>}
  */
-function authLogin(id, pw) {
-    const account = ACCOUNTS.find(a => a.id === id && a.pw === pw);
-    if (!account) {
-        return { ok: false, error: '아이디 또는 비밀번호가 올바르지 않습니다.' };
+async function authLogin(id, pw) {
+    const fa = _authFb();
+    if (!fa) return { ok: false, error: '로그인 모듈을 불러오지 못했습니다. 새로고침해 주세요.' };
+    id = String(id || '').trim().toLowerCase();
+    if (!id || !pw) return { ok: false, error: '아이디 또는 비밀번호가 올바르지 않습니다.' };
+    try {
+        await fa.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+        const cred = await fa.signInWithEmailAndPassword(id + '@' + AMI_AUTH_EMAIL_DOMAIN, pw);
+        const session = await _authSessionFromUser(cred.user);
+        localStorage.setItem(AUTH_KEY, JSON.stringify(session));
+        localStorage.setItem(FORCE_LOGOUT_VERSION_KEY, FORCE_LOGOUT_VERSION);
+        return { ok: true };
+    } catch (e) {
+        console.warn('[auth] 로그인 실패', e && e.code);
+        return { ok: false, error: _authErrorText(e) };
     }
-    const session = { id: account.id, name: account.name, role: account.role };
-    localStorage.setItem(AUTH_KEY, JSON.stringify(session));
-    localStorage.setItem(FORCE_LOGOUT_VERSION_KEY, FORCE_LOGOUT_VERSION);
-    return { ok: true };
+}
+
+/** Firebase 사용자 -> 화면 세션 {id,name,role}. 아이디 = 이메일 앞부분. */
+async function _authSessionFromUser(user) {
+    let role = 'user';
+    try {
+        const t = await user.getIdTokenResult();
+        if (t && t.claims && t.claims.role) role = String(t.claims.role);
+    } catch (e) { /* 역할을 못 읽으면 일반 사용자 */ }
+    const id = String(user.email || '').split('@')[0];
+    return { id, name: user.displayName || id, role };
+}
+
+let _authReadyP = null;
+/** Firebase 로그인 상태가 정해질 때까지 기다린다. 로그인돼 있으면 user, 아니면 null.
+ *  ★RTDB 를 붙이기 전에 반드시 이것을 기다린다 — 토큰 없이 먼저 붙으면 rules 가 거절하고
+ *    리스너가 취소된다(permission_denied). 오프라인이어도 저장된 로그인으로 바로 정해진다. */
+function authReady() {
+    if (_authReadyP) return _authReadyP;
+    const fa = _authFb();
+    if (!fa) return (_authReadyP = Promise.resolve(null));
+    _authReadyP = new Promise(resolve => {
+        const off = fa.onAuthStateChanged(u => { off(); resolve(u || null); });
+    });
+    return _authReadyP;
+}
+
+/** REST 호출용 로그인 토큰(만료 전 자동 갱신). 로그인 안 돼 있으면 null. */
+async function authIdToken() {
+    await authReady();
+    // ★currentUser 를 본다 — authReady 가 처음 정해 둔 user 는 로그아웃 뒤에도 남아 있어 토큰을 계속 낸다.
+    const fa = _authFb();
+    const u = fa && fa.currentUser;
+    if (!u) return null;
+    try { return await u.getIdToken(); } catch (e) { return null; }
 }
 
 /**
@@ -139,7 +164,9 @@ function authAllowsGroup(group) {
  */
 function authLogout() {
     localStorage.removeItem(AUTH_KEY);
-    window.location.href = 'login.html';
+    const fa = _authFb();
+    const go = () => { window.location.href = 'login.html'; };
+    if (fa) fa.signOut().then(go, go); else go();
 }
 
 /**
@@ -155,8 +182,12 @@ function authForceLogoutNow() {
     localStorage.removeItem(AUTH_KEY);
     localStorage.removeItem(FORCE_LOGOUT_VERSION_KEY);
     UI_STATE_KEYS.forEach(k => localStorage.removeItem(k));
+    const emu = sessionStorage.getItem('ami_emu');
     sessionStorage.clear();
-    window.location.replace('login.html');
+    if (emu) sessionStorage.setItem('ami_emu', emu);   // 맥 로컬 시험 중이면 에뮬레이터 모드 유지
+    const fa = _authFb();
+    const go = () => { window.location.replace('login.html'); };
+    if (fa) fa.signOut().then(go, go); else go();
 }
 
 function _authQueueLength() {
@@ -203,5 +234,26 @@ function authRequire() {
     // 안 하면 향후 긴급 FORCE_LOGOUT_VERSION 변경이 이 사용자에게 안 먹는다.
     if (!localVer) {
         localStorage.setItem(FORCE_LOGOUT_VERSION_KEY, FORCE_LOGOUT_VERSION);
+    }
+    // ★진짜 확인 — Firebase 로그인. 옛 화면 세션만 있고(전환 전 로그인) Firebase 로그인이 없으면
+    //   세션을 지우고 로그인 화면으로 보낸다(전환 후 처음 한 번 새 비밀번호로 로그인).
+    //   ★작업 데이터·이벤트 큐는 안 지운다 — 다시 로그인하면 그대로 보낸다.
+    //   Firebase 모듈을 못 불러온 페이지(옛 캐시 등)는 여기서 막지 않는다 — 데이터는 어차피 rules 가 막는다.
+    if (_authFb()) {
+        authReady().then(u => {
+            if (u) {
+                // 이름·역할이 계정에서 바뀌었으면 화면 세션도 맞춘다
+                _authSessionFromUser(u).then(sess => {
+                    const cur = authGetSession();
+                    if (!cur || cur.id !== sess.id || cur.name !== sess.name || cur.role !== sess.role) {
+                        localStorage.setItem(AUTH_KEY, JSON.stringify(sess));
+                        if (cur && (cur.id !== sess.id || cur.role !== sess.role)) location.reload();
+                    }
+                });
+                return;
+            }
+            localStorage.removeItem(AUTH_KEY);
+            window.location.href = 'login.html';
+        });
     }
 }

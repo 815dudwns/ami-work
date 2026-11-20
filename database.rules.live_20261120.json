@@ -1,0 +1,1 @@
+{"rules": {".read": true, ".write": false, "workStatus": {"$dataset": {".indexOn": "syncAt", "$addr": {".write": true}}}, "siteData": {"charger4eleccar": {".indexOn": ["계기번호", "도로명주소", "주소"]}}, "siteDataArchive": {}, "$other": {".write": true}}}

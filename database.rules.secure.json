@@ -1,0 +1,35 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "workStatus": {
+      ".read": "auth != null",
+      "$dataset": {
+        ".indexOn": "syncAt",
+        "$addr": { ".write": "auth != null" }
+      }
+    },
+    "collect_handoff": { ".read": "auth != null", ".write": "auth != null" },
+    "mapSecret": { ".read": "auth != null", ".write": false },
+
+    "siteData": {
+      ".read": false,
+      "charger4eleccar": { ".indexOn": ["계기번호", "도로명주소", "주소"] }
+    },
+    "siteDataArchive": { ".read": false },
+
+    "awmsOtp": { ".read": true, ".write": true },
+    "helperStock": { ".read": true, ".write": true },
+    "cstBackend": { ".read": true, ".write": true },
+    "valBackend": { ".read": true, ".write": true },
+    "awmslog": { ".read": true, ".write": true },
+    "awmscomplete": { ".read": true, ".write": true },
+    "awmsDoneMeters": { ".read": true, ".write": true },
+    "blogagent_review": { ".read": true, ".write": true },
+    "dartDisclosures": { ".read": true, ".write": true },
+    "dartDisclosuresRealtime": { ".read": true, ".write": true },
+    "test": { ".read": true, ".write": true },
+    "$other": { ".read": true, ".write": true }
+  }
+}

@@ -8,7 +8,10 @@
     <meta http-equiv="Expires" content="0">
     <title>작업 현황 통계 - AMI</title>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <script src="js/fb-config.js?v=20261120a"></script>
+    <script src="js/secure-data.js?v=20261120a"></script>
     <script src="js/auth.js?v=20261120a"></script>
     <script src="js/config.js?v=20261120a"></script>
     <script src="js/utils.js?v=20261120a"></script>
@@ -224,7 +227,7 @@ let _activeTab = 'worker'; // 'worker'(작업자별·날짜) | 'gu'(구별·날�
 function initFB() {
     if (_firebaseInited) return true;
     try {
-        const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+        const app = amiFbApp();   // js/fb-config.js
         _db = firebase.database(app);
         _firebaseInited = true;
         return true;
@@ -325,16 +328,16 @@ async function loadFbSiteData() {
         _fbSiteDataPromise = (async () => {
             if (GM_STATS) {
                 // 광명 — 개소 목록을 인덱스 형식으로(지사 자리 = 묶음, 구 자리 = 지역)
-                const r = await fetch(GM_SITE_FILE, { cache: 'no-cache' });
+                const r = await fetch(amiDataUrl(GM_SITE_FILE), { cache: 'no-cache' });
                 if (!r.ok) throw new Error('광명 개소 목록 로드 실패');
-                _fbSiteData = (await r.json()).map(x => ({
+                _fbSiteData = (await amiResponseJson(r)).map(x => ({
                     지사: x.묶음 || '묶음 미상', 주소: x.주소, 계기번호: x.계기번호, l: GM_LIST_CODE, 지역: x.지역 || '',
                 }));
                 return _fbSiteData;
             }
-            const resp = await fetch('data/stats-site-index.json', { cache: 'no-cache' });
+            const resp = await fetch(amiDataUrl('data/stats-site-index.json'), { cache: 'no-cache' });
             if (!resp.ok) throw new Error('stats-site-index.json 로드 실패 (scripts/gen_stats_index.py 실행 필요)');
-            _fbSiteData = await resp.json();
+            _fbSiteData = await amiResponseJson(resp);
             return _fbSiteData;
         })();
     }
@@ -384,6 +387,7 @@ async function loadAndRender(forceFetch) {
     const dateStr = getSelectedDate();
     if (!dateStr) { showErr('날짜를 선택하세요'); return; }
     if (!initFB()) return;
+    if (typeof authReady === 'function') await authReady();   // RTDB 읽기 전 로그인 토큰(2026-11-20)
 
     const content = document.getElementById('content');
     content.innerHTML = '<div class="loading">불러오는 중...</div>';
