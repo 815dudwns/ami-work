@@ -115,6 +115,7 @@ data/inbox_yun_*/*.xlsx
 /data/*
 !/data/meter-list-index.json
 !/data/meter-jisa-index.json
+!/data/comm-map.json
 !/data/site-data.version.json
 !/data/notices.json
 !/data/notices-gwangmyeong.json
