@@ -6,7 +6,7 @@
 
 (function () {
   'use strict';
-  var VER = 'v105'; // v105: 작업 검사 지도 상태키 표에 새 리스트 한산교체('주소|한산교체' -> 코드 e) — 맥 NS_LIST(레지스트리)와 같게. v104: 작업 검사 속도(beta 빌드 전용 그대로) — getDetail 은 슬레이브만(분기), 보낸 행(WORK_STEP 29) 상세를 IndexedDB 에 계정마다 따로 캐시(분기·사진 ID 3~6 만, 25/28 은 매번 받음, 계정 바뀌면 그 계정 것으로), IndexedDB 가 안 되면 캐시 없이 동작, 폰은 사진을 안 받음, 지도 없음 = 노랑 표시만(맥과 같은 판정). v103: 작업 검사에 지도 대조(영준님 2026-11-16 '리스트 = 지도', '완료인지 불가인지가 중요') — 그날 내가 지도에 완료 친 개소 ↔ awms(누락 빨강·지도 없음·개별불가 메모 1자리 차이/번호 없음·지도 계기 없음, 맥 map_check 와 같은 규칙), 그날 등록한 지도 계기 주소가 완료도 불가도 아님 = '지도 완료 안 함' · 불가/개별불가인데 등록 = '지도 불가'(노랑), workStatus 는 그날 바뀐 기록 + 그날 등록 주소 상태키만 읽음, 화면 문구 '리스트' -> '지도', 누락 후보 없앰, beta 빌드 전용 그대로. v102: beta 빌드 전용(__otpNative) — 자재 현황 화면 [작업 검사]: 그날 내 awms 등록을 맥 작업검사(cst_daily_check)와 같은 규칙으로 판정(빨강 할 일·노랑·초록, 사진 판독·지도 완료 없음, 뒷자리 2자리 중복·같은 주소 리스트 계기로 번호 1자리 차이·누락 후보, 모뎀 사용·일별 작업 현황), awms 읽기만. v101: 헬퍼 첫 화면 [자재 현황](앱 1.0.82~) — 앱이 남긴 표시가 있으면 로그인 뒤 자재 현황을 바로 엶. v100: 자재 현황 전 작업자 공개(로그인 아이디만 있으면 — 기록은 각자 helperStock/<USER_ID>). v99: 로그인 진단 — POST /login 응답(상태·success·이동 주소·오류 코드, 값·계정은 안 실음)과 OTP 자동 입력 시각을 Firebase 로그에 남김(간헐 '로그인 화면으로 되돌아감' 원인 확인용) · 네이티브에 OTP 가 없는 빌드(__otpNative=false)면 OTP 요청 표시 없음. v98: 사진 크게 보기(전 작업자 · 헬퍼만) — awms 사진 칸이 새 창(window.open·<a target=_blank>)으로 여는 사진을 같은 화면 위에 띄움, 닫기·이전/다음(지금 행 1 작업전·2 모뎀맥·3 계기·4 집합)·두 손가락 확대·두 번 톡 2배·옆으로 밀기, 저장 흐름 무관 · v96 리스트 지사 안내('리스트 지사 X — 지금 Y' + [X 로 바꾸기]) 전 작업자 공개(__featOn, 자재 현황은 테스터 그대로) · 맥 형식 검사(macFormatError) 사유와 [맥 오류] 상자 제안 줄('한 글자 차이 — X 여부 라벨 재확인 필요')을 명사형으로 — 설비등록 [맥 오류] 상자(전 작업자)와 자재 현황 화면이 같은 문구(허용 외 문자·LTE MAC 자릿수·자릿수 부족/초과·미사용 앞자리·847207 7번째 자리). v97: 테스터 전용 자재 현황 화면(코드명 자재관리, 화면 문구 업무체 — 재고·사용 완료·별도 관리 자재·자재 등록) — 헬퍼 홈 [자재 현황] 버튼. 내 모뎀(출고 20·인계 40, 본인 인계·6/22 이전 출고·소유 N·교체로 뗀 옛 모뎀 뺌) - 시공 목록 맥 = 보유/사용, 종류는 my_stock.kind() 와 같은 규칙(E 추정 없음, 전부 AE), 종류별 보유 awms·따로장부·합계·오늘 사용 표, 자재 추가 = [스캔] 한 번에 한 개(카메라 저절로 닫힘) 대기 목록에 쌓고 들어올 때 검사(형식·종류·내 출고/인계·awms 자재 []·따로장부·목록 중복, 거절 줄은 이유 표시·저장 안 함), [저장] 한 번 PATCH 로 Firebase helperStock/<USER_ID>/offbook/<MAC> 에 기록(awms 에 들어오면 'awms 에 들어옴' 표시, 한 번만 셈). awms 는 읽기만(selectList·selectBarcdQr·getMainList). v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
+  var VER = 'v106'; // v106: 아미맵 보안 전환 뒤 작업 검사(beta 빌드 전용) 복구 — search-index 는 enc/ 암호문을, workStatus 는 로그인 토큰으로 읽음. 작업 검사 화면에서 지도 계정(아이디 = awms 아이디)으로 한 번 로그인(Firebase Authentication REST), 비밀번호는 저장 안 하고 갱신 토큰만 localStorage amiMapAuth, 갱신 거절되면 다시 물음, 열쇠 mapSecret/dataKey 로 AES-GCM 풀고 gzip 해제(지도 secure-data.js 와 같은 형식). 조회 실패 밑에 이유 한 줄. v105: 작업 검사 지도 상태키 표에 새 리스트 한산교체('주소|한산교체' -> 코드 e) — 맥 NS_LIST(레지스트리)와 같게. v104: 작업 검사 속도(beta 빌드 전용 그대로) — getDetail 은 슬레이브만(분기), 보낸 행(WORK_STEP 29) 상세를 IndexedDB 에 계정마다 따로 캐시(분기·사진 ID 3~6 만, 25/28 은 매번 받음, 계정 바뀌면 그 계정 것으로), IndexedDB 가 안 되면 캐시 없이 동작, 폰은 사진을 안 받음, 지도 없음 = 노랑 표시만(맥과 같은 판정). v103: 작업 검사에 지도 대조(영준님 2026-11-16 '리스트 = 지도', '완료인지 불가인지가 중요') — 그날 내가 지도에 완료 친 개소 ↔ awms(누락 빨강·지도 없음·개별불가 메모 1자리 차이/번호 없음·지도 계기 없음, 맥 map_check 와 같은 규칙), 그날 등록한 지도 계기 주소가 완료도 불가도 아님 = '지도 완료 안 함' · 불가/개별불가인데 등록 = '지도 불가'(노랑), workStatus 는 그날 바뀐 기록 + 그날 등록 주소 상태키만 읽음, 화면 문구 '리스트' -> '지도', 누락 후보 없앰, beta 빌드 전용 그대로. v102: beta 빌드 전용(__otpNative) — 자재 현황 화면 [작업 검사]: 그날 내 awms 등록을 맥 작업검사(cst_daily_check)와 같은 규칙으로 판정(빨강 할 일·노랑·초록, 사진 판독·지도 완료 없음, 뒷자리 2자리 중복·같은 주소 리스트 계기로 번호 1자리 차이·누락 후보, 모뎀 사용·일별 작업 현황), awms 읽기만. v101: 헬퍼 첫 화면 [자재 현황](앱 1.0.82~) — 앱이 남긴 표시가 있으면 로그인 뒤 자재 현황을 바로 엶. v100: 자재 현황 전 작업자 공개(로그인 아이디만 있으면 — 기록은 각자 helperStock/<USER_ID>). v99: 로그인 진단 — POST /login 응답(상태·success·이동 주소·오류 코드, 값·계정은 안 실음)과 OTP 자동 입력 시각을 Firebase 로그에 남김(간헐 '로그인 화면으로 되돌아감' 원인 확인용) · 네이티브에 OTP 가 없는 빌드(__otpNative=false)면 OTP 요청 표시 없음. v98: 사진 크게 보기(전 작업자 · 헬퍼만) — awms 사진 칸이 새 창(window.open·<a target=_blank>)으로 여는 사진을 같은 화면 위에 띄움, 닫기·이전/다음(지금 행 1 작업전·2 모뎀맥·3 계기·4 집합)·두 손가락 확대·두 번 톡 2배·옆으로 밀기, 저장 흐름 무관 · v96 리스트 지사 안내('리스트 지사 X — 지금 Y' + [X 로 바꾸기]) 전 작업자 공개(__featOn, 자재 현황은 테스터 그대로) · 맥 형식 검사(macFormatError) 사유와 [맥 오류] 상자 제안 줄('한 글자 차이 — X 여부 라벨 재확인 필요')을 명사형으로 — 설비등록 [맥 오류] 상자(전 작업자)와 자재 현황 화면이 같은 문구(허용 외 문자·LTE MAC 자릿수·자릿수 부족/초과·미사용 앞자리·847207 7번째 자리). v97: 테스터 전용 자재 현황 화면(코드명 자재관리, 화면 문구 업무체 — 재고·사용 완료·별도 관리 자재·자재 등록) — 헬퍼 홈 [자재 현황] 버튼. 내 모뎀(출고 20·인계 40, 본인 인계·6/22 이전 출고·소유 N·교체로 뗀 옛 모뎀 뺌) - 시공 목록 맥 = 보유/사용, 종류는 my_stock.kind() 와 같은 규칙(E 추정 없음, 전부 AE), 종류별 보유 awms·따로장부·합계·오늘 사용 표, 자재 추가 = [스캔] 한 번에 한 개(카메라 저절로 닫힘) 대기 목록에 쌓고 들어올 때 검사(형식·종류·내 출고/인계·awms 자재 []·따로장부·목록 중복, 거절 줄은 이유 표시·저장 안 함), [저장] 한 번 PATCH 로 Firebase helperStock/<USER_ID>/offbook/<MAC> 에 기록(awms 에 들어오면 'awms 에 들어옴' 표시, 한 번만 셈). awms 는 읽기만(selectList·selectBarcdQr·getMainList). v96: 계기번호(마스터) 입력 순간 그 계기가 든 지도 리스트 행의 지사와 지금 행 지사(DEPT2)가 다르면 안내 + [X 로 바꾸기] 버튼(누르면 v88 과 같이 currentRow.DEPT2 만 바꿈). 저장된 행(REG_DATE)·슬레이브(MODEM_DIV 20)는 안 띄움. 지사 표 = data/meter-jisa-index.json(라벨 인덱스와 같은 행, DEPT2 묶음). 테스터 전용(__isTester). v95: 설치불가/철거관리(MOBCST2000) — 처음 열 때 모뎀 선택, 목록 지사·임의추가 새 행 지사를 헬퍼 설정 지사로(awms 작업자 세팅 서대문은평 대신, 저장 body DEPT2·vKdnDept 같이 따라감). 대상리스트 행·슬레이브·저장된 행은 그대로. 게이트 __featOn. v94: OTP 요청 마킹 — Enter 키 로그인(keydown) + POST /login 요청(XHR) 시에도 표시(버튼 click 만 보던 구멍, 카톡 OTP 캡쳐 스킵 원인). v93: 계기 리스트 라벨에 선조치 + 새 리스트 이름은 인덱스(__names)에서 읽음(코드 수정 없이 따라옴). v92: 계기 리스트 라벨을 캐시에 고정하지 않고 매번 최신 확인(합동 업로드 후 안 따라오던 문제). v91: AC5E8C 모뎀 통신방식 자동 = k-dcu(90). v90: 12자리 PLC 맥도 내 자재 조회. v89: v86~v88 검사 전 작업자 공개(__featOn). v88: 새 행 지사·동행 헬퍼 설정값 강제 · 25미청구 비고 25. v87: 테스터 전용 입력 검사 — 계기번호(11자리 형식·지도 리스트 소속)·모뎀맥 내 자재 여부 라벨 + 지사 설정값 우선(헬퍼 설정 > 마지막 저장값). v86: 테스터(영준님 계정) 전용 기능 게이트 __isTester + 키보드에 가린 아래쪽 칸(비고 등) 끌어올리기. v85: 맥 오류 검사 — 글자(0-9·A-F)·자릿수(hex12/012+8)·앞6자리 5개(847207은 7번째 0BCDE)를 어기면 [맥 오류] 박스. 손입력 중엔 조용(자릿수 차야 판정), 스캔은 즉시 판정. 자동 재스캔 없음(v82 무한루프 재발 방지). v84: BARCODE intercept 제거 → awms 원래 바코드 스캐너 그대로(우리 구글스캐너 바코드 오독 다발로 원복). QRCODE만 우리 스캐너 유지. v83: BARCODE 1D전용 scanBarcode 원복(잘못된 방향 — 여전히 우리 스캐너). v82: 바코드/큐알 둘다 구글스캐너(scan) 통일 — 1D전용·12자리검증/재시도 폐기(무한루프 유발). v81: BARCODE 1D전용 scanBarcode(폐기). v80: 847207 통신방식 정밀화 — 7번째0 속 8472070E3·E4·D9는 ks-plc(10)로 분기(나머지 0/E=k-dcu, B/C/D=ks-plc). v79: 헬퍼 ⌂(홈) 버튼 = awms 안떠나고 홈 오버레이(돌아가기=재로딩0). AndroidNav 게이트(헬퍼전용). v78: OTP 마킹 if(f) 밖으로 — 인증번호 재발송(password칸 없는)화면서 마킹 누락→캡쳐스킵 버그 수정. v77: OTP 겹침방지 __markOtpReq(OTP발송버튼 클릭→자기앱 로컬플래그). v76: __otpReceived 직접경로(헬퍼내장) + 로그인버튼 btn-login 수정
   var FEAT_RELEASED = true;   // [v89] released input checks on for every helper user (see __featOn)
 
   // firebase RTDB — helper는 AndroidRecorder 없어 logcat 안 남음.
@@ -2779,8 +2779,8 @@ function parseValue(text) {
   //   맥 검사와 다른 점: 사진 판독(OCR) 없음 — 대신 지도 없는 계기가 같은 주소 지도 계기와 한 자리 차이면 '번호 1자리 차이'.
   //     아미큐 보관함·자재 대조(지난 검사 재고)도 없음.
   //   읽는 것: getMainList(올해, 달마다) · getDetail(그날 슬레이브 + 뒷자리 겹치는 앞선 슬레이브의 분기) ·
-  //     자재 현황이 이미 받은 출고/인계·별도 관리 자재 · data/search-index.json(리스트·주소·지사) · 리스트 이름표(__names).
-  //     + ami-work workStatus(그날 바뀐 기록 + 그날 등록 주소 상태키, REST GET).
+  //     자재 현황이 이미 받은 출고/인계·별도 관리 자재 · enc/data/search-index.json(리스트·주소·지사, v106~ 암호문을 지도 로그인으로 풂) · 리스트 이름표(__names).
+  //     + ami-work workStatus(그날 바뀐 기록 + 그날 등록 주소 상태키, REST GET, v106~ 지도 로그인 토큰).
   //   쓰는 것: 없음(Firebase 로그 rec 만).
   // [v102-wc-begin] 순수 판정 — 화면·통신 없음(시험에서 node 로 돌린다)
   var WC_TYPE_MAP = { '17': 'E', '19': 'EA', '25': 'G', '26': 'G', '27': 'G', '45': 'G', '46': 'G', '47': 'G',
@@ -3237,11 +3237,93 @@ function parseValue(text) {
     var t = new Date(Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8)) + n * 86400000);
     return t.toISOString().slice(0, 10).replace(/-/g, '');
   }
+  // [v106] 지도 로그인 — 아미맵 보안 전환(2026-11-20/21) 뒤 data/search-index.json 은 암호문(enc/)만 공개되고
+  //   workStatus 는 로그인한 사람만 읽는다. 지도 계정(아이디 = awms 아이디)으로 Firebase Authentication REST 로그인.
+  //   ★비밀번호는 저장하지 않는다 — 갱신 토큰만 이 폰 localStorage 'amiMapAuth' 에(작업 검사 = beta 빌드 전용).
+  //   갱신이 거절되면(비밀번호 바뀜·계정 끔) 지우고 다시 묻는다. 지도 쪽 js/secure-data.js 와 같은 형식으로 푼다.
+  var WC_FB_KEY = 'AIzaSyAqVaYGYLjT4qa8nQToYlSqnqtlgoFauWU';   // js/fb-config.js 공개 웹 키
+  var WC_RTDB = 'https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app';
+  var WC_MAP_AUTH = 'amiMapAuth', WC_MAP_DOMAIN = '@ami-work.local', WC_ENC_MAGIC = 'AMIENC1\n';
+  var __wcTok = { id: '', exp: 0 }, __wcKeyP = null;
+  function wcNeedLogin(msg) { var e = new Error(msg || '지도 로그인 필요'); e.needLogin = true; return e; }
+  function wcAuthSaved() { try { return JSON.parse(localStorage.getItem(WC_MAP_AUTH) || 'null'); } catch (e) { return null; } }
+  function wcAuthSave(o) { try { if (o) localStorage.setItem(WC_MAP_AUTH, JSON.stringify(o)); else localStorage.removeItem(WC_MAP_AUTH); } catch (e) {} }
+  function wcTokSet(id, sec) { __wcTok = { id: id, exp: Date.now() + (Number(sec) || 3600) * 1000 - 120000 }; }
+  function wcSignIn(login, pw) {
+    login = String(login || '').trim().toLowerCase();
+    return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=' + WC_FB_KEY, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: login + WC_MAP_DOMAIN, password: String(pw || ''), returnSecureToken: true })
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (x) {
+        if (!x.ok || !x.j.idToken) {
+          var m = String((x.j && x.j.error && x.j.error.message) || '');
+          throw new Error(/INVALID|NOT_FOUND|PASSWORD/.test(m) ? '아이디 또는 비밀번호가 맞지 않습니다' : /DISABLED/.test(m) ? '사용 중지된 계정입니다' : /TOO_MANY/.test(m) ? '잠시 뒤 다시 해 주세요' : '로그인 실패');
+        }
+        wcAuthSave({ rt: x.j.refreshToken, login: login });
+        wcTokSet(x.j.idToken, x.j.expiresIn);
+        __wcKeyP = null;
+        rec({ stage: 'wc-map-login' });
+        return true;
+      });
+  }
+  function wcIdToken() {
+    if (__wcTok.id && Date.now() < __wcTok.exp) return Promise.resolve(__wcTok.id);
+    var sv = wcAuthSaved();
+    if (!sv || !sv.rt) return Promise.reject(wcNeedLogin());
+    return fetch('https://securetoken.googleapis.com/v1/token?key=' + WC_FB_KEY, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(sv.rt)
+    }).then(function (r) {
+      if (r.status === 400 || r.status === 401 || r.status === 403) { wcAuthSave(null); __wcTok = { id: '', exp: 0 }; throw wcNeedLogin('지도 로그인이 끝났습니다 — 다시 로그인'); }
+      if (!r.ok) throw new Error('지도 토큰 HTTP ' + r.status);
+      return r.json();
+    }).then(function (j) {
+      if (j.refresh_token && j.refresh_token !== sv.rt) wcAuthSave({ rt: j.refresh_token, login: sv.login });
+      wcTokSet(j.id_token, j.expires_in);
+      return j.id_token;
+    });
+  }
+  // RTDB GET(로그인 토큰). 401 = 토큰이 안 먹음 -> 지금 토큰 버리고 로그인 화면(갱신 토큰은 둠 — 다시 로그인하면 덮어씀)
+  function wcRtdbGet(path, q) {
+    return wcIdToken().then(function (tok) {
+      return fetch(WC_RTDB + path + '.json?' + (q ? q + '&' : '') + 'auth=' + encodeURIComponent(tok), { cache: 'no-store' });
+    }).then(function (r) {
+      if (r.status === 401) { __wcTok = { id: '', exp: 0 }; throw wcNeedLogin('지도 거절 401 — 다시 로그인'); }
+      return r;
+    });
+  }
+  function wcDataKey() {
+    if (__wcKeyP) return __wcKeyP;
+    __wcKeyP = wcRtdbGet('/mapSecret/dataKey').then(function (r) {
+      if (!r.ok) throw new Error('데이터 열쇠 HTTP ' + r.status);
+      return r.json();
+    }).then(function (b64) {
+      if (typeof b64 !== 'string') throw new Error('데이터 열쇠 없음');
+      var raw = Uint8Array.from(atob(b64), function (c) { return c.charCodeAt(0); });
+      return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']);
+    });
+    __wcKeyP.catch(function () { __wcKeyP = null; });
+    return __wcKeyP;
+  }
+  // 'AMIENC1\n' + IV 12 + AES-GCM(gzip(원문)) -> 원문. 암호문이 아니면 그대로(되돌리기 대비)
+  function wcDecodeText(buf) {
+    var head = new TextDecoder().decode(buf.subarray(0, WC_ENC_MAGIC.length));
+    if (head !== WC_ENC_MAGIC) return Promise.resolve(new TextDecoder().decode(buf));
+    if (typeof DecompressionStream === 'undefined') return Promise.reject(new Error('압축 해제 미지원 WebView'));
+    return wcDataKey().then(function (key) {
+      return crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.subarray(8, 20) }, key, buf.subarray(20));
+    }).then(function (plain) {
+      return new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    });
+  }
   function wcLoadSI() {
     if (__wc.si) return Promise.resolve(__wc.si);
-    return fetch('https://815dudwns.github.io/ami-work/data/search-index.json', { cache: 'no-cache' })
-      .then(function (r) { if (!r.ok) throw new Error('리스트 HTTP ' + r.status); return r.json(); })
-      .then(function (j) { __wc.si = j; return j; });
+    return wcIdToken().then(function () {   // 받기 전에 로그인부터 — 2.7MB 를 받고 나서 막히지 않게
+      return fetch('https://815dudwns.github.io/ami-work/enc/data/search-index.json', { cache: 'no-cache' });
+    }).then(function (r) { if (!r.ok) throw new Error('리스트 HTTP ' + r.status); return r.arrayBuffer(); })
+      .then(function (ab) { return wcDecodeText(new Uint8Array(ab)); })
+      .then(function (t) { var j = JSON.parse(t); __wc.si = j; return j; });
   }
   function wcLoadNames() {
     return new Promise(function (ok) {
@@ -3251,10 +3333,10 @@ function parseValue(text) {
     });
   }
   // 지도 상태(ami-work workStatus) — 읽기만. 그날 0시(KST)부터 바뀐 기록(syncAt 색인, 지도와 같은 길) + 그날 등록 주소의 상태키 하나씩
-  var WC_WS = 'https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.app/workStatus/charger4eleccar';
+  var WC_WS_PATH = '/workStatus/charger4eleccar';   // [v106] WC_RTDB + 이 경로, 로그인 토큰 필요
   function wcLoadWs(day, keys) {
     var start = Date.UTC(+day.slice(0, 4), +day.slice(4, 6) - 1, +day.slice(6, 8)) - 9 * 3600 * 1000;
-    return fetch(WC_WS + '.json?orderBy=%22syncAt%22&startAt=' + start)
+    return wcRtdbGet(WC_WS_PATH, 'orderBy=%22syncAt%22&startAt=' + start)   // [v106] 로그인 토큰으로
       .then(function (r) { if (!r.ok) throw new Error('지도 HTTP ' + r.status); return r.json(); })
       .then(function (ws) {
         ws = ws || {};
@@ -3262,7 +3344,7 @@ function parseValue(text) {
         var worker = function () {
           if (i >= todo.length) return Promise.resolve();
           var k = todo[i++];
-          return fetch(WC_WS + '/' + encodeURIComponent(k) + '.json').then(function (r) { return r.ok ? r.json() : null; })
+          return wcRtdbGet(WC_WS_PATH + '/' + encodeURIComponent(k)).then(function (r) { return r.ok ? r.json() : null; })
             .catch(function () { return null; }).then(function (v) { if (v) ws[k] = v; return worker(); });
         };
         return Promise.all([worker(), worker(), worker(), worker()]).then(function () { return ws; });
@@ -3352,7 +3434,7 @@ function parseValue(text) {
     });
   }
   function wcRun(day, fresh) {
-    __wc.day = day; __wc.res = null; __wc.err = '';
+    __wc.day = day; __wc.res = null; __wc.err = ''; __wc.needLogin = false;
     var uid = stockMe();
     if (fresh || __wc.uid !== uid) { __wc.rows = null; __wc.det = {}; }   // 계정이 바뀌면 그 계정 것으로 처음부터
     __wc.uid = uid;
@@ -3378,7 +3460,7 @@ function parseValue(text) {
         rec({ stage: 'wc-run', day: day, meters: res.sum.meters, red: n.red, yellow: n.yellow, noStock: !a[3], ws: Object.keys(z[1] || {}).length, me: !!me, detHit: (z[0] || {}).hit, detGot: (z[0] || {}).got });
         wcRender();
       });
-    }).catch(function (e) { __wc.err = String(e && e.message || e); rec({ stage: 'wc-fail', day: day, msg: __wc.err }); wcRender(); });
+    }).catch(function (e) { __wc.err = String(e && e.message || e); __wc.needLogin = !!(e && e.needLogin); rec({ stage: 'wc-fail', day: day, msg: __wc.err, login: __wc.needLogin }); wcRender(); });
   }
   var WC_DOT = { red: '#f04438', yellow: '#f79009', green: '#12b76a', grey: '#98a2b3' };
   function wcRender() {
@@ -3386,7 +3468,8 @@ function parseValue(text) {
     if (!box) return;
     var dl = document.getElementById('__wc_day');
     if (dl) dl.textContent = wcFmtDay(__wc.day);
-    if (__wc.err) { box.innerHTML = '<div style="padding:16px;color:#d92d20;font-weight:700">조회 실패</div>'; return; }
+    if (__wc.err && __wc.needLogin) { wcLoginForm(box); return; }   // [v106]
+    if (__wc.err) { box.innerHTML = '<div style="padding:16px;color:#d92d20;font-weight:700">조회 실패</div><div style="padding:0 16px 12px;font-size:12px;color:#667085">' + stockEsc(__wc.err) + '</div>'; return; }
     var R = __wc.res;
     if (!R) { box.innerHTML = '<div style="padding:20px;text-align:center;color:#667085">조회 중…</div>'; return; }
     // 문제(빨강·노랑)만 — 통과한 것·칸 나눔 없음(영준님 2026-11-16 "작업중에 문제되는것만, 통관된건 표시할 필요조차 없음")
@@ -3425,6 +3508,26 @@ function parseValue(text) {
     });
     h += '</table></div><div style="font-size:11px;color:#98a2b3;margin:0 2px 12px">awms 등록 기준 · 사진 판독 없음 · 개소 +N = 지도 없는 모뎀</div>';
     box.innerHTML = h;
+  }
+  // [v106] 지도 로그인 칸 — 아이디 = awms 아이디(지금 awms 로그인 아이디를 미리 넣음). 비밀번호는 보내고 버린다.
+  function wcLoginForm(box) {
+    var inp = 'width:100%;box-sizing:border-box;height:42px;border:1px solid #d0d5dd;border-radius:9px;padding:0 10px;font-size:15px;margin-bottom:8px';
+    box.innerHTML = '<div style="background:#fff;border:1px solid #eaecf0;border-radius:12px;padding:12px 10px">' +
+      '<div style="font-size:15px;font-weight:700;margin-bottom:4px">지도 로그인</div>' +
+      '<div style="font-size:12px;color:#667085;margin-bottom:10px">작업 검사는 지도 계정이 필요합니다 · 한 번만</div>' +
+      '<input id="__wc_lid" autocomplete="username" placeholder="지도 아이디" style="' + inp + '">' +
+      '<input id="__wc_lpw" type="password" autocomplete="current-password" placeholder="지도 비밀번호" style="' + inp + '">' +
+      '<div id="__wc_lmsg" style="font-size:12px;color:#d92d20;min-height:16px;margin-bottom:6px">' + (/다시 로그인/.test(__wc.err) ? stockEsc(__wc.err) : '') + '</div>' +
+      '<button id="__wc_lgo" style="width:100%;height:42px;border:0;border-radius:9px;background:#175cd3;color:#fff;font-size:15px;font-weight:800">로그인</button></div>';
+    var sv = wcAuthSaved(), id = box.querySelector('#__wc_lid');
+    id.value = (sv && sv.login) || stockMe() || '';
+    box.querySelector('#__wc_lgo').onclick = function () {
+      var b = this, pw = box.querySelector('#__wc_lpw'), msg = box.querySelector('#__wc_lmsg');
+      if (!id.value.trim() || !pw.value) { msg.textContent = '아이디와 비밀번호를 넣어 주세요'; return; }
+      b.disabled = true; msg.textContent = '';
+      wcSignIn(id.value, pw.value).then(function () { pw.value = ''; wcRun(__wc.day || stockYmd(), false); })
+        .catch(function (e) { b.disabled = false; pw.value = ''; msg.textContent = String(e && e.message || e); });
+    };
   }
   function wcPanelHtml() {
     return '<div id="__wc_panel" style="display:none;margin-bottom:12px">' +
