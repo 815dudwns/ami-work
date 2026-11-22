@@ -73,6 +73,8 @@ OUT_LTE_TPL = 'data/michochi-lte/*.json'
 CACHE = ROOT / 'data/inbox_michochi/geocode-cache.json'
 # 합동 철거계기 제외 축 — 지도 합동 파일 + 아카이브만(원시 FMPMTR 수집분은 넣지 않는다)
 HAPDONG_FILES = ['data/hapdong-data.json', 'data/hapdong-data-archive.json']
+# 2026-11-22 합동 완료 아카이브도 본다 — 지도에서 옮긴 완료 개소의 철거계기가 미조치에 되살아나지 않게
+HAPDONG_DONE_GLOB = 'data/hapdong-completed-archive-*.json'
 HAPDONG_EXCL_OUT = ROOT / 'data/reference/michochi_exclude_hapdong_removed_20261108.json'
 # 실효 대상 제외 축(올해·내년) — 목록 파일들. 레포에 커밋된 판을 읽는다(main 에 합쳐지면 main 의 같은 파일).
 SILHYO_TARGETS = [ROOT / 'data/reference/michochi_exclude_silhyo_target_2026_20261108.json',
@@ -164,7 +166,8 @@ def norm_meter(v):
 def hapdong_removed():
     """합동 철거계기 -> 그 합동 행들(작업일 최신 먼저)."""
     by = {}
-    for f in HAPDONG_FILES:
+    files = HAPDONG_FILES + [str(p.relative_to(ROOT)) for p in sorted(ROOT.glob(HAPDONG_DONE_GLOB))]
+    for f in files:
         for r in json.loads((ROOT / f).read_text(encoding='utf-8')):
             m = norm_meter(r.get('계기번호_전'))
             if m:

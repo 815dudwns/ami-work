@@ -31,8 +31,10 @@ DATASETS = [
     {"code": "g", "file": "data/gapap-data.json", "category": "고압", "uiLabel": "고압철거",
      "onMap": False},
     # 2026-11-17 dateField 뺌 — 날짜 트리 없앰(영준님 지시). js/datasets.js 주석 참조
+    # 2026-11-22 완료 개소 아카이브(archive_done_sites.py --only h, 완료만). js/datasets.js 주석 참조
     {"code": "h", "file": "data/hapdong-data.json", "category": "합동", "uiLabel": "합동시공",
-     "archives": ["data/hapdong-data-archive.json"]},
+     "archives": ["data/hapdong-data-archive.json"],
+     "archivesGlob": "data/hapdong-completed-archive-*.json"},
     # 2026-11-19 지도 메뉴에서 내림(onMap False, 영준님) — 파일·workStatus 그대로. js/datasets.js 주석 참조
     {"code": "k", "file": "data/skt-data.json", "category": "skt", "uiLabel": "SKT", "onMap": False},
     # 한 레코드가 계기 묶음이라 통계 인덱스에서 계기 단위로 펼친다.

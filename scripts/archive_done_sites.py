@@ -6,6 +6,7 @@
   python3 scripts/archive_done_sites.py <workStatus.json>          # dry run (default)
   python3 scripts/archive_done_sites.py <workStatus.json> --go     # write files
   python3 scripts/archive_done_sites.py --pull [--go]              # pull workStatus first (read only)
+  python3 scripts/archive_done_sites.py --pull --only h [--go]     # one list only (codes, comma separated)
 
 What it does
   * Decides "done" per SITE with the same status key the map uses (scripts/status_key.py over
@@ -45,6 +46,9 @@ WS_URL = ('https://ami-work-1c49a-default-rtdb.asia-southeast1.firebasedatabase.
 #     섞인 개소는 그 리스트 쪽이 완료일 때만 그 리스트에서 옮긴다(11/10~11/12 공유 기록은 migrate_michochi_lte_keys.py 로 옮긴 뒤).
 CODES = [d['code'] for d in DATASETS if d.get('archivesGlob') and dataset_files(d)]
 DONE = ('complete', 'fail')
+# 리스트마다 다른 '끝남' — 합동은 완료만 옮긴다(영준님 2026-11-22 "합동 완료된 리스트는 완료 아카이브에").
+#   불가·보류는 지도에 남는다. 합동 빌더(build_hapdong_data.py)가 이 아카이브 키를 다시 안 올린다.
+DONE_BY_CODE = {'h': ('complete',)}
 
 
 def dump(rows, like=''):
@@ -64,6 +68,14 @@ def keys_of(rows):
 def main():
     args = sys.argv[1:]
     go = '--go' in args
+    only = None
+    if '--only' in args:
+        only = [c for c in args[args.index('--only') + 1].split(',') if c]
+        bad = [c for c in only if c not in CODES]
+        if bad:
+            sys.exit(f'--only: no archive list {bad} (have {CODES})')
+        args = [a for i, a in enumerate(args) if a != '--only' and (i == 0 or args[i - 1] != '--only')]
+    codes = only or CODES
     day = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y%m%d')
     if '--pull' in args:
         from fb_rest import authed   # rules need auth from 2026-11-20 (scripts/fb_rest.py)
@@ -78,10 +90,10 @@ def main():
     k0 = keys_of(rows)
 
     reg = {d['code']: d for d in DATASETS}
-    cat_of = {c: reg[c]['category'] for c in CODES}
+    cat_of = {c: reg[c]['category'] for c in codes}
     done_i = set()
     per = {}
-    for c in CODES:
+    for c in codes:
         site = collections.defaultdict(list)
         for r in rows:
             if r['category'] == cat_of[c]:
@@ -91,7 +103,7 @@ def main():
         for k, l in site.items():
             s = (ws.get(S.encode_key(k)) or {}).get('state') or '(none)'
             st[s] += 1
-            if s in DONE:
+            if s in DONE_BY_CODE.get(c, DONE):
                 dn.update(r['_i'] for r in l)
         done_i |= dn
         per[c] = (st, dn, sum(len(l) for l in site.values()))
@@ -106,7 +118,7 @@ def main():
         print('★GATE FAILED — staying rows would change status key. Nothing written.')
         return 1
 
-    for c in CODES:
+    for c in codes:
         d = reg[c]
         st, dn, n = per[c]
         # load_rows reads the list's files in dataset_files() order and keeps row order, so the

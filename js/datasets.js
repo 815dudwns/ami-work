@@ -110,8 +110,11 @@ const DATASET_REGISTRY = [
     //     (ami_selected_dates_합동)이 남아 있어도 dateField 가 없으면 loadMarkers 가 날짜로 거르지 않는다.
     //   ★같은 날부터 지도에서 빼지 않고 쌓는다(build_hapdong_data.py STACK_MODE). 11/11 이전에
     //     백업으로 간 것은 백업에 그대로 있고, 통계는 누적 실적이라 그 백업까지 분모에 넣는다.
+    //   ★2026-11-22 완료 개소를 완료 아카이브로(영준님 "합동 완료된 리스트는 완료 아카이브에 넣어 놓자") —
+    //     scripts/archive_done_sites.py --only h, 완료(complete)만(불가·보류는 지도에 남김).
+    //     빌더는 그 아카이브 키(CONS_TGT_SEQNO)를 지도에 다시 안 올린다. 통계 분모·라벨·검색은 아카이브로 그대로.
     { code: 'h', file: './data/hapdong-data.json', category: '합동', label: '합', uiLabel: '합동시공',
-      archives: ['./data/hapdong-data-archive.json'] },
+      archives: ['./data/hapdong-data-archive.json'], archivesGlob: 'data/hapdong-completed-archive-*.json' },
     // SKT 중계기 — SKT 중계기가 붙은 개소에 AMI 모뎀을 설치해 달라는 요청(주덕기 반장 2026-08-21).
     //   ★올라간 것은 **미작업 41건뿐**이다. 완료 187·작업불요 53 을 함께 올리면 할 일이 묻힌다
     //   (영준님 지시). 원본 281건은 data/skt-full-20260814.json 에 따로 보관한다.

@@ -53,6 +53,11 @@ ROOT = Path(__file__).resolve().parent.parent
 INBOX = ROOT / 'data' / 'inbox_hapdong'
 OUT = ROOT / 'data' / 'hapdong-data.json'
 ARCHIVE = ROOT / 'data' / 'hapdong-data-archive.json'
+# 완료 아카이브(2026-11-22, scripts/archive_done_sites.py --only h) — 지도에서 완료 개소를 옮긴 파일들.
+#   ★여기 든 키(_rec_key = CONS_TGT_SEQNO)는 지도에도 3일 백업에도 다시 넣지 않는다. 원본 raw 가 inbox 에
+#     남아 있어 매번 다시 읽히므로, 이 축이 없으면 쌓기 모드가 옮긴 행을 '새 건'으로 되살린다.
+#   ★읽기만 한다(아카이브 파일은 archive_done_sites.py 만 쓴다).
+DONE_ARCHIVE_GLOB = 'data/hapdong-completed-archive-*.json'
 GEO_CACHE = INBOX / 'geocode-cache.json'
 WORKERS = 8
 
@@ -1077,9 +1082,16 @@ def main():
     for _src in (ARCHIVE, OUT):
         if _src.exists():
             existing += json.loads(_src.read_text(encoding='utf-8'))
+    _done_keys = set()
+    for _f in sorted(ROOT.glob(DONE_ARCHIVE_GLOB)):
+        _done_keys |= {_rec_key(e) for e in json.loads(_f.read_text(encoding='utf-8'))}
+    _done_hit = collections.Counter()
     by_key = {}
     order = []
     for e in existing + recs:
+        if _rec_key(e) in _done_keys:          # 완료 아카이브에 간 것 — 지도·백업 어디에도 다시 안 올림
+            _done_hit[_rec_key(e)] += 1
+            continue
         k = _rec_key(e)
         if k not in by_key:
             order.append(k)
@@ -1093,6 +1105,8 @@ def main():
                 e['작업일'] = prev_day
         by_key[k] = e
     merged = [by_key[k] for k in order]
+    print(f'[완료 아카이브] 키 {len(_done_keys):,}개 · 원본/기존에서 다시 만나 건너뛴 키 {len(_done_hit):,}개'
+          ' (지도·백업에 안 올림)')
     # 작업일 내림차순(최신 먼저) + 지사/주소로 안정 정렬
     merged.sort(key=lambda e: (e.get('작업일') or '', ), reverse=True)
 

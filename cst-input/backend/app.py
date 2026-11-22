@@ -435,21 +435,28 @@ def michunggu_bulga_set() -> set:
 #   원천 = 지도 최근분 `hapdong-data.json` + 백업분 `hapdong-data-archive.json`.
 #   키 = 신설 `계기번호` + 철거 `계기번호_전` 둘 다(현장에서 옛 명판을 찍을 수도 있다).
 #   같은 계기가 여럿이면 지도분 > 백업분, 그다음 작업일 최신을 쓴다.
-HAPDONG_FILES = ((ROOT / "data" / "hapdong-data.json", False),
-                 (ROOT / "data" / "hapdong-data-archive.json", True))
+HAPDONG_FILES_FIXED = ((ROOT / "data" / "hapdong-data.json", False),
+                       (ROOT / "data" / "hapdong-data-archive.json", True))
+#   2026-11-22 완료 개소 아카이브(hapdong-completed-archive-*.json)도 백업분으로 읽는다 — 지도에서 옮겨도 배지 그대로.
+HAPDONG_DONE_GLOB = "hapdong-completed-archive-*.json"
 _hapdong = {"mtime": None, "map": {}}
+
+
+def _hapdong_files():
+    return HAPDONG_FILES_FIXED + tuple((f, True) for f in sorted((ROOT / "data").glob(HAPDONG_DONE_GLOB)))
 
 
 def hapdong_map() -> dict:
     """계기번호(norm) -> {"day","dept","archived"}. 두 파일 mtime 이 바뀔 때만 다시 읽는다."""
     try:
-        mt = tuple(f.stat().st_mtime if f.exists() else 0 for f, _ in HAPDONG_FILES)
+        files = _hapdong_files()
+        mt = tuple((str(f), f.stat().st_mtime if f.exists() else 0) for f, _ in files)
     except OSError:
         return _hapdong["map"]
     if _hapdong["mtime"] != mt:
         mp, n = {}, 0
         try:
-            for f, archived in HAPDONG_FILES:
+            for f, archived in files:
                 if not f.exists():
                     continue
                 rows = json.loads(f.read_text(encoding="utf-8"))
