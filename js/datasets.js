@@ -76,7 +76,10 @@ const DATASET_REGISTRY = [
     { code: 'p', file: './data/seonjochi-data.json', category: '선조치', label: '선', uiLabel: '선조치',
       // 2026-11-07 지도 메뉴에서 내렸다가(남은 계기 0) 2026-11-19 11/12 요청분 21계기로 다시 올렸다(onMap 기본).
       //   10/28 판 53계기는 다 끝나 아카이브(20261107)에 그대로 — 되살리지 않는다.
-      statsLabel: '선조치', defaultOn: true, markerColor: 'seonjochi', archivesGlob: 'data/seonjochi-completed-archive-*.json' },
+      //   ★2026-11-22 다시 지도 메뉴에서 내렸다(onMap:false, 영준님 "선조치도 아무것도 없는데 리스트 없애") —
+      //     파일·workStatus·상태키 '주소|선조치' 그대로, 통계 분모·리스트 라벨·검색은 남는다(SKT 와 같다).
+      statsLabel: '선조치', defaultOn: true, markerColor: 'seonjochi', archivesGlob: 'data/seonjochi-completed-archive-*.json',
+      onMap: false },
     // 한산교체 — 하자 한산 계기, 이미 다른 계기로 교체됨(주덕기 과장 2026-11-18 "계기 불량 교체", 영준님 2026-11-19 "올려라").
     //   파일의 계기번호 = **철거된 한산 계기**다(새 계기번호는 안 왔다). 상세에 '철거 한산 계기' 로 적는다.
     //   상태키 '주소|한산교체'(맨 주소 아님 — 다른 리스트 옛 완료를 물려받지 않게). 마커 = 갈색(markerColor 'hansan').
