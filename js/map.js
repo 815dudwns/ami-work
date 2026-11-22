@@ -192,12 +192,17 @@ async function initMap() {
     const saved = (() => { try { return JSON.parse(localStorage.getItem('ami_map_view')); } catch { return null; } })();
     // 저장된 위치가 없으면(첫 실행) 첫 마커가 생길 때 고른 지사로 한 번 맞춘다(loadMarkers 끝).
     //   안 하면 기본 위치(용산)에 머물러 고른 지사 마커가 전부 화면 밖이라 '리스트가 안 나온다'(2026-11-08).
-    _fitOnFirstMarkers = !saved;
+    // 2026-11-22 영준님: 첫 진입도 저장 위치 복원 대신 고른 구 중심 · 레벨 6(원이 바로 보이게) — 늘 맞춘다.
+    //   저장 위치는 지도를 처음 만들 때만 쓰고(깜빡임 줄이기), 마커가 생기면 곧바로 맞춘다.
+    _fitOnFirstMarkers = true;
     const options = {
         center: new kakao.maps.LatLng(saved ? saved.lat : 37.525, saved ? saved.lng : 126.960),
         level: saved ? saved.level : 4
     };
     map = new kakao.maps.Map(container, options);
+
+    // 행정동 경계(60KB gzip)는 리스트 파일과 나란히 지금 받기 시작한다 — 첫 원이 격자로 한 번 그려졌다 바뀌는 깜빡임을 없앤다
+    hdEnsure(() => { _cellCache.cells = null; if (map && markerPolicyForLevel(map.getLevel()) === 'hide') renderClusterBubbles(); });
 
     // 지도에서 주소 추가(js/add-site.js) — + 버튼·지도 누르기
     if (typeof initAddSite === 'function') initAddSite();
@@ -211,7 +216,10 @@ async function initMap() {
     kakao.maps.event.addListener(map, 'zoom_start', () => {
         if (map.getLevel() >= HIDE_LEVEL_WITH_MICHOCHI - 1) detachAllMarkers();   // 리스트 무관(2026-11-08 동그라미)
         clearClusterBubbles();
+        hdInfoHide();
     });
+    // 사용자가 지도를 끌면 늦게 온 파일 뒤 맞춤(_fitAfterLoad)은 하지 않는다 — 보던 자리를 뺏지 않게
+    kakao.maps.event.addListener(map, 'dragstart', () => { _fitAfterLoad = false; });
 
     // 지도 이동/줌 변경 시 현재 뷰 저장 + 화면 안 마커만 붙이기(cullMarkers)
     kakao.maps.event.addListener(map, 'idle', () => {
@@ -248,6 +256,8 @@ async function initMap() {
     populateCategoryFilter();
     loadMarkers();
     // 큰 리스트는 뒤에서 — 첫 화면(실효·합동 등)을 붙잡지 않는다
+    // 미조치 지사 파일이 늦게 와도 첫 진입 맞춤을 한 번 더 — 그사이 지도를 끌면 안 한다(dragstart)
+    _fitAfterLoad = true;
     const _laterDone = loadDeferredLists(_later);
     await initFirebase();
     markers.forEach(m => repaintMarker(m));
@@ -269,7 +279,7 @@ async function _loadDeferredLists(list) {
     // 받을 파일이 남은 것만 — 이미 받은 파일은 loadDataset 이 건너뛴다(_loadedFiles)
     const jisa = currentJisaForLoad();
     list = (list || []).filter(d => datasetFiles(d, jisa).some(f => !_loadedFiles.has(f)));
-    if (!list.length) return;
+    if (!list.length) { _fitAfterLoad = false; return; }
     try {
         const loaded = await Promise.all(list.map(d => loadDataset(d, jisa)));
         const rows = loaded.flat();
@@ -402,16 +412,11 @@ function fitToFilteredMarkers() {
     // 마커는 화면에 들어올 때 만든다(cullMarkers) — 위치는 마커 객체의 좌표로 잡는다
     markers.forEach(m => bounds.extend(new kakao.maps.LatLng(markerLat(m), markerLng(m))));
     if (bounds.isEmpty()) return;
-    map.setBounds(bounds, 60);   // 60px 여백
-    // 단일/소수 좌표면 최대줌으로 튐 — 적당 레벨로 보정 (setBounds는 동기 반영)
-    if (map.getLevel() < 4) map.setLevel(4);
-    // 미조치가 켜져 있으면 지사 전체 맞춤(레벨 7~8)이 곧 숨김 구간이다 — 레벨 5 로 줄여 마커가 보이게 한다.
-    //   중심은 맞춘 범위의 중심 그대로(setLevel 은 지도 중심 기준으로 확대한다).
-    if (map.getLevel() > FIT_MAX_LEVEL_WITH_MICHOCHI) {   // 리스트 무관 — 동그라미 레벨(6) 바로 아래로 맞춤
-        const c = bounds.getSouthWest(), d = bounds.getNorthEast();
-        map.setCenter(new kakao.maps.LatLng((c.getLat() + d.getLat()) / 2, (c.getLng() + d.getLng()) / 2));
-        map.setLevel(FIT_MAX_LEVEL_WITH_MICHOCHI);
-    }
+    // 2026-11-22 영준님: 고른 구(구가 없으면 지사) 마커 범위의 중심으로, 레벨은 **6 고정** — 원(행정동)이 바로 보이게.
+    //   (예전: 범위 맞춤 + 레벨 5 상한 -> 마커로 떨어져 원이 안 보였다)
+    const c = bounds.getSouthWest(), d = bounds.getNorthEast();
+    map.setLevel(HIDE_LEVEL_WITH_MICHOCHI);
+    map.setCenter(new kakao.maps.LatLng((c.getLat() + d.getLat()) / 2, (c.getLng() + d.getLng()) / 2));
 }
 
 // 지사 선택 변경 시 마커 재생성
@@ -444,7 +449,7 @@ function onGuSelect(g) {
     clearMarkers();
     loadMarkers();
     refreshAllMarkers();
-    fitToFilteredMarkers();   // 선택 구 영역으로 지도 이동(미조치 켰으면 레벨 5 제한 그대로)
+    fitToFilteredMarkers();   // 선택 구 중심 · 레벨 6
 }
 
 // 마커 전체 재생성 (필터 변경 공통 처리)
@@ -1008,7 +1013,6 @@ function markerPosition(m) {
 //     수십 초 멈췄다. 그래서 미조치가 켜져 있으면 레벨 6 이상에서는 아무것도 안 붙이고 안내 글만 띄운다.
 const CULL_MARGIN = 0.5;
 const HIDE_LEVEL_WITH_MICHOCHI = 6;   // 이 레벨 이상(더 넓게 보기)이면 마커 대신 계기 수 동그라미 — 리스트 무관(2026-11-08, 이름은 옛 그대로)
-const FIT_MAX_LEVEL_WITH_MICHOCHI = 5; // 지사·구 맞춤이 이보다 넓으면 이 레벨로 줄인다 — 리스트 무관
 let cullStats = { attached: 0, total: 0, level: null, ms: 0, policy: 'show' };
 // (michochiOn() 은 지웠다 2026-11-10 — 레벨 6 동그라미·레벨 5 맞춤·줌 전 떼기가 2026-11-08 부터 리스트 무관이라
 //   부르는 곳이 없었다. 리스트별로 되돌릴 일이 생기면 레지스트리 필드로 만든다.)
@@ -1067,11 +1071,15 @@ function cullMarkers() {
 //   미완료 = 계기 자기 상태키가 완료·불가가 아니고, 개별불가(failedMeters — 마커 안 어느 키에든)도 아닌 것.
 //   보류·미완은 미완료. 체크(checkedMeters)는 상태가 아니라 안 센다. 상태가 바뀌면 다시 센다(repaintMarker).
 //   누르면 그 자리 중심으로 레벨 4. 오버레이 수십 개라 카카오 앵커 비용은 문제 안 된다(마커 수천 개와 다르다).
+// ★2026-11-22 영준님 "지금으로 빌드해"(시안 proto/circle-units-20261122): 묶음 = **행정동**(js/hd-units.js),
+//   모양 = 부채꼴 — 칠한 부분 = 남은 양, 글자 = '남음/전체'(위 '미완료/전체' 와 같은 숫자), 누르면 정보창
+//   (행정동·계기·완료·불가·남음 + [확대] = 레벨 4). 위 격자는 경계 파일을 받기 전(또는 받기 실패) 대신 그리는 것으로 남는다.
+//   지사·구를 바꿀 때·첫 진입 때 = 구 중심 · 레벨 6 고정(fitToFilteredMarkers) — 원이 바로 보인다.
 const CLUSTER_TAP_LEVEL = 4;
 const CLUSTER_BASE = { level: 6, lat: 0.00865, lng: 0.01088 };
 const CLUSTER_MARGIN = 0.5;          // 화면 사방 반 화면 — 밀 때 바로 이어 보이게
 let clusterBubbles = [];
-let _cellCache = { markers: null, level: null, cells: null };
+let _cellCache = { markers: null, level: null, unit: null, cells: null };
 let _clusterRedrawPending = false;
 let clusterStats = { bubbles: 0, ms: 0 };
 function cellDegFor(level) {
@@ -1082,21 +1090,24 @@ function markerMeterCounts(m) {
     if (m._mc) return m._mc;
     const keys = m.statusKeys || m.addresses || [m.address];
     const rows = (m.meters || []).filter(x => !x._addedSite);
-    let pend = 0;
+    // 완료(c)·불가(f)도 따로 센다 — 원을 누르면 나오는 정보창용(2026-11-22). 불가 = 상태 불가 + 개별불가 계기.
+    let pend = 0, c = 0, f = 0;
     for (const r of rows) {
         let k = null;
         try { k = statusKeyOf(r, statusKeyIndex); } catch (e) {}
         if (!k || !keys.includes(k)) k = keys[0];
         const st = (workStatus[k] && workStatus[k].state) || 'pending';
-        if (st === 'complete' || st === 'fail') continue;
+        if (st === 'complete') { c++; continue; }
+        if (st === 'fail') { f++; continue; }
         const no = String(r.계기번호 || '');
-        if (no && keys.some(kk => workStatus[kk] && workStatus[kk].failedMeters && workStatus[kk].failedMeters[no] !== undefined)) continue;
+        if (no && keys.some(kk => workStatus[kk] && workStatus[kk].failedMeters && workStatus[kk].failedMeters[no] !== undefined)) { f++; continue; }
         pend++;
     }
     // 지도에서 추가한 계기(added_meters)는 대표 키 상태로 센다
     const added = aggregateAddedCount(keys);
     const st0 = (workStatus[keys[0]] && workStatus[keys[0]].state) || 'pending';
-    m._mc = { total: rows.length + added, pend: pend + ((st0 === 'complete' || st0 === 'fail') ? 0 : added) };
+    if (st0 === 'complete') c += added; else if (st0 === 'fail') f += added; else pend += added;
+    m._mc = { total: rows.length + added, pend, c, f };
     return m._mc;
 }
 function invalidateClusterCount(m) {
@@ -1108,20 +1119,32 @@ function invalidateClusterCount(m) {
     }
 }
 function clusterCells(level) {
-    if (_cellCache.markers === markers && _cellCache.level === level && _cellCache.cells) return _cellCache.cells;
-    const cd = cellDegFor(level);
+    // 2026-11-22 영준님 확정: 묶음 단위 = 행정동(js/hd-units.js). 경계 파일을 못 받으면 아래 지도 좌표 격자로 그린다.
+    // 경계를 받는 중이면 아무것도 안 그린다(받으면 다시 그림) — 실패하면 hdLoading() 이 false 라 격자로 간다
+    if (!hdReady() && hdLoading()) return [];
+    const unit = hdReady() ? 'hd' : 'grid';
+    if (_cellCache.markers === markers && _cellCache.level === level && _cellCache.unit === unit && _cellCache.cells) return _cellCache.cells;
     const cells = new Map();
+    const cd = cellDegFor(level);
     for (const m of markers) {
         const la = markerLat(m), ln = markerLng(m);
         const mc = markerMeterCounts(m);
-        const w = mc.total || 1;
-        const k = Math.floor(la / cd.lat) + ':' + Math.floor(ln / cd.lng);
+        if (!mc.total) continue;
+        let k, name = '';
+        if (unit === 'hd') {
+            if (m._hd === undefined) m._hd = hdOf(la, ln);
+            k = m._hd.key; name = m._hd.name;
+        } else {
+            k = Math.floor(la / cd.lat) + ':' + Math.floor(ln / cd.lng);
+        }
         let c = cells.get(k);
-        if (!c) { c = { n: 0, p: 0, w: 0, la: 0, ln: 0 }; cells.set(k, c); }
-        c.n += mc.total; c.p += mc.pend; c.w += w; c.la += la * w; c.ln += ln * w;
+        if (!c) { c = { name, n: 0, p: 0, c: 0, f: 0, w: 0, la: 0, ln: 0 }; cells.set(k, c); }
+        const w = mc.total;
+        c.n += mc.total; c.p += mc.pend; c.c += mc.c; c.f += mc.f; c.w += w; c.la += la * w; c.ln += ln * w;
     }
-    const list = [...cells.values()].filter(c => c.n > 0).map(c => ({ n: c.n, p: c.p, lat: c.la / c.w, lng: c.ln / c.w }));
-    _cellCache = { markers, level, cells: list };
+    const list = [...cells.values()].filter(c => c.n > 0)
+        .map(c => ({ name: c.name, n: c.n, p: c.p, c: c.c, f: c.f, hd: unit === 'hd', lat: c.la / c.w, lng: c.ln / c.w }));
+    _cellCache = { markers, level, unit, cells: list };
     return list;
 }
 function clearClusterBubbles() {
@@ -1138,6 +1161,8 @@ function renderClusterBubbles() {
     if (!map) return;
     const t0 = performance.now();
     clearClusterBubbles();
+    // 행정동 경계는 원이 처음 필요할 때 한 번 받는다 — 받으면 다시 그린다(그동안은 격자)
+    if (!hdReady()) hdEnsure(() => { _cellCache.cells = null; if (map && markerPolicyForLevel(map.getLevel()) === 'hide') renderClusterBubbles(); });
     const level = map.getLevel();
     const cells = clusterCells(level);
     const b = map.getBounds(), sw = b.getSouthWest(), ne = b.getNorthEast();
@@ -1145,23 +1170,26 @@ function renderClusterBubbles() {
     const s = sw.getLat() - dLat, n = ne.getLat() + dLat, w = sw.getLng() - dLng, e = ne.getLng() + dLng;
     for (const c of cells) {
         if (c.lat < s || c.lat > n || c.lng < w || c.lng > e) continue;
-        const label = c.p + '/' + c.n;
-        const d = Math.round(Math.max(30, clusterLabelWidth(label) + 10));
+        // 부채꼴 = 남은 양, 글자 '남음/전체'(js/hd-units.js hdBubbleSvg)
+        const sv = hdBubbleSvg(c.p, c.n, clusterLabelWidth);
         const el = document.createElement('div');
         el.className = 'cluster-bubble';
-        el.textContent = label;
-        el.style.cssText = `width:${d}px;height:${d}px;line-height:${d}px;margin-left:${-d / 2}px;margin-top:${-d / 2}px;`
-            + 'border-radius:50%;background:rgba(16,185,129,0.72);border:2px solid rgba(255,255,255,0.9);box-sizing:border-box;'
-            + 'color:#fff;font-weight:700;font-size:11px;text-align:center;white-space:nowrap;cursor:pointer;'
-            + 'box-shadow:0 1px 4px rgba(0,0,0,0.25);';
+        el.innerHTML = sv.html;
+        el.style.cssText = `width:${sv.d}px;height:${sv.d}px;margin-left:${-sv.d / 2}px;margin-top:${-sv.d / 2}px;cursor:pointer;`
+            + 'filter:drop-shadow(0 1px 2px rgba(0,0,0,.25));';
         const pos = new kakao.maps.LatLng(c.lat, c.lng);
-        el.addEventListener('click', () => { map.setCenter(pos); map.setLevel(CLUSTER_TAP_LEVEL); });
+        // 누르면 정보창(이름·계기·완료·불가·남음) — [확대] 가 지금처럼 그 자리 레벨 4
+        el.addEventListener('click', ev => {
+            ev.stopPropagation();
+            hdInfoShow({ name: c.hd ? c.name : '이 구역', n: c.n, c: c.c, f: c.f, hd: c.hd },
+                () => { map.setCenter(pos); map.setLevel(CLUSTER_TAP_LEVEL); });
+        });
         // 크기를 알고 있으니 앵커는 0,0 + margin 으로 가운데 맞춤(카카오 크기 읽기를 해도 0 이라 무해)
         const o = new kakao.maps.CustomOverlay({ position: pos, content: el, xAnchor: 0, yAnchor: 0, zIndex: 200, clickable: true });
         o.setMap(map);
         clusterBubbles.push(o);
     }
-    clusterStats = { bubbles: clusterBubbles.length, ms: Math.round(performance.now() - t0) };
+    clusterStats = { bubbles: clusterBubbles.length, ms: Math.round(performance.now() - t0), unit: _cellCache.unit, cells: cells.length };
 }
 
 function detachAllMarkers() {
