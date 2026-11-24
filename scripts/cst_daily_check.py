@@ -5,6 +5,7 @@
     python3 scripts/cst_daily_check.py 20261113    # a given day
     python3 scripts/cst_daily_check.py --no-ocr    # skip photo OCR (meter slot 5 / MAC slot 4)
     python3 scripts/cst_daily_check.py --json-out /tmp/relay/cst_check/x.json
+    (tests: --rows-file / --detail-file / --ws-file / --unable-file — offline inputs)
 
 Needs a live awms session (아미큐 맥세션) unless the offline inputs are given (--rows-file,
 --detail-file, --ws-file — tests only). Everything is fetched fresh on every run, except getDetail of
@@ -40,6 +41,11 @@ Checks (영준님 checklist 2026-11-14)
     영준님 3 rules (2026-11-14): list meter in awms = pass (no photo read) / out-of-list meter in awms =
     노랑 '지도 없음' (display only) / list place complete but a list meter not in awms = 빨강 '누락' (even
     when out-of-list meters were registered there — 신수동 275-1).
+ 2c. Map 불가 ↔ awms 설치불가 (영준님 2026-11-24): every map 완료·불가 must be in awms — 완료 = 설치 등록 (2),
+    불가 = 설치불가 등록 (MOBCST2000 selectList, this year, mine). My places marked 불가 that day (place fail ->
+    every list meter there / 개별불가 failedMeters -> that meter) not in awms 설치불가 = 빨강 '설치불가 등록 누락';
+    map 불가 but in awms 설치 (getMainList) = 빨강 (2b, was 노랑); in awms 설치불가 that day but not 불가 on the map
+    (anyone's state, archive lists included — the index carries them) = 노랑. awms-only 설치 = 추가계기, as before.
  3. Photo OCR with our engine (Apple Vision; Google Vision is not used) — suspicious items only, nothing is
     downloaded pre-emptively (영준님 2026-11-16): meter number on slot 5 for a typo candidate (an
     out-of-list meter one character off a list meter that awms does not have) and for a meter number
@@ -143,6 +149,26 @@ def fetch_rows(day):
     h = A.headers()
     return A.get(f"getMainList?FLAG=M10&DEPT1=3970&DEPT2=&searchKeyword=&sortKey=0&workStep=25,28,29"
                  f"&pPageNo=1&pRowCount=20000&strDate={day[:4]}0101&endDate={day}", h) or []
+
+
+def fetch_unable(day):
+    """awms 설치불가 (MOBCST2000) this year up to the day — mine only (radioVal=M). vStepArr is required (0 rows without).
+    WORK_DATE = unix ms, meter = INSTR_NUM, reason = UNABLE_DETAIL code."""
+    h = dict(A.headers(), Referer="https://awms.kdn.com/service/ami/html/index.html?app=MOBCST&menu=MOBCST2000")
+    url = (f"https://awms.kdn.com/ami/mob/cst/mobCst2000/selectList?radioVal=M&dept=&sortCd=0&strDate={day[:4]}0101"
+           f"&endDate={day}&vStepArr=25,28,29&searchVal=&pPageNo=1&pRowCount=20000&DEPT1=3970")
+    with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=120) as r:
+        ctype, body = r.headers.get("content-type", ""), r.read()
+    if "json" not in ctype:
+        sys.exit(f"★awms 설치불가 조회 실패 — 세션 만료로 보인다(content-type={ctype})")
+    return json.loads(body) if body else []
+
+
+def unable_day(r):
+    v = r.get("WORK_DATE")
+    if isinstance(v, (int, float)) or str(v).isdigit():
+        return datetime.datetime.fromtimestamp(int(v) / 1000, KST).strftime("%Y%m%d")
+    return re.sub(r"[^0-9]", "", str(v or ""))[:8]
 
 
 def fetch_ship(refresh):
@@ -713,8 +739,74 @@ def map_state_check(day, rows, idx, ws, rep):
         rep.add("yellow", "map", f"{k} 지도 완료 안 함 — 오늘 awms 등록 {sorted(set(ms))}",
                 "지도에 완료(또는 불가) 표시", kind="지도 완료 안 함", key=k, meters=sorted(set(ms)))
     for k, ms in sorted(bad.items()):
-        rep.add("yellow", "map", f"{k} 지도 불가인데 오늘 awms 등록 {sorted(set(ms))}",
-                "지도 불가·개별불가와 등록 중 어느 쪽이 맞는지 확인", kind="지도 불가", key=k, meters=sorted(set(ms)))
+        # 2026-11-24 영준님: 지도 불가 = awms 설치불가 여야 한다 — 설치로 들어가 있으면 빨강(전엔 노랑)
+        rep.add("red", "map", f"{k} 지도 불가인데 awms 설치 — 오늘 등록 {sorted(set(ms))}",
+                "지도를 완료로 고치거나(설치가 맞으면) awms 설치를 지우고 설치불가로 등록", kind="지도 불가", key=k,
+                meters=sorted(set(ms)))
+
+
+# ── 2c. 지도 불가 ↔ awms 설치불가 ─────────────────────────────────────────────
+#   영준님 2026-11-24: 지도 완료·불가는 모두 awms 에 있어야 한다. 완료 = 설치 등록(2), 불가 = 설치불가 등록(여기).
+#   지도 쪽 = 그날 내가 친 개소(map_sites) — 개소 불가면 그 리스트 계기 전부, 개별불가(failedMeters)면 그 계기.
+#   awms 쪽 = 올해 내 설치불가 전부(다른 날 등록한 것도 '있음'), 노랑 대조만 그날 등록분.
+#   ★아카이브된 리스트(완료·불가 아카이브)도 통계 인덱스에 그 리스트 코드로 들어 있어 상태키를 그대로 읽는다.
+def unable_check(day, sites, rows, unable, idx, ws, rep):
+    from status_key import encode_key
+    aw = {r["INSTR_NUM"] for r in rows}
+    un_all = {r["INSTR_NUM"] for r in unable}
+    un_today = sorted({r["INSTR_NUM"] for r in unable if unable_day(r) == day})
+    map_fail = {}                      # meter -> (key, memo)
+    for k, v, ms in sites:
+        failed = v.get("failedMeters") or {}
+        if v.get("state") == "fail":
+            for m in ms:
+                map_fail.setdefault(m, (k, str(v.get("reason") or v.get("memo") or "")))
+        for m, memo in failed.items():
+            map_fail.setdefault(m, (k, str(memo or "")))
+    ok = sorted(m for m in map_fail if m in un_all and m not in aw)
+    miss, inst = defaultdict(list), defaultdict(list)
+    for m, (k, memo) in sorted(map_fail.items()):
+        if m in aw:
+            # 오늘 설치 등록분은 2b(map_state_check)가 같은 빨강을 낸다 — 다른 날 설치된 것만 여기서
+            if not any(r["INSTR_NUM"] == m and r.get("WORK_DATE") == day for r in rows):
+                inst[k].append(m)
+        elif m not in un_all:
+            miss[k].append((m, memo))
+    for k, xs in sorted(miss.items()):
+        ms = [m for m, _ in xs]
+        memo = next((mm for _, mm in xs if mm), "")
+        rep.add("red", "unable", f"{k} awms 설치불가 등록 누락 — 지도 불가 {ms}" + (f" (사유 '{memo}')" if memo else ""),
+                f"awms 설치불가에 {', '.join(ms)} 등록", kind="설치불가 등록 누락", key=k, meters=ms)
+    for k, ms in sorted(inst.items()):
+        rep.add("red", "unable", f"{k} 지도 불가인데 awms 설치 — 다른 날 등록 {ms}",
+                "지도를 완료로 고치거나(설치가 맞으면) awms 설치를 지우고 설치불가로 등록", kind="지도 불가 설치", key=k,
+                meters=ms)
+    # awms 설치불가(그날)인데 지도는 불가가 아님 — 누가 쳤든, 아카이브 리스트 포함
+    not_fail = defaultdict(list)
+    for m in un_today:
+        if m in map_fail:
+            continue
+        xs = idx.get(m, [])
+        found, first = [], None
+        for x in xs:
+            for kk in state_keys(x["주소"], x["l"]):
+                first = first or kk
+                v = ws.get(encode_key(kk))
+                if v:
+                    found.append(v)
+                    break
+        if any(v.get("state") == "fail" or m in (v.get("failedMeters") or {}) for v in found):
+            ok.append(m)
+            continue
+        st = "지도 없음" if not xs else ("완료" if any(v.get("state") == "complete" for v in found) else "표시 없음")
+        not_fail[(first or "(지도 없음)", st)].append(m)
+    for (k, st), ms in sorted(not_fail.items()):
+        rep.add("yellow", "unable", f"{k} awms 설치불가인데 지도 불가 아님({st}) {ms}",
+                "지도 상태 확인 — 불가가 맞으면 지도에 불가(개별불가) 표시", kind="지도 불가 아님", key=k, meters=ms)
+    n_miss = sum(len(x) for x in miss.values())
+    rep.add("green", "unable", f"지도 불가 ↔ awms 설치불가 맞음 {len(set(ok))}계기 · 누락 {n_miss} · 오늘 awms 설치불가 {len(un_today)}")
+    print(f"== 2c. 지도 불가 ↔ awms 설치불가 — 맞음 {len(set(ok))} · 누락 {n_miss} · 오늘 awms 설치불가 {len(un_today)}\n")
+    return {"ok": len(set(ok)), "missing": n_miss, "awms_today": len(un_today)}
 
 
 # ── 3. photo OCR (our engine) ─────────────────────────────────────────────────
@@ -1041,6 +1133,7 @@ def main():
     ap.add_argument("--rows-file", help="(test) awms getMainList rows json instead of fetching")
     ap.add_argument("--detail-file", help="(test) {meter: getDetail row} json instead of fetching")
     ap.add_argument("--ws-file", help="(test) workStatus json instead of fetching")
+    ap.add_argument("--unable-file", help="(test) awms 설치불가 selectList rows json instead of fetching")
     ap.add_argument("--no-stock", action="store_true")
     a = ap.parse_args()
     today = datetime.datetime.now(KST).strftime("%Y%m%d")
@@ -1075,6 +1168,11 @@ def main():
     summary, modems = app_check(a.day, rows, ship, idx, details, jobs, rep, done_site_meters)
     mp = map_check(sites, rows, idx, rep)
     map_state_check(a.day, rows, idx, ws, rep)
+    # 시험 입력(--rows-file)인데 설치불가 파일이 없으면 이 대조는 건너뛴다(지도 불가가 전부 누락으로 보이지 않게)
+    un = None
+    if a.unable_file or not offline:
+        unable = json.loads(Path(a.unable_file).read_text()) if a.unable_file else fetch_unable(a.day)
+        un = unable_check(a.day, sites, rows, unable, idx, ws, rep)
     groups_div = {}
     for r in day_rows:
         if r.get("MODEM_DIV") == "10":
@@ -1112,7 +1210,7 @@ def main():
     jp = Path(a.json_out) if a.json_out else outdir / f"{a.day}.json"
     jp.write_text(json.dumps({
         "day": a.day, "generatedAt": datetime.datetime.now(KST).isoformat(timespec="seconds"),
-        "offline": offline, "summary": summary, "map": mp,
+        "offline": offline, "summary": summary, "map": mp, "unable": un,
         "level": "red" if rep.of("red") else ("yellow" if rep.of("yellow") else "green"),
         "red": rep.of("red"), "yellow": rep.of("yellow"), "green": rep.of("green"),
         "stock": stock, "modems": modems}, ensure_ascii=False, indent=1))

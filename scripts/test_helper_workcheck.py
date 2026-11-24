@@ -35,7 +35,10 @@ import cst_rules as R  # noqa: E402
 
 INJECT = ROOT / "awms-bridge-inject.js"
 MAC_LEVEL = {"마스터 2개", "맥 재사용", "장부 밖 맥", "남의 자재", "기설 맥 오류", "기설 맥 미상", "기설 의심"}
-SKIP_PY = {"사진 부족"}                       # 아미큐 보관함(Mac only)
+SKIP_PY = {"사진 부족",                      # 아미큐 보관함(Mac only)
+           "설치불가 등록 누락", "지도 불가 설치", "지도 불가 아님"}   # 2c 설치불가 대조(2026-11-24) — 맥 전용, 폰은 아직 안 봄
+# 2026-11-24 맥은 '지도 불가'(awms 설치) 를 빨강으로 올렸다 — 폰(inject v106)은 아직 노랑. 헬퍼가 따라올 때까지 알려진 차이
+PHONE_LEVEL = {("red", "지도 불가"): "yellow"}
 
 
 def js_src():
@@ -141,6 +144,7 @@ def py_keys(items, day_meters=None):
             continue
         if lv == "green" and k != "대표계기 자기 번호":
             continue
+        lv = PHONE_LEVEL.get((lv, k), lv)
         keys.add((lv, k, x.get("mac", ""), () if k in MAC_LEVEL else tuple(sorted(set(ms)))))
     if day_meters is not None:
         outl &= day_meters

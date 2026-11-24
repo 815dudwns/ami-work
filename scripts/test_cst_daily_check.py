@@ -531,7 +531,7 @@ def _():
     return not has(rep, "red", "뒷자리"), rep
 
 
-@case("지도 상태 — 완료 아님·불가·개별불가 = 노랑, 완료 = 없음")
+@case("지도 상태 — 완료 아님 = 노랑, 불가·개별불가인데 awms 설치 = 빨강, 완료 = 없음")
 def _():
     rs = base()
     ws = {"서울특별시 마포구 구수동 1|미조치": {"state": "complete", "failedMeters": {"48190262687": "출입불가"},
@@ -541,7 +541,7 @@ def _():
     run(rs, BUNGI_OK, ws)          # the helper parity test runs the same rows + ws through the phone
     rep = C.Report()
     C.map_state_check(DAY, rs, IDX, ws, rep)
-    ok = (has(rep, "yellow", "지도 불가", "48190262687") and has(rep, "yellow", "지도 불가", "47452030837")
+    ok = (has(rep, "red", "지도 불가인데 awms 설치", "48190262687") and has(rep, "red", "지도 불가인데 awms 설치", "47452030837")
           and has(rep, "yellow", "지도 완료 안 함", "45520006380") and not has(rep, "yellow", "48190262997"))
     return ok, rep
 
@@ -555,6 +555,80 @@ def _():
     rep = C.Report()
     C.map_state_check(DAY, rs, IDX, ws, rep)
     return not rep.items, rep
+
+
+# ── 2c. 지도 불가 ↔ awms 설치불가 (영준님 2026-11-24, 11/24 실측을 줄인 것) ──
+def unable_row(no, day=DAY):
+    import datetime
+    ms = int(datetime.datetime.strptime(day + " 12", "%Y%m%d %H").replace(tzinfo=C.KST).timestamp() * 1000)
+    return {"INSTR_NUM": no, "WORK_DATE": ms, "UNABLE_DETAIL": "M20206030", "WORK_STEP": "29"}
+
+
+def run_unable(rows, ws, unable):
+    rep = C.Report()
+    with redirect_stdout(io.StringIO()):
+        C.unable_check(DAY, C.map_sites(DAY, ws, IDX), rows, unable, IDX, ws, rep)
+    return rep
+
+
+def me(state, **kw):
+    return {"state": state, "updatedAt": "2026-11-13T11:00:00+09:00", "updatedByName": "우영준", **kw}
+
+
+@case("설치불가 — 지도 불가(개소·개별) 가 awms 설치불가에 있으면 맞음, 없으면 빨강 누락")
+def _():
+    lst("47450038409", "서울특별시 마포구 새창로 23", "u")
+    lst("05465037301", "서울특별시 마포구 마포대로 92", "u")
+    for n in ("25190127792", "25190132451"):
+        lst(n, "서울특별시 마포구 도화동 181-9", "l")
+    lst("58190015588", "서울특별시 마포구 도화동 183-15", "l")
+    lst("58190015500", "서울특별시 마포구 도화동 183-15", "l")
+    ws = {"서울특별시 마포구 새창로 23|미청구불가": me("fail", reason="문잠김"),
+          "서울특별시 마포구 마포대로 92|미청구불가": me("fail"),
+          "서울특별시 마포구 도화동 181-9|미조치lte": me("fail"),
+          "서울특별시 마포구 도화동 183-15|미조치lte": me("complete", failedMeters={"58190015588": "문잠김 옥상"})}
+    rows = [row("58190015500", "E0AEED953741")]
+    # 마포대로 92 는 다른 날(11/10) 설치불가로 등록 = 있음
+    unable = [unable_row("25190127792"), unable_row("25190132451"), unable_row("58190015588"),
+              unable_row("05465037301", "20261110")]
+    rep = run_unable(rows, ws, unable)
+    ok = (has(rep, "red", "설치불가 등록 누락", "47450038409", "문잠김") and not has(rep, "red", "05465037301")
+          and not has(rep, "red", "181-9") and not has(rep, "red", "58190015588") and not rep.of("yellow")
+          and has(rep, "green", "맞음 4계기", "누락 1"))
+    return ok, rep
+
+
+@case("설치불가 — 오늘 awms 설치불가인데 지도 불가 아님 = 노랑(완료·표시 없음·지도 없음), 다른 사람 불가는 맞음")
+def _():
+    lst("25190127953", "서울특별시 마포구 도화동 184-6", "c")
+    lst("06190421892", "서울특별시 마포구 도화동 25-14", "l")
+    lst("25190132223", "서울특별시 마포구 도화동 30-1", "c")
+    ws = {"서울특별시 마포구 도화동 184-6|미조치": me("complete"),
+          "서울특별시 마포구 도화동 30-1|미조치": {"state": "fail", "updatedAt": "2026-11-01T10:00:00+09:00",
+                                            "updatedByName": "장진교"}}
+    unable = [unable_row("25190127953"), unable_row("06190421892"), unable_row("25190132223"),
+              unable_row("99190000001"), unable_row("25190127000", "20261110")]
+    rep = run_unable([], ws, unable)
+    ok = (has(rep, "yellow", "지도 불가 아님(완료)", "25190127953") and has(rep, "yellow", "지도 불가 아님(표시 없음)", "06190421892")
+          and has(rep, "yellow", "지도 불가 아님(지도 없음)", "99190000001") and not has(rep, "yellow", "25190132223")
+          and not has(rep, "yellow", "25190127000") and not rep.of("red"))
+    return ok, rep
+
+
+@case("설치불가 — 지도 불가인데 다른 날 awms 설치 = 빨강, 오늘 설치는 2b 가 내므로 중복 없음, 아카이브 리스트도 읽음")
+def _():
+    lst("35450219918", "서울특별시 마포구 도화길 45-1", "u")
+    lst("35450219900", "서울특별시 마포구 도화길 45-1", "u")
+    ws = {"서울특별시 마포구 도화길 45-1|미청구불가": me("fail")}
+    rows = [row("35450219918", "01254537242", day="20261110"), row("35450219900", "01264265356")]
+    rep = run_unable(rows, ws, [])
+    ok = (has(rep, "red", "다른 날 등록", "35450219918") and not has(rep, "red", "35450219900")
+          and not has(rep, "red", "등록 누락"))
+    rep2 = C.Report()
+    C.map_state_check(DAY, rows, IDX, ws, rep2)
+    ok = ok and has(rep2, "red", "지도 불가인데 awms 설치", "35450219900")
+    rep.items += rep2.items
+    return ok, rep
 
 
 def main():
