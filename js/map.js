@@ -5,7 +5,7 @@ let markers = [];
 let sampleData = [];
 // 마커키 -> workStatus 키 인덱스 (js/status-key.js). 데이터 로드 직후 1회 생성.
 let statusKeyIndex = null;
-let _fitOnFirstMarkers = false;   // 첫 실행(저장 위치 없음) — initMap 이 켜고 loadMarkers 가 한 번 쓰고 끈다
+let _fitOnFirstMarkers = false;   // 새 로그인 직후·저장 위치 없음 — initMap 이 켜고 loadMarkers 가 한 번 쓰고 끈다
 
 // 지사 -> 구 매핑 (단일 소스 오브 트루스, 하드코딩 — 데이터의 지사필드는 '기타' 오염으로 신뢰 불가)
 const JISA_TO_GU = {
@@ -192,9 +192,13 @@ async function initMap() {
     const saved = (() => { try { return JSON.parse(localStorage.getItem('ami_map_view')); } catch { return null; } })();
     // 저장된 위치가 없으면(첫 실행) 첫 마커가 생길 때 고른 지사로 한 번 맞춘다(loadMarkers 끝).
     //   안 하면 기본 위치(용산)에 머물러 고른 지사 마커가 전부 화면 밖이라 '리스트가 안 나온다'(2026-11-08).
-    // 2026-11-22 영준님: 첫 진입도 저장 위치 복원 대신 고른 구 중심 · 레벨 6(원이 바로 보이게) — 늘 맞춘다.
-    //   저장 위치는 지도를 처음 만들 때만 쓰고(깜빡임 줄이기), 마커가 생기면 곧바로 맞춘다.
-    _fitOnFirstMarkers = true;
+    // 2026-11-24 영준님('2, 첫 로그인 때만 3'): 평소 열 때 = 마지막 위치·줌 그대로.
+    //   새로 로그인한 직후(login.html 이 남긴 표시) 또는 저장 위치가 없을 때만 = 고른 구 중심 · 레벨 6.
+    //   표시는 여기서 한 번 읽고 바로 지운다 — 새로고침·다시 열기는 평소 열기다.
+    const _freshLogin = sessionStorage.getItem('ami_fresh_login') === '1';
+    sessionStorage.removeItem('ami_fresh_login');
+    const _fitFirst = _freshLogin || !saved;
+    _fitOnFirstMarkers = _fitFirst;
     const options = {
         center: new kakao.maps.LatLng(saved ? saved.lat : 37.525, saved ? saved.lng : 126.960),
         level: saved ? saved.level : 4
@@ -256,8 +260,8 @@ async function initMap() {
     populateCategoryFilter();
     loadMarkers();
     // 큰 리스트는 뒤에서 — 첫 화면(실효·합동 등)을 붙잡지 않는다
-    // 미조치 지사 파일이 늦게 와도 첫 진입 맞춤을 한 번 더 — 그사이 지도를 끌면 안 한다(dragstart)
-    _fitAfterLoad = true;
+    // 첫 진입 맞춤(새 로그인·저장 위치 없음)일 때만 미조치 지사 파일이 늦게 와도 한 번 더 — 그사이 지도를 끌면 안 한다(dragstart)
+    _fitAfterLoad = _fitFirst;
     const _laterDone = loadDeferredLists(_later);
     await initFirebase();
     markers.forEach(m => repaintMarker(m));
@@ -1074,7 +1078,8 @@ function cullMarkers() {
 // ★2026-11-22 영준님 "지금으로 빌드해"(시안 proto/circle-units-20261122): 묶음 = **행정동**(js/hd-units.js),
 //   모양 = 부채꼴 — 칠한 부분 = 남은 양, 글자 = '남음/전체'(위 '미완료/전체' 와 같은 숫자), 누르면 정보창
 //   (행정동·계기·완료·불가·남음 + [확대] = 레벨 4). 위 격자는 경계 파일을 받기 전(또는 받기 실패) 대신 그리는 것으로 남는다.
-//   지사·구를 바꿀 때·첫 진입 때 = 구 중심 · 레벨 6 고정(fitToFilteredMarkers) — 원이 바로 보인다.
+//   지사·구를 바꿀 때·새 로그인 첫 진입 때 = 구 중심 · 레벨 6 고정(fitToFilteredMarkers) — 원이 바로 보인다.
+//   평소 열 때는 마지막 위치·줌 그대로(2026-11-24).
 const CLUSTER_TAP_LEVEL = 4;
 const CLUSTER_BASE = { level: 6, lat: 0.00865, lng: 0.01088 };
 const CLUSTER_MARGIN = 0.5;          // 화면 사방 반 화면 — 밀 때 바로 이어 보이게

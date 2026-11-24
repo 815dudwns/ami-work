@@ -56,8 +56,8 @@
 
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-    <script src="js/fb-config.js?v=20261122c"></script>
-    <script src="js/auth.js?v=20261122c"></script>
+    <script src="js/fb-config.js?v=20261124a"></script>
+    <script src="js/auth.js?v=20261124a"></script>
     <script>
         // 이미 로그인된 상태면 바로 map.html로 이동
         (function () {
@@ -85,6 +85,10 @@
             const result = await authLogin(id, pw);
 
             if (result.ok) {
+                // 새로 로그인했다는 표시 — 지도(js/map.js initMap)가 한 번 읽고 지운다: 이때만 고른 구 중심 · 레벨 6.
+                //   sessionStorage = 같은 탭에서 login -> map 으로 넘어가도 남고, 탭·앱을 닫으면 사라진다(묵은 표시가 다음 날 안 걸림).
+                //   이미 로그인돼 있어 바로 넘어가는 위쪽 경로는 표시하지 않는다(평소 열기 = 마지막 위치).
+                sessionStorage.setItem('ami_fresh_login', '1');
                 window.location.href = 'map.html';
             } else {
                 err.textContent = result.error;
