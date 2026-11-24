@@ -53,8 +53,11 @@ async function authLogin(id, pw) {
     if (!fa) return { ok: false, error: '로그인 모듈을 불러오지 못했습니다. 새로고침해 주세요.' };
     id = String(id || '').trim().toLowerCase();
     if (!id || !pw) return { ok: false, error: '아이디 또는 비밀번호가 올바르지 않습니다.' };
-    // ★2026-11-21 로그인 아이디 = awms 아이디(6자리). 옛 userNN·kdnNN 을 넣으면 바뀐 것을 알려 준다(관리자는 admin 그대로).
-    if (/^(user|kdn)\d+$/.test(id)) return { ok: false, error: '로그인 아이디가 바뀌었습니다. awms 아이디(숫자 6자리)로 로그인해 주세요.' };
+    // ★2026-11-21 로그인 아이디 = awms 아이디(6자리, 관리자는 admin). 2026-11-24 주덕기 과장은 kdn01 그대로 로그인.
+    //   규칙: 어떤 아이디든 먼저 '<아이디>@ami-work.local' 로 로그인해 본다. 옛 userNN·kdnNN 꼴인데 **계정·비밀번호가
+    //   안 맞을 때만** '아이디가 바뀌었다' 안내를 붙인다 — 그 꼴로 계정을 다시 만들면(kdn01) 코드 수정 없이 들어온다.
+    //   (인터넷·시도 과다 같은 다른 실패는 원래 문구 그대로)
+    const oldStyle = /^(user|kdn)\d+$/.test(id);
     try {
         await fa.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
         const cred = await fa.signInWithEmailAndPassword(id + '@' + AMI_AUTH_EMAIL_DOMAIN, pw);
@@ -64,6 +67,11 @@ async function authLogin(id, pw) {
         return { ok: true };
     } catch (e) {
         console.warn('[auth] 로그인 실패', e && e.code);
+        const c = (e && e.code) || '';
+        if (oldStyle && /invalid-credential|invalid-login-credentials|user-not-found|wrong-password|invalid-email/.test(c)) {
+            // 없는 계정과 틀린 비밀번호를 Firebase 가 같은 오류로 준다 — kdn01 이 비밀번호를 틀린 경우도 있어 둘 다 알린다
+            return { ok: false, error: '아이디 또는 비밀번호가 올바르지 않습니다. 로그인 아이디가 바뀌었습니다 — awms 아이디(숫자 6자리)로 로그인해 주세요.' };
+        }
         return { ok: false, error: _authErrorText(e) };
     }
 }
