@@ -337,3 +337,11 @@ body.add-site-mode #map { cursor: crosshair; }
 .search-ro .sro-meters { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
 .search-ro .sro-meter { font-size: 13px; font-family: ui-monospace, monospace; padding: 3px 8px; background: #f3f4f6; border-radius: 6px; }
 .search-ro .sro-meter.hit { background: #fef3c7; font-weight: 700; }
+.search-ro .sro-st { font-weight: 700; }
+.search-ro .sro-st.st-complete { color: #6b7280; }
+.search-ro .sro-st.st-fail { color: #ef4444; }
+.search-ro .sro-st.st-hold { color: #3b82f6; }
+.search-ro .sro-st.st-none { color: #9ca3af; font-weight: 400; }
+.search-ro .sro-who { font-size: 12px; color: #6b7280; margin-left: 4px; }
+.search-ro .sro-mfail { font-family: system-ui, sans-serif; font-size: 12px; color: #ef4444; }
+.search-ro .sro-mdone { font-family: system-ui, sans-serif; font-size: 12px; color: #059669; }

@@ -1750,6 +1750,44 @@ function _openLiveDetail(it, group, keyIndex, tag) {
     if (typeof showDetail === 'function') showDetail(it.주소, group, addrs, keys);
 }
 
+// 읽기 전용 창의 작업 기록 찾기(2026-11-27 영준님 — 아카이브 창에 결과가 안 보인다).
+//   그 리스트 상태키 규칙 그대로(js/status-key.js): 네임스페이스 리스트 = '주소|리스트'
+//   (갈렸으면 '주소|도로명|리스트[|좌표]'), plainKey(실효·옛 완료 아카이브) = 맨 주소(갈렸으면 '주소|도로명[|리스트[|좌표]]').
+//   ★아카이브 개소는 지도 파일에 없어 갈림 사다리를 다시 못 돌린다 — 그래서 기본형을 먼저 보고,
+//     없으면 같은 주소로 시작하는 갈린 키 중 이 리스트 것(도로명이 같은 것 우선)을 쓴다.
+//   ★읽기만 한다. workStatus 는 지도가 이미 받아 둔 메모리 그대로다(전송 0).
+function _searchRoKeys(addr, road, reg) {
+    if (!addr || typeof workStatus !== 'object' || !workStatus) return [];
+    const SEP = STATUS_KEY_SEP;
+    const cat = (reg && !reg.plainKey && reg.category) ? keyCategoryOf(reg.category) : null;
+    const isNs = c => NAMESPACED_CATEGORIES.includes(c);
+    const exact = cat ? addr + SEP + cat : addr;
+    if (workStatus[exact]) return [exact];
+    const pre = addr + SEP, hit = [], other = [];
+    for (const k of Object.keys(workStatus)) {
+        if (!k.startsWith(pre)) continue;
+        const p = k.split(SEP);          // [주소, 도로명, 리스트?, 좌표?]
+        if (p.length < 2) continue;
+        if (cat) { if (p.length < 3 || p[2] !== cat) continue; }
+        else if (isNs(p[1]) || (p.length >= 3 && isNs(p[2]))) continue;
+        (road && p[1] === road ? hit : other).push(k);
+    }
+    return hit.length ? hit.sort() : other.sort();
+}
+
+// updatedAt(ISO 문자열 또는 unix ms) -> KST 'MM/DD HH:mm'
+function _searchRoTime(v) {
+    if (v == null || v === '') return '';
+    const d = new Date(typeof v === 'number' ? v : (/^\d+$/.test(String(v)) ? +v : String(v)));
+    if (isNaN(d.getTime())) return '';
+    const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
+    const g = t => (p.find(x => x.type === t) || {}).value || '';
+    return `${g('month')}/${g('day')} ${g('hour') === '24' ? '00' : g('hour')}:${g('minute')}`;
+}
+
+const SEARCH_RO_STATE = { complete: '완료', fail: '불가', hold: '보류' };
+
 // 읽기 전용 창 — 아카이브·지도에서 내린 리스트. 인덱스에 든 값만 보인다(쓰기 길 없음).
 function showSearchReadOnly(r) {
     const idx = _searchIdx;
@@ -1768,6 +1806,23 @@ function showSearchReadOnly(r) {
     }
     const esc = escapeSearchHtml;
     const hit = idx.meters[r.row];
+    // 작업 기록 — 상태는 첫 키(기본형 또는 도로명 같은 갈린 키), 계기 체크·불가는 찾은 키 전부의 합집합
+    //   (지도 상세 markerKeys 와 같은 읽기 규칙)
+    const keys = _searchRoKeys(addr, road, r.slot.reg);
+    const recs = keys.map(k => workStatus[k]).filter(Boolean);
+    const st = recs[0] || null;
+    const stLabel = (st && SEARCH_RO_STATE[st.state]) || '기록 없음';
+    const stCls = st && SEARCH_RO_STATE[st.state] ? ' st-' + st.state : ' st-none';
+    const who = st && SEARCH_RO_STATE[st.state] ? [st.updatedByName || '', _searchRoTime(st.updatedAt)].filter(Boolean).join(' · ') : '';
+    const reason = st && (st.state === 'fail' || st.state === 'hold') ? String(st.reason || '').trim() : '';
+    const failOf = m => { for (const x of recs) if (x.failedMeters && x.failedMeters[m] !== undefined) return String(x.failedMeters[m] || '').trim(); return undefined; };
+    const checkedOf = m => recs.some(x => Array.isArray(x.checkedMeters) && x.checkedMeters.includes(m));
+    const meterLine = m => {
+        const f = failOf(m);
+        const mark = f !== undefined ? `<span class="sro-mfail">불가${f ? ' — ' + esc(f) : ''}</span>`
+            : (checkedOf(m) ? '<span class="sro-mdone">작업함</span>' : '');
+        return `<div class="sro-meter${m === hit ? ' hit' : ''}">${esc(m)}${mark ? ' ' + mark : ''}</div>`;
+    };
     el.innerHTML = `<div class="search-modal search-ro">
         <div class="search-header"><h3>${esc(road || addr)}</h3>
             <button class="close-btn" onclick="document.getElementById('search-ro-overlay').classList.remove('active')">×</button></div>
@@ -1776,8 +1831,10 @@ function showSearchReadOnly(r) {
             <div class="sro-note">읽기 전용 — 지도에 올라가 있지 않은 기록입니다</div>
             ${road && addr && road !== addr ? `<div class="sro-row"><span class="sro-k">지번</span>${esc(addr)}</div>` : ''}
             <div class="sro-row"><span class="sro-k">지사</span>${esc(idx.jisa[s[4]])}</div>
+            <div class="sro-row"><span class="sro-k">상태</span><span class="sro-st${stCls}">${esc(stLabel)}</span>${who ? ` <span class="sro-who">${esc(who)}</span>` : ''}</div>
+            ${reason ? `<div class="sro-row"><span class="sro-k">${st.state === 'hold' ? '보류' : '불가'}</span>${esc(reason)}</div>` : ''}
             <div class="sro-row"><span class="sro-k">계기</span>${meters.length}개</div>
-            <div class="sro-meters">${meters.map(m => `<div class="sro-meter${m === hit ? ' hit' : ''}">${esc(m)}</div>`).join('')}</div>
+            <div class="sro-meters">${meters.map(meterLine).join('')}</div>
         </div></div>`;
     el.classList.add('active');
 }
